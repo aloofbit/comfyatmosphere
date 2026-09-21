@@ -364,6 +364,22 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             return;
         for (int i = 0; i < 3; ++i)
             d[i] /= len;
+
+        // A big jump has to hold for a few frames before it is believed. The sprite match now and then
+        // catches another sky quad for a single frame (logged: 75.8 -> 25.8 -> 75.8 degrees within one
+        // second), and every sun-driven pass -- shadow map, volume, rays -- flashed with it. Real jumps (the
+        // time stepped with Ctrl+PageUp) still land, a sixth of a second late; small drift follows at once.
+        static int   pending = 0;
+        static float pendDir[3] = {};
+        if (g_haveSun && d[0] * g_sunDir[0] + d[1] * g_sunDir[1] + d[2] * g_sunDir[2] < 0.9962f)   // > 5 degrees
+        {
+            const bool same = d[0] * pendDir[0] + d[1] * pendDir[1] + d[2] * pendDir[2] > 0.9962f;
+            pending = same ? pending + 1 : 1;
+            memcpy(pendDir, d, sizeof(d));
+            if (pending < 10)
+                return;
+        }
+        pending = 0;
         memcpy(g_sunDir, d, sizeof(d));
         g_haveSun = true;
 

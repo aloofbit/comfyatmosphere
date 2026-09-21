@@ -138,6 +138,8 @@ struct ShadowSettings
     int   size    = 2048;     // texels per side
     float range   = 60.0f;    // yards covered either side of the player
     float depth   = 300.0f;   // yards toward and away from the sun
+    float cacheTime     = 30.0f;  // seconds a caster out of view is kept
+    float evictDistance = 20.0f;  // yards: a caster in view this near that was not drawn is gone
 };
 
 // Volumetric light (volume.cpp): the fog glowing where the sun reaches it. Needs [depth] and [shadow].
