@@ -9,6 +9,10 @@ Settings g_cfg;
 namespace
 {
     const wchar_t* kFog     = L"fog";
+    const wchar_t* kRays    = L"rays";
+    const wchar_t* kBeams   = L"beams";
+    const wchar_t* kTime    = L"time";
+    const wchar_t* kSky     = L"sky";
     const wchar_t* kGeneral = L"general";
 
     float GetF(const wchar_t* sec, const wchar_t* key, float dflt, const wchar_t* ini)
@@ -64,6 +68,71 @@ void LoadSettings(const wchar_t* ini)
     s.fog.tint       = GetX(kFog, L"tint",       s.fog.tint,       ini) & 0xFFFFFF;
     s.fog.tintAmount = Clamp(GetF(kFog, L"tintAmount", s.fog.tintAmount, ini), 0.0f, 1.0f);
     s.fog.shaderReg  = GetI(kFog, L"shaderReg",  s.fog.shaderReg,  ini);
+
+    s.rays.enabled     = GetB(kRays, L"enabled",     s.rays.enabled,     ini);
+    s.rays.strength    = Clamp(GetF(kRays, L"strength",    s.rays.strength,    ini), 0.0f, 100.0f);
+    s.rays.maxExposure = Clamp(GetF(kRays, L"maxExposure", s.rays.maxExposure, ini), 0.0f, 20.0f);
+    s.rays.threshold   = Clamp(GetF(kRays, L"threshold",   s.rays.threshold,   ini), 0.0f, 0.99f);
+    s.rays.relThreshold = Clamp(GetF(kRays, L"relThreshold", s.rays.relThreshold, ini), 0.0f, 0.99f);
+    s.rays.radius      = Clamp(GetF(kRays, L"radius",      s.rays.radius,      ini), 0.05f, 10.0f);
+    s.rays.falloff     = Clamp(GetF(kRays, L"falloff",     s.rays.falloff,     ini), 0.25f, 8.0f);
+    s.rays.length      = Clamp(GetF(kRays, L"length",      s.rays.length,      ini), 0.0f, 1.0f);
+    s.rays.maxLength   = Clamp(GetF(kRays, L"maxLength",   s.rays.maxLength,   ini), 0.05f, 3.0f);
+    s.rays.maxAngle    = Clamp(GetF(kRays, L"maxAngle",    s.rays.maxAngle,    ini), 45.0f, 180.0f);
+    s.rays.viewFalloff = Clamp(GetF(kRays, L"viewFalloff", s.rays.viewFalloff, ini), 0.1f, 8.0f);
+    s.rays.parallel    = Clamp(GetF(kRays, L"parallel",    s.rays.parallel,    ini), 0.0f, 1.0f);
+    s.rays.adaptTime   = Clamp(GetF(kRays, L"adaptTime",   s.rays.adaptTime,   ini), 0.0f, 10.0f);
+    s.rays.decay       = Clamp(GetF(kRays, L"decay",       s.rays.decay,       ini), 0.5f, 1.0f);
+    s.rays.color       = GetX(kRays, L"color", s.rays.color, ini) & 0xFFFFFF;
+    s.rays.passes      = GetI(kRays, L"passes",      s.rays.passes,      ini);
+    s.rays.downscale   = GetI(kRays, L"downscale",   s.rays.downscale,   ini);
+    s.rays.sunMode     = GetI(kRays, L"sunMode",     s.rays.sunMode,     ini);
+    s.rays.sunX        = GetF(kRays, L"sunX",        s.rays.sunX,        ini);
+    s.rays.sunY        = GetF(kRays, L"sunY",        s.rays.sunY,        ini);
+    s.rays.azimuth     = GetF(kRays, L"azimuth",     s.rays.azimuth,     ini);
+    s.rays.elevation   = GetF(kRays, L"elevation",   s.rays.elevation,   ini);
+    s.rays.debugView   = GetI(kRays, L"debugView",   s.rays.debugView,   ini);
+    s.rays.placement     = GetI(kRays, L"placement",     s.rays.placement,     ini);
+    s.rays.minWorldDraws = GetI(kRays, L"minWorldDraws", s.rays.minWorldDraws, ini);
+    if (s.rays.passes < 1)    s.rays.passes = 1;
+    if (s.rays.passes > 3)    s.rays.passes = 3;
+    if (s.rays.downscale < 1) s.rays.downscale = 1;
+    if (s.rays.downscale > 8) s.rays.downscale = 8;
+
+    s.beams.enabled      = GetB(kBeams, L"enabled", s.beams.enabled, ini);
+    s.beams.strength     = Clamp(GetF(kBeams, L"strength",     s.beams.strength,     ini), 0.0f, 100.0f);
+    s.beams.maxIntensity = Clamp(GetF(kBeams, L"maxIntensity", s.beams.maxIntensity, ini), 0.0f, 10.0f);
+    s.beams.spacing      = Clamp(GetF(kBeams, L"spacing",      s.beams.spacing,      ini), 1.0f, 100.0f);
+    s.beams.density      = Clamp(GetF(kBeams, L"density",      s.beams.density,      ini), 0.0f, 1.0f);
+    s.beams.radius       = Clamp(GetF(kBeams, L"radius",       s.beams.radius,       ini), 2.0f, 200.0f);
+    s.beams.height       = Clamp(GetF(kBeams, L"height",       s.beams.height,       ini), 1.0f, 200.0f);
+    s.beams.baseOffset   = Clamp(GetF(kBeams, L"baseOffset",   s.beams.baseOffset,   ini), -50.0f, 50.0f);
+    s.beams.widthMin     = Clamp(GetF(kBeams, L"widthMin",     s.beams.widthMin,     ini), 0.05f, 50.0f);
+    s.beams.widthMax     = Clamp(GetF(kBeams, L"widthMax",     s.beams.widthMax,     ini), 0.05f, 50.0f);
+    s.beams.heightVar    = Clamp(GetF(kBeams, L"heightVar",    s.beams.heightVar,    ini), 0.0f, 0.95f);
+    s.beams.clusterChance = Clamp(GetF(kBeams, L"clusterChance", s.beams.clusterChance, ini), 0.0f, 1.0f);
+    s.beams.canopyStart  = Clamp(GetF(kBeams, L"canopyStart",  s.beams.canopyStart,  ini), 0.0f, 1.0f);
+    s.beams.canopyFull   = Clamp(GetF(kBeams, L"canopyFull",   s.beams.canopyFull,   ini), 0.0f, 1.0f);
+    s.beams.canopyTime   = Clamp(GetF(kBeams, L"canopyTime",   s.beams.canopyTime,   ini), 0.0f, 30.0f);
+    s.beams.forwardPower = Clamp(GetF(kBeams, L"forwardPower", s.beams.forwardPower, ini), 0.1f, 32.0f);
+    s.beams.backLight    = Clamp(GetF(kBeams, L"backLight",    s.beams.backLight,    ini), 0.0f, 1.0f);
+    s.beams.nearFade     = Clamp(GetF(kBeams, L"nearFade",     s.beams.nearFade,     ini), 0.0f, 50.0f);
+    s.beams.shimmer      = Clamp(GetF(kBeams, L"shimmer",      s.beams.shimmer,      ini), 0.0f, 1.0f);
+    s.beams.maxBeams     = GetI(kBeams, L"maxBeams",   s.beams.maxBeams,   ini);
+    s.beams.indoorHold   = Clamp(GetF(kBeams, L"indoorHold",   s.beams.indoorHold,   ini), 0.0f, 60.0f);
+    s.beams.camAddr      = GetX(kBeams, L"camAddr",      s.beams.camAddr,      ini);
+    s.beams.objMgrAddr   = GetX(kBeams, L"objMgrAddr",   s.beams.objMgrAddr,   ini);
+    s.beams.playerPosOff = GetX(kBeams, L"playerPosOff", s.beams.playerPosOff, ini);
+    if (s.beams.maxBeams < 0)    s.beams.maxBeams = 0;
+    if (s.beams.maxBeams > 1000) s.beams.maxBeams = 1000;
+
+    s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
+
+    s.time.enabled      = GetB(kTime, L"enabled", s.time.enabled, ini);
+    s.time.hour         = Clamp(GetF(kTime, L"hour", s.time.hour, ini), 0.0f, 24.0f);
+    s.time.addrMinutes  = GetX(kTime, L"addrMinutes",  s.time.addrMinutes,  ini);
+    s.time.addrFraction = GetX(kTime, L"addrFraction", s.time.addrFraction, ini);
+    s.time.addrMinutesF = GetX(kTime, L"addrMinutesF", s.time.addrMinutesF, ini);
 
     s.logEnabled  = GetB(kGeneral, L"log",         s.logEnabled,  ini);
     s.hook        = GetB(kGeneral, L"hook",        s.hook,        ini);

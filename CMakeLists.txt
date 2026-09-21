@@ -15,6 +15,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(comfyfog SHARED
     src/comfyfog.cpp
     src/config.cpp
+    src/rays.cpp
+    src/beams.cpp
+    src/timeofday.cpp
 )
 
 # comfyfog.dll, loaded by VanillaFixes from dlls.txt, same as comfygrass. It exports nothing.
