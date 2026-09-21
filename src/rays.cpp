@@ -34,7 +34,9 @@
 
 #include "common.h"
 #include "config.h"
+#include "depth.h"
 #include "rays.h"
+#include "shadow.h"
 
 #include <cmath>
 #include <cstring>
@@ -128,6 +130,31 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 }
 )HLSL";
 
+    // debugView 3: the readable depth buffer, linearised with the camera's own near/far planes.
+    const char* kDepthViewHlsl = R"HLSL(
+sampler2D s0 : register(s0);
+float4 gZ : register(c0);     // near, far, 1 / view range, unused
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float d   = tex2D(s0, uv).r;
+    float lin = gZ.x * gZ.y / (gZ.y - d * (gZ.y - gZ.x));
+    float g   = 1.0 - saturate(lin * gZ.z);
+    return float4(g, g, g, 1.0);
+}
+)HLSL";
+
+    // debugView 4: the shadow map, the player's depth at mid-grey, +-20 yards stretched to black..white.
+    const char* kShadowViewHlsl = R"HLSL(
+sampler2D s0 : register(s0);
+float4 gS : register(c0);     // depth at the player, contrast
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float d = tex2D(s0, uv).r;
+    float g = saturate(0.5 + (gS.x - d) * gS.y);
+    return float4(g, g, g, 1.0);
+}
+)HLSL";
+
     const char* kCompositeHlsl = R"HLSL(
 sampler2D s0 : register(s0);
 float4 gC : register(c0);     // rgb gain: colour x exposure x fade
@@ -153,6 +180,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     IDirect3DPixelShader9* g_psMaxLum = nullptr;
     IDirect3DPixelShader9* g_psMax    = nullptr;
     IDirect3DPixelShader9* g_psPeakBlend = nullptr;
+    IDirect3DPixelShader9* g_psDepthView = nullptr;
+    IDirect3DPixelShader9* g_psShadowView = nullptr;
     Target g_peakSmooth;                // the eased peak, 1x1, 16-bit float so slow easing does not stall
     bool   g_peakSmoothInit = false;    // first frame after (re)creation takes the peak outright
     double g_peakLastTime   = 0.0;
@@ -266,10 +295,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             g_psMaxLum = MakePixelShader(dev, kMaxLumHlsl,  "rays_maxlum");
             g_psMax    = MakePixelShader(dev, kMaxHlsl,     "rays_max");
             g_psPeakBlend = MakePixelShader(dev, kPeakBlendHlsl, "rays_peakblend");
+            g_psDepthView = MakePixelShader(dev, kDepthViewHlsl, "rays_depthview");
+            g_psShadowView = MakePixelShader(dev, kShadowViewHlsl, "rays_shadowview");
             if (g_psMask && g_psBlur && g_psComp)
                 Log("rays: shaders compiled");
         }
-        if (!g_psMask || !g_psBlur || !g_psComp || !g_psMaxLum || !g_psMax || !g_psPeakBlend)
+        if (!g_psMask || !g_psBlur || !g_psComp || !g_psMaxLum || !g_psMax || !g_psPeakBlend || !g_psDepthView || !g_psShadowView)
             return false;
 
         const UINT ds = static_cast<UINT>(g_cfg.rays.downscale);
@@ -607,6 +638,52 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         d->SetVertexShader(dev, nullptr);
         d->SetFVF(dev, D3DFVF_XYZRHW | D3DFVF_TEX1);
 
+        // --- debugView 3: the depth buffer, instead of the rays -----------------------------------------
+        if (r.debugView == 3)
+        {
+            IDirect3DTexture9* depth = DepthWorldTexture();
+            if (depth && g_haveProj)
+            {
+                // D3D9 perspective: m22 = f/(f-n), m32 = -n*f/(f-n)  =>  n = -m32/m22, f = m22*n/(m22-1).
+                const float m22 = g_proj.m[2][2], m32 = g_proj.m[3][2];
+                const float n = m22 != 0.0f ? -m32 / m22 : 0.1f;
+                const float f = m22 != 1.0f ? m22 * n / (m22 - 1.0f) : 1000.0f;
+                const float zc[4] = { n, f, 1.0f / g_cfg.depth.viewRange, 0.0f };
+                d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+                d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+                Pass(dev, depth, bb, bbW, bbH, g_psDepthView, zc, 1);
+                static bool said = false;
+                if (!said) { said = true; Log("rays: depth view on (near %.3f, far %.1f)", n, f); }
+            }
+            else
+            {
+                static bool said = false;
+                if (!said) { said = true; Log("rays: depth view has nothing to show -- is [depth] enabled?"); }
+            }
+        }
+        else if (r.debugView == 4)
+        {
+            // The shadow map, seen from the sun. Its depth is linear (orthographic) over 2 * depth yards
+            // with the player at the middle; +-20 yards around the player are stretched to black..white,
+            // so what stands tallest toward the sun shows brightest.
+            IDirect3DTexture9* sm = ShadowTexture();
+            if (sm)
+            {
+                const float span   = 2.0f * g_cfg.shadow.depth - 1.0f;          // the ortho z range
+                const float centre = (g_cfg.shadow.depth - 1.0f) / span;        // the player's depth
+                const float zc[4]  = { centre, span / 40.0f, 0.0f, 0.0f };
+                d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+                d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+                Pass(dev, sm, bb, bbW, bbH, g_psShadowView, zc, 1);
+            }
+            else
+            {
+                static bool said = false;
+                if (!said) { said = true; Log("rays: shadow view has nothing to show -- is [shadow] enabled?"); }
+            }
+        }
+        else
+        {
         // --- brightest pixel -----------------------------------------------------------------------
         d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -713,6 +790,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         }
         Pass(dev, src->tex, bb, bbW, bbH, g_psComp, gain, 1);
 
+        }   // the rays' own work (not debugView 3)
+
         if (began)
             d->EndScene(dev);
 
@@ -758,7 +837,7 @@ namespace
 
     SunScreen sun = {};
     const float aspect = desc.Height ? static_cast<float>(desc.Width) / static_cast<float>(desc.Height) : 1.0f;
-    if (!SunOnScreen(sun, aspect))
+    if (!SunOnScreen(sun, aspect) && r.debugView != 3 && r.debugView != 4)
     {
         bb->lpVtbl->Release(bb);
         return;

@@ -25,6 +25,9 @@
 #include "rays.h"
 #include "beams.h"
 #include "timeofday.h"
+#include "depth.h"
+#include "shadow.h"
+#include "volume.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -336,6 +339,9 @@ namespace
 
     using BeginSceneFn  = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*);
     BeginSceneFn    g_oBeginScene    = nullptr;
+
+    using SetDSFn       = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, IDirect3DSurface9*);
+    SetDSFn         g_oSetDS         = nullptr;
     ResetFn         g_oReset         = nullptr;
     SetRSFn         g_oSetRS         = nullptr;
     SetVSFn         g_oSetVS         = nullptr;
@@ -430,6 +436,9 @@ namespace
     HRESULT STDMETHODCALLTYPE hkSetVertexShaderConstantF(IDirect3DDevice9* dev, UINT reg, const float* data,
                                                          UINT count)
     {
+        if (g_inRays)
+            return g_oSetVSConstF(dev, reg, data, count);   // our own passes: no fog remap, no recording
+        RecordConstants(reg, data, count);                  // the client's values, before the c30 remap
         if (g_probe.active && data)
         {
             g_probe.constSets++;
@@ -486,7 +495,10 @@ namespace
         if (g_beamsDone)
             return;
         g_beamsDone = true;
+        DepthWorldEnded(dev);
         g_inRays = true;
+        ShadowWorldEnded(dev);
+        VolumeDraw(dev);
         const bool drew = BeamsDraw(dev, g_sunSeen);
         g_inRays = false;
         if (g_probe.active)
@@ -571,7 +583,7 @@ namespace
             }
             else if (GetAsyncKeyState(VK_MENU) & 0x8000)
             {
-                BeamsToggle();
+                VolumeToggle();
             }
             else if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
             {
@@ -615,8 +627,19 @@ namespace
     HRESULT STDMETHODCALLTYPE hkBeginScene(IDirect3DDevice9* dev)
     {
         if (!g_inRays)
+        {
             TimeApply("BeginScene");
+            DepthBeginScene(dev);
+            if (!g_beamsDone)
+                ShadowSetPhase(true);
+        }
         return g_oBeginScene(dev);
+    }
+
+    // The client binding a depth buffer: hand the device our readable stand-in instead (depth.cpp).
+    HRESULT STDMETHODCALLTYPE hkSetDepthStencilSurface(IDirect3DDevice9* dev, IDirect3DSurface9* s)
+    {
+        return g_oSetDS(dev, g_inRays ? s : DepthSubstitute(dev, s));
     }
 
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
@@ -636,6 +659,7 @@ namespace
         if (g_raysArmed)
             FireRays(dev, "at Present (no UI draw followed)");
         RaysPresent(dev);
+        ShadowFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_raysArmed  = false;
@@ -656,6 +680,9 @@ namespace
             LogDial("probe");
             RaysProbe();
             BeamsProbe();
+            DepthProbe();
+            ShadowProbe();
+            VolumeProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -673,6 +700,9 @@ namespace
     {
         RaysReset();   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
         BeamsReset();
+        DepthReset(dev);
+        ShadowReset();
+        VolumeReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -1033,6 +1063,8 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT sv, UINT pc)
     {
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
+        if (!g_inRays)
+            RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         return g_oDrawPrim(dev, prim, sv, pc);
@@ -1081,6 +1113,8 @@ namespace
             CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
             return S_OK;
         }
+        if (!g_inRays)
+            RecordDraw(dev, true, prim, bvi, mvi, nv, si, pc);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
@@ -1146,6 +1180,7 @@ namespace
         const bool ok =
             HookSlot(reinterpret_cast<void**>(&v->Present),                &hkPresent,                reinterpret_cast<void**>(&g_oPresent))       &&
             HookSlot(reinterpret_cast<void**>(&v->BeginScene),             &hkBeginScene,             reinterpret_cast<void**>(&g_oBeginScene))    &&
+            HookSlot(reinterpret_cast<void**>(&v->SetDepthStencilSurface), &hkSetDepthStencilSurface, reinterpret_cast<void**>(&g_oSetDS))         &&
             HookSlot(reinterpret_cast<void**>(&v->Reset),                  &hkReset,                  reinterpret_cast<void**>(&g_oReset))         &&
             HookSlot(reinterpret_cast<void**>(&v->SetRenderState),         &hkSetRenderState,         reinterpret_cast<void**>(&g_oSetRS))         &&
             HookSlot(reinterpret_cast<void**>(&v->SetTransform),           &hkSetTransform,           reinterpret_cast<void**>(&g_oSetTransform))  &&

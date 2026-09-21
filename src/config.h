@@ -82,7 +82,7 @@ struct RaysSettings
 // World-space shafts around the player (beams.cpp). They take their colour from [rays] color.
 struct BeamsSettings
 {
-    bool  enabled      = true;
+    bool  enabled      = false;     // superseded by [volume]; kept for comparison
     float strength     = 50.0f;     // the dial, 0..100
     float maxIntensity = 0.6f;      // brightness at 100
 
@@ -124,6 +124,37 @@ struct TimeSettings
     DWORD addrMinutesF = 0x00CE8574;  // float minutes since midnight; 0 = leave alone
 };
 
+// A readable depth buffer (depth.cpp), the groundwork for volumetric light. Off unless enabled.
+struct DepthSettings
+{
+    bool  enabled   = false;
+    float viewRange = 150.0f;     // [rays] debugView = 3: distance, yards, that shows as black
+};
+
+// A shadow map from the sun (shadow.cpp): the frame's opaque world draws replayed from the sun.
+struct ShadowSettings
+{
+    bool  enabled = false;
+    int   size    = 2048;     // texels per side
+    float range   = 60.0f;    // yards covered either side of the player
+    float depth   = 300.0f;   // yards toward and away from the sun
+};
+
+// Volumetric light (volume.cpp): the fog glowing where the sun reaches it. Needs [depth] and [shadow].
+struct VolumeSettings
+{
+    bool  enabled      = false;
+    float strength     = 50.0f;     // the dial, 0..100
+    float maxIntensity = 1.0f;      // gain at 100
+    float density      = 0.02f;     // how much the air scatters, per yard
+    float maxDistance  = 60.0f;     // yards along each line of sight (the shadow map's reach)
+    float anisotropy   = 0.6f;      // 0 = glows the same from every side, toward 1 = only toward the sun
+    float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
+    int   downscale    = 2;         // work at 1/N resolution per axis
+    bool  blur         = true;
+    int   debug        = 0;         // 1 = the glow alone, white; 2..5 = one stage of the march (see ini)
+};
+
 struct SkySettings
 {
     bool clouds = true;   // false: the sky's cloud layer is not drawn
@@ -132,6 +163,9 @@ struct SkySettings
 struct Settings
 {
     SkySettings  sky;
+    DepthSettings depth;
+    ShadowSettings shadow;
+    VolumeSettings volume;
     TimeSettings time;
     FogSettings  fog;
     RaysSettings rays;

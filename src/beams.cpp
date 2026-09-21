@@ -42,6 +42,7 @@
 #include <d3d9.h>
 
 #include "beams.h"
+#include "client.h"
 #include "common.h"
 #include "config.h"
 #include "rays.h"
@@ -169,73 +170,6 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         ReleaseTarget(g_canopy);
         g_canopyInit = false;
         SafeRelease(g_sb);   // a state block counts as a device resource for Reset
-    }
-
-    // ---------------------------------------------------------------------------------------------
-    // reading the client
-
-    bool SafeCopy(uintptr_t src, void* dst, size_t n)
-    {
-        __try
-        {
-            memcpy(dst, reinterpret_cast<const void*>(src), n);
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
-    intptr_t Slide()
-    {
-        static const intptr_t slide = reinterpret_cast<intptr_t>(GetModuleHandleW(nullptr)) - 0x00400000;
-        return slide;
-    }
-
-    bool SaneWorld(const float p[3])
-    {
-        for (int i = 0; i < 3; ++i)
-            if (!(p[i] == p[i]) || p[i] < -20000.0f || p[i] > 20000.0f)
-                return false;
-        return true;
-    }
-
-    bool ReadCamera(float cam[3])
-    {
-        const BeamsSettings& b = g_cfg.beams;
-        if (!b.camAddr || !SafeCopy(static_cast<uintptr_t>(b.camAddr + Slide()), cam, 12))
-            return false;
-        return SaneWorld(cam) && !(cam[0] == 0.0f && cam[1] == 0.0f && cam[2] == 0.0f);
-    }
-
-    // The local player out of the object manager: the same walk as comfygrass's FindLocalPlayerObject.
-    bool ReadPlayer(float pos[3])
-    {
-        const BeamsSettings& b = g_cfg.beams;
-        if (!b.objMgrAddr || !b.playerPosOff)
-            return false;
-        DWORD mgr = 0;
-        if (!SafeCopy(static_cast<uintptr_t>(b.objMgrAddr + Slide()), &mgr, 4) || !mgr)
-            return false;
-        DWORD guid[2] = {}, link = 0, obj = 0;
-        if (!SafeCopy(mgr + 0xC0, guid, 8) || (!guid[0] && !guid[1]))
-            return false;
-        if (!SafeCopy(mgr + 0xA4, &link, 4) || !SafeCopy(mgr + 0xAC, &obj, 4))
-            return false;
-        for (int n = 0; n < 16384 && obj && !(obj & 1); ++n)
-        {
-            DWORD g[2] = {};
-            if (!SafeCopy(obj + 0x30, g, 8))
-                return false;
-            if (g[0] == guid[0] && g[1] == guid[1])
-                return SafeCopy(obj + b.playerPosOff, pos, 12) && SaneWorld(pos);
-            DWORD next = 0;
-            if (!SafeCopy(obj + link + 4, &next, 4))
-                return false;
-            obj = next;
-        }
-        return false;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -582,12 +516,12 @@ bool BeamsDraw(IDirect3DDevice9* dev, bool sunSeenThisFrame)
     float sunDir[3];
     D3DMATRIX view, proj;
     float camA[3], plA[3];
-    if (!RaysSunDirection(sunDir) || !RaysCamera(view, proj) || !ReadCamera(camA))
+    if (!RaysSunDirection(sunDir) || !RaysCamera(view, proj) || !ClientCamera(camA))
     {
         if (logThis) Log("beams: skipped -- no sun, camera matrices or camera position yet");
         return false;
     }
-    const bool havePlayer = ReadPlayer(plA);
+    const bool havePlayer = ClientPlayer(plA);
     const V3 cam = { camA[0], camA[1], camA[2] };
     const V3 player = havePlayer ? V3{ plA[0], plA[1], plA[2] } : cam;
     const V3 sun = { sunDir[0], sunDir[1], sunDir[2] };

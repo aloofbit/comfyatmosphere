@@ -13,6 +13,9 @@ namespace
     const wchar_t* kBeams   = L"beams";
     const wchar_t* kTime    = L"time";
     const wchar_t* kSky     = L"sky";
+    const wchar_t* kDepth   = L"depth";
+    const wchar_t* kShadow  = L"shadow";
+    const wchar_t* kVolume  = L"volume";
     const wchar_t* kGeneral = L"general";
 
     float GetF(const wchar_t* sec, const wchar_t* key, float dflt, const wchar_t* ini)
@@ -127,6 +130,26 @@ void LoadSettings(const wchar_t* ini)
     if (s.beams.maxBeams > 1000) s.beams.maxBeams = 1000;
 
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
+    s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
+    s.depth.viewRange   = Clamp(GetF(kDepth, L"viewRange", s.depth.viewRange, ini), 1.0f, 5000.0f);
+    s.shadow.enabled    = GetB(kShadow, L"enabled", s.shadow.enabled, ini);
+    s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
+    s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
+    s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
+    s.volume.enabled      = GetB(kVolume, L"enabled", s.volume.enabled, ini);
+    s.volume.strength     = Clamp(GetF(kVolume, L"strength",     s.volume.strength,     ini), 0.0f, 100.0f);
+    s.volume.maxIntensity = Clamp(GetF(kVolume, L"maxIntensity", s.volume.maxIntensity, ini), 0.0f, 20.0f);
+    s.volume.density      = Clamp(GetF(kVolume, L"density",      s.volume.density,      ini), 0.0f, 1.0f);
+    s.volume.maxDistance  = Clamp(GetF(kVolume, L"maxDistance",  s.volume.maxDistance,  ini), 1.0f, 1000.0f);
+    s.volume.anisotropy   = Clamp(GetF(kVolume, L"anisotropy",   s.volume.anisotropy,   ini), 0.0f, 0.95f);
+    s.volume.bias         = Clamp(GetF(kVolume, L"bias",         s.volume.bias,         ini), 0.0f, 20.0f);
+    s.volume.downscale    = GetI(kVolume, L"downscale", s.volume.downscale, ini);
+    s.volume.blur         = GetB(kVolume, L"blur",  s.volume.blur,  ini);
+    s.volume.debug        = GetI(kVolume, L"debug", s.volume.debug, ini);
+    if (s.volume.downscale < 1) s.volume.downscale = 1;
+    if (s.volume.downscale > 8) s.volume.downscale = 8;
+    if (s.shadow.size < 256)  s.shadow.size = 256;
+    if (s.shadow.size > 4096) s.shadow.size = 4096;
 
     s.time.enabled      = GetB(kTime, L"enabled", s.time.enabled, ini);
     s.time.hour         = Clamp(GetF(kTime, L"hour", s.time.hour, ini), 0.0f, 24.0f);
