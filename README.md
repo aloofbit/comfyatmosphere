@@ -1,5 +1,10 @@
 # comfyatmosphere
 
+> **Very early alpha.** This has only been tested on one computer -- mine -- with one 1.12 client
+> build (VanillaFixes + DXVK). It hooks deep into the game's rendering and, with time of day turned on,
+> writes into the client's memory. Expect bugs, back up your client folder first, and if anything goes
+> wrong just remove the `comfyfog.dll` line from `dlls.txt`.
+
 Atmosphere for the World of Warcraft 1.12 client: thicker, moodier fog, sun rays, volumetric light that
 glows through the trees, and control over the time of day. One DLL and one ini file -- `comfyfog.dll` and
 `comfyfog.ini`, named for where it started -- tuned live in game.
@@ -36,6 +41,9 @@ Everything is in `comfyfog.ini`, and **F11 reloads it in game**, so every value 
 | Ctrl+F12 | Search memory for the game clock (read-only; for a different `WoW.exe`) |
 
 ## Install
+
+Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it yourself
+(below).
 
 1. Copy `comfyfog.dll` and `comfyfog.ini` into the client folder, next to `WoW.exe` and `d3d9.dll`.
 2. Add a line `comfyfog.dll` to `dlls.txt`. If you also use comfygrass, put it **after** `comfygrass.dll`:
