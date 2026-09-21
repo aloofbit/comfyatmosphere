@@ -136,7 +136,7 @@ struct ShadowSettings
 {
     bool  enabled = false;
     int   size    = 2048;     // texels per side
-    float range   = 60.0f;    // yards covered either side of the player
+    float range   = 90.0f;    // yards covered either side of the player
     float depth   = 300.0f;   // yards toward and away from the sun
     float cacheTime     = 30.0f;  // seconds a caster out of view is kept
     float evictDistance = 20.0f;  // yards: a caster in view this near that was not drawn is gone
@@ -146,11 +146,11 @@ struct ShadowSettings
 struct VolumeSettings
 {
     bool  enabled      = false;
-    float strength     = 50.0f;     // the dial, 0..100
-    float maxIntensity = 1.0f;      // gain at 100
-    float density      = 0.02f;     // how much the air scatters, per yard
-    float maxDistance  = 60.0f;     // yards along each line of sight (the shadow map's reach)
-    float anisotropy   = 0.6f;      // 0 = glows the same from every side, toward 1 = only toward the sun
+    float strength     = 30.0f;     // the dial, 0..100
+    float maxIntensity = 3.0f;      // gain at 100
+    float density      = 0.05f;     // how much the air scatters, per yard
+    float maxDistance  = 75.0f;     // yards along each line of sight (the shadow map's reach)
+    float anisotropy   = 0.3f;      // 0 = glows the same from every side, toward 1 = only toward the sun
     float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
     int   downscale    = 2;         // work at 1/N resolution per axis
     bool  blur         = true;
