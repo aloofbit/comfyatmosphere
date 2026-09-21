@@ -1,7 +1,8 @@
-# comfyfog
+# comfyatmosphere
 
 Atmosphere for the World of Warcraft 1.12 client: thicker, moodier fog, sun rays, volumetric light that
-glows through the trees, and control over the time of day. One DLL and one ini file, tuned live in game.
+glows through the trees, and control over the time of day. One DLL and one ini file -- `comfyfog.dll` and
+`comfyfog.ini`, named for where it started -- tuned live in game.
 
 It is a sibling of comfygrass (swaying grass for the same client) and loads the same way: through VanillaFixes, patching the
 Direct3D 9 device of the DXVK `d3d9.dll` the client runs on.
