@@ -71,13 +71,15 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
         return float4(1.0, 0.0, 0.0, 1.0);                                // debug 2: the pass runs
-    // Undo the viewport's squeeze; past the world's slice is sky or far horizon, so it clamps to far.
-    float  d    = saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+    // Undo the viewport's squeeze; past the world's slice is sky or far horizon, so it clamps to far --
+    // just short of it: exactly the far plane reconstructs with w = 0 in some frames, and the NaN that
+    // makes, once the client's glow has blurred it over the image, turned whole frames black.
+    float  d    = min(saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y), 0.99999);
     if (gP.x > 2.5 && gP.x < 3.5)
         return float4(d, 0.0, 0.0, 1.0);                                  // debug 3: the depth it reads
     float2 ndc  = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp   = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
-    float3 P    = wp.xyz / wp.w;
+    float3 P    = wp.xyz / max(wp.w, 1e-6);
     float  dist = length(P);
     float3 dir  = P / max(dist, 1e-4);
     float  len  = min(dist, gP.y);
@@ -102,7 +104,10 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float c     = dot(dir, gSun.xyz);
     float g     = gSun.w;
     float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5);
-    return float4(lit * phase, 0.0, 0.0, 1.0);
+    // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
+    float v     = lit * phase;
+    v = (v >= 0.0 && v < 16.0) ? v : 0.0;
+    return float4(v, 0.0, 0.0, 1.0);
 }
 )HLSL";
 
@@ -404,10 +409,16 @@ void VolumeDraw(IDirect3DDevice9* dev)
 
     D3DMATRIX camVP, inv;
     Mul(view, proj, camVP);
-    if (!Invert(camVP, inv))
+    bool finite = Invert(camVP, inv);
+    for (int r = 0; r < 4 && finite; ++r)
+        for (int c = 0; c < 4; ++c)
+            if (!std::isfinite(inv.m[r][c]) || !std::isfinite(shadowVP.m[r][c])) { finite = false; break; }
+    for (int i = 0; i < 3 && finite; ++i)
+        finite = std::isfinite(sunDir[i]);
+    if (!finite)
     {
         world->lpVtbl->Release(world);
-        return;
+        return;   // a bad matrix this frame: no glow rather than a NaN the glow would spread over the screen
     }
     const double t0 = Now();
 
