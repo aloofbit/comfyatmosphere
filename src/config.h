@@ -114,16 +114,6 @@ struct BeamsSettings
     DWORD playerPosOff = 0x9B8;
 };
 
-// The game's time of day, written into the client (timeofday.cpp). Off unless enabled.
-struct TimeSettings
-{
-    bool  enabled      = false;
-    float hour         = 13.0f;       // 0..24, fractions allowed (13.5 = 13:30)
-    DWORD addrMinutes  = 0x00CE9B60;  // int minutes since midnight   (found by the Ctrl+F12 search)
-    DWORD addrFraction = 0x00CE9B64;  // float fraction of the day
-    DWORD addrMinutesF = 0x00CE8574;  // float minutes since midnight; 0 = leave alone
-};
-
 // A readable depth buffer (depth.cpp), the groundwork for volumetric light. Off unless enabled.
 struct DepthSettings
 {
@@ -148,9 +138,9 @@ struct VolumeSettings
     bool  enabled      = false;
     float strength     = 30.0f;     // the dial, 0..100
     float maxIntensity = 3.0f;      // gain at 100
-    float density      = 0.05f;     // how much the air scatters, per yard
+    float density      = 0.03f;     // how much the air scatters, per yard
     float maxDistance  = 75.0f;     // yards along each line of sight (the shadow map's reach)
-    float anisotropy   = 0.3f;      // 0 = glows the same from every side, toward 1 = only toward the sun
+    float anisotropy   = 0.15f;     // 0 = glows the same from every side, toward 1 = only toward the sun
     float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
     int   downscale    = 2;         // work at 1/N resolution per axis
     bool  blur         = true;
@@ -168,7 +158,6 @@ struct Settings
     DepthSettings depth;
     ShadowSettings shadow;
     VolumeSettings volume;
-    TimeSettings time;
     FogSettings  fog;
     RaysSettings rays;
     BeamsSettings beams;

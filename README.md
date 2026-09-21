@@ -1,12 +1,11 @@
 # comfyatmosphere
 
 > **Very early alpha.** This has only been tested on one computer -- mine -- with one 1.12 client
-> build (VanillaFixes + DXVK). It hooks deep into the game's rendering and, with time of day turned on,
-> writes into the client's memory. Expect bugs, back up your client folder first, and if anything goes
-> wrong just remove the `comfyfog.dll` line from `dlls.txt`.
+> build (VanillaFixes + DXVK). It hooks deep into the game's rendering. Expect bugs, back up your client
+> folder first, and if anything goes wrong just remove the `comfyfog.dll` line from `dlls.txt`.
 
-Atmosphere for the World of Warcraft 1.12 client: thicker, moodier fog, sun rays, volumetric light that
-glows through the trees, and control over the time of day. One DLL and one ini file -- `comfyfog.dll` and
+Atmosphere for the World of Warcraft 1.12 client: thicker, moodier fog, sun rays, and volumetric light
+that glows through the trees. One DLL and one ini file -- `comfyfog.dll` and
 `comfyfog.ini`, named for where it started -- tuned live in game.
 
 [![Sun shafts through the forest canopy, in game. Click for the full video.](media/comfyatmosphere.gif)](media/comfyatmosphere.mp4)
@@ -24,7 +23,6 @@ Direct3D 9 device of the DXVK `d3d9.dll` the client runs on.
 | **Sun rays** | Screen-space shafts streaming from the sun (the one drawn in the sky), before the UI so the action bars get none. | on |
 | **Volumetric light** | The fog lit where sunlight reaches it and dark where leaves and walls shade it, fixed in the world as you move the camera. Needs `[depth]` and `[shadow]`. | off |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | shown |
-| **Time of day** | Set the hour, or step it an hour at a time; the sky, sun and lighting follow. Your screen only. | off |
 
 Everything is in `comfyfog.ini`, and **F11 reloads it in game**, so every value can be tuned live.
 
@@ -36,9 +34,7 @@ Everything is in `comfyfog.ini`, and **F11 reloads it in game**, so every value 
 | Shift+F11 | Fog on / off (for a before / after look) |
 | Ctrl+F11 | Sun rays on / off |
 | Alt+F11 | Volumetric light on / off |
-| Ctrl+PageUp / PageDown | Time of day, an hour later / earlier (with `[time] enabled = 1`) |
 | F12 | Log one frame of diagnostics to `comfyfog.log` |
-| Ctrl+F12 | Search memory for the game clock (read-only; for a different `WoW.exe`) |
 
 ## Install
 
@@ -65,17 +61,19 @@ cmake --build build --config Release
 
 ## Caveats
 
-- **Made for one client build.** The time-of-day addresses, and the camera and player addresses the
-  volumetric light uses, were found in one particular `WoW.exe`. Another build moves them; the ini exposes
-  them all, the DLL refuses to write the time if the addresses do not hold one, and Ctrl+F12 finds the
-  clock again.
-- **Time of day writes into the client's memory** (your screen only; the server keeps its own time). It is
-  off by default.
+- **Made for one client build.** The camera and player addresses the volumetric light uses were found
+  in one particular `WoW.exe`. Another build moves them; the ini exposes them.
 - **Volumetric light** redraws the world's solid geometry from the sun each frame. It is the costliest
   feature; turn it off with Alt+F11 if the frame rate suffers.
 
 How it all works, what was measured in the client along the way, and what did not work are in
 [NOTES.md](NOTES.md).
+
+## Time of day
+
+Setting the time of day -- to test the light at noon, or to keep the sun where you like it -- is a separate
+DLL, [comfytime](https://github.com/aloofbit/comfytime). The sun rays and the volumetric light follow the sun
+drawn in the sky, so they move with whatever time comfytime sets.
 
 ## Licence
 

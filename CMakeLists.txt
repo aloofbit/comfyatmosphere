@@ -17,7 +17,6 @@ add_library(comfyfog SHARED
     src/config.cpp
     src/rays.cpp
     src/beams.cpp
-    src/timeofday.cpp
     src/depth.cpp
     src/shadow.cpp
     src/client.cpp
