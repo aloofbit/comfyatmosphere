@@ -20,7 +20,11 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "common.h"
 #include "config.h"
+#include "rays.h"
+#include "beams.h"
+#include "timeofday.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -44,35 +48,47 @@ namespace
         Guard()  { if (g_lockReady) EnterCriticalSection(&g_lock); }
         ~Guard() { if (g_lockReady) LeaveCriticalSection(&g_lock); }
     };
+}
 
-    void Log(const char* fmt, ...)
-    {
-        if (!g_cfg.logEnabled)
-            return;
-        Guard g;
-        FILE* f = nullptr;
-        if (_wfopen_s(&f, g_logPath, L"a") != 0 || !f)
-            return;
-        va_list ap;
-        va_start(ap, fmt);
-        vfprintf(f, fmt, ap);
-        va_end(ap);
-        fputc('\n', f);
-        fclose(f);
-    }
+void Log(const char* fmt, ...)
+{
+    if (!g_cfg.logEnabled)
+        return;
+    Guard g;
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, g_logPath, L"a") != 0 || !f)
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
 
-    double Now()
-    {
-        static double inv = [] {
-            LARGE_INTEGER f;
-            QueryPerformanceFrequency(&f);
-            return 1.0 / static_cast<double>(f.QuadPart);
-        }();
-        LARGE_INTEGER t;
-        QueryPerformanceCounter(&t);
-        return static_cast<double>(t.QuadPart) * inv;
-    }
+double Now()
+{
+    static double inv = [] {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        return 1.0 / static_cast<double>(f.QuadPart);
+    }();
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return static_cast<double>(t.QuadPart) * inv;
+}
 
+FARPROC CompilerProc(const char* name)
+{
+    static HMODULE comp = [] {
+        HMODULE m = GetModuleHandleA("d3dcompiler_47.dll");
+        return m ? m : LoadLibraryA("d3dcompiler_47.dll");
+    }();
+    return comp ? GetProcAddress(comp, name) : nullptr;
+}
+
+namespace
+{
     inline float D2F(DWORD d) { float f; memcpy(&f, &d, 4); return f; }
     inline DWORD F2D(float f) { DWORD d; memcpy(&d, &f, 4); return d; }
     inline float Clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
@@ -246,6 +262,7 @@ namespace
         uint32_t fogSets = 0;
         uint32_t constSets = 0;
         uint32_t constLogs = 0;
+        uint32_t boundary  = 0xFFFFFFFF;  // draw index the rays pass ran at, for the detail window
     };
 
     Probe    g_probe;
@@ -255,6 +272,26 @@ namespace
     // switching between the zone colour and black, so logging every change filled the cap in 5 frames.
     std::set<std::pair<DWORD, DWORD>> g_seenValues;
     void*    g_vshader    = nullptr;
+    uint32_t g_frameDraws = 0;       // every draw this frame, probe or not; see hkSetTransform
+    D3DMATRIX g_world     = {};      // last world/view/projection, unfiltered, for the probe's sky dump
+    bool      g_skyPhase  = true;    // until the frame's first depth-writing draw (see IsCloudDraw)
+    D3DMATRIX g_viewAll   = {};
+    D3DMATRIX g_projAll   = {};
+
+    UINT VertsForPrims(D3DPRIMITIVETYPE prim, UINT primCount)
+    {
+        switch (prim)
+        {
+        case D3DPT_POINTLIST:     return primCount;
+        case D3DPT_LINELIST:      return primCount * 2;
+        case D3DPT_LINESTRIP:     return primCount + 1;
+        case D3DPT_TRIANGLELIST:  return primCount * 3;
+        case D3DPT_TRIANGLESTRIP:
+        case D3DPT_TRIANGLEFAN:   return primCount + 2;
+        default:                  return 0;
+        }
+    }
+    bool     g_lastPersp  = false;
     bool     g_reloadDown = false;
     bool     g_probeDown  = false;
 
@@ -296,6 +333,9 @@ namespace
                                                         const void*, D3DFORMAT, const void*, UINT);
 
     PresentFn       g_oPresent       = nullptr;
+
+    using BeginSceneFn  = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*);
+    BeginSceneFn    g_oBeginScene    = nullptr;
     ResetFn         g_oReset         = nullptr;
     SetRSFn         g_oSetRS         = nullptr;
     SetVSFn         g_oSetVS         = nullptr;
@@ -306,6 +346,17 @@ namespace
 
     using SetVSConstFFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, UINT, const float*, UINT);
     SetVSConstFFn   g_oSetVSConstF   = nullptr;
+
+    using SetTransformFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DTRANSFORMSTATETYPE, const D3DMATRIX*);
+    SetTransformFn  g_oSetTransform  = nullptr;
+
+    using SetRTFn       = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, DWORD, IDirect3DSurface9*);
+    using StretchRectFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, IDirect3DSurface9*, const RECT*,
+                                                      IDirect3DSurface9*, const RECT*, D3DTEXTUREFILTERTYPE);
+    SetRTFn         g_oSetRT         = nullptr;
+
+    StretchRectFn   g_oStretchRect   = nullptr;
+    bool            g_inRays         = false;   // the pass's own calls stay out of the probe detail
 
     // ---------------------------------------------------------------------------------------------
     // vertex-shader fog
@@ -325,19 +376,6 @@ namespace
     // uploads of more than 4 registers are only counted), and the dumps stay in, so a different client
     // build can be re-checked from one log.
 
-    struct OgBlob;
-    struct OgBlobVtbl
-    {
-        HRESULT (STDMETHODCALLTYPE* QueryInterface)(OgBlob*, REFIID, void**);
-        ULONG   (STDMETHODCALLTYPE* AddRef)(OgBlob*);
-        ULONG   (STDMETHODCALLTYPE* Release)(OgBlob*);
-        LPVOID  (STDMETHODCALLTYPE* GetBufferPointer)(OgBlob*);
-        SIZE_T  (STDMETHODCALLTYPE* GetBufferSize)(OgBlob*);
-    };
-    struct OgBlob { const OgBlobVtbl* lpVtbl; };
-
-    using PFN_D3DDisassemble = HRESULT(WINAPI*)(LPCVOID, SIZE_T, UINT, LPCSTR, OgBlob**);
-
     std::set<void*> g_dumpedShaders;
 
     void DumpShader(IDirect3DVertexShader9* sh)
@@ -355,12 +393,7 @@ namespace
         if (FAILED(sh->lpVtbl->GetFunction(sh, code.data(), &size)))
             return;
 
-        static PFN_D3DDisassemble disasm = [] {
-            HMODULE comp = GetModuleHandleA("d3dcompiler_47.dll");
-            if (!comp)
-                comp = LoadLibraryA("d3dcompiler_47.dll");
-            return comp ? reinterpret_cast<PFN_D3DDisassemble>(GetProcAddress(comp, "D3DDisassemble")) : nullptr;
-        }();
+        static auto disasm = reinterpret_cast<PFN_D3DDisassemble>(CompilerProc("D3DDisassemble"));
 
         OgBlob* text = nullptr;
         if (!disasm || FAILED(disasm(code.data(), size, 0, nullptr, &text)) || !text)
@@ -429,6 +462,67 @@ namespace
         return g_oSetVSConstF(dev, reg, buf.data(), count);
     }
 
+    // Rays placement. hkSetTransform finds where the world ends (the first switch to a non-perspective
+    // projection), but that switch only ARMS the pass. With Full Screen Glow on (ffxGlow, the default) the world is drawn
+    // into an off-screen texture, not the back buffer; after the switch the client downsamples and blurs
+    // it, then draws world + glow onto the back buffer in one full-screen, pixel-shaded, unblended draw
+    // that replaces whatever was there. Rays drawn at the switch read a back buffer holding no world yet
+    // and were then painted over. So the pass fires just before the first draw that goes to the back
+    // buffer with no pixel shader bound: the first UI draw, with glow on or off. A probe showed both:
+    //
+    //   glow on:  world -> RT A | switch | glow passes into small RTs | composite to BB (ps) | UI (no ps)
+    //   glow off: world -> BB   | switch | UI (no ps)
+    bool               g_raysArmed = false;
+    bool               g_raysDone  = false;
+
+    IDirect3DSurface9* g_bbArmed   = nullptr;   // the back buffer when armed; compared, never dereferenced
+    bool               g_sunSeen   = false;     // the sky's sun sprite was found this frame
+    bool               g_beamsDone = false;     // the world shafts were drawn this frame
+
+    // The world has finished drawing: the shafts go in now, with the world's render target and depth
+    // buffer still bound (see beams.cpp).
+    void WorldEnded(IDirect3DDevice9* dev, const char* why)
+    {
+        if (g_beamsDone)
+            return;
+        g_beamsDone = true;
+        g_inRays = true;
+        const bool drew = BeamsDraw(dev, g_sunSeen);
+        g_inRays = false;
+        if (g_probe.active)
+            Log("  [draw %4u] WORLD END      %s%s", g_probe.draws, why, drew ? " -- beams drawn" : "");
+    }
+
+    void FireRays(IDirect3DDevice9* dev, const char* where)
+    {
+        g_raysArmed = false;
+        g_raysDone  = true;
+        g_inRays = true;
+        const bool ran = RaysBeforeUI(dev);
+        g_inRays = false;
+        if (ran && g_probe.active)
+        {
+            Log("  [draw %4u] RAYS PASS      %s", g_probe.draws, where);
+            g_probe.boundary = g_probe.draws;
+        }
+    }
+
+    // Called before every draw is forwarded; does nothing unless armed.
+    void MaybeFireRays(IDirect3DDevice9* dev)
+    {
+        if (!g_raysArmed || g_inRays)
+            return;
+        IDirect3DSurface9*     rt = nullptr;
+        IDirect3DPixelShader9* ps = nullptr;
+        dev->lpVtbl->GetRenderTarget(dev, 0, &rt);
+        dev->lpVtbl->GetPixelShader(dev, &ps);
+        const bool firstUiDraw = rt && rt == g_bbArmed && !ps;
+        if (rt) rt->lpVtbl->Release(rt);
+        if (ps) ps->lpVtbl->Release(ps);
+        if (firstUiDraw)
+            FireRays(dev, "before the first UI draw");
+    }
+
     // Pushes the current dial onto the device for every fog value the client has set, so a reload or a
     // toggle shows at once instead of on the next zone change.
     void ApplyAll(IDirect3DDevice9* dev)
@@ -471,24 +565,58 @@ namespace
         const bool reload = focused && (GetAsyncKeyState(g_cfg.reloadKey) & 0x8000) != 0;
         if (reload && !g_reloadDown)
         {
-            if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
+            if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
+            {
+                RaysToggle();
+            }
+            else if (GetAsyncKeyState(VK_MENU) & 0x8000)
+            {
+                BeamsToggle();
+            }
+            else if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
             {
                 g_on = !g_on;
                 LogDial("toggled");
+                ApplyAll(dev);
             }
             else
             {
                 LoadSettings(g_iniPath);
+                RaysReload();
+                TimeReload();
                 LogDial("reloaded");
+                ApplyAll(dev);
             }
-            ApplyAll(dev);
         }
         g_reloadDown = reload;
 
         const bool probe = focused && (GetAsyncKeyState(g_cfg.probeKey) & 0x8000) != 0;
         if (probe && !g_probeDown)
-            g_probe.armed = true;
+        {
+            if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
+                TimeScanStart();          // Ctrl+probe: look for the game clock (read-only)
+            else
+                g_probe.armed = true;
+        }
         g_probeDown = probe;
+
+        // Ctrl+PageUp / Ctrl+PageDown: an hour forward / back, while [time] is on.
+        static bool upDown = false, dnDown = false;
+        const bool ctrl = focused && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool up = ctrl && (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0;
+        const bool dn = ctrl && (GetAsyncKeyState(VK_NEXT) & 0x8000) != 0;
+        if (up && !upDown) TimeStep(+1.0f);
+        if (dn && !dnDown) TimeStep(-1.0f);
+        upDown = up; dnDown = dn;
+    }
+
+    // The first call of a frame's rendering: the last chance to put the chosen time in place before the
+    // sky is drawn from it.
+    HRESULT STDMETHODCALLTYPE hkBeginScene(IDirect3DDevice9* dev)
+    {
+        if (!g_inRays)
+            TimeApply("BeginScene");
+        return g_oBeginScene(dev);
     }
 
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
@@ -502,7 +630,23 @@ namespace
             g_probe = Probe();
         }
 
+        // Between captures, so the pass's own draws and state changes never show up in a probe.
+        // Armed but never fired: nothing was drawn to the back buffer after the world (UI hidden, say),
+        // so the finished frame is exactly the world and the pass can run here.
+        if (g_raysArmed)
+            FireRays(dev, "at Present (no UI draw followed)");
+        RaysPresent(dev);
+        g_frameDraws = 0;
+        g_lastPersp  = false;
+        g_raysArmed  = false;
+        g_raysDone   = false;
+        g_sunSeen = false;
+        g_beamsDone = false;
+        g_skyPhase  = true;
+
         PollKeys(dev);
+        TimeScanTick();
+        TimeApply("Present");
 
         g_frame++;
         if (g_probe.armed)
@@ -510,6 +654,14 @@ namespace
             g_probe = Probe();
             g_probe.active = true;
             LogDial("probe");
+            RaysProbe();
+            BeamsProbe();
+            IDirect3DSurface9* bb = nullptr;
+            if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
+            {
+                Log("--- back buffer is %p ---", bb);
+                bb->lpVtbl->Release(bb);
+            }
             Log("--- begin frame %llu capture ---", g_frame);
         }
         return g_oPresent(dev, src, dst, wnd, dirty);
@@ -519,6 +671,8 @@ namespace
     // afterwards -- so the mirror goes back to defaults too, rather than re-pushing stale values.
     HRESULT STDMETHODCALLTYPE hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
+        RaysReset();   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
+        BeamsReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -567,11 +721,63 @@ namespace
             g_fogEnable = value;
             break;
 
+        case D3DRS_ZENABLE:
+            if (g_probe.active)
+                Log("  [draw %4u] ZENABLE        %u", g_probe.draws, value);
+            break;
+
         default:
             break;
         }
         NoteFogState(st, value, value);
         return g_oSetRS(dev, st, value);
+    }
+
+    // Where the world ends and the UI begins. A probe of this client shows the world drawn under a
+    // perspective projection, then -- in the same call sequence that parks fog at start 0 / end 1 /
+    // magenta -- the first switch to an orthographic one, after which it is all UI. That first
+    // perspective -> non-perspective switch, with some world already drawn, is where the rays pass goes:
+    // the UI is then neither in the mask nor under the rays. The draw minimum skips a flip the client
+    // makes at the very top of the frame, before anything is drawn. (Counters are declared with the
+    // other per-frame state above.) The switch arms the pass; FireRays, above, says why it does not run
+    // here.
+    HRESULT STDMETHODCALLTYPE hkSetTransform(IDirect3DDevice9* dev, D3DTRANSFORMSTATETYPE st, const D3DMATRIX* m)
+    {
+        if (g_inRays)
+            return g_oSetTransform(dev, st, m);   // the shafts' own transforms: not the client's camera
+        RaysSetTransform(st, m);
+        if (st == D3DTS_WORLD && m)
+            g_world = *m;
+        if (st == D3DTS_VIEW && m)
+            g_viewAll = *m;
+        if (st == D3DTS_PROJECTION && m)
+            g_projAll = *m;
+        if (st == D3DTS_PROJECTION && m)
+        {
+            const bool persp = fabsf(m->m[2][3] - 1.0f) < 1e-3f && fabsf(m->m[3][3]) < 1e-3f;
+            if (g_probe.active && persp != g_lastPersp)
+                Log("  [draw %4u] PROJECTION     %s (m33=%.3f)", g_probe.draws,
+                    persp ? "perspective" : "NOT perspective", m->m[3][3]);
+
+            if (!persp && g_lastPersp && g_frameDraws >= static_cast<uint32_t>(g_cfg.rays.minWorldDraws))
+            {
+                WorldEnded(dev, "switch to 2D");   // glow off: the world ends here instead
+                if (!g_raysArmed && !g_raysDone)
+                {
+                    IDirect3DSurface9* bb = nullptr;
+                    if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
+                    {
+                        g_bbArmed   = bb;
+                        g_raysArmed = true;
+                        bb->lpVtbl->Release(bb);
+                        if (g_probe.active)
+                            Log("  [draw %4u] RAYS ARMED     world -> UI switch", g_probe.draws);
+                    }
+                }
+            }
+            g_lastPersp = persp;
+        }
+        return g_oSetTransform(dev, st, m);
     }
 
     HRESULT STDMETHODCALLTYPE hkSetVertexShader(IDirect3DDevice9* dev, IDirect3DVertexShader9* sh)
@@ -581,10 +787,205 @@ namespace
         return g_oSetVS(dev, sh);
     }
 
-    inline void CountDraw()
+    // Around the world -> UI boundary the probe logs every draw in detail: which render target it lands
+    // on, what it samples, and how it blends. That is what shows whether a full-screen pass (the client's
+    // glow) redraws the frame after the rays and paints over them.
+    // Two windows get the detail: the first draws of the frame, where the sky -- and the sun disc in it --
+    // is drawn, and the draws around the world -> UI boundary. For the sky window each line also carries
+    // where the draw sits relative to the camera: this client renders camera-relative, so a sky object's
+    // world translation (or, for a draw with an identity world, its first vertex) is a direction out from
+    // the camera -- logged as azimuth/elevation, the same frame the sun direction is logged in.
+    void SkyPosition(IDirect3DDevice9* dev, bool indexed, UINT first, UINT nv, const void* upData, char* out, size_t cap)
     {
+        float p[3] = { g_world.m[3][0], g_world.m[3][1], g_world.m[3][2] };
+        const char* src = "world";
+        if (p[0] * p[0] + p[1] * p[1] + p[2] * p[2] < 1e-6f && nv && nv <= 64)
+        {
+            // Identity world: the position is in the vertices. Position is at offset 0 in every layout
+            // this client uses (see comfygrass's probe); read one vertex, probe frames only.
+            float v[3] = {};
+            bool ok = false;
+            if (upData)
+            {
+                memcpy(v, upData, sizeof(v));
+                ok = true;
+            }
+            else
+            {
+                IDirect3DVertexBuffer9* vb = nullptr;
+                UINT off = 0, stride = 0;
+                if (SUCCEEDED(dev->lpVtbl->GetStreamSource(dev, 0, &vb, &off, &stride)) && vb && stride >= 12)
+                {
+                    void* ptr = nullptr;
+                    if (SUCCEEDED(vb->lpVtbl->Lock(vb, off + first * stride, 12, &ptr, D3DLOCK_READONLY)) && ptr)
+                    {
+                        memcpy(v, ptr, sizeof(v));
+                        vb->lpVtbl->Unlock(vb);
+                        ok = true;
+                    }
+                }
+                if (vb) vb->lpVtbl->Release(vb);
+            }
+            (void)indexed;
+            if (ok)
+            {
+                p[0] = v[0]; p[1] = v[1]; p[2] = v[2];
+                src = "vert0";
+            }
+        }
+        const float len = sqrtf(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+        if (len < 1e-3f)
+        {
+            _snprintf_s(out, cap, _TRUNCATE, " at origin");
+            return;
+        }
+        const float az = atan2f(p[1], p[0]) * 57.29578f;
+        const float el = asinf(p[2] / len) * 57.29578f;
+        _snprintf_s(out, cap, _TRUNCATE, " %s=(%.1f %.1f %.1f) dist=%.1f az=%.1f el=%.1f",
+                    src, p[0], p[1], p[2], len, az, el);
+    }
+
+    // Row vector times matrix, D3D9's convention.
+    void Mul4(const float in[4], const D3DMATRIX& m, float out[4])
+    {
+        for (int c = 0; c < 4; ++c)
+            out[c] = in[0] * m.m[0][c] + in[1] * m.m[1][c] + in[2] * m.m[2][c] + in[3] * m.m[3][c];
+    }
+
+    // For the handful of tiny draws at the top of the frame (the sky's sprites): every vertex, the
+    // matrices, and where the draw's centre lands on screen through the client's own transforms. The
+    // sun disc is whichever of these lands where the sun is seen.
+    void DumpSkyDraw(IDirect3DDevice9* dev, UINT first, UINT nv, const void* upData)
+    {
+        float verts[8][3] = {};
+        UINT  stride = 0;
+        bool  ok = false;
+        if (upData)
+        {
+            // UP draws carry their own stride; not known here, so only the first vertex is trusted.
+            memcpy(verts[0], upData, 12);
+            nv = 1;
+            ok = true;
+        }
+        else
+        {
+            IDirect3DVertexBuffer9* vb = nullptr;
+            UINT off = 0;
+            if (SUCCEEDED(dev->lpVtbl->GetStreamSource(dev, 0, &vb, &off, &stride)) && vb && stride >= 12)
+            {
+                void* ptr = nullptr;
+                if (SUCCEEDED(vb->lpVtbl->Lock(vb, off + first * stride, nv * stride, &ptr, D3DLOCK_READONLY)) && ptr)
+                {
+                    for (UINT i = 0; i < nv; ++i)
+                        memcpy(verts[i], static_cast<const uint8_t*>(ptr) + i * stride, 12);
+                    vb->lpVtbl->Unlock(vb);
+                    ok = true;
+                }
+            }
+            if (vb) vb->lpVtbl->Release(vb);
+        }
+        if (!ok)
+        {
+            Log("        (vertices unreadable)");
+            return;
+        }
+
+        float c[4] = { 0, 0, 0, 1 };
+        for (UINT i = 0; i < nv; ++i)
+        {
+            Log("        v%u = (%9.3f %9.3f %9.3f)  stride=%u", i, verts[i][0], verts[i][1], verts[i][2], stride);
+            c[0] += verts[i][0] / nv; c[1] += verts[i][1] / nv; c[2] += verts[i][2] / nv;
+        }
+        const D3DMATRIX* mats[3]  = { &g_world, &g_viewAll, &g_projAll };
+        const char*      names[3] = { "world", "view", "proj" };
+        for (int mi = 0; mi < 3; ++mi)
+            for (int r = 0; r < 4; ++r)
+                Log("        %s[%d] = %9.4f %9.4f %9.4f %9.4f", names[mi], r,
+                    mats[mi]->m[r][0], mats[mi]->m[r][1], mats[mi]->m[r][2], mats[mi]->m[r][3]);
+
+        float w[4], v[4], p[4];
+        Mul4(c, g_world, w);
+        Mul4(w, g_viewAll, v);
+        Mul4(v, g_projAll, p);
+        const float wl = sqrtf(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
+        if (p[3] > 1e-5f)
+            Log("        centre: world (%.3f %.3f %.3f) az=%.1f el=%.1f -> view (%.3f %.3f %.3f) -> screen uv (%.3f, %.3f)",
+                w[0], w[1], w[2], wl > 1e-5f ? atan2f(w[1], w[0]) * 57.29578f : 0.0f,
+                wl > 1e-5f ? asinf(w[2] / wl) * 57.29578f : 0.0f, v[0], v[1], v[2],
+                p[0] / p[3] * 0.5f + 0.5f, -p[1] / p[3] * 0.5f + 0.5f);
+        else
+            Log("        centre: world (%.3f %.3f %.3f), behind the camera (w=%.4f)", w[0], w[1], w[2], p[3]);
+    }
+
+    void DetailDraw(IDirect3DDevice9* dev, const char* kind, D3DPRIMITIVETYPE prim, UINT pc,
+                    bool indexed, UINT first, UINT nv, const void* upData)
+    {
+        if (g_inRays)
+            return;
+        const bool early    = g_probe.draws < 300;
+        const bool boundary = g_probe.boundary != 0xFFFFFFFF && g_probe.draws <= g_probe.boundary + 40;
+        if (!early && !boundary)
+            return;
+        IDirect3DSurface9*     rt  = nullptr;
+        IDirect3DBaseTexture9* tex = nullptr;
+        IDirect3DPixelShader9* ps  = nullptr;
+        DWORD blend = 0, src = 0, dst = 0, zen = 0;
+        auto* d = dev->lpVtbl;
+        d->GetRenderTarget(dev, 0, &rt);
+        d->GetTexture(dev, 0, &tex);
+        d->GetPixelShader(dev, &ps);
+        d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        d->GetRenderState(dev, D3DRS_SRCBLEND, &src);
+        d->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+        d->GetRenderState(dev, D3DRS_ZENABLE, &zen);
+        DWORD zwrite = 0;
+        d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        char where[128] = "";
+        if (early)
+            SkyPosition(dev, indexed, first, nv, upData, where, sizeof(where));
+        Log("  [draw %4u] %-15s prim=%d prims=%u verts=%u tex0=%p ps=%p vs=%p blend=%u src=%u dst=%u z=%u zw=%u rt=%p%s",
+            g_probe.draws, kind, static_cast<int>(prim), pc, nv, tex, ps, g_vshader, blend, src, dst, zen, zwrite,
+            rt, where);
+        if (early && g_probe.draws < 8 && nv && nv <= 8)
+            DumpSkyDraw(dev, first, nv, upData);
+        if (rt)  rt->lpVtbl->Release(rt);
+        if (tex) tex->lpVtbl->Release(tex);
+        if (ps)  ps->lpVtbl->Release(ps);
+    }
+
+    HRESULT STDMETHODCALLTYPE hkSetRenderTarget(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* s)
+    {
+        // With Full Screen Glow the world is drawn into its own render target, and the first switch away
+        // from it -- still under the world's perspective projection -- is where the world ends.
+        if (idx == 0 && !g_inRays && !g_beamsDone && g_lastPersp &&
+            g_frameDraws >= static_cast<uint32_t>(g_cfg.rays.minWorldDraws))
+        {
+            IDirect3DSurface9* cur = nullptr;
+            dev->lpVtbl->GetRenderTarget(dev, 0, &cur);
+            if (cur && cur != s)
+                WorldEnded(dev, "render target switch");
+            if (cur) cur->lpVtbl->Release(cur);
+        }
+        if (g_probe.active && !g_inRays)
+            Log("  [draw %4u] SetRenderTarget %u -> %p", g_probe.draws, idx, s);
+        return g_oSetRT(dev, idx, s);
+    }
+
+    HRESULT STDMETHODCALLTYPE hkStretchRect(IDirect3DDevice9* dev, IDirect3DSurface9* src, const RECT* sr,
+                                            IDirect3DSurface9* dst, const RECT* dr, D3DTEXTUREFILTERTYPE f)
+    {
+        if (g_probe.active && !g_inRays)
+            Log("  [draw %4u] StretchRect     %p -> %p", g_probe.draws, src, dst);
+        return g_oStretchRect(dev, src, sr, dst, dr, f);
+    }
+
+    inline void CountDraw(IDirect3DDevice9* dev, const char* kind, D3DPRIMITIVETYPE prim, UINT pc,
+                          bool indexed = false, UINT first = 0, UINT nv = 0, const void* upData = nullptr)
+    {
+        g_frameDraws++;
         if (!g_probe.active)
             return;
+        DetailDraw(dev, kind, prim, pc, indexed, first, nv, upData);
         g_probe.draws++;
         if (g_fogEnable)
         {
@@ -594,23 +995,102 @@ namespace
         }
     }
 
+    // The sun in the sky. A probe of this client shows it as the first draw of the frame: a unit quad
+    // (4 vertices, 2-triangle strip, centred on the origin) with an identity world matrix and depth writes
+    // off, drawn under a special view matrix whose rotation is fixed and whose TRANSLATION is where the
+    // sun sits in camera space -- projected through the ordinary world projection it lands exactly on the
+    // sun disc (measured: view[3] = (0.30, 5.00, 10.91) -> screen (0.52, 0.15), with the sun top centre).
+    // So the quad's centre, origin * world * view, is the direction to the sun in camera space. Only the
+    // first few draws of a frame are looked at, and only until the sprite is found.
+    void NoteSkySun(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc, UINT nv)
+    {
+        if (g_sunSeen || g_inRays || g_frameDraws >= 8 || prim != D3DPT_TRIANGLESTRIP || pc != 2 || nv != 4)
+            return;
+
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c)
+                if (fabsf(g_world.m[r][c] - (r == c ? 1.0f : 0.0f)) > 1e-3f)
+                    return;
+        const float* t = g_viewAll.m[3];
+        if (t[0] * t[0] + t[1] * t[1] + t[2] * t[2] < 0.25f)
+            return;                      // a camera without the sun's offset: not the sprite
+        DWORD zwrite = 1;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        if (zwrite)
+            return;
+
+        const float origin[4] = { g_world.m[3][0], g_world.m[3][1], g_world.m[3][2], 1.0f };
+        float v[4];
+        Mul4(origin, g_viewAll, v);
+        if (v[2] * v[2] + v[1] * v[1] + v[0] * v[0] < 1e-6f)
+            return;
+        RaysSetSunView(v);
+        g_sunSeen = true;
+        if (g_probe.active)
+            Log("  [draw %4u] SKY SUN        camera-space (%.3f %.3f %.3f)", g_probe.draws, v[0], v[1], v[2]);
+    }
+
     HRESULT STDMETHODCALLTYPE hkDrawPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT sv, UINT pc)
     {
-        CountDraw();
+        NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
+        MaybeFireRays(dev);
+        CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         return g_oDrawPrim(dev, prim, sv, pc);
+    }
+
+    // The clouds, by elimination. The same probe that found the sun shows the sky as the first three draws
+    // of a frame: the sun quad, an untextured additive dome (the sky colour), then one textured,
+    // alpha-blended strip of ~177 vertices -- the cloud layer. All three leave depth writes off; the first
+    // draw that turns them on is terrain, and ends the sky phase. So a cloud is: still in the sky phase,
+    // blended, textured, a strip of more than 8 vertices (the sun is 4). The world matrix is deliberately
+    // not tested: a first version required identity and never matched -- the layer is rotated, or drawn
+    // under whatever world the previous draw left behind. With [sky] clouds = 0 it is simply not forwarded.
+    bool IsCloudDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT nv)
+    {
+        if (!g_skyPhase || g_inRays)
+            return false;
+        DWORD zwrite = 1;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        if (zwrite || g_frameDraws >= 16)
+        {
+            g_skyPhase = false;
+            return false;
+        }
+        if (prim != D3DPT_TRIANGLESTRIP || nv <= 8)
+            return false;
+        DWORD blend = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        if (!blend)
+            return false;
+        IDirect3DBaseTexture9* tex = nullptr;
+        dev->lpVtbl->GetTexture(dev, 0, &tex);
+        if (!tex)
+            return false;                          // the untextured dome is the sky colour: keep it
+        tex->lpVtbl->Release(tex);
+        return true;
     }
 
     HRESULT STDMETHODCALLTYPE hkDrawIndexedPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi,
                                                      UINT mvi, UINT nv, UINT si, UINT pc)
     {
-        CountDraw();
+        NoteSkySun(dev, prim, pc, nv);
+        if (!g_cfg.sky.clouds && IsCloudDraw(dev, prim, nv))
+        {
+            if (g_probe.active)
+                Log("  [draw %4u] CLOUDS         skipped (%u vertices)", g_probe.draws, nv);
+            CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
+            return S_OK;
+        }
+        MaybeFireRays(dev);
+        CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
     }
 
     HRESULT STDMETHODCALLTYPE hkDrawPrimitiveUP(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc,
                                                 const void* data, UINT stride)
     {
-        CountDraw();
+        MaybeFireRays(dev);
+        CountDraw(dev, "DrawPrimitiveUP", prim, pc, false, 0, VertsForPrims(prim, pc), data);
         return g_oDrawPrimUP(dev, prim, pc, data, stride);
     }
 
@@ -618,7 +1098,8 @@ namespace
                                                        UINT nv, UINT pc, const void* idx, D3DFORMAT fmt,
                                                        const void* data, UINT stride)
     {
-        CountDraw();
+        MaybeFireRays(dev);
+        CountDraw(dev, "DrawIndexedUP", prim, pc, true, 0, nv, data);
         return g_oDrawIdxPrimUP(dev, prim, mvi, nv, pc, idx, fmt, data, stride);
     }
 
@@ -664,8 +1145,12 @@ namespace
     {
         const bool ok =
             HookSlot(reinterpret_cast<void**>(&v->Present),                &hkPresent,                reinterpret_cast<void**>(&g_oPresent))       &&
+            HookSlot(reinterpret_cast<void**>(&v->BeginScene),             &hkBeginScene,             reinterpret_cast<void**>(&g_oBeginScene))    &&
             HookSlot(reinterpret_cast<void**>(&v->Reset),                  &hkReset,                  reinterpret_cast<void**>(&g_oReset))         &&
             HookSlot(reinterpret_cast<void**>(&v->SetRenderState),         &hkSetRenderState,         reinterpret_cast<void**>(&g_oSetRS))         &&
+            HookSlot(reinterpret_cast<void**>(&v->SetTransform),           &hkSetTransform,           reinterpret_cast<void**>(&g_oSetTransform))  &&
+            HookSlot(reinterpret_cast<void**>(&v->SetRenderTarget),        &hkSetRenderTarget,        reinterpret_cast<void**>(&g_oSetRT))         &&
+            HookSlot(reinterpret_cast<void**>(&v->StretchRect),            &hkStretchRect,            reinterpret_cast<void**>(&g_oStretchRect))   &&
             HookSlot(reinterpret_cast<void**>(&v->SetVertexShader),        &hkSetVertexShader,        reinterpret_cast<void**>(&g_oSetVS))         &&
             HookSlot(reinterpret_cast<void**>(&v->SetVertexShaderConstantF), &hkSetVertexShaderConstantF, reinterpret_cast<void**>(&g_oSetVSConstF)) &&
             HookSlot(reinterpret_cast<void**>(&v->DrawPrimitive),          &hkDrawPrimitive,          reinterpret_cast<void**>(&g_oDrawPrim))      &&

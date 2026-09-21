@@ -1,14 +1,59 @@
 # ComfyFogAndRays — design notes
 
-**Status: Part 1 (fog) built as `comfyfog.dll` and working on terrain; M2 (tree/character) fog via the
-`c30` shader constant just added, untested in game. Sun shafts not started.**
+**Status: working in game, all in one DLL (`comfyfog.dll`, sources in `src/`).** Fog, screen-space sun
+rays, world-space light shafts, cloud removal and time-of-day control. Everything is tuned from
+`comfyfog.ini` and reloads with F11. The sections below *What was found* are the original feasibility
+write-up, kept for the reasoning; where they disagree with *What was found*, the latter is what
+measurement showed.
 
-Answered by the first log: the client fogs linear (`FOGVERTEXMODE` 3), re-sets fog many times per frame
-(zone colour ↔ black for additive passes), and M2 shaders fog from `c30 = (-1/(end-start), end/(end-start))`.
+| Piece | File | Keys |
+| --- | --- | --- |
+| Fog: one `thickness` dial, haze floor + gentler climb | `comfyfog.cpp` | Shift+F11 toggle |
+| Screen rays: radial blur toward the sun, before the UI | `rays.cpp` | Ctrl+F11 toggle |
+| World shafts: beams on a world grid around the player | `beams.cpp` | Alt+F11 toggle |
+| Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | — |
+| Time of day: `[time] hour`, stepped in game | `timeofday.cpp` | Ctrl+PageUp/PageDown |
+| Diagnostics | all | F12 one-frame probe, Ctrl+F12 clock search |
 
-comfyfog: one `thickness` dial (0 = stock, 100 = heaviest) in `comfyfog.ini`. F11 reloads the ini,
-Shift+F11 toggles for A/B, F12 logs a frame of fog state. It waits for comfygrass to finish patching and
-chains on top, so it is the outer hook and grass sees the rewritten fog.
+## What was found (measured in this `WoW.exe`)
+
+**Fog.** Linear (`FOGVERTEXMODE` 3), re-set many times a frame (zone colour ↔ black for additive
+passes). M2s (trees, characters) fog in their vertex shaders from `c30 = (-1/(end-start), end/(end-start))`
+— read nothing else in all 19 shaders that use it. comfyfog waits for comfygrass to patch first and
+chains on top, so grass sees the rewritten fog.
+
+**World → UI boundary.** The first switch from a perspective to an orthographic projection each frame,
+after some world has been drawn (the client also flips at draw 0 with nothing drawn). `ZENABLE` is never
+set, so it is no marker. With **Full Screen Glow** on (the default) the world is drawn into an off-screen
+render target; after the switch the client blurs it and draws world + glow onto the back buffer in one
+unblended, pixel-shaded draw. Rays drawn at the switch were painted over — they now run just before the
+first back-buffer draw with no pixel shader (the first UI draw, glow on or off).
+
+**The sun is not the directional light.** The world light is a fixed direction (azimuth 45°, elevation
+28°, orange) that never follows the time. The visible sun is the **first draw of the frame**: a unit quad
+(4 vertices, strip, identity world, no depth writes) under a special view matrix whose *translation* is
+the sun's camera-space position. The world camera never has a translation (this client folds the camera
+into every world matrix), so views with one are excluded from the camera mirror.
+
+**The sky** is the first three draws: sun quad, untextured additive dome (sky colour), textured
+alpha-blended strip (~177 vertices, the clouds). All leave depth writes off; the first depth-writing draw
+is terrain. Clouds are skipped by that rule — an identity-world test never matched.
+
+**Game time** (Ctrl+F12 search against the minimap clock): `0x00CE9B60` int minutes, `0x00CE9B64`
+float day fraction (continuous), `0x00CE8574` float minutes. In the world the client rewrites them every
+frame between `BeginScene` and `Present`, so the chosen time is written at `BeginScene`, just before the
+sky reads it. A second pair at `0x00CE9D00/04` runs at the same rate 78 minutes behind — not understood,
+not written.
+
+**Why screen rays alone were not enough.** They are rebuilt from the image each frame, so they swing as
+the camera moves; a `parallel` blend was simulated and swings *more* (75° vs 58° over a ±40° pan), because
+the fan toward the sun already is the correct perspective of parallel shafts. What steadied them: a
+brightness reference eased over time (`adaptTime`), intensity by view angle (`viewFalloff`), a sharper
+falloff around the sun (`falloff`), and brightness relative to the frame's peak (`relThreshold`) — under a
+foggy canopy nothing reaches a fixed threshold (the fog colour itself sat at 0.33). The world shafts
+(`beams.cpp`) are the answer to "stays put while I look around": world-grid placement, depth-tested at the
+end of the world pass, screen-blended so they vanish against bright sky, faded out in the open by a canopy
+estimate from the top half of the frame.
 
 Goal: fog control and sun shafts (crepuscular rays) for the 1.12 client, in the same shape as
 [`comfygrass`](../comfygrass) — a DLL loaded by VanillaFixes from `dlls.txt`, hooking DXVK's
