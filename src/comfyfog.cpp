@@ -24,7 +24,6 @@
 #include "config.h"
 #include "rays.h"
 #include "beams.h"
-#include "timeofday.h"
 #include "depth.h"
 #include "shadow.h"
 #include "volume.h"
@@ -595,7 +594,6 @@ namespace
             {
                 LoadSettings(g_iniPath);
                 RaysReload();
-                TimeReload();
                 LogDial("reloaded");
                 ApplyAll(dev);
             }
@@ -603,32 +601,18 @@ namespace
         g_reloadDown = reload;
 
         const bool probe = focused && (GetAsyncKeyState(g_cfg.probeKey) & 0x8000) != 0;
-        if (probe && !g_probeDown)
-        {
-            if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
-                TimeScanStart();          // Ctrl+probe: look for the game clock (read-only)
-            else
-                g_probe.armed = true;
-        }
+        // Ctrl+F12 belongs to comfytime's clock search; only a plain press takes a probe.
+        if (probe && !g_probeDown && !(GetAsyncKeyState(VK_CONTROL) & 0x8000))
+            g_probe.armed = true;
         g_probeDown = probe;
-
-        // Ctrl+PageUp / Ctrl+PageDown: an hour forward / back, while [time] is on.
-        static bool upDown = false, dnDown = false;
-        const bool ctrl = focused && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool up = ctrl && (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0;
-        const bool dn = ctrl && (GetAsyncKeyState(VK_NEXT) & 0x8000) != 0;
-        if (up && !upDown) TimeStep(+1.0f);
-        if (dn && !dnDown) TimeStep(-1.0f);
-        upDown = up; dnDown = dn;
     }
 
-    // The first call of a frame's rendering: the last chance to put the chosen time in place before the
-    // sky is drawn from it.
+    // The first call of a frame's rendering: the readable depth buffer goes in, and the shadow
+    // recording opens.
     HRESULT STDMETHODCALLTYPE hkBeginScene(IDirect3DDevice9* dev)
     {
         if (!g_inRays)
         {
-            TimeApply("BeginScene");
             DepthBeginScene(dev);
             if (!g_beamsDone)
                 ShadowSetPhase(true);
@@ -669,8 +653,6 @@ namespace
         g_skyPhase  = true;
 
         PollKeys(dev);
-        TimeScanTick();
-        TimeApply("Present");
 
         g_frame++;
         if (g_probe.armed)

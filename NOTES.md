@@ -1,7 +1,8 @@
 # ComfyFogAndRays — design notes
 
 **Status: working in game, all in one DLL (`comfyfog.dll`, sources in `src/`).** Fog, screen-space sun
-rays, world-space light shafts, cloud removal and time-of-day control. Everything is tuned from
+rays, volumetric light (depth + sun shadow map + ray-march), and cloud removal. Time-of-day control, first
+built here, is now its own DLL: comfytime (https://github.com/aloofbit/comfytime). Everything is tuned from
 `comfyfog.ini` and reloads with F11. The sections below *What was found* are the original feasibility
 write-up, kept for the reasoning; where they disagree with *What was found*, the latter is what
 measurement showed.
@@ -12,8 +13,7 @@ measurement showed.
 | Screen rays: radial blur toward the sun, before the UI | `rays.cpp` | Ctrl+F11 toggle |
 | World shafts: beams on a world grid around the player | `beams.cpp` | Alt+F11 toggle |
 | Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | — |
-| Time of day: `[time] hour`, stepped in game | `timeofday.cpp` | Ctrl+PageUp/PageDown |
-| Diagnostics | all | F12 one-frame probe, Ctrl+F12 clock search |
+| Diagnostics | all | F12 one-frame probe |
 
 ## What was found (measured in this `WoW.exe`)
 
@@ -39,7 +39,7 @@ into every world matrix), so views with one are excluded from the camera mirror.
 alpha-blended strip (~177 vertices, the clouds). All leave depth writes off; the first depth-writing draw
 is terrain. Clouds are skipped by that rule — an identity-world test never matched.
 
-**Game time** (Ctrl+F12 search against the minimap clock): `0x00CE9B60` int minutes, `0x00CE9B64`
+**Game time** -- now in comfytime -- (Ctrl+F12 search against the minimap clock): `0x00CE9B60` int minutes, `0x00CE9B64`
 float day fraction (continuous), `0x00CE8574` float minutes. In the world the client rewrites them every
 frame between `BeginScene` and `Present`, so the chosen time is written at `BeginScene`, just before the
 sky reads it. A second pair at `0x00CE9D00/04` runs at the same rate 78 minutes behind — not understood,

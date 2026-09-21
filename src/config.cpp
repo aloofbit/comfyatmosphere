@@ -11,7 +11,6 @@ namespace
     const wchar_t* kFog     = L"fog";
     const wchar_t* kRays    = L"rays";
     const wchar_t* kBeams   = L"beams";
-    const wchar_t* kTime    = L"time";
     const wchar_t* kSky     = L"sky";
     const wchar_t* kDepth   = L"depth";
     const wchar_t* kShadow  = L"shadow";
@@ -153,11 +152,6 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.size < 256)  s.shadow.size = 256;
     if (s.shadow.size > 4096) s.shadow.size = 4096;
 
-    s.time.enabled      = GetB(kTime, L"enabled", s.time.enabled, ini);
-    s.time.hour         = Clamp(GetF(kTime, L"hour", s.time.hour, ini), 0.0f, 24.0f);
-    s.time.addrMinutes  = GetX(kTime, L"addrMinutes",  s.time.addrMinutes,  ini);
-    s.time.addrFraction = GetX(kTime, L"addrFraction", s.time.addrFraction, ini);
-    s.time.addrMinutesF = GetX(kTime, L"addrMinutesF", s.time.addrMinutesF, ini);
 
     s.logEnabled  = GetB(kGeneral, L"log",         s.logEnabled,  ini);
     s.hook        = GetB(kGeneral, L"hook",        s.hook,        ini);
