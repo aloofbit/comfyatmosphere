@@ -1,12 +1,12 @@
 # comfyatmosphere
 
-> **Very early alpha.** This has only been tested on one computer -- mine -- with one 1.12 client
+> **Very early alpha.** This has only been tested on one computer (mine) with one 1.12 client
 > build (VanillaFixes + DXVK). It hooks deep into the game's rendering. Expect bugs, back up your client
 > folder first, and if anything goes wrong just remove the `comfyfog.dll` line from `dlls.txt`.
 
 Atmosphere for the World of Warcraft 1.12 client: thicker, moodier fog, sun rays, and volumetric light
-that glows through the trees. One DLL and one ini file -- `comfyfog.dll` and
-`comfyfog.ini`, named for where it started -- tuned live in game.
+that glows through the trees. It is one DLL and one ini file, tuned live in game:
+`comfyfog.dll` and `comfyfog.ini`, named for where it started.
 
 [![Sun shafts through the forest canopy, in game. Click for the full video.](media/comfyatmosphere.gif)](media/comfyatmosphere.mp4)
 
@@ -71,10 +71,10 @@ How it all works, what was measured in the client along the way, and what did no
 
 ## Time of day
 
-Setting the time of day -- to test the light at noon, or to keep the sun where you like it -- is a separate
-DLL, [comfytime](https://github.com/aloofbit/comfytime). The sun rays and the volumetric light follow the sun
+Setting the time of day, to test the light at noon or to keep the sun where you like it, is a separate
+DLL: [comfytime](https://github.com/aloofbit/comfytime). The sun rays and the volumetric light follow the sun
 drawn in the sky, so they move with whatever time comfytime sets.
 
 ## Licence
 
-GPL-3.0 -- see [LICENSE](LICENSE).
+GPL-3.0. See [LICENSE](LICENSE).
