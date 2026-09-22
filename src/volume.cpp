@@ -686,10 +686,6 @@ void VolumeDraw(IDirect3DDevice9* dev)
         const char* sDiff = ShadowChanges(sChanged);
         float sNear = 0.0f, sFar = 0.0f;
         ShadowWorldCameraPlanes(sNear, sFar);
-        unsigned vbChecked = 0, vbChanged = 0;
-        const char* vbInfo = ShadowBufferCheck(vbChecked, vbChanged);
-        Log("volume: trace shadow buffers: %u sampled this frame, %u changed in the trace so far. %s",
-            vbChecked, vbChanged, vbInfo);
         Log("volume: trace shadow world camera near %.2f far %.0f; %s", sNear, sFar, ShadowFrameInfo());
         Log("volume: trace shadow off-world records dropped %u; inputs changed in %u entries; biggest: %s",
             ShadowOffWorld(), sChanged, sDiff);
@@ -849,7 +845,7 @@ void VolumeToggle()
 void VolumeProbe()
 {
     g_logNext = true;
-    g_trace   = 180;
+    g_trace   = g_cfg.trace ? 180 : 0;   // [general] trace = 1 for the frame-by-frame one
 }
 
 void VolumeFrameEnd()
