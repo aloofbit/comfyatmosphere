@@ -68,6 +68,7 @@ float4 gSh3  : register(c7);
 float4 gSun  : register(c8);        // direction to the sun, phase anisotropy g
 float4 gP    : register(c9);        // debug stage, max distance, density, shadow bias
 float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
+float4 gL    : register(c11);       // steps along the ray, 1 / steps
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
@@ -101,18 +102,24 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float  bias  = gP.w * (1.0 + min(slope, 20.0));
 
     float  acc = 0.0;
-    [loop] for (int i = 0; i < 32; ++i)
+    [loop] for (int i = 0; i < gL.x; ++i)
     {
-        float3 s   = lerp(s0, s1, (i + jit) / 32.0);
+        float3 s   = lerp(s0, s1, (i + jit) * gL.y);
         float2 suv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
-        acc += (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
+        float  hit = (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
+        // The map ends at a hard line, and a caster crossing it used to gain or lose its shade in one
+        // frame: flashes in the distance as you walked. Shadowing fades out over the last tenth of the
+        // map instead, so a caster dissolves in and out.
+        float2 d   = abs(s.xy);
+        float  inMap = saturate((1.0 - max(d.x, d.y)) * 10.0);
+        acc += lerp(1.0, hit, inMap);
     }
 
     if (gP.x > 5.5)
         return float4(tex2Dlod(sShadow, float4(uv, 0, 0)).r, 0.0, 0.0, 1.0);   // debug 6: the shadow map
     if (gP.x > 4.5)
-        return float4(acc / 32.0, 0.0, 0.0, 1.0);                         // debug 5: share of the ray in sun
-    float lit   = acc / 32.0 * len * gP.z;
+        return float4(acc * gL.y, 0.0, 0.0, 1.0);                         // debug 5: share of the ray in sun
+    float lit   = acc * gL.y * len * gP.z;
     float c     = dot(dir, gSun.xyz);
     float g     = gSun.w;
     float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5);
@@ -595,7 +602,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     const float half[4] = { -1.0f / g_a.w, 1.0f / g_a.h, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
     const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
-    float pc[44];
+    float pc[48];
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -608,7 +615,9 @@ void VolumeDraw(IDirect3DDevice9* dev)
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
     pc[40] = minZ; pc[41] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f; pc[42] = 0.0f; pc[43] = 0.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 11);
+    const float steps = static_cast<float>(v.steps);
+    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = 0.0f; pc[47] = 0.0f;
+    d->SetPixelShaderConstantF(dev, 0, pc, 12);
     const ClipVertex q[4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
         {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
@@ -817,6 +826,12 @@ void VolumeDraw(IDirect3DDevice9* dev)
         Log("volume: drawn at %ux%u (%.2f ms CPU to issue), gain %.2f, density %.3f, max distance %.0f yards, "
             "sun (%.2f %.2f %.2f)", g_a.w, g_a.h, 1000.0 * (Now() - t0), gain, v.density, v.maxDistance,
             sunDir[0], sunDir[1], sunDir[2]);
+}
+
+bool VolumeActive()
+{
+    const VolumeSettings& v = g_cfg.volume;
+    return v.enabled && g_on && !g_failed && (v.strength > 0.0f || v.debug);
 }
 
 void VolumeReset()

@@ -101,6 +101,28 @@ turned a little every frame and everything in it shifted. The direction is taken
 moved, 0.05 degrees. `[shadow] snap` holds the map on whole texels of its own grid as well; it is off by
 default, because it steps visibly as you walk and the sun fix removed most of what it was for.
 
+**The client streams its terrain and buildings through a buffer it re-fills.** A cached entry is a
+pointer into that buffer, so it holds someone else's geometry by the end of the frame: the abbey cast
+nothing, and a mountain 150 yards away flickered as the odd frame survived. The vertices themselves do
+not change, so a chunk is copied once into a buffer of our own, keyed by its size and where it stands
+rather than by its address, which is different every frame. Reading the client's memory back is slow, so
+`copyPerFrame` (2) are taken a frame and `copyMax` (768) are kept; the shade fills in over a few seconds
+and then stays. Measured at the abbey: entries overwritten under us fell from about 100 a frame to 11.
+
+**What the map cannot see is not drawn into it, but only for the models.** Replaying the whole cache cost
+6 to 9 ms of CPU a frame, which the game felt. A model's own point sits on its geometry, so it culls
+honestly; one terrain chunk covers so much ground that its point can sit outside the map while its
+geometry crosses the middle, and culling those took the shade out from under that mountain. Terrain and
+buildings are a couple of hundred entries, so they are always drawn.
+
+**The map is only for the light.** With volumetric light off, the map was still being built: Alt+F11
+looked like it saved nothing because the expensive half was still running.
+
+The rest of what the cost report shows, measured in Elwynn with the settings the ini ships with: the
+light costs little against the client's own 17 to 21 ms a frame, `mapEvery` 2 halves the replay for no
+visible difference, and `cacheTime` is worth more than it looks: 30 seconds of history held 5000 entries
+where 10 seconds holds 600, because a tree is several batches and every level of detail is its own.
+
 What the light still does not do: the glow is smoothed over time (`[volume] smooth`, eased off as the
 camera turns) because the march is noisy and the map changes under it; and the bias grows with how
 steeply a line of sight runs into the map, without which a low sun flickered badly around itself.

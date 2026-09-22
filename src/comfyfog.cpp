@@ -495,7 +495,10 @@ namespace
         g_worldEnded = true;
         DepthWorldEnded(dev);
         g_inRays = true;
-        ShadowWorldEnded(dev);
+        if (VolumeActive())          // the map costs more than the light does; it is only for the light
+            ShadowWorldEnded(dev);
+        else
+            ShadowNoReplay();        // so the cost report does not keep showing the last one
         VolumeDraw(dev);
         g_inRays = false;
         if (g_probe.active)
@@ -613,7 +616,7 @@ namespace
         {
             DepthBeginScene(dev);
             if (!g_worldEnded)
-                ShadowSetPhase(true);
+                ShadowSetPhase(VolumeActive());
         }
         return g_oBeginScene(dev);
     }
@@ -640,6 +643,38 @@ namespace
         // so the finished frame is exactly the world and the pass can run here.
         if (g_raysArmed)
             FireRays(dev, "at Present (no UI draw followed)");
+        // What the whole thing costs, measured on ordinary frames: the probe's own readbacks make its
+        // numbers meaningless, and a mod that hitches is worse than one that does nothing.
+        {
+            static double last = 0.0, worstFrame = 0.0, sumFrame = 0.0, sumShadow = 0.0, worstShadow = 0.0;
+            static unsigned frames = 0, sumDrawn = 0, sumSkipped = 0;
+            const double now = Now();
+            if (last > 0.0)
+            {
+                const double dt = now - last;
+                sumFrame += dt;
+                if (dt > worstFrame) worstFrame = dt;
+                unsigned drawn = 0, skipped = 0;
+                const double sh = ShadowReplaySeconds(drawn, skipped);
+                sumShadow += sh;
+                if (sh > worstShadow) worstShadow = sh;
+                sumDrawn += drawn;
+                sumSkipped += skipped;
+                if (++frames >= 300)
+                {
+                    unsigned copyFailed = 0;
+                    const unsigned copies = ShadowCopies(copyFailed);
+                    Log("cost: %.1f fps (%.2f ms/frame, worst %.2f), shadow replay %.2f ms (worst %.2f), "
+                        "%u casters drawn, %u outside the map, %u shader registers each, %u copied chunks (%u failed)",
+                        frames / sumFrame, 1000.0 * sumFrame / frames, 1000.0 * worstFrame,
+                        1000.0 * sumShadow / frames, 1000.0 * worstShadow, sumDrawn / frames,
+                        sumSkipped / frames, g_maxConstReg, copies, copyFailed);
+                    frames = 0; sumFrame = sumShadow = worstFrame = worstShadow = 0.0;
+                    sumDrawn = sumSkipped = 0;
+                }
+            }
+            last = now;
+        }
         RaysPresent(dev);
         ShadowFrameEnd();
         VolumeFrameEnd();

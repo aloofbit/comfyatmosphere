@@ -932,7 +932,21 @@ bool RaysSunDirection(float dir[3])
     }
     if (!g_haveSun)
         return false;
-    memcpy(dir, g_sunDir, sizeof(g_sunDir));
+
+    // The sprite is measured afresh every frame and the measurement is noisy: standing still, with the
+    // camera still and the time pinned, the direction wandered in the fifth decimal. Everything here is
+    // built around it, so that wander turned the shadow map a little each frame and moved the point the
+    // shafts come from. The direction is taken only once it has really moved, 0.05 degrees, which a
+    // minute of sun passes easily.
+    static float stable[3] = { 0.0f, 0.0f, 0.0f };
+    static bool  have = false;
+    const float dot = stable[0] * g_sunDir[0] + stable[1] * g_sunDir[1] + stable[2] * g_sunDir[2];
+    if (!have || dot < 0.9999996f)
+    {
+        memcpy(stable, g_sunDir, sizeof(stable));
+        have = true;
+    }
+    memcpy(dir, stable, sizeof(stable));
     return true;
 }
 

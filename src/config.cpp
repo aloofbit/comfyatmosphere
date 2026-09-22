@@ -113,6 +113,15 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
     s.shadow.horizon    = GetB(kShadow, L"horizon", s.shadow.horizon, ini);
+    s.shadow.copyPerFrame = GetI(kShadow, L"copyPerFrame", s.shadow.copyPerFrame, ini);
+    s.shadow.copyMax      = GetI(kShadow, L"copyMax", s.shadow.copyMax, ini);
+    if (s.shadow.copyPerFrame < 0)  s.shadow.copyPerFrame = 0;
+    if (s.shadow.copyPerFrame > 16) s.shadow.copyPerFrame = 16;
+    if (s.shadow.copyMax < 0)       s.shadow.copyMax = 0;
+    if (s.shadow.copyMax > 4096)    s.shadow.copyMax = 4096;
+    s.shadow.mapEvery   = GetI(kShadow, L"mapEvery", s.shadow.mapEvery, ini);
+    if (s.shadow.mapEvery < 1) s.shadow.mapEvery = 1;
+    if (s.shadow.mapEvery > 8) s.shadow.mapEvery = 8;
     s.shadow.snap       = GetB(kShadow, L"snap", s.shadow.snap, ini);
     s.shadow.cacheTime  = Clamp(GetF(kShadow, L"cacheTime", s.shadow.cacheTime, ini), 0.0f, 600.0f);
     s.shadow.evictDistance = Clamp(GetF(kShadow, L"evictDistance", s.shadow.evictDistance, ini), 1.0f, 500.0f);
@@ -121,6 +130,9 @@ void LoadSettings(const wchar_t* ini)
     s.volume.maxIntensity = Clamp(GetF(kVolume, L"maxIntensity", s.volume.maxIntensity, ini), 0.0f, 20.0f);
     s.volume.density      = Clamp(GetF(kVolume, L"density",      s.volume.density,      ini), 0.0f, 1.0f);
     s.volume.smooth       = Clamp(GetF(kVolume, L"smooth", s.volume.smooth, ini), 0.0f, 0.95f);
+    s.volume.steps        = GetI(kVolume, L"steps", s.volume.steps, ini);
+    if (s.volume.steps < 8)   s.volume.steps = 8;
+    if (s.volume.steps > 128) s.volume.steps = 128;
     s.volume.maxDistance  = Clamp(GetF(kVolume, L"maxDistance",  s.volume.maxDistance,  ini), 1.0f, 1000.0f);
     s.volume.anisotropy   = Clamp(GetF(kVolume, L"anisotropy",   s.volume.anisotropy,   ini), 0.0f, 0.95f);
     s.volume.bias         = Clamp(GetF(kVolume, L"bias",         s.volume.bias,         ini), 0.0f, 20.0f);
