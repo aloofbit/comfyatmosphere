@@ -1,14 +1,14 @@
-// depth -- a depth buffer the shaders can read.
+// depth: a depth buffer the shaders can read.
 //
 // Volumetric light needs to know, for every pixel, how far the view ray travels through the fog before
-// it hits something -- the scene's depth. D3D9 depth buffers cannot be sampled, but the driver-level
+// it hits something: the scene's depth. D3D9 depth buffers cannot be sampled, but the driver-level
 // INTZ format is a depth-stencil (24-bit depth, 8-bit stencil) that is ALSO a texture, and DXVK supports
 // it. So the client's depth buffer is swapped for an INTZ one of the same size: the client draws into it
 // exactly as before, and afterwards the pass can read it.
 //
 // The swap: at BeginScene, and whenever the client binds a depth surface, a client D24S8-style surface is
 // replaced by an INTZ texture's surface of the same size (made once per client surface, kept in a small
-// map). Multisampled surfaces are left alone -- a texture cannot be multisampled, and the render target
+// map). Multisampled surfaces are left alone: a texture cannot be multisampled, and the render target
 // would no longer match. Every INTZ texture is released before Reset.
 //
 // NOTES.md deferred this as the risky part of the rays work; it is behind [depth] enabled so it can be
@@ -66,7 +66,7 @@ namespace
                                                           D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, kINTZ);
         d3d->lpVtbl->Release(d3d);
         g_supported = SUCCEEDED(hr);
-        Log("depth: INTZ %s (hr=0x%08X)", g_supported ? "supported" : "NOT supported -- depth stays unreadable", hr);
+        Log("depth: INTZ %s (hr=0x%08X)", g_supported ? "supported" : "NOT supported, depth stays unreadable", hr);
         return g_supported;
     }
 
@@ -108,7 +108,7 @@ namespace
             return nullptr;
         if (desc.MultiSampleType != D3DMULTISAMPLE_NONE)
         {
-            Log("depth: client depth surface %p is multisampled (%d) -- left alone, depth stays unreadable",
+            Log("depth: client depth surface %p is multisampled (%d): left alone, depth stays unreadable",
                 client, static_cast<int>(desc.MultiSampleType));
             return nullptr;
         }
@@ -149,7 +149,7 @@ void DepthBeginScene(IDirect3DDevice9* dev)
         return;
     if (!g_cfg.depth.enabled)
     {
-        // Switched off mid-session: hand the client its own surface back -- it may never rebind it itself.
+        // Switched off mid-session: hand the client its own surface back. It may never rebind it itself.
         for (int i = 0; i < g_swapCount; ++i)
             if (g_swaps[i].surf == cur)
                 dev->lpVtbl->SetDepthStencilSurface(dev, g_swaps[i].client);
@@ -182,7 +182,7 @@ void DepthWorldEnded(IDirect3DDevice9* dev)
         g_logNext = false;
         D3DSURFACE_DESC d = {};
         cur->lpVtbl->GetDesc(cur, &d);
-        Log("depth: world ended with depth %p (%ux%u, format 0x%08X) -- %s", cur, d.Width, d.Height,
+        Log("depth: world ended with depth %p (%ux%u, format 0x%08X): %s", cur, d.Width, d.Height,
             static_cast<unsigned>(d.Format), g_worldTex ? "our INTZ, readable" : "NOT ours, unreadable");
     }
     cur->lpVtbl->Release(cur);

@@ -1,4 +1,4 @@
-// beams -- light shafts that live in the world, around the player.
+// beams: light shafts that live in the world, around the player.
 //
 // The screen-space rays (rays.cpp) are rebuilt from the current image every frame, so as the camera moves
 // they move with it: new sky enters the mask, the sun slides across the screen and the whole fan swings.
@@ -7,28 +7,28 @@
 //
 //   Placement   A grid of `spacing` yards. A hash of each cell's WORLD coordinates decides whether it
 //               holds a beam, and its jitter, height, width, taper, brightness and whether it is a cluster
-//               of thin shafts -- so a beam belongs to a place, not to the player: walking brings new
+//               of thin shafts. So a beam belongs to a place, not to the player: walking brings new
 //               cells into range (faded in by distance) and leaves others behind.
 //   Shape       Each ribbon lies along the sun direction and turns about that axis to face the camera, so
 //               it reads as a shaft from any angle. It tapers toward the top (light spreads below a gap),
 //               and the pixel shader gives it a soft cross-section, fading it in at the base and out
 //               toward the top.
 //   Occlusion   Drawn at the end of the world pass, depth-tested against the world's own depth buffer and
-//               not writing it -- so trees and hills in front hide the shafts. comfyfog.cpp calls in at
+//               not writing it, so trees and hills in front hide the shafts. comfyfog.cpp calls in at
 //               the moment the world finishes: before the client switches away from its world render
 //               target (Full Screen Glow on) or at the switch to 2D (glow off). With glow on, the shafts
 //               land in the world texture and get the client's glow like everything else.
 //   Blending    "Screen", not add: result = shaft * (1 - background) + background. A shaft is visible
-//               against shade and dark trunks and all but vanishes against bright sky -- which is how real
+//               against shade and dark trunks and all but vanishes against bright sky, which is how real
 //               shafts look, and why they no longer hang in clear sky.
 //   Canopy      Shafts need something to cast them: in the open there are none. The top half of the frame
-//               tells the two apart -- under trees it is dark leaves with a few bright gaps, in the open it
-//               is evenly bright sky -- so canopy = 1 - mean/peak of its luminance, reduced on the GPU and
+//               tells the two apart: under trees it is dark leaves with a few bright gaps, in the open it
+//               is evenly bright sky. So canopy = 1 - mean/peak of its luminance, reduced on the GPU and
 //               eased over a few seconds. The beam shader reads it and fades the shafts out in the open.
 //               Nothing is read back to the CPU (except on the probe frame, for the log).
 //   Brightness  Sunlight scatters forward, so a shaft is brightest seen against the sun and faint seen
 //               with the sun behind you. Plus: near the camera (no smear when one passes through you), at
-//               the edge of the area, at sunset, and indoors -- where the sky's sun sprite is not drawn.
+//               the edge of the area, at sunset, and indoors, where the sky's sun sprite is not drawn.
 //
 // Positions: this client renders camera-relative (see comfygrass's README). The camera's world position
 // and the local player come out of the client (addresses verified for this WoW.exe by comfygrass), the
@@ -396,7 +396,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         ok = ok && SUCCEEDED(dev->lpVtbl->CreateStateBlock(dev, D3DSBT_ALL, &g_sb)) && g_sb;
         if (!ok)
         {
-            Log("beams: could not create render targets or the state block -- beams off until reset or reload");
+            Log("beams: could not create render targets or the state block; beams off until reset or reload");
             ReleaseDefaultPool();
         }
         return ok;
@@ -518,7 +518,7 @@ bool BeamsDraw(IDirect3DDevice9* dev, bool sunSeenThisFrame)
     float camA[3], plA[3];
     if (!RaysSunDirection(sunDir) || !RaysCamera(view, proj) || !ClientCamera(camA))
     {
-        if (logThis) Log("beams: skipped -- no sun, camera matrices or camera position yet");
+        if (logThis) Log("beams: skipped: no sun, camera matrices or camera position yet");
         return false;
     }
     const bool havePlayer = ClientPlayer(plA);
@@ -560,7 +560,7 @@ bool BeamsDraw(IDirect3DDevice9* dev, bool sunSeenThisFrame)
         world->lpVtbl->GetDesc(world, &rd);
         if (depth) depth->lpVtbl->GetDesc(depth, &dd);
         Log("beams: %d ribbons, gain %.2f (outdoor %.2f, sunset %.2f), player %s (%.1f %.1f %.1f), camera (%.1f %.1f %.1f)",
-            n, gain, g_outdoor, sunset, havePlayer ? "read" : "NOT read -- using camera", player.x, player.y,
+            n, gain, g_outdoor, sunset, havePlayer ? "read" : "NOT read, using camera", player.x, player.y,
             player.z, cam.x, cam.y, cam.z);
         Log("beams: drawn into rt=%p %ux%u fmt=%d with depth=%p %ux%u fmt=%d%s", world, rd.Width, rd.Height,
             static_cast<int>(rd.Format), depth, dd.Width, dd.Height, static_cast<int>(dd.Format),
