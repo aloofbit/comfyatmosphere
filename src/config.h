@@ -101,7 +101,12 @@ struct ShadowSettings
     bool  enabled = false;
     int   size    = 2048;     // texels per side
     float range   = 90.0f;    // yards covered either side of the player
-    float depth   = 300.0f;   // yards toward and away from the sun
+    float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
+    bool  horizon       = true;   // keep the far-horizon draws: distant terrain can shade you too. They
+                                  // are drawn with a camera of their own, which only matters for the
+                                  // shader models, so those are still left out.
+    bool  snap          = false;  // hold the map on whole texels of its own grid: steadier standing
+                                  // still, but it steps as you walk, which reads worse
     float cacheTime     = 30.0f;  // seconds a caster out of view is kept
     float evictDistance = 20.0f;  // yards: a caster in view this near that was not drawn is gone
 };
@@ -114,6 +119,10 @@ struct VolumeSettings
     float maxIntensity = 3.0f;      // gain at 100
     float density      = 0.03f;     // how much the air scatters, per yard
     float maxDistance  = 75.0f;     // yards along each line of sight (the shadow map's reach)
+    float smooth       = 0.6f;      // 0..0.95: how much of the last frame's glow is kept. The march is
+                                    // noisy and the map changes under it, and the light jittered as you
+                                    // walked; it is eased back toward 0 while the camera moves, so a turn
+                                    // does not smear.
     float anisotropy   = 0.15f;     // 0 = glows the same from every side, toward 1 = only toward the sun
     float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
     int   downscale    = 2;         // work at 1/N resolution per axis

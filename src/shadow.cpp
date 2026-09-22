@@ -346,6 +346,7 @@ namespace
         Rec                rec;            // references owned by the entry
         D3DMATRIX          absolute;       // fixed-function: world, absolute; shader: A, bones -> absolute
         std::vector<float> consts;         // shader draws: the constants snapshot
+        bool               mobile;         // matched by the moving rule: it goes when it stops being drawn
         uint64_t           seq;            // writes seen when its geometry was last recorded
         float              pos[3];         // absolute position of its reference point
         double             lastSeen;       // == now once matched this frame
@@ -356,6 +357,11 @@ namespace
     size_t           g_entries = 0;
     constexpr size_t kMaxCache = 5000;
     constexpr float  kMatchRadius = 3.0f;   // yards a recorded draw may be from an instance and still be it
+    // Anything that moves faster than kMatchRadius a frame looked like a new object every frame: a bird
+    // flying by at 3.5 yards a frame left a new caster in the map each time, a trail of birds that all
+    // shaded the air until they aged out. So when nothing is near enough, an instance of the same model
+    // that the client did NOT draw this frame, within this much, is taken to be it, moved.
+    constexpr float  kMoveRadius = 60.0f;
 
     // Refreshed / added / evicted this frame, for the probe.
     UINT g_nRefreshed = 0, g_nAdded = 0, g_nEvictView = 0, g_nEvictAge = 0, g_nEvictCap = 0;
@@ -438,6 +444,7 @@ namespace
     // The absolute transform derived for the frame's first M2 record, against the camera's own rotation:
     // if an entry's frame of reference is the camera, keeping it across frames cannot work.
     char g_frameInfo[360] = {};
+    char g_frameInfo2[240] = {};
 
     // Refreshed entries whose replay inputs changed since last frame, for the volume trace: how many,
     // and the biggest change.
@@ -485,11 +492,17 @@ namespace
             // Taken out of the camera with the WORLD camera, such a draw lands in the wrong place at the
             // wrong scale: in the shadow map, a huge caster near the sun that covered a third of the map
             // on some frames and made the volumetric light blink off. Only world draws are kept.
+            // A fixed-function draw carries its own world matrix, and the client renders camera-relative
+            // from one camera position, so which projection drew it does not matter: the far horizon
+            // converts as well as the world does, and a ridge between you and the sun can shade you. A
+            // shader draw is different: its transform is folded into c2..c5 with the camera that drew it,
+            // and taking the wrong camera out of that is what put a huge caster in the map.
             const bool offSlice = r.minZ != g_worldMinZ || r.maxZ != g_worldMaxZ;
             const bool offCam   = r.hasProj && g_haveWorldCam &&
                                   (r.proj00 != g_worldProj.m[0][0] || r.proj22 != g_worldProj.m[2][2] ||
                                    r.proj32 != g_worldProj.m[3][2]);
-            if (offSlice || offCam)
+            const bool keep     = g_cfg.shadow.horizon && !r.vs;
+            if ((offSlice || offCam) && !keep)
             {
                 if (g_dropInfoCount < 5)   // the trace: what the world filter throws away
                 {
@@ -553,6 +566,19 @@ namespace
                 const float d2 = dx * dx + dy * dy + dz * dz;
                 if (d2 <= bestD2) { bestD2 = d2; best = &cand; }
             }
+            bool moved = false;
+            if (!best)
+            {
+                float moveD2 = kMoveRadius * kMoveRadius;
+                for (Entry& cand : list)
+                {
+                    if (cand.lastSeen == now)
+                        continue;
+                    const float dx = cand.pos[0] - pos[0], dy = cand.pos[1] - pos[1], dz = cand.pos[2] - pos[2];
+                    const float d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 <= moveD2) { moveD2 = d2; best = &cand; moved = true; }
+                }
+            }
             if (best)
             {
                 // Seen again: fresh position, matrices, constants and alpha state; same objects referenced.
@@ -593,6 +619,7 @@ namespace
                     best->consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + 256 * 4);
                 best->rec.alphaTest = r.alphaTest; best->rec.alphaRef = r.alphaRef; best->rec.alphaFunc = r.alphaFunc;
                 best->seq = r.seq;
+                best->mobile = best->mobile || moved;
                 best->lastSeen = now;
                 ReleaseRec(r);
                 ++g_nRefreshed;
@@ -603,6 +630,7 @@ namespace
                 if (r.vs)
                     e.consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + 256 * 4);
                 memcpy(e.pos, pos, sizeof(pos));
+                e.mobile = false;
                 e.seq = r.seq;
                 e.lastSeen = now;
                 list.push_back(std::move(e));
@@ -615,8 +643,9 @@ namespace
                     const float sx = sqrtf(a.m[0][0] * a.m[0][0] + a.m[0][1] * a.m[0][1] + a.m[0][2] * a.m[0][2]);
                     const float sz = sqrtf(a.m[2][0] * a.m[2][0] + a.m[2][1] * a.m[2][1] + a.m[2][2] * a.m[2][2]);
                     g_newInfoLen += _snprintf_s(g_newInfo + g_newInfoLen, sizeof(g_newInfo) - g_newInfoLen, _TRUNCATE,
-                        " [%s %uv %up at (%.0f %.0f %.0f) from camera, scale %.3g/%.3g]", r.vs ? "M2" : "ff",
-                        r.numVertices, r.primCount, pos[0] - cam[0], pos[1] - cam[1], pos[2] - cam[2], sx, sz);
+                        " [%s %uv %up at (%.0f %.0f %.0f) vb %p base %d min %u start %u scale %.3g/%.3g]",
+                        r.vs ? "M2" : "ff", r.numVertices, r.primCount, pos[0] - cam[0], pos[1] - cam[1],
+                        pos[2] - cam[2], r.vb[0], r.baseVertex, r.minIndex, r.startIndex, sx, sz);
                 }
                 if (g_samplesLeft > 0 && r.vs)
                 {
@@ -671,8 +700,10 @@ namespace
                     {
                         gone = true; ++g_nEvictView;
                     }
-                    else if (now - e.lastSeen > s.cacheTime)
+                    else if (e.mobile || now - e.lastSeen > s.cacheTime)
                     {
+                        // Something that moves is gone the moment it stops being drawn: its shade belongs
+                        // where it is now, not where it was.
                         gone = true; ++g_nEvictAge;
                     }
                 }
@@ -925,6 +956,11 @@ const char* ShadowFrameInfo()
     return g_frameInfo;
 }
 
+const char* ShadowMapCentre()
+{
+    return g_frameInfo2;
+}
+
 const char* ShadowBufferCheck(unsigned& checked, unsigned& changed)
 {
     g_vbSample = true;
@@ -987,6 +1023,23 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const bool havePlayer = ClientPlayer(pl);
     if (!havePlayer) { pl[0] = cam[0]; pl[1] = cam[1]; pl[2] = cam[2]; }
 
+    // The sun comes from the sprite the client draws, measured afresh each frame, and that measurement
+    // is noisy: standing still, with the camera not moving and the time pinned, it wandered in the fifth
+    // decimal. The map is built around it, so the whole map turned a little every frame and everything in
+    // it shifted: that is the shimmer, and it also defeated the texel snapping below, whose grid is the
+    // light's own axes. The direction is only taken when it has really moved, a quarter of a degree.
+    {
+        static float stable[3] = { 0.0f, 0.0f, 0.0f };
+        static bool  have = false;
+        const float dot = stable[0] * sunDir[0] + stable[1] * sunDir[1] + stable[2] * sunDir[2];
+        if (!have || dot < 0.9999996f)      // cos(0.05 degrees): above the wobble, below a minute of sun
+        {
+            stable[0] = sunDir[0]; stable[1] = sunDir[1]; stable[2] = sunDir[2];
+            have = true;
+        }
+        sunDir[0] = stable[0]; sunDir[1] = stable[1]; sunDir[2] = stable[2];
+    }
+
     D3DMATRIX camVP, camVPInv;
     Mul(view, proj, camVP);
     if (!Invert(camVP, camVPInv))
@@ -1024,7 +1077,35 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
 
     // The sun camera, camera-relative: centred on the player, looking down the sun, `range` yards either
     // side and `depth` yards toward the sun and away from it.
+    //
+    // Its centre is snapped to whole texels of its own grid first. A 2048 map over 180 yards is a texel
+    // every 0.088 yards, and a map centred exactly on the player slides by a fraction of a texel with
+    // every step: each shadow edge then re-samples differently from frame to frame, which is the swimming
+    // the light picked up from the smallest camera move. Whole-texel steps leave the edges where they are.
+    {
+        const float texel = s.snap ? (s.range * 2.0f) / (s.size > 0 ? s.size : 1) : 0.0f;
+        const float up0[3] = { 0.0f, 0.0f, 1.0f };
+        float x[3] = { up0[1] * sunDir[2] - up0[2] * sunDir[1], up0[2] * sunDir[0] - up0[0] * sunDir[2],
+                       up0[0] * sunDir[1] - up0[1] * sunDir[0] };
+        const float xl = sqrtf(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+        if (xl > 1e-4f && texel > 1e-6f)
+        {
+            for (float& v : x) v /= xl;
+            const float y[3] = { sunDir[1] * x[2] - sunDir[2] * x[1], sunDir[2] * x[0] - sunDir[0] * x[2],
+                                 sunDir[0] * x[1] - sunDir[1] * x[0] };
+            // Snapped in absolute coordinates, so the grid stands still in the world, not with the camera.
+            const float dx = pl[0] * x[0] + pl[1] * x[1] + pl[2] * x[2];
+            const float dy = pl[0] * y[0] + pl[1] * y[1] + pl[2] * y[2];
+            const float sx = floorf(dx / texel + 0.5f) * texel - dx;
+            const float sy = floorf(dy / texel + 0.5f) * texel - dy;
+            for (int i = 0; i < 3; ++i)
+                pl[i] += sx * x[i] + sy * y[i];
+        }
+    }
     const float centre[3] = { pl[0] - cam[0], pl[1] - cam[1], pl[2] - cam[2] };
+    _snprintf_s(g_frameInfo2, sizeof(g_frameInfo2), _TRUNCATE,
+                "map centre abs (%.4f %.4f %.4f), camera (%.4f %.4f %.4f), sun (%.6f %.6f %.6f)",
+                pl[0], pl[1], pl[2], cam[0], cam[1], cam[2], sunDir[0], sunDir[1], sunDir[2]);
     const float eye[3] = { centre[0] + sunDir[0] * s.depth, centre[1] + sunDir[1] * s.depth,
                            centre[2] + sunDir[2] * s.depth };
     const float up[3]  = { 0.0f, 0.0f, 1.0f };
