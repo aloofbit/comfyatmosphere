@@ -642,6 +642,7 @@ namespace
             FireRays(dev, "at Present (no UI draw followed)");
         RaysPresent(dev);
         ShadowFrameEnd();
+        VolumeFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_raysArmed  = false;
@@ -1176,6 +1177,47 @@ namespace
 
     using Direct3DCreate9Fn = IDirect3D9*(WINAPI*)(UINT);
 
+    // Every buffer DXVK hands out shares one class vtable, the same as its devices, so one patch catches
+    // every write the client makes. Ours are all read-only locks, and those are left alone.
+    using LockVBFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DVertexBuffer9*, UINT, UINT, void**, DWORD);
+    using LockIBFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DIndexBuffer9*, UINT, UINT, void**, DWORD);
+    LockVBFn g_oLockVB = nullptr;
+    LockIBFn g_oLockIB = nullptr;
+
+    HRESULT STDMETHODCALLTYPE hkLockVB(IDirect3DVertexBuffer9* self, UINT offset, UINT size, void** data, DWORD flags)
+    {
+        if (!(flags & D3DLOCK_READONLY))
+            ShadowNoteBufferWrite(self, offset, size);
+        return g_oLockVB(self, offset, size, data, flags);
+    }
+
+    HRESULT STDMETHODCALLTYPE hkLockIB(IDirect3DIndexBuffer9* self, UINT offset, UINT size, void** data, DWORD flags)
+    {
+        if (!(flags & D3DLOCK_READONLY))
+            ShadowNoteBufferWrite(self, offset, size);
+        return g_oLockIB(self, offset, size, data, flags);
+    }
+
+    void PatchBufferVtables(IDirect3DDevice9* dev)
+    {
+        IDirect3DVertexBuffer9* vb = nullptr;
+        if (SUCCEEDED(dev->lpVtbl->CreateVertexBuffer(dev, 64, 0, 0, D3DPOOL_DEFAULT, &vb, nullptr)) && vb)
+        {
+            auto* v = const_cast<IDirect3DVertexBuffer9Vtbl*>(vb->lpVtbl);
+            HookSlot(reinterpret_cast<void**>(&v->Lock), &hkLockVB, reinterpret_cast<void**>(&g_oLockVB));
+            vb->lpVtbl->Release(vb);
+        }
+        IDirect3DIndexBuffer9* ib = nullptr;
+        if (SUCCEEDED(dev->lpVtbl->CreateIndexBuffer(dev, 64, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, nullptr)) && ib)
+        {
+            auto* v = const_cast<IDirect3DIndexBuffer9Vtbl*>(ib->lpVtbl);
+            HookSlot(reinterpret_cast<void**>(&v->Lock), &hkLockIB, reinterpret_cast<void**>(&g_oLockIB));
+            ib->lpVtbl->Release(ib);
+        }
+        Log("buffer locks %s (vertex orig=%p, index orig=%p)", g_oLockVB && g_oLockIB ? "hooked" : "HOOK FAILED",
+            g_oLockVB, g_oLockIB);
+    }
+
     // A throwaway device names DXVK's shared device vtable; see comfygrass's AttachToDxvk for the why.
     bool AttachToDxvk()
     {
@@ -1237,6 +1279,7 @@ namespace
 
         // The vtable is static data inside the pinned d3d9.dll, so it outlives the device.
         auto* v = const_cast<IDirect3DDevice9Vtbl*>(probe->lpVtbl);
+        PatchBufferVtables(probe);
 
         probe->lpVtbl->Release(probe);
         d3d->lpVtbl->Release(d3d);
