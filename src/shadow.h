@@ -21,6 +21,10 @@ const char* ShadowBufferCheck(unsigned& checked, unsigned& changed);   // do cac
 const char* ShadowMapCentre();   // where the map sits this frame, and the sun it uses
 const char* ShadowFrameInfo();   // the frame's first M2 entry: its absolute transform and the view
 const char* ShadowOverwritten(unsigned& count);   // entries the client overwrote under us
+extern UINT g_maxConstReg;   // how many shader registers the client uses, so the replay sends no more
+unsigned ShadowCopies(unsigned& failed);   // chunks copied out of the client's arena, and failures
+void ShadowNoReplay();   // the map was not built this frame
+double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped);   // what this frame's replay cost
 const char* ShadowDropped();   // what the world filter threw away this frame
 unsigned ShadowOffWorld();   // records dropped this frame: not drawn with the world's camera and slice
 const char* ShadowChanges(unsigned& changed);   // refreshed entries whose inputs changed, and the biggest

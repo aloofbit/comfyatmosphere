@@ -102,6 +102,14 @@ struct ShadowSettings
     int   size    = 2048;     // texels per side
     float range   = 90.0f;    // yards covered either side of the player
     float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
+    int   copyPerFrame  = 2;      // arena chunks copied into our own buffers per frame. The client
+                                  // streams terrain through a buffer it re-fills, so a cached pointer
+                                  // into it is worthless; a copy of our own is not. Reading the client's
+                                  // memory back is slow, hence a few per frame.
+    int   copyMax       = 768;    // how many such copies to hold at once
+    int   mapEvery      = 1;      // rebuild the map every N frames. The map is anchored in the world and
+                                  // the light is smoothed over time, so 2 halves the cost of the replay
+                                  // for very little: the shade it holds is one frame old.
     bool  horizon       = true;   // keep the far-horizon draws: distant terrain can shade you too. They
                                   // are drawn with a camera of their own, which only matters for the
                                   // shader models, so those are still left out.
@@ -119,6 +127,8 @@ struct VolumeSettings
     float maxIntensity = 3.0f;      // gain at 100
     float density      = 0.03f;     // how much the air scatters, per yard
     float maxDistance  = 75.0f;     // yards along each line of sight (the shadow map's reach)
+    int   steps        = 32;        // samples along each line of sight: more holds up over a long
+                                    // maxDistance, where a thin canopy can fall between two samples
     float smooth       = 0.6f;      // 0..0.95: how much of the last frame's glow is kept. The march is
                                     // noisy and the map changes under it, and the light jittered as you
                                     // walked; it is eased back toward 0 while the camera moves, so a turn

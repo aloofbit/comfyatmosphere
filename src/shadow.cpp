@@ -54,6 +54,7 @@
 #include "rays.h"
 #include "shadow.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
@@ -422,8 +423,141 @@ namespace
         return WrittenOver(r.ib, 0, 0xFFFFFFFFu, seq);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // copies of the geometry the client streams
+    //
+    // Terrain and buildings come through a buffer the client re-fills as it draws, so what a cached entry
+    // points at is someone else's geometry by the end of the frame: the mountain between you and the sun
+    // held no shade, and flickered as the odd frame survived. The vertices themselves do not change, so
+    // the first time a chunk is seen it is copied into a buffer of our own and that copy is used for good.
+    // The copy reads the client's memory back, which is slow, so only a few are taken each frame.
+    struct ArenaKey
+    {
+        UINT  verts, prims;
+        int   x, y, z;                     // its place in the world, to a tenth of a yard
+        bool operator==(const ArenaKey& o) const
+        {
+            return verts == o.verts && prims == o.prims && x == o.x && y == o.y && z == o.z;
+        }
+    };
+    struct ArenaKeyHash
+    {
+        size_t operator()(const ArenaKey& k) const
+        {
+            size_t h = k.verts * 2654435761u;
+            auto mix = [&h](size_t v) { h ^= v + 0x9E3779B9u + (h << 6) + (h >> 2); };
+            mix(k.prims); mix(static_cast<size_t>(k.x)); mix(static_cast<size_t>(k.y));
+            mix(static_cast<size_t>(k.z));
+            return h;
+        }
+    };
+    struct ArenaCopy
+    {
+        IDirect3DVertexBuffer9* vb = nullptr;
+        IDirect3DIndexBuffer9*  ib = nullptr;
+        UINT stride = 0, firstVertex = 0;
+    };
+    std::unordered_map<ArenaKey, ArenaCopy, ArenaKeyHash> g_copies;
+    unsigned g_copiesTaken = 0;      // this frame
+    unsigned g_copyFailed  = 0;
+    bool     g_copying     = false;  // our own writes must not count as the client re-filling a buffer
+    uint64_t g_frameSeqStart = 0;    // writes seen when this frame began
+
+    // The vertices this draw uses and its indices, into buffers of our own. The indices are taken as they
+    // are and the vertices from minIndex on, so the draw is re-issued with baseVertex making up the
+    // difference. Both locks are read-only on the client's side; ours are ours, so the write watch is
+    // told to ignore them.
+    UINT VertsForPrims(D3DPRIMITIVETYPE prim, UINT primCount)
+    {
+        switch (prim)
+        {
+        case D3DPT_POINTLIST:     return primCount;
+        case D3DPT_LINELIST:      return primCount * 2;
+        case D3DPT_LINESTRIP:     return primCount + 1;
+        case D3DPT_TRIANGLELIST:  return primCount * 3;
+        case D3DPT_TRIANGLESTRIP:
+        case D3DPT_TRIANGLEFAN:   return primCount + 2;
+        default:                  return 0;
+        }
+    }
+
+    bool TakeCopy(IDirect3DDevice9* dev, const Rec& r, ArenaCopy& out)
+    {
+        if (!r.vb[0] || !r.vbStride[0] || r.vb[1])       // one stream only: a second would need its own copy
+            return false;
+        const UINT first = static_cast<UINT>(r.baseVertex + r.minIndex);
+        const UINT bytes = r.numVertices * r.vbStride[0];
+        if (!bytes)
+            return false;
+
+        auto* d = dev->lpVtbl;
+        g_copying = true;
+        bool ok = false;
+        IDirect3DVertexBuffer9* vb = nullptr;
+        IDirect3DIndexBuffer9*  ib = nullptr;
+        if (SUCCEEDED(d->CreateVertexBuffer(dev, bytes, 0, 0, D3DPOOL_MANAGED, &vb, nullptr)) && vb)
+        {
+            void* src = nullptr;
+            void* dst = nullptr;
+            if (SUCCEEDED(r.vb[0]->lpVtbl->Lock(r.vb[0], r.vbOffset[0] + first * r.vbStride[0], bytes, &src,
+                                                D3DLOCK_READONLY | D3DLOCK_NOSYSLOCK)) && src)
+            {
+                if (SUCCEEDED(vb->lpVtbl->Lock(vb, 0, bytes, &dst, 0)) && dst)
+                {
+                    memcpy(dst, src, bytes);
+                    vb->lpVtbl->Unlock(vb);
+                    ok = true;
+                }
+                r.vb[0]->lpVtbl->Unlock(r.vb[0]);
+            }
+        }
+
+        if (ok && r.indexed && r.ib)
+        {
+            ok = false;
+            D3DINDEXBUFFER_DESC id = {};
+            r.ib->lpVtbl->GetDesc(r.ib, &id);
+            const UINT idxSize = id.Format == D3DFMT_INDEX32 ? 4u : 2u;
+            const UINT idxCount = VertsForPrims(r.prim, r.primCount);
+            const UINT idxBytes = idxCount * idxSize;
+            if (idxBytes && SUCCEEDED(d->CreateIndexBuffer(dev, idxBytes, 0, id.Format, D3DPOOL_MANAGED,
+                                                           &ib, nullptr)) && ib)
+            {
+                void* src = nullptr;
+                void* dst = nullptr;
+                if (SUCCEEDED(r.ib->lpVtbl->Lock(r.ib, r.startIndex * idxSize, idxBytes, &src,
+                                                 D3DLOCK_READONLY | D3DLOCK_NOSYSLOCK)) && src)
+                {
+                    if (SUCCEEDED(ib->lpVtbl->Lock(ib, 0, idxBytes, &dst, 0)) && dst)
+                    {
+                        memcpy(dst, src, idxBytes);
+                        ib->lpVtbl->Unlock(ib);
+                        ok = true;
+                    }
+                    r.ib->lpVtbl->Unlock(r.ib);
+                }
+            }
+        }
+        g_copying = false;
+
+        if (!ok)
+        {
+            SafeRelease(vb);
+            SafeRelease(ib);
+            ++g_copyFailed;
+            return false;
+        }
+        out.vb = vb;
+        out.ib = ib;
+        out.stride = r.vbStride[0];
+        out.firstVertex = first;
+        return true;
+    }
+
     // Records dropped this frame because they were not drawn with the world's camera and depth slice.
     unsigned g_nOffWorld = 0;
+    double   g_replaySeconds = 0.0;          // what this frame's replay cost
+    unsigned g_replaySkipped = 0;            // entries outside the map, not drawn
     bool     g_vbSample = false;
 
     // Does the geometry a cached entry points at still hold what it held when it was recorded? The client
@@ -719,22 +853,37 @@ namespace
             }
             kv = list.empty() ? g_cache.erase(kv) : std::next(kv);
         }
-        // Over the cap: the longest unseen go first.
-        while (g_entries > kMaxCache)
+        // Over the cap: the longest unseen go first. Finding them one at a time meant a pass over the
+        // whole cache for each one, and with dozens going a frame that pass was a stutter of its own.
+        // One pass takes the cut-off, a second drops everything older than it.
+        if (g_entries > kMaxCache)
         {
-            std::vector<Entry>* oldList = nullptr;
-            size_t oldIdx = 0;
-            double oldT = now + 1.0;
+            std::vector<double> ages;
+            ages.reserve(g_entries);
             for (auto& kv : g_cache)
-                for (size_t i = 0; i < kv.second.size(); ++i)
-                    if (kv.second[i].lastSeen < oldT) { oldT = kv.second[i].lastSeen; oldList = &kv.second; oldIdx = i; }
-            if (!oldList)
-                break;
-            ReleaseRec((*oldList)[oldIdx].rec);
-            (*oldList)[oldIdx] = std::move(oldList->back());
-            oldList->pop_back();
-            --g_entries;
-            ++g_nEvictCap;
+                for (const Entry& e : kv.second)
+                    ages.push_back(e.lastSeen);
+            const size_t over = g_entries - kMaxCache;
+            std::nth_element(ages.begin(), ages.begin() + over, ages.end());
+            const double cutoff = ages[over];
+            for (auto kv = g_cache.begin(); kv != g_cache.end() && g_entries > kMaxCache; )
+            {
+                std::vector<Entry>& list = kv->second;
+                for (size_t i = 0; i < list.size() && g_entries > kMaxCache; )
+                {
+                    if (list[i].lastSeen < cutoff)
+                    {
+                        ReleaseRec(list[i].rec);
+                        list[i] = std::move(list.back());
+                        list.pop_back();
+                        --g_entries;
+                        ++g_nEvictCap;
+                    }
+                    else
+                        ++i;
+                }
+                kv = list.empty() ? g_cache.erase(kv) : std::next(kv);
+            }
         }
     }
 
@@ -820,10 +969,17 @@ namespace
 void ShadowSetPhase(bool recording)
 {
     g_recording = recording && g_cfg.shadow.enabled && !g_failed;
+    if (recording)
+    {
+        g_frameSeqStart = g_writeSeq;
+        g_copiesTaken = 0;
+    }
 }
 
 void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size)
 {
+    if (g_copying)
+        return;                      // filling a copy of our own
     if (!buffer || (g_written.size() >= 8192 && !g_written.count(buffer)))
         return;
     BufferWrites& b = g_written[buffer];
@@ -831,6 +987,8 @@ void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size)
     b.ring[b.next] = { offset, size ? offset + size : 0xFFFFFFFFu, b.last };   // size 0 is the whole buffer
     b.next = (b.next + 1) % 16;
 }
+
+UINT g_maxConstReg = 0;   // the highest register the client has ever set: the replay need go no further
 
 void RecordConstants(UINT reg, const float* data, UINT count)
 {
@@ -840,6 +998,8 @@ void RecordConstants(UINT reg, const float* data, UINT count)
     if (reg + count > 256)
         count = 256 - reg;
     memcpy(&g_mirror[reg * 4], data, count * 4 * sizeof(float));
+    if (reg + count > g_maxConstReg)
+        g_maxConstReg = reg + count;
 }
 
 void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT baseVertex, UINT minIndex,
@@ -918,6 +1078,61 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         r.proj00 = cp.m[0][0]; r.proj22 = cp.m[2][2]; r.proj32 = cp.m[3][2];
     }
 
+    // Arena geometry: the client wrote this buffer earlier in this very frame, so by the end of the world
+    // pass what it holds will be something else. A copy of our own stands in, taken once per chunk and
+    // kept: the same terrain arrives at the same place with the same counts every frame, which is what
+    // identifies it, since its buffer and offsets are different each time.
+    {
+        auto w = g_written.find(r.vb[0]);
+        const bool arena = w != g_written.end() && w->second.last > g_frameSeqStart;
+        if (arena && !r.vs && g_cfg.shadow.copyMax > 0)
+        {
+            float cam[3] = { 0.0f, 0.0f, 0.0f };
+            ClientCamera(cam);
+            const ArenaKey key = {
+                r.numVertices, r.primCount,
+                static_cast<int>((r.world.m[3][0] + cam[0]) * 10.0f),
+                static_cast<int>((r.world.m[3][1] + cam[1]) * 10.0f),
+                static_cast<int>((r.world.m[3][2] + cam[2]) * 10.0f),
+            };
+            auto it = g_copies.find(key);
+            if (it == g_copies.end() &&
+                g_copiesTaken < static_cast<unsigned>(g_cfg.shadow.copyPerFrame) &&
+                g_copies.size() < static_cast<size_t>(g_cfg.shadow.copyMax))
+            {
+                ArenaCopy copy;
+                if (TakeCopy(dev, r, copy))
+                {
+                    it = g_copies.emplace(key, copy).first;
+                    ++g_copiesTaken;
+                }
+            }
+            if (it != g_copies.end())
+            {
+                // Point the record at the copy: the vertices start at 0 in it, so baseVertex carries the
+                // difference and the indices are used as they were recorded.
+                SafeRelease(r.vb[0]);
+                SafeRelease(r.ib);
+                r.vb[0] = it->second.vb;
+                r.vb[0]->lpVtbl->AddRef(r.vb[0]);
+                r.vbOffset[0] = 0;
+                r.vbStride[0] = it->second.stride;
+                r.baseVertex  = -static_cast<INT>(r.minIndex);
+                r.startIndex  = 0;
+                if (it->second.ib)
+                {
+                    r.ib = it->second.ib;
+                    r.ib->lpVtbl->AddRef(r.ib);
+                }
+            }
+            else
+            {
+                ReleaseRec(r);     // no copy yet: caching a pointer into the arena is worse than nothing
+                return;
+            }
+        }
+    }
+
     g_frame.push_back(r);
 }
 
@@ -985,6 +1200,26 @@ const char* ShadowDropped()
     return g_dropInfo;
 }
 
+unsigned ShadowCopies(unsigned& failed)
+{
+    failed = g_copyFailed;
+    return static_cast<unsigned>(g_copies.size());
+}
+
+void ShadowNoReplay()
+{
+    g_replaySeconds = 0.0;
+    g_replayDrawn   = 0;
+    g_replaySkipped = 0;
+}
+
+double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped)
+{
+    drawn   = g_replayDrawn;
+    skipped = g_replaySkipped;
+    return g_replaySeconds;
+}
+
 const char* ShadowOverwritten(unsigned& count)
 {
     count = g_nEvictWritten;
@@ -1022,23 +1257,6 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     }
     const bool havePlayer = ClientPlayer(pl);
     if (!havePlayer) { pl[0] = cam[0]; pl[1] = cam[1]; pl[2] = cam[2]; }
-
-    // The sun comes from the sprite the client draws, measured afresh each frame, and that measurement
-    // is noisy: standing still, with the camera not moving and the time pinned, it wandered in the fifth
-    // decimal. The map is built around it, so the whole map turned a little every frame and everything in
-    // it shifted: that is the shimmer, and it also defeated the texel snapping below, whose grid is the
-    // light's own axes. The direction is only taken when it has really moved, a quarter of a degree.
-    {
-        static float stable[3] = { 0.0f, 0.0f, 0.0f };
-        static bool  have = false;
-        const float dot = stable[0] * sunDir[0] + stable[1] * sunDir[1] + stable[2] * sunDir[2];
-        if (!have || dot < 0.9999996f)      // cos(0.05 degrees): above the wobble, below a minute of sun
-        {
-            stable[0] = sunDir[0]; stable[1] = sunDir[1]; stable[2] = sunDir[2];
-            have = true;
-        }
-        sunDir[0] = stable[0]; sunDir[1] = stable[1]; sunDir[2] = stable[2];
-    }
 
     D3DMATRIX camVP, camVPInv;
     Mul(view, proj, camVP);
@@ -1117,6 +1335,17 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     Translation(-cam[0], -cam[1], -cam[2], fromAbs);
     Mul(fromAbs, sunVP, fromAbsToSun);   // absolute world -> sun clip, for the shader entries
     g_shadowVP = sunVP;
+
+    // The cache is kept up to date every frame; the map itself need not be redrawn every frame, and the
+    // replay is the expensive half. What it holds is then a frame or two old, which the light's own
+    // smoothing covers.
+    static unsigned tick = 0;
+    if (s.mapEvery > 1 && (++tick % static_cast<unsigned>(s.mapEvery)) != 0 && g_valid)
+    {
+        g_replayOutcome = 0;
+        g_replaySeconds = Now() - t0;
+        return;
+    }
 
     auto* d = dev->lpVtbl;
 
@@ -1199,20 +1428,43 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetStreamSourceFreq(dev, 0, 1);
     d->SetStreamSourceFreq(dev, 1, 1);
 
-    UINT drawn = 0, drawnVS = 0, unseen = 0;
+    // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
+    // the map: 2000 to 5000 draws a frame, 6 to 9 ms of CPU, which the game feels. An entry whose
+    // reference point is well outside the box the map covers cannot mark it, so it is not drawn. The
+    // margin is generous because a model's reference point is its first bone, which for some models sits
+    // far from the geometry (trees measured at 85 to 95 yards away).
+    const float sideReach = s.range + 40.0f;     // the map is `range` either side of the player
+    const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
+    UINT drawn = 0, drawnVS = 0, unseen = 0, skipped = 0;
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
         const Rec&   r = e.rec;
         if (e.lastSeen < now)
             ++unseen;
+        // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
+        // hundred of them rather than thousands, and one chunk covers so much ground that the point we
+        // hold for it can sit well outside the map while its geometry crosses the middle: culling those
+        // took the shade out from under a mountain 150 yards away.
+        if (r.vs)
+        {
+            const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1], dz = e.pos[2] - pl[2];
+            const float along = dx * sunDir[0] + dy * sunDir[1] + dz * sunDir[2];
+            const float sx = dx - along * sunDir[0], sy = dy - along * sunDir[1], sz = dz - along * sunDir[2];
+            const float side2 = sx * sx + sy * sy + sz * sz;
+            if (side2 > sideReach * sideReach || along > alongReach || along < -alongReach)
+            {
+                ++skipped;
+                continue;
+            }
+        }
         if (r.vs)
         {
             D3DMATRIX m;
             Mul(e.absolute, fromAbsToSun, m);
             float c[16];
             ToRegisters(m, c);
-            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), 256);
+            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), g_maxConstReg ? g_maxConstReg : 256);
             d->SetVertexShaderConstantF(dev, 2, c, 4);
             d->SetVertexShader(dev, r.vs);
             ++drawnVS;
@@ -1326,6 +1578,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             static_cast<unsigned>(g_entries), unseen, g_nRefreshed, g_nAdded, g_nEvictView, g_nEvictAge,
             g_nEvictCap, drawn, drawnVS, 1000.0 * (Now() - t0), sunDir[0], sunDir[1], sunDir[2],
             havePlayer ? "player" : "camera");
+    g_replaySeconds = Now() - t0;
+    g_replaySkipped = skipped;
 }
 
 void ShadowFrameEnd()
@@ -1368,6 +1622,12 @@ void ShadowReset()
 {
     ReleaseFrame();
     g_written.clear();     // and every buffer that survives it is a new object at a new address
+    for (auto& kv : g_copies)   // D3DPOOL_MANAGED survives a reset, but the geometry may not be wanted again
+    {
+        SafeRelease(kv.second.vb);
+        SafeRelease(kv.second.ib);
+    }
+    g_copies.clear();
     ClearCache();          // the client's buffers are rebuilt across a Reset: nothing cached stays valid
     ReleaseResources();
     g_mirrorValid = false;
