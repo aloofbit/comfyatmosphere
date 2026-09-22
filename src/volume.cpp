@@ -35,6 +35,7 @@
 #include "volume.h"
 
 #include <cmath>
+#include <vector>
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
@@ -90,12 +91,21 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float3 s0 = gSh3.xyz;                                                 // the camera, at the origin
     float3 s1 = e.x * gSh0.xyz + e.y * gSh1.xyz + e.z * gSh2.xyz + gSh3.xyz;
     float  jit = frac(52.9829189 * frac(dot(vpos, float2(0.06711056, 0.00583715))));
+
+    // The bias grows with how steeply the line of sight runs into the map. Looking along a low sun, a
+    // ray crosses hardly any of the map while its depth changes a lot, so every sample lands on nearly
+    // the same texel and the smallest depth error flips the whole stretch between lit and shaded: that
+    // was the flicker around the sun. Across the map, the plain bias is enough.
+    float3 ds    = s1 - s0;
+    float  slope = abs(ds.z) / max(length(ds.xy), 1e-5);
+    float  bias  = gP.w * (1.0 + min(slope, 20.0));
+
     float  acc = 0.0;
     [loop] for (int i = 0; i < 32; ++i)
     {
         float3 s   = lerp(s0, s1, (i + jit) / 32.0);
         float2 suv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
-        acc += (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + gP.w) ? 1.0 : 0.0;
+        acc += (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
     }
 
     if (gP.x > 5.5)
@@ -143,6 +153,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     };
 
     Target g_a, g_b;                          // the march result and the blur ping-pong
+    Target g_hist;                            // last frame's glow, for the smoothing
+    bool   g_histValid = false;
+    D3DMATRIX g_lastView = {};                // to tell how far the camera moved since
     IDirect3DVertexShader9* g_vsMarch = nullptr;
     IDirect3DPixelShader9*  g_psMarch = nullptr;
     IDirect3DPixelShader9*  g_psBlur  = nullptr;
@@ -180,6 +193,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     {
         ReleaseTarget(g_a);
         ReleaseTarget(g_b);
+        ReleaseTarget(g_hist);
+        g_histValid = false;
         SafeRelease(g_sb);
     }
 
@@ -261,7 +276,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         if (g_a.w == tw && g_a.h == th && g_b.surf && g_sb)
             return true;
         ReleaseDefaultPool();
-        if (!MakeTarget(dev, tw, th, g_a) || !MakeTarget(dev, tw, th, g_b) ||
+        if (!MakeTarget(dev, tw, th, g_hist) || !MakeTarget(dev, tw, th, g_a) || !MakeTarget(dev, tw, th, g_b) ||
             FAILED(dev->lpVtbl->CreateStateBlock(dev, D3DSBT_ALL, &g_sb)) || !g_sb)
         {
             Log("volume: could not create %ux%u targets or a state block", tw, th);
@@ -368,6 +383,37 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         sys->lpVtbl->Release(sys);
     }
 
+    // How much the glow changed since the last traced frame, sampled on a grid: an average that holds
+    // steady can still hide a patch of the screen flickering, which is what the eye picks up.
+    std::vector<float> g_prevFrame;
+    char g_changeInfo[200] = {};
+
+    void NoteFrameChange(const std::vector<float>& now, UINT w, UINT h, UINT step)
+    {
+        if (g_prevFrame.size() != now.size())
+        {
+            g_prevFrame = now;
+            _snprintf_s(g_changeInfo, sizeof(g_changeInfo), _TRUNCATE, "first traced frame");
+            return;
+        }
+        double sum = 0.0;
+        float  worst = 0.0f;
+        size_t worstAt = 0;
+        for (size_t i = 0; i < now.size(); ++i)
+        {
+            const float d = fabsf(now[i] - g_prevFrame[i]);
+            sum += d;
+            if (d > worst) { worst = d; worstAt = i; }
+        }
+        const UINT cols = (w + step - 1) / step;
+        _snprintf_s(g_changeInfo, sizeof(g_changeInfo), _TRUNCATE,
+                    "mean change %.5f, worst %.5f at (%.2f, %.2f) of the screen",
+                    sum / (now.size() ? now.size() : 1), worst,
+                    cols ? (worstAt % cols) * step / static_cast<double>(w) : 0.0,
+                    cols ? (worstAt / cols) * step / static_cast<double>(h) : 0.0);
+        g_prevFrame = now;
+    }
+
     // Mean of a target's red channel, and the share of pixels above zero. Trace only: it reads the
     // target back, which stalls the GPU.
     double TargetMean(IDirect3DDevice9* dev, const Target& t, double& litShare)
@@ -424,7 +470,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     const D3DRENDERSTATETYPE kTouched[] = {
         D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_SRCBLEND,
         D3DRS_DESTBLEND, D3DRS_BLENDOP, D3DRS_CULLMODE, D3DRS_FOGENABLE, D3DRS_STENCILENABLE,
-        D3DRS_SCISSORTESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_SRGBWRITEENABLE,
+        D3DRS_SCISSORTESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_BLENDFACTOR,
     };
     constexpr int kTouchedCount = sizeof(kTouched) / sizeof(kTouched[0]);
 }
@@ -595,6 +641,34 @@ void VolumeDraw(IDirect3DDevice9* dev)
     {
         --g_trace;
         LogMarchSamples(dev, true);
+        {
+            // The glow as it reaches the screen, against the last traced frame.
+            const Target& shown = (g_cfg.volume.smooth > 0.001f && g_histValid) ? g_hist : g_a;
+            IDirect3DSurface9* sys = nullptr;
+            if (SUCCEEDED(dev->lpVtbl->CreateOffscreenPlainSurface(dev, shown.w, shown.h,
+                    D3DFMT_A16B16G16R16F, D3DPOOL_SYSTEMMEM, &sys, nullptr)) && sys)
+            {
+                D3DLOCKED_RECT lr = {};
+                if (SUCCEEDED(dev->lpVtbl->GetRenderTargetData(dev, shown.surf, sys)) &&
+                    SUCCEEDED(sys->lpVtbl->LockRect(sys, &lr, nullptr, D3DLOCK_READONLY)))
+                {
+                    const UINT step = 4;
+                    std::vector<float> grid;
+                    grid.reserve((shown.w / step + 1) * (shown.h / step + 1));
+                    for (UINT y = 0; y < shown.h; y += step)
+                    {
+                        const auto* row = reinterpret_cast<const unsigned short*>(
+                            static_cast<const char*>(lr.pBits) + y * lr.Pitch);
+                        for (UINT x = 0; x < shown.w; x += step)
+                            grid.push_back(HalfToFloat(row[x * 4]));
+                    }
+                    sys->lpVtbl->UnlockRect(sys);
+                    NoteFrameChange(grid, shown.w, shown.h, step);
+                    Log("volume: trace glow %s", g_changeInfo);
+                }
+                sys->lpVtbl->Release(sys);
+            }
+        }
         int sOut = -1;
         unsigned sDrawn = 0, sEntries = 0, sc[5] = {};
         const char* sNew = "";
@@ -613,12 +687,13 @@ void VolumeDraw(IDirect3DDevice9* dev)
         unsigned nOver = 0;
         const char* overInfo = ShadowOverwritten(nOver);
         Log("volume: trace shadow overwritten under us: %u entries.%s", nOver, overInfo);
+        Log("volume: trace shadow %s", ShadowMapCentre());
         Log("volume: trace shadow filter dropped:%s", ShadowDropped());
         Log("volume: trace shadow replay outcome %d, drew %u of %u entries; refreshed %u, added %u, evicted "
             "in view %u, aged %u, cap %u; inherited: %s; new:%s", sOut, sDrawn, sEntries, sc[0], sc[1], sc[2], sc[3],
             sc[4], ShadowInherited(), sNew);
         Log("volume: trace t=%.0f ms: depth read mean %.5f (%.1f%% nonzero), share in sun mean %.5f (%.1f%% nonzero), "
-            "shadow map mean %.5f (%.1f%% nonzero); world camera %d, depth range %.4f..%.4f, sun (%.3f %.3f %.3f)",
+            "shadow map mean %.5f (%.1f%% nonzero); world camera %d, depth range %.4f..%.4f, sun (%.6f %.6f %.6f)",
             1000.0 * fmod(Now(), 1000.0), traceDepth, 100.0 * traceDepthLit, traceSun, 100.0 * traceSunLit,
             traceMap, 100.0 * traceMapLit, worldCam ? 1 : 0, minZ, maxZ, sunDir[0], sunDir[1], sunDir[2]);
     }
@@ -658,6 +733,45 @@ void VolumeDraw(IDirect3DDevice9* dev)
         RhwQuad(dev, g_a.w, g_a.h);
     }
 
+    // --- smooth over time ---------------------------------------------------------------------------
+    // The march is noisy, the shadow map changes under it, and what it reads moves as the camera does.
+    // Keeping part of the last frame settles all of it. The glow is a screen-space image, so the older
+    // frame does not line up after a turn: the weight falls away with how far the camera has moved.
+    const Target* src = &g_a;
+    if (v.smooth > 0.001f && g_hist.surf)
+    {
+        float move = 0.0f;
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c)
+                move += fabsf(view.m[r][c] - g_lastView.m[r][c]);
+        // A gentle turn is about 0.02 here; by 0.15 the frames share too little to blend.
+        float fade = 1.0f - move / 0.15f;
+        fade = fade < 0.0f ? 0.0f : (fade > 1.0f ? 1.0f : fade);
+        const float keep = g_histValid ? v.smooth * fade : 0.0f;
+        const DWORD f = static_cast<DWORD>((1.0f - keep) * 255.0f + 0.5f);
+
+        d->SetRenderTarget(dev, 0, g_hist.surf);
+        d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(g_a.tex));
+        d->SetPixelShader(dev, g_psBlur);
+        const float none[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        d->SetPixelShaderConstantF(dev, 0, none, 1);      // no offset: the blur passes the texel through
+        d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, keep > 0.0f ? TRUE : FALSE);
+        d->SetRenderState(dev, D3DRS_SRCBLEND,         D3DBLEND_BLENDFACTOR);
+        d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_INVBLENDFACTOR);
+        d->SetRenderState(dev, D3DRS_BLENDOP,          D3DBLENDOP_ADD);
+        d->SetRenderState(dev, D3DRS_BLENDFACTOR,      D3DCOLOR_ARGB(f, f, f, f));
+        RhwQuad(dev, g_hist.w, g_hist.h);
+        d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, FALSE);
+        g_histValid = true;
+        g_lastView  = view;
+        src = &g_hist;
+    }
+    else
+    {
+        g_histValid = false;
+        g_lastView  = view;
+    }
+
     // --- composite onto the world -------------------------------------------------------------------
     // debug replaces the world with the glow alone, white, to see its shape.
     const DWORD col = g_cfg.rays.color;
@@ -666,7 +780,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
                           v.debug ? gain : ((col >>  8) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, 0.0f };
     d->SetRenderTarget(dev, 0, world);
-    d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(g_a.tex));
+    d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(src->tex));
     d->SetPixelShader(dev, g_psComp);
     d->SetPixelShaderConstantF(dev, 0, cc, 1);
     d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |

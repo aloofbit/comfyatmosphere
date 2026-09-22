@@ -13,7 +13,7 @@ measurement showed.
 | Screen rays: radial blur toward the sun, before the UI | `rays.cpp` | Ctrl+F11 toggle |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
 | Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | none |
-| Diagnostics | all | F12 one-frame probe |
+| Diagnostics | all | F12: one-frame probe, then a 180-frame trace of the light and the map |
 
 ## What was found (measured in this `WoW.exe`)
 
@@ -61,6 +61,49 @@ Goal: fog control and sun shafts (crepuscular rays) for the 1.12 client, in the 
 
 Read [`comfygrass/src/README.md`](../comfygrass/src/README.md) before starting. It has the attach
 mechanism, the reversed addresses and how each was verified, and four architectures that did not work.
+
+## The shadow map, and what made the light flicker
+
+The volumetric light blinked off on single frames and jittered as you walked. Five separate causes, all
+found by tracing 180 frames at a time (F12, below) rather than by looking:
+
+**The far horizon is not the world.** The client draws it with a camera of its own (near 467, far 2112
+here) into its own depth slice, 0.9550..0.9600. Taken out of the camera with the WORLD camera, those
+draws land at the wrong scale, and one frame in a handful the map filled with a caster near the sun and
+the light went out. Fixed-function draws carry their own world matrix and convert correctly whatever
+projection drew them, so they are kept (`[shadow] horizon`): a ridge between you and the sun now shades
+you, which is what `depth` 700 is for. Shader draws fold the camera into c2..c5 and are left out.
+
+**The world camera is voted on, and the vote could flip.** On a frame where the world's own draws thinned
+out, the horizon camera could win it, and every cached caster was then re-expressed through the wrong
+camera: hundreds of entries re-added in the wrong places, and no light that frame. The vote now only
+counts draws inside the world's depth slice, and the camera in use is kept unless another takes twice its
+votes.
+
+**A cached entry is a pointer, not a copy.** It holds the buffer, the index range and the transform, and
+the client re-fills its buffers, including later in the same frame: measured, 62 entries overwritten in
+one trace, 75 a frame beside the abbey. Replaying them drew whatever had taken their place, which is the
+spikes that fanned out of a building. Locks are hooked on DXVK's shared vertex- and index-buffer vtables,
+every write is numbered with the byte range it covers, and an entry goes as soon as a later write lands
+on its own vertices. Geometry the client streams through an arena (that building) is therefore gone by
+the end of the world pass and casts nothing. Drawing it into the map as the client draws it was tried:
+it works, but it costs a save and restore of device state per draw, up to 75 a frame, and it showed
+artefacts from geometry recorded mid-frame. Not worth it for the shade of one building.
+
+**Anything that moves faster than three yards a frame looked like a new object.** A bird flying past left
+a new caster every frame, a trail of birds shading the air until they aged out. An instance of the same
+model that the client did not draw this frame, within 60 yards, is now taken to be it, moved, and an
+entry matched that way is dropped the moment the client stops drawing it.
+
+**The sun wobbled.** It comes from the sprite the client draws, measured afresh each frame, and standing
+still with the time pinned it wandered in the fifth decimal. The map is built around it, so the whole map
+turned a little every frame and everything in it shifted. The direction is taken only when it has really
+moved, 0.05 degrees. `[shadow] snap` holds the map on whole texels of its own grid as well; it is off by
+default, because it steps visibly as you walk and the sun fix removed most of what it was for.
+
+What the light still does not do: the glow is smoothed over time (`[volume] smooth`, eased off as the
+camera turns) because the march is noisy and the map changes under it; and the bias grows with how
+steeply a line of sight runs into the map, without which a low sun flickered badly around itself.
 
 ## The framing that matters
 
