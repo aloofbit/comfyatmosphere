@@ -98,6 +98,8 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         acc += (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + gP.w) ? 1.0 : 0.0;
     }
 
+    if (gP.x > 5.5)
+        return float4(tex2Dlod(sShadow, float4(uv, 0, 0)).r, 0.0, 0.0, 1.0);   // debug 6: the shadow map
     if (gP.x > 4.5)
         return float4(acc / 32.0, 0.0, 0.0, 1.0);                         // debug 5: share of the ray in sun
     float lit   = acc / 32.0 * len * gP.z;
@@ -150,6 +152,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     bool                    g_failed  = false;
     bool                    g_on      = true;
     bool                    g_logNext = false;
+
+    // Per-frame outcome, logged every kStatFrames frames. A frame that skips the glow makes it blink, and
+    // a one-frame probe cannot show which check failed.
+    struct Stats
+    {
+        unsigned frames, calls, drawn;
+        unsigned noDepth, noShadow, noMatrix, noSun, noCam, sunDown, noTarget, badMatrix;
+    };
+    Stats              g_st = {};
+    constexpr unsigned kStatFrames = 300;
+    int                g_trace = 0;             // frames left to trace after a probe, one line each
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -311,7 +324,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     }
 
     // Probe only: the march's own output at a few screen points, read back from the GPU.
-    void LogMarchSamples(IDirect3DDevice9* dev)
+    void LogMarchSamples(IDirect3DDevice9* dev, bool mean = false)
     {
         IDirect3DSurface9* sys = nullptr;
         if (FAILED(dev->lpVtbl->CreateOffscreenPlainSurface(dev, g_a.w, g_a.h, D3DFMT_A16B16G16R16F,
@@ -331,11 +344,62 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                     const auto* px = reinterpret_cast<const unsigned short*>(static_cast<const char*>(lr.pBits) + y * lr.Pitch) + x * 4;
                     n += _snprintf_s(line + n, sizeof(line) - n, _TRUNCATE, " (%.2f,%.2f)=%.6g", p[0], p[1], HalfToFloat(px[0]));
                 }
+                if (mean)
+                {
+                    double sum = 0.0;
+                    unsigned lit = 0;
+                    for (UINT y = 0; y < g_a.h; ++y)
+                    {
+                        const auto* row = reinterpret_cast<const unsigned short*>(static_cast<const char*>(lr.pBits) + y * lr.Pitch);
+                        for (UINT x = 0; x < g_a.w; ++x)
+                        {
+                            const float f = HalfToFloat(row[x * 4]);
+                            sum += f;
+                            lit += f > 1e-4f;
+                        }
+                    }
+                    const double px = static_cast<double>(g_a.w) * g_a.h;
+                    n += _snprintf_s(line + n, sizeof(line) - n, _TRUNCATE, "  mean %.5f, lit %.1f%%", sum / px, 100.0 * lit / px);
+                }
                 sys->lpVtbl->UnlockRect(sys);
                 Log("volume: march output (debug %d) at screen points:%s", g_cfg.volume.debug, line);
             }
         }
         sys->lpVtbl->Release(sys);
+    }
+
+    // Mean of a target's red channel, and the share of pixels above zero. Trace only: it reads the
+    // target back, which stalls the GPU.
+    double TargetMean(IDirect3DDevice9* dev, const Target& t, double& litShare)
+    {
+        litShare = -1.0;
+        IDirect3DSurface9* sys = nullptr;
+        if (FAILED(dev->lpVtbl->CreateOffscreenPlainSurface(dev, t.w, t.h, D3DFMT_A16B16G16R16F,
+                                                            D3DPOOL_SYSTEMMEM, &sys, nullptr)))
+            return -1.0;
+        double sum = 0.0;
+        unsigned lit = 0;
+        D3DLOCKED_RECT lr = {};
+        if (SUCCEEDED(dev->lpVtbl->GetRenderTargetData(dev, t.surf, sys)) &&
+            SUCCEEDED(sys->lpVtbl->LockRect(sys, &lr, nullptr, D3DLOCK_READONLY)))
+        {
+            for (UINT y = 0; y < t.h; ++y)
+            {
+                const auto* row = reinterpret_cast<const unsigned short*>(static_cast<const char*>(lr.pBits) + y * lr.Pitch);
+                for (UINT x = 0; x < t.w; ++x)
+                {
+                    const float f = HalfToFloat(row[x * 4]);
+                    sum += f;
+                    lit += f > 1e-4f;
+                }
+            }
+            sys->lpVtbl->UnlockRect(sys);
+            const double px = static_cast<double>(t.w) * t.h;
+            litShare = lit / px;
+            sum /= px;
+        }
+        sys->lpVtbl->Release(sys);
+        return sum;
     }
 
     // For the vs_3_0 march. A plain XYZ position: an XYZW one was read as three floats, which slid the
@@ -373,15 +437,20 @@ void VolumeDraw(IDirect3DDevice9* dev)
     const VolumeSettings& v = g_cfg.volume;
     if (!v.enabled || !g_on || g_failed || (v.strength <= 0.0f && !v.debug))
         return;
+    ++g_st.calls;
 
     IDirect3DTexture9* depth  = DepthWorldTexture();
     IDirect3DTexture9* shadow = ShadowTexture();
     float sunDir[3];
     D3DMATRIX view, proj, shadowVP;
     // The camera the depth was drawn with (see ShadowWorldCamera); rays.cpp's can be the sky's.
-    const bool haveCam = ShadowWorldCamera(view, proj) || RaysCamera(view, proj);
-    if (!depth || !shadow || !ShadowMatrix(shadowVP) || !RaysSunDirection(sunDir) || !haveCam)
+    const bool worldCam = ShadowWorldCamera(view, proj);
+    const bool haveCam  = worldCam || RaysCamera(view, proj);
+    unsigned* skip = !depth ? &g_st.noDepth : !shadow ? &g_st.noShadow : !ShadowMatrix(shadowVP) ? &g_st.noMatrix :
+                     !RaysSunDirection(sunDir) ? &g_st.noSun : !haveCam ? &g_st.noCam : nullptr;
+    if (skip)
     {
+        ++*skip;
         if (logThis)
             Log("volume: skipped: %s", !depth ? "no readable depth ([depth] enabled?)" :
                 !shadow ? "no shadow map ([shadow] enabled?)" : "no sun or camera yet");
@@ -391,13 +460,19 @@ void VolumeDraw(IDirect3DDevice9* dev)
     // Faded out as the sun goes down.
     const float sunset = sunDir[2] > 0.0f ? (sunDir[2] < 0.1f ? sunDir[2] / 0.1f : 1.0f) : 0.0f;
     if (sunset <= 0.0f && !v.debug)
+    {
+        ++g_st.sunDown;
         return;
+    }
 
     auto* d = dev->lpVtbl;
     IDirect3DSurface9* world = nullptr;
     d->GetRenderTarget(dev, 0, &world);
     if (!world)
+    {
+        ++g_st.noTarget;
         return;
+    }
     D3DSURFACE_DESC wd = {};
     world->lpVtbl->GetDesc(world, &wd);
     if (!EnsureResources(dev, wd.Width, wd.Height))
@@ -417,6 +492,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
         finite = std::isfinite(sunDir[i]);
     if (!finite)
     {
+        ++g_st.badMatrix;
         world->lpVtbl->Release(world);
         return;   // a bad matrix this frame: no glow rather than a NaN the glow would spread over the screen
     }
@@ -495,8 +571,57 @@ void VolumeDraw(IDirect3DDevice9* dev)
     };
     d->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
     d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+    double traceDepth = -1.0, traceDepthLit = -1.0, traceSun = -1.0, traceSunLit = -1.0;
+    double traceMap = -1.0, traceMapLit = -1.0;
+    if (g_trace > 0)
+    {
+        // The same march in debug 3 (the depth it reads) and debug 5 (share of each ray in sun), into the
+        // blur target, which the blur overwrites next: nothing of this reaches the screen.
+        for (int k = 0; k < 3; ++k)
+        {
+            const float pk[4] = { k == 0 ? 3.0f : k == 1 ? 5.0f : 6.0f, pc[37], pc[38], pc[39] };
+            d->SetPixelShaderConstantF(dev, 9, pk, 1);
+            d->SetRenderTarget(dev, 0, g_b.surf);
+            d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+            if (k == 0)      traceDepth = TargetMean(dev, g_b, traceDepthLit);
+            else if (k == 1) traceSun   = TargetMean(dev, g_b, traceSunLit);
+            else             traceMap   = TargetMean(dev, g_b, traceMapLit);
+        }
+        d->SetPixelShaderConstantF(dev, 9, &pc[36], 1);
+    }
     d->SetTexture(dev, 1, nullptr);
     d->SetVertexShader(dev, nullptr);
+    if (g_trace > 0)
+    {
+        --g_trace;
+        LogMarchSamples(dev, true);
+        int sOut = -1;
+        unsigned sDrawn = 0, sEntries = 0, sc[5] = {};
+        const char* sNew = "";
+        ShadowLastReplay(sOut, sDrawn, sEntries, sc, sNew);
+        unsigned sChanged = 0;
+        const char* sDiff = ShadowChanges(sChanged);
+        float sNear = 0.0f, sFar = 0.0f;
+        ShadowWorldCameraPlanes(sNear, sFar);
+        unsigned vbChecked = 0, vbChanged = 0;
+        const char* vbInfo = ShadowBufferCheck(vbChecked, vbChanged);
+        Log("volume: trace shadow buffers: %u sampled this frame, %u changed in the trace so far. %s",
+            vbChecked, vbChanged, vbInfo);
+        Log("volume: trace shadow world camera near %.2f far %.0f; %s", sNear, sFar, ShadowFrameInfo());
+        Log("volume: trace shadow off-world records dropped %u; inputs changed in %u entries; biggest: %s",
+            ShadowOffWorld(), sChanged, sDiff);
+        unsigned nOver = 0;
+        const char* overInfo = ShadowOverwritten(nOver);
+        Log("volume: trace shadow overwritten under us: %u entries.%s", nOver, overInfo);
+        Log("volume: trace shadow filter dropped:%s", ShadowDropped());
+        Log("volume: trace shadow replay outcome %d, drew %u of %u entries; refreshed %u, added %u, evicted "
+            "in view %u, aged %u, cap %u; inherited: %s; new:%s", sOut, sDrawn, sEntries, sc[0], sc[1], sc[2], sc[3],
+            sc[4], ShadowInherited(), sNew);
+        Log("volume: trace t=%.0f ms: depth read mean %.5f (%.1f%% nonzero), share in sun mean %.5f (%.1f%% nonzero), "
+            "shadow map mean %.5f (%.1f%% nonzero); world camera %d, depth range %.4f..%.4f, sun (%.3f %.3f %.3f)",
+            1000.0 * fmod(Now(), 1000.0), traceDepth, 100.0 * traceDepthLit, traceSun, 100.0 * traceSunLit,
+            traceMap, 100.0 * traceMapLit, worldCam ? 1 : 0, minZ, maxZ, sunDir[0], sunDir[1], sunDir[2]);
+    }
     if (logThis)
     {
         LogMarchSamples(dev);
@@ -572,6 +697,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     SafeRelease(oldDecl);
     SafeRelease(oldDS);
     world->lpVtbl->Release(world);
+    ++g_st.drawn;
 
     if (logThis)
         Log("volume: drawn at %ux%u (%.2f ms CPU to issue), gain %.2f, density %.3f, max distance %.0f yards, "
@@ -594,4 +720,21 @@ void VolumeToggle()
 void VolumeProbe()
 {
     g_logNext = true;
+    g_trace   = 180;
+}
+
+void VolumeFrameEnd()
+{
+    if (!g_cfg.volume.enabled || !g_on)
+    {
+        g_st = {};
+        return;
+    }
+    if (++g_st.frames < kStatFrames)
+        return;
+    Log("volume: %u frames: world end reached %u, drawn %u; skipped: no depth %u, no shadow map %u, "
+        "no shadow matrix %u, no sun %u, no camera %u, sun down %u, no target %u, bad matrix %u",
+        g_st.frames, g_st.calls, g_st.drawn, g_st.noDepth, g_st.noShadow, g_st.noMatrix, g_st.noSun,
+        g_st.noCam, g_st.sunDown, g_st.noTarget, g_st.badMatrix);
+    g_st = {};
 }
