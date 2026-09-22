@@ -155,6 +155,9 @@ struct Settings
     RaysSettings rays;
     ClientSettings client;
 
+    bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:
+                                    // what it marched, what the shadow map held, what the cache did. It
+                                    // reads buffers back from the GPU, so it is off unless asked for.
     bool  logEnabled  = true;
     bool  hook        = true;       // 0: load, log, patch nothing (bisecting)
     int   reloadKey   = VK_F11;     // reload comfyfog.ini; with Shift, toggle the override

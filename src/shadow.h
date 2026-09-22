@@ -16,8 +16,6 @@ bool ShadowMatrix(D3DMATRIX& camRelToShadowClip);                       // camer
 void ShadowWorldCameraPlanes(float& nearZ, float& farZ);   // the camera the replay is using
 // A buffer the client has written to since it was created: its contents are not ours to keep.
 void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size);
-const char* ShadowBufferCheck(unsigned& checked, unsigned& changed);   // do cached buffers still hold
-                                                                       // what they held? (trace only)
 const char* ShadowMapCentre();   // where the map sits this frame, and the sun it uses
 const char* ShadowFrameInfo();   // the frame's first M2 entry: its absolute transform and the view
 const char* ShadowOverwritten(unsigned& count);   // entries the client overwrote under us

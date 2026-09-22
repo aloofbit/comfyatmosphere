@@ -558,22 +558,6 @@ namespace
     unsigned g_nOffWorld = 0;
     double   g_replaySeconds = 0.0;          // what this frame's replay cost
     unsigned g_replaySkipped = 0;            // entries outside the map, not drawn
-    bool     g_vbSample = false;
-
-    // Does the geometry a cached entry points at still hold what it held when it was recorded? The client
-    // re-fills its buffers as visibility changes, and an entry is a pointer plus an index range, not a copy.
-    // Trace only: reading a write-only buffer back is slow, so this samples a few entries per frame.
-    struct Sampled { uint32_t hash; double when; };
-    std::unordered_map<const void*, Sampled> g_vbHash;
-    unsigned g_vbChecked = 0, g_vbChanged = 0, g_vbCursor = 0, g_vbTotalChanged = 0;
-    char     g_vbInfo[260] = {};
-
-    uint32_t HashBytes(const uint8_t* p, size_t n)
-    {
-        uint32_t h = 2166136261u;
-        for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 16777619u; }
-        return h;
-    }
 
     // The absolute transform derived for the frame's first M2 record, against the camera's own rotation:
     // if an entry's frame of reference is the camera, keeping it across frames cannot work.
@@ -1176,13 +1160,6 @@ const char* ShadowMapCentre()
     return g_frameInfo2;
 }
 
-const char* ShadowBufferCheck(unsigned& checked, unsigned& changed)
-{
-    g_vbSample = true;
-    checked = g_vbChecked;
-    changed = g_vbTotalChanged;   // running total over the trace
-    return g_vbInfo;
-}
 
 const char* ShadowChanges(unsigned& changed)
 {
@@ -1520,53 +1497,6 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     SafeRelease(oldVS);
     SafeRelease(oldDecl);
     SafeRelease(oldVB);
-
-    if (g_vbSample)
-    {
-        g_vbSample = false;
-        g_vbChecked = g_vbChanged = 0;
-        g_vbInfo[0] = 0;
-        // A different slice of the cache each frame, so a trace sweeps the whole of it.
-        unsigned seen = 0, taken = 0;
-        for (auto& kv : g_cache)
-        {
-            for (const Entry& e : kv.second)
-            {
-                if (taken >= 40)
-                    break;
-                if (seen++ < g_vbCursor || !e.rec.vb[0] || !e.rec.vbStride[0])
-                    continue;
-                ++taken;
-                // From the middle of the entry's own range: a refill that keeps the first vertices still
-                // moves what is behind them.
-                const UINT mid = e.rec.numVertices / 2;
-                const UINT at = e.rec.vbOffset[0] + (e.rec.baseVertex + e.rec.minIndex + mid) * e.rec.vbStride[0];
-                const UINT n  = e.rec.vbStride[0] * (e.rec.numVertices - mid < 8 ? e.rec.numVertices - mid : 8);
-                if (!n)
-                    continue;
-                void* p = nullptr;
-                if (FAILED(e.rec.vb[0]->lpVtbl->Lock(e.rec.vb[0], at, n, &p, D3DLOCK_READONLY | D3DLOCK_NOSYSLOCK)) || !p)
-                    continue;
-                const uint32_t h = HashBytes(static_cast<const uint8_t*>(p), n);
-                e.rec.vb[0]->lpVtbl->Unlock(e.rec.vb[0]);
-                ++g_vbChecked;
-                auto it = g_vbHash.find(&e);
-                if (it != g_vbHash.end() && it->second.hash != h)
-                {
-                    ++g_vbChanged;
-                    ++g_vbTotalChanged;
-                    if (!g_vbInfo[0])
-                        _snprintf_s(g_vbInfo, sizeof(g_vbInfo), _TRUNCATE,
-                            "%s %uv %up vb %p changed %s this frame", e.rec.vs ? "M2" : "ff", e.rec.numVertices,
-                            e.rec.primCount, e.rec.vb[0], e.lastSeen == now ? "(redrawn)" : "(NOT redrawn)");
-                }
-                g_vbHash[&e] = { h, now };
-            }
-            if (taken >= 40)
-                break;
-        }
-        g_vbCursor = taken ? g_vbCursor + taken : 0;   // wrap once the sweep runs off the end
-    }
 
     g_valid = true;
     g_replayOutcome = 0;

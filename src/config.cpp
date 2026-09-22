@@ -145,6 +145,7 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.size > 4096) s.shadow.size = 4096;
 
 
+    s.trace       = GetB(kGeneral, L"trace", s.trace, ini);
     s.logEnabled  = GetB(kGeneral, L"log",         s.logEnabled,  ini);
     s.hook        = GetB(kGeneral, L"hook",        s.hook,        ini);
     s.reloadKey   = GetI(kGeneral, L"reloadKey",   s.reloadKey,   ini);
