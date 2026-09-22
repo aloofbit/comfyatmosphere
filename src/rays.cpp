@@ -4,12 +4,13 @@
 // screen. Four steps, all at reduced resolution except the last:
 //
 //   1. StretchRect the back buffer down into a small render target.
-//   2. Mask: keep bright pixels, weighted by how near they sit to the sun. The occlusion mask is
-//      luminance, not depth: sky near the sun is bright and trees are dark, so the silhouette falls
-//      out for free (see NOTES.md for why INTZ depth is deferred). "Bright" is relative to the brightest
-//      pixel in the frame, found on the GPU by a chain of max-reductions: under a forest canopy with
-//      heavy fog nothing reaches a fixed threshold (the fog colour itself sat at 0.33), yet the sky gaps
-//      are still the brightest thing in view and are exactly what should cast.
+//   2. Mask: keep bright pixels, weighted by how near they sit to the sun. The occlusion mask is luminance,
+//      not depth: sky near the sun is bright and trees are dark, so the silhouette falls out for free (see
+//      NOTES.md). depth.cpp's readable INTZ depth buffer exists now, but only volumetric light uses it.
+//      "Bright" is relative to the brightest pixel in the frame, found on the GPU by a chain of
+//      max-reductions: under a forest canopy with heavy fog nothing reaches a fixed threshold (the fog colour
+//      itself sat at 0.33), yet the sky gaps are still the brightest thing in view and are exactly what
+//      should cast.
 //   3. Radial blur toward the sun, in passes of 16 samples whose step grows by 16x each pass, so three
 //      passes cover the ray length with 4096 effective taps and no banding.
 //   4. Add the result back over the back buffer.
@@ -915,7 +916,8 @@ void RaysToggle()
 
 bool RaysSunDirection(float dir[3])
 {
-    // sunMode 1 pins the sun for everything (rays and beams alike), whatever the game's clock says.
+    // sunMode 1 pins the sun for everything (rays, shadows and volumetric light), whatever the game's
+    // clock says.
     const RaysSettings& r = g_cfg.rays;
     if (r.sunMode == 1)
     {

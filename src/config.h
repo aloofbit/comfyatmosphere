@@ -79,36 +79,10 @@ struct RaysSettings
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the boundary
 };
 
-// World-space shafts around the player (beams.cpp). They take their colour from [rays] color.
-struct BeamsSettings
+// Where the client keeps the camera and the player (verified for this WoW.exe by comfygrass). Shadows
+// and volumetric light read them through client.cpp.
+struct ClientSettings
 {
-    bool  enabled      = false;     // superseded by [volume]; kept for comparison
-    float strength     = 50.0f;     // the dial, 0..100
-    float maxIntensity = 0.6f;      // brightness at 100
-
-    float spacing      = 7.0f;      // grid cell, yards: at most one shaft per cell
-    float density      = 0.35f;     // 0..1 share of cells that hold a shaft
-    float radius       = 35.0f;     // shafts within this many yards of the player
-    float height       = 28.0f;     // how high a shaft rises toward the sun, yards
-    float baseOffset   = -3.0f;     // where it starts relative to the player's feet, yards
-    float widthMin     = 0.5f;      // shaft width range, yards (weighted toward thin)
-    float widthMax     = 3.5f;
-    float heightVar    = 0.4f;      // 0..1: heights range over (1 -/+ this) x height
-    float clusterChance = 0.3f;     // 0..1 share of shafts that come with two thin companions
-    float forwardPower = 3.0f;      // how tightly the glow gathers toward the sun
-    float backLight    = 0.25f;     // brightness with the sun behind you, 0..1 of facing it
-    float nearFade     = 3.0f;      // yards: shafts closer than this to the camera fade out
-    float shimmer      = 0.25f;     // 0..1 slow per-shaft breathing
-    int   maxBeams     = 96;
-    float indoorHold   = 1.5f;      // seconds without the sky's sun before counting as indoors
-
-    // Canopy overhead, 0 (open sky) .. 1 (dense leaves), from the top half of the frame: shafts start at
-    // canopyStart and are at full strength by canopyFull. Eased over canopyTime seconds.
-    float canopyStart  = 0.35f;
-    float canopyFull   = 0.6f;
-    float canopyTime   = 2.0f;
-
-    // Where the client keeps the camera and the player (verified for this WoW.exe by comfygrass).
     DWORD camAddr      = 0x00C7CF20;
     DWORD objMgrAddr   = 0x00B41414;
     DWORD playerPosOff = 0x9B8;
@@ -160,7 +134,7 @@ struct Settings
     VolumeSettings volume;
     FogSettings  fog;
     RaysSettings rays;
-    BeamsSettings beams;
+    ClientSettings client;
 
     bool  logEnabled  = true;
     bool  hook        = true;       // 0: load, log, patch nothing (bisecting)

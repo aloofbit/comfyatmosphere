@@ -10,7 +10,7 @@ namespace
 {
     const wchar_t* kFog     = L"fog";
     const wchar_t* kRays    = L"rays";
-    const wchar_t* kBeams   = L"beams";
+    const wchar_t* kClient  = L"client";
     const wchar_t* kSky     = L"sky";
     const wchar_t* kDepth   = L"depth";
     const wchar_t* kShadow  = L"shadow";
@@ -101,32 +101,9 @@ void LoadSettings(const wchar_t* ini)
     if (s.rays.downscale < 1) s.rays.downscale = 1;
     if (s.rays.downscale > 8) s.rays.downscale = 8;
 
-    s.beams.enabled      = GetB(kBeams, L"enabled", s.beams.enabled, ini);
-    s.beams.strength     = Clamp(GetF(kBeams, L"strength",     s.beams.strength,     ini), 0.0f, 100.0f);
-    s.beams.maxIntensity = Clamp(GetF(kBeams, L"maxIntensity", s.beams.maxIntensity, ini), 0.0f, 10.0f);
-    s.beams.spacing      = Clamp(GetF(kBeams, L"spacing",      s.beams.spacing,      ini), 1.0f, 100.0f);
-    s.beams.density      = Clamp(GetF(kBeams, L"density",      s.beams.density,      ini), 0.0f, 1.0f);
-    s.beams.radius       = Clamp(GetF(kBeams, L"radius",       s.beams.radius,       ini), 2.0f, 200.0f);
-    s.beams.height       = Clamp(GetF(kBeams, L"height",       s.beams.height,       ini), 1.0f, 200.0f);
-    s.beams.baseOffset   = Clamp(GetF(kBeams, L"baseOffset",   s.beams.baseOffset,   ini), -50.0f, 50.0f);
-    s.beams.widthMin     = Clamp(GetF(kBeams, L"widthMin",     s.beams.widthMin,     ini), 0.05f, 50.0f);
-    s.beams.widthMax     = Clamp(GetF(kBeams, L"widthMax",     s.beams.widthMax,     ini), 0.05f, 50.0f);
-    s.beams.heightVar    = Clamp(GetF(kBeams, L"heightVar",    s.beams.heightVar,    ini), 0.0f, 0.95f);
-    s.beams.clusterChance = Clamp(GetF(kBeams, L"clusterChance", s.beams.clusterChance, ini), 0.0f, 1.0f);
-    s.beams.canopyStart  = Clamp(GetF(kBeams, L"canopyStart",  s.beams.canopyStart,  ini), 0.0f, 1.0f);
-    s.beams.canopyFull   = Clamp(GetF(kBeams, L"canopyFull",   s.beams.canopyFull,   ini), 0.0f, 1.0f);
-    s.beams.canopyTime   = Clamp(GetF(kBeams, L"canopyTime",   s.beams.canopyTime,   ini), 0.0f, 30.0f);
-    s.beams.forwardPower = Clamp(GetF(kBeams, L"forwardPower", s.beams.forwardPower, ini), 0.1f, 32.0f);
-    s.beams.backLight    = Clamp(GetF(kBeams, L"backLight",    s.beams.backLight,    ini), 0.0f, 1.0f);
-    s.beams.nearFade     = Clamp(GetF(kBeams, L"nearFade",     s.beams.nearFade,     ini), 0.0f, 50.0f);
-    s.beams.shimmer      = Clamp(GetF(kBeams, L"shimmer",      s.beams.shimmer,      ini), 0.0f, 1.0f);
-    s.beams.maxBeams     = GetI(kBeams, L"maxBeams",   s.beams.maxBeams,   ini);
-    s.beams.indoorHold   = Clamp(GetF(kBeams, L"indoorHold",   s.beams.indoorHold,   ini), 0.0f, 60.0f);
-    s.beams.camAddr      = GetX(kBeams, L"camAddr",      s.beams.camAddr,      ini);
-    s.beams.objMgrAddr   = GetX(kBeams, L"objMgrAddr",   s.beams.objMgrAddr,   ini);
-    s.beams.playerPosOff = GetX(kBeams, L"playerPosOff", s.beams.playerPosOff, ini);
-    if (s.beams.maxBeams < 0)    s.beams.maxBeams = 0;
-    if (s.beams.maxBeams > 1000) s.beams.maxBeams = 1000;
+    s.client.camAddr      = GetX(kClient, L"camAddr",      s.client.camAddr,      ini);
+    s.client.objMgrAddr   = GetX(kClient, L"objMgrAddr",   s.client.objMgrAddr,   ini);
+    s.client.playerPosOff = GetX(kClient, L"playerPosOff", s.client.playerPosOff, ini);
 
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);

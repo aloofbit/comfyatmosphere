@@ -12,7 +12,6 @@ measurement showed.
 | Fog: one `thickness` dial, haze floor + gentler climb | `comfyfog.cpp` | Shift+F11 toggle |
 | Screen rays: radial blur toward the sun, before the UI | `rays.cpp` | Ctrl+F11 toggle |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
-| World shafts: beams on a world grid around the player (superseded by volumetric light) | `beams.cpp` | `[beams] enabled` |
 | Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | none |
 | Diagnostics | all | F12 one-frame probe |
 
@@ -46,15 +45,15 @@ writes them every frame between `BeginScene` and `Present`, so comfytime writes 
 and again at `BeginScene`, before the sky reads it. A second pair at `0x00CE9D00/04` runs at the same rate, 78 minutes behind. It is
 not understood and not written.
 
-**Why screen rays alone were not enough.** They are rebuilt from the image each frame, so they swing as
-the camera moves. A `parallel` blend was simulated and swings *more* (75° vs 58° over a ±40° pan), because
-the fan toward the sun is already the correct perspective of parallel shafts. What steadied them: a
-brightness reference eased over time (`adaptTime`), intensity by view angle (`viewFalloff`), a sharper
-falloff around the sun (`falloff`), and brightness relative to the frame's peak (`relThreshold`). Under a
-foggy canopy nothing reaches a fixed threshold (the fog colour itself sat at 0.33). The world shafts
-(`beams.cpp`) answered "stays put while I look around": world-grid placement, depth-tested at the end of
-the world pass, screen-blended so they vanish against bright sky, and faded out in the open by a canopy
-estimate from the top half of the frame.
+**Why screen rays alone were not enough.** They are rebuilt from the image each frame, so they swing as the
+camera moves. A `parallel` blend was simulated and swings *more* (75° vs 58° over a ±40° pan), because the fan
+toward the sun is already the correct perspective of parallel shafts. What steadied them: a brightness
+reference eased over time (`adaptTime`), intensity by view angle (`viewFalloff`), a sharper falloff around the
+sun (`falloff`), and brightness relative to the frame's peak (`relThreshold`). Under a foggy canopy nothing
+reaches a fixed threshold (the fog colour itself sat at 0.33). The world shafts (`beams.cpp`, since removed;
+volumetric light replaced them) answered "stays put while I look around": world-grid placement, depth-tested
+at the end of the world pass, screen-blended so they vanish against bright sky, and faded out in the open by a
+canopy estimate from the top half of the frame.
 
 Goal: fog control and sun shafts (crepuscular rays) for the 1.12 client, in the same shape as
 [`comfygrass`](../comfygrass): a DLL loaded by VanillaFixes from `dlls.txt`, hooking DXVK's
