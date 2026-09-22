@@ -48,7 +48,7 @@ namespace
 
 bool ClientCamera(float cam[3])
     {
-        const BeamsSettings& b = g_cfg.beams;
+        const ClientSettings& b = g_cfg.client;
         if (!b.camAddr || !SafeCopy(static_cast<uintptr_t>(b.camAddr + Slide()), cam, 12))
             return false;
         return SaneWorld(cam) && !(cam[0] == 0.0f && cam[1] == 0.0f && cam[2] == 0.0f);
@@ -57,7 +57,7 @@ bool ClientCamera(float cam[3])
 // The local player out of the object manager: the same walk as comfygrass's FindLocalPlayerObject.
 bool ClientPlayer(float pos[3])
     {
-        const BeamsSettings& b = g_cfg.beams;
+        const ClientSettings& b = g_cfg.client;
         if (!b.objMgrAddr || !b.playerPosOff)
             return false;
         DWORD mgr = 0;

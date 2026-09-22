@@ -23,7 +23,6 @@
 #include "common.h"
 #include "config.h"
 #include "rays.h"
-#include "beams.h"
 #include "depth.h"
 #include "shadow.h"
 #include "volume.h"
@@ -485,23 +484,22 @@ namespace
 
     IDirect3DSurface9* g_bbArmed   = nullptr;   // the back buffer when armed; compared, never dereferenced
     bool               g_sunSeen   = false;     // the sky's sun sprite was found this frame
-    bool               g_beamsDone = false;     // the world shafts were drawn this frame
+    bool               g_worldEnded = false;    // the world finished drawing this frame
 
-    // The world has finished drawing: the shafts go in now, with the world's render target and depth
-    // buffer still bound (see beams.cpp).
+    // The world has finished drawing: depth, shadows and volumetric light go in now, with the world's
+    // render target and depth buffer still bound.
     void WorldEnded(IDirect3DDevice9* dev, const char* why)
     {
-        if (g_beamsDone)
+        if (g_worldEnded)
             return;
-        g_beamsDone = true;
+        g_worldEnded = true;
         DepthWorldEnded(dev);
         g_inRays = true;
         ShadowWorldEnded(dev);
         VolumeDraw(dev);
-        const bool drew = BeamsDraw(dev, g_sunSeen);
         g_inRays = false;
         if (g_probe.active)
-            Log("  [draw %4u] WORLD END      %s%s", g_probe.draws, why, drew ? ", beams drawn" : "");
+            Log("  [draw %4u] WORLD END      %s", g_probe.draws, why);
     }
 
     void FireRays(IDirect3DDevice9* dev, const char* where)
@@ -614,7 +612,7 @@ namespace
         if (!g_inRays)
         {
             DepthBeginScene(dev);
-            if (!g_beamsDone)
+            if (!g_worldEnded)
                 ShadowSetPhase(true);
         }
         return g_oBeginScene(dev);
@@ -649,7 +647,7 @@ namespace
         g_raysArmed  = false;
         g_raysDone   = false;
         g_sunSeen = false;
-        g_beamsDone = false;
+        g_worldEnded = false;
         g_skyPhase  = true;
 
         PollKeys(dev);
@@ -661,7 +659,6 @@ namespace
             g_probe.active = true;
             LogDial("probe");
             RaysProbe();
-            BeamsProbe();
             DepthProbe();
             ShadowProbe();
             VolumeProbe();
@@ -681,7 +678,6 @@ namespace
     HRESULT STDMETHODCALLTYPE hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
         RaysReset();   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
-        BeamsReset();
         DepthReset(dev);
         ShadowReset();
         VolumeReset();
@@ -969,7 +965,7 @@ namespace
     {
         // With Full Screen Glow the world is drawn into its own render target, and the first switch away
         // from it, still under the world's perspective projection, is where the world ends.
-        if (idx == 0 && !g_inRays && !g_beamsDone && g_lastPersp &&
+        if (idx == 0 && !g_inRays && !g_worldEnded && g_lastPersp &&
             g_frameDraws >= static_cast<uint32_t>(g_cfg.rays.minWorldDraws))
         {
             IDirect3DSurface9* cur = nullptr;
