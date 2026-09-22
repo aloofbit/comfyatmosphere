@@ -1,4 +1,4 @@
-// comfyfog -- fog control for the 1.12 client.
+// comfyfog: fog control for the 1.12 client.
 //
 // Same shape as comfygrass: loaded by VanillaFixes from dlls.txt, attaches by patching DXVK's shared
 // IDirect3DDevice9 vtable in place (found through a throwaway device of our own), and is tuned from an
@@ -10,7 +10,7 @@
 //
 // Load order with comfygrass matters. Both DLLs patch the same vtable slots, so whichever patches last
 // sits outermost and sees the client's calls first. comfygrass mirrors the fog states it is handed and
-// fogs grass from that mirror, so comfyfog has to be the OUTER hook -- then comfygrass records the
+// fogs grass from that mirror, so comfyfog has to be the OUTER hook. Then comfygrass records the
 // rewritten values and grass follows the new fog for free. Inner, grass would keep the stock fog and
 // stand out bright against fogged terrain. Hence the wait in AttachToDxvk.
 
@@ -122,7 +122,7 @@ namespace
     // the client's fog, as it asked for it
     //
     // The raw values are kept so the dial can be re-applied on a reload without waiting for the client
-    // to set them again -- it may only do that on a zone change.
+    // to set them again. It may only do that on a zone change.
 
     struct ClientFog
     {
@@ -230,7 +230,7 @@ namespace
     //
     // Every change of a raw fog value is logged (up to a cap), which answers whether the client sets fog
     // per zone or per draw. The probe key logs one whole frame: each fog state set, with the draw index it
-    // landed at, and how many fogged draws went through a vertex shader -- those compute their own fog
+    // landed at, and how many fogged draws went through a vertex shader. Those compute their own fog
     // and may not follow FOGSTART/FOGEND at all (Model2.bls drives every M2).
 
     const char* FogStateName(DWORD st)
@@ -367,7 +367,7 @@ namespace
     // vertex-shader fog
     //
     // M2s (trees, doodads, every character) draw through the client's Model2 vertex shaders, which write
-    // oFog themselves -- so FOGSTART/FOGEND never reach them, and they stood out clear against fogged
+    // oFog themselves, so FOGSTART/FOGEND never reach them, and they stood out clear against fogged
     // terrain. Disassembling them (below, logged once per shader) shows all 19 that fog do it the same way:
     //
     //     mad r.w, viewZ, c30.x, c30.y      max 0, min 1  ->  oFog
@@ -455,7 +455,7 @@ namespace
             return g_oSetVSConstF(dev, reg, data, count);
 
         // c30 often arrives inside a larger upload alongside the bone palette, so the whole range is
-        // copied and forwarded with just that one register changed.
+        // copied and forwarded with only that one register changed.
         const UINT at = static_cast<UINT>(fr) - reg;
         memcpy(g_c30, data + 4 * at, sizeof(g_c30));
         g_haveC30 = true;
@@ -475,7 +475,7 @@ namespace
     // into an off-screen texture, not the back buffer; after the switch the client downsamples and blurs
     // it, then draws world + glow onto the back buffer in one full-screen, pixel-shaded, unblended draw
     // that replaces whatever was there. Rays drawn at the switch read a back buffer holding no world yet
-    // and were then painted over. So the pass fires just before the first draw that goes to the back
+    // and were then painted over. So the pass fires immediately before the first draw that goes to the back
     // buffer with no pixel shader bound: the first UI draw, with glow on or off. A probe showed both:
     //
     //   glow on:  world -> RT A | switch | glow passes into small RTs | composite to BB (ps) | UI (no ps)
@@ -501,7 +501,7 @@ namespace
         const bool drew = BeamsDraw(dev, g_sunSeen);
         g_inRays = false;
         if (g_probe.active)
-            Log("  [draw %4u] WORLD END      %s%s", g_probe.draws, why, drew ? " -- beams drawn" : "");
+            Log("  [draw %4u] WORLD END      %s%s", g_probe.draws, why, drew ? ", beams drawn" : "");
     }
 
     void FireRays(IDirect3DDevice9* dev, const char* where)
@@ -677,7 +677,7 @@ namespace
     }
 
     // Reset puts every render state back to its default, and the client sets what it needs again
-    // afterwards -- so the mirror goes back to defaults too, rather than re-pushing stale values.
+    // afterwards, so the mirror goes back to defaults too, rather than re-pushing stale values.
     HRESULT STDMETHODCALLTYPE hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
         RaysReset();   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
@@ -746,11 +746,11 @@ namespace
     }
 
     // Where the world ends and the UI begins. A probe of this client shows the world drawn under a
-    // perspective projection, then -- in the same call sequence that parks fog at start 0 / end 1 /
-    // magenta -- the first switch to an orthographic one, after which it is all UI. That first
+    // perspective projection, then (in the same call sequence that parks fog at start 0 / end 1 /
+    // magenta) the first switch to an orthographic one, after which it is all UI. That first
     // perspective -> non-perspective switch, with some world already drawn, is where the rays pass goes:
     // the UI is then neither in the mask nor under the rays. The draw minimum skips a flip the client
-    // makes at the very top of the frame, before anything is drawn. (Counters are declared with the
+    // makes at the top of the frame, before anything is drawn. (Counters are declared with the
     // other per-frame state above.) The switch arms the pass; FireRays, above, says why it does not run
     // here.
     HRESULT STDMETHODCALLTYPE hkSetTransform(IDirect3DDevice9* dev, D3DTRANSFORMSTATETYPE st, const D3DMATRIX* m)
@@ -802,11 +802,11 @@ namespace
     // Around the world -> UI boundary the probe logs every draw in detail: which render target it lands
     // on, what it samples, and how it blends. That is what shows whether a full-screen pass (the client's
     // glow) redraws the frame after the rays and paints over them.
-    // Two windows get the detail: the first draws of the frame, where the sky -- and the sun disc in it --
+    // Two windows get the detail: the first draws of the frame, where the sky (and the sun disc in it)
     // is drawn, and the draws around the world -> UI boundary. For the sky window each line also carries
     // where the draw sits relative to the camera: this client renders camera-relative, so a sky object's
     // world translation (or, for a draw with an identity world, its first vertex) is a direction out from
-    // the camera -- logged as azimuth/elevation, the same frame the sun direction is logged in.
+    // the camera, logged as azimuth/elevation, the same frame the sun direction is logged in.
     void SkyPosition(IDirect3DDevice9* dev, bool indexed, UINT first, UINT nv, const void* upData, char* out, size_t cap)
     {
         float p[3] = { g_world.m[3][0], g_world.m[3][1], g_world.m[3][2] };
@@ -968,7 +968,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkSetRenderTarget(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* s)
     {
         // With Full Screen Glow the world is drawn into its own render target, and the first switch away
-        // from it -- still under the world's perspective projection -- is where the world ends.
+        // from it, still under the world's perspective projection, is where the world ends.
         if (idx == 0 && !g_inRays && !g_beamsDone && g_lastPersp &&
             g_frameDraws >= static_cast<uint32_t>(g_cfg.rays.minWorldDraws))
         {
@@ -1010,7 +1010,7 @@ namespace
     // The sun in the sky. A probe of this client shows it as the first draw of the frame: a unit quad
     // (4 vertices, 2-triangle strip, centred on the origin) with an identity world matrix and depth writes
     // off, drawn under a special view matrix whose rotation is fixed and whose TRANSLATION is where the
-    // sun sits in camera space -- projected through the ordinary world projection it lands exactly on the
+    // sun sits in camera space. Projected through the ordinary world projection, it lands exactly on the
     // sun disc (measured: view[3] = (0.30, 5.00, 10.91) -> screen (0.52, 0.15), with the sun top centre).
     // So the quad's centre, origin * world * view, is the direction to the sun in camera space. Only the
     // first few draws of a frame are looked at, and only until the sprite is found.
@@ -1054,11 +1054,11 @@ namespace
 
     // The clouds, by elimination. The same probe that found the sun shows the sky as the first three draws
     // of a frame: the sun quad, an untextured additive dome (the sky colour), then one textured,
-    // alpha-blended strip of ~177 vertices -- the cloud layer. All three leave depth writes off; the first
+    // alpha-blended strip of ~177 vertices: the cloud layer. All three leave depth writes off; the first
     // draw that turns them on is terrain, and ends the sky phase. So a cloud is: still in the sky phase,
     // blended, textured, a strip of more than 8 vertices (the sun is 4). The world matrix is deliberately
-    // not tested: a first version required identity and never matched -- the layer is rotated, or drawn
-    // under whatever world the previous draw left behind. With [sky] clouds = 0 it is simply not forwarded.
+    // not tested: a first version required identity and never matched: the layer is rotated, or drawn
+    // under whatever world the previous draw left behind. With [sky] clouds = 0 it is not forwarded.
     bool IsCloudDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT nv)
     {
         if (!g_skyPhase || g_inRays)
@@ -1149,7 +1149,7 @@ namespace
             }
             if ((Now() - t0) * 1000.0 > g_cfg.chainWaitMs)
             {
-                Log("comfygrass is loaded but never patched within %d ms -- patching anyway. "
+                Log("comfygrass is loaded but never patched within %d ms; patching anyway. "
                     "Grass may keep the stock fog.", g_cfg.chainWaitMs);
                 return false;
             }
@@ -1293,7 +1293,7 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         }
         else
         {
-            Log("hook = 0, so nothing is patched -- comfyfog is inert this run");
+            Log("hook = 0, so nothing is patched: comfyfog is inert this run");
         }
     }
     return TRUE;

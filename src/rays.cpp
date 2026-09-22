@@ -1,11 +1,11 @@
-// rays -- sun shafts for the 1.12 client, as a post-process.
+// rays: sun shafts for the 1.12 client, as a post-process.
 //
 // GPU Gems 3, "Volumetric Light Scattering as a Post-Process": radial blur toward the sun's position on
 // screen. Four steps, all at reduced resolution except the last:
 //
 //   1. StretchRect the back buffer down into a small render target.
 //   2. Mask: keep bright pixels, weighted by how near they sit to the sun. The occlusion mask is
-//      luminance, not depth -- sky near the sun is bright and trees are dark, so the silhouette falls
+//      luminance, not depth: sky near the sun is bright and trees are dark, so the silhouette falls
 //      out for free (see NOTES.md for why INTZ depth is deferred). "Bright" is relative to the brightest
 //      pixel in the frame, found on the GPU by a chain of max-reductions: under a forest canopy with
 //      heavy fog nothing reaches a fixed threshold (the fog colour itself sat at 0.33), yet the sky gaps
@@ -16,14 +16,14 @@
 //
 // It runs at the world -> UI boundary: comfyfog.cpp arms it at the first switch from a perspective to an
 // orthographic projection each frame, and fires it before the first draw after that which targets the
-// back buffer with no pixel shader -- after the client's full-screen glow, before any UI. That is
+// back buffer with no pixel shader: after the client's full-screen glow, before any UI. That is
 // mid-scene: the client's BeginScene is still open, so the pass does not open one of its own.
 // placement = 1 runs it at Present instead, over the UI, as a fallback.
 //
 // The pass touches a lot of device state the client's fixed-function pipeline needs back exactly, so it
 // is wrapped in a D3DSBT_ALL state block (captured before, applied after) plus the render target and
 // depth surface, which state blocks do not cover. comfygrass and comfyfog both mirror some state out of
-// their hooks, and the state block restores the device without going through those hooks -- so the
+// their hooks, and the state block restores the device without going through those hooks. So the
 // mirrored pieces are also re-set through the vtable with their saved values, keeping every mirror true.
 
 #define CINTERFACE
@@ -202,7 +202,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
     // Direction TO the sun, world space, unit length. It arrives in camera space from the sky's sun
     // sprite (comfyfog.cpp, NoteSkySun) and is turned into world space against this frame's camera; when
-    // the sprite is not drawn -- off screen, indoors -- the last world direction carries on.
+    // the sprite is not drawn (off screen, indoors), the last world direction carries on.
     float g_sunDir[3]    = { 0.0f, 0.0f, 1.0f };
     bool  g_haveSun      = false;
     float g_sunView[3]   = { 0.0f, 0.0f, 1.0f };
@@ -367,7 +367,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
         // A big jump has to hold for a few frames before it is believed. The sprite match now and then
         // catches another sky quad for a single frame (logged: 75.8 -> 25.8 -> 75.8 degrees within one
-        // second), and every sun-driven pass -- shadow map, volume, rays -- flashed with it. Real jumps (the
+        // second), and every sun-driven pass (shadow map, volume, rays) flashed with it. Real jumps (the
         // time stepped with Ctrl+PageUp) still land, a sixth of a second late; small drift follows at once.
         static int   pending = 0;
         static float pendDir[3] = {};
@@ -403,7 +403,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     //
     // Shafts are parallel in the world, so on screen they all run through one point: the sun when it is
     // in front of the camera, the point opposite it (the antisolar point) when it is behind. Radial blur
-    // only needs that line family, plus which way along it to gather -- toward the sun. So a sun behind
+    // only needs that line family, plus which way along it to gather: toward the sun. So a sun behind
     // the camera is blurred about its antisolar point with the gather direction reversed, and the two
     // cases meet seamlessly as the sun crosses the side of the view: both run off to infinity in the same
     // screen direction there. That is what lets rays stream down through a canopy with the sun overhead
@@ -411,7 +411,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     struct SunScreen
     {
         float px, py;        // convergence point, texture space (y down); clamped to kMaxDistance of centre
-        float ex, ey;        // where the sun enters the screen -- the sun itself when it is on screen
+        float ex, ey;        // where the sun enters the screen; the sun itself when it is on screen
         float gather;        // +1 gather toward (px,py), -1 away from it (sun behind the camera)
         float lengthFrac;    // blur length as a fraction of each pixel's distance to (px,py)
         float fade;          // 0..1
@@ -469,7 +469,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         s.parallel = r.parallel * Sat(hl / 0.05f);
 
         // Rays may reach at most maxLength screen heights, measured at the screen centre, however far
-        // away the convergence point is -- a distant sun otherwise streaks the whole screen.
+        // away the convergence point is. A distant sun otherwise streaks the whole screen.
         const float dh = sqrtf(dx * aspect * dx * aspect + dy * dy);
         s.lengthFrac = r.length;
         if (dh > 1e-4f && r.maxLength / dh < s.lengthFrac)
@@ -484,7 +484,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
         if (r.sunMode == 0)
         {
-            // Pinned to the screen: "12 o'clock" is top centre, just above the edge.
+            // Pinned to the screen: "12 o'clock" is top centre, directly above the edge.
             s.px = r.sunX;
             s.py = r.sunY;
             Finish(s, r.sunX - 0.5f, r.sunY - 0.5f, aspect);
@@ -519,7 +519,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         Transform4(vs, g_proj, clip);
 
         // vs[2] is the cosine between the view axis and the sun. Intensity follows the view: full when
-        // looking straight at the sun, easing down as you turn away, nothing at maxAngle -- one smooth
+        // looking straight at the sun, easing down as you turn away, nothing at maxAngle: one smooth
         // curve, shaped by viewFalloff. And fading as the sun sets, gone 5 degrees below the horizon.
         const float cosMax = cosf(r.maxAngle * 0.01745329f);
         s.fade = powf(Sat((vs[2] - cosMax) / (1.0f - cosMax > 1e-4f ? 1.0f - cosMax : 1e-4f)), r.viewFalloff);
@@ -674,7 +674,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             else
             {
                 static bool said = false;
-                if (!said) { said = true; Log("rays: depth view has nothing to show -- is [depth] enabled?"); }
+                if (!said) { said = true; Log("rays: depth view has nothing to show. Is [depth] enabled?"); }
             }
         }
         else if (r.debugView == 4)
@@ -695,7 +695,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             else
             {
                 static bool said = false;
-                if (!said) { said = true; Log("rays: shadow view has nothing to show -- is [shadow] enabled?"); }
+                if (!said) { said = true; Log("rays: shadow view has nothing to show. Is [shadow] enabled?"); }
             }
         }
         else
@@ -915,7 +915,7 @@ void RaysToggle()
 
 bool RaysSunDirection(float dir[3])
 {
-    // sunMode 1 pins the sun for everything -- rays and beams alike -- whatever the game's clock says.
+    // sunMode 1 pins the sun for everything (rays and beams alike), whatever the game's clock says.
     const RaysSettings& r = g_cfg.rays;
     if (r.sunMode == 1)
     {
@@ -961,7 +961,7 @@ void RaysSetTransform(D3DTRANSFORMSTATETYPE state, const D3DMATRIX* m)
     // Only the world camera matters. The UI sets its own transforms after the world, so an identity view
     // or an orthographic projection is ignored rather than allowed to replace the camera. So is any view
     // with a translation: the world camera never has one in this client, and the sky's sun sprite is
-    // drawn under a special view whose translation IS the sun's position -- taking that for the camera
+    // drawn under a special view whose translation IS the sun's position. Taking that for the camera
     // would turn every later sun direction wrong.
     if (state == D3DTS_VIEW)
     {

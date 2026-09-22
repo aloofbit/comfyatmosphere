@@ -1,36 +1,36 @@
-// shadow -- a depth map of the world as the sun sees it, kept by a cache of casters.
+// shadow: a depth map of the world as the sun sees it, kept by a cache of casters.
 //
 // Volumetric light asks, for any point in the air: does the sun reach it? That needs the scene's depth
 // from the sun's side, and the client never renders one. So its opaque world draws are recorded as they
 // happen and replayed from the sun into a depth texture over a square around the player.
 //
 // The client only draws what is in the camera's view, so a map made from one frame's draws loses a tree
-// the moment it leaves the screen -- and the air it shaded flashes bright. Hence a cache: every recorded
+// the moment it leaves the screen, and the air it shaded flashes bright. Hence a cache: every recorded
 // draw becomes an entry, kept across frames in ABSOLUTE world coordinates, and the map is drawn from the
 // whole cache every frame.
 //
 //   Recording   Between the end of the sky and the end of the world: every draw that writes depth with
-//               blending off -- terrain, buildings, trees, characters. Each record keeps its buffers,
+//               blending off: terrain, buildings, trees, characters. Each record keeps its buffers,
 //               shader, declaration, texture, alpha test and world matrix, holding a reference to each.
 //               Shader draws also keep a snapshot of all 256 vertex-shader constants (bones, c2..c5 and
 //               the rest), from a mirror kept current by every client upload. Dynamic vertex buffers are
 //               skipped: the client re-fills them mid-frame (the grass arena is one, see comfygrass).
 //   Absolute    The client draws camera-relative. Fixed-function entries keep their world matrix with the
 //               camera's position added back. Shader entries keep A = M * inverse(camera view-proj) * T(cam)
-//               -- their own transform with the camera taken out -- which is affine whether the client
+//               (their own transform with the camera taken out), which is affine whether the client
 //               folds the world matrix into c2..c5 or into the bones (both checked by the probe).
 //   Identity    What is drawn (buffers, shader, index range), and among the instances of that, the nearest
 //               within matchRadius yards. A first version keyed on position to a quarter of a yard, and
-//               trees -- whose reference point is a swaying root bone -- drifted across those boundaries
+//               trees, whose reference point is a swaying root bone, drifted across those boundaries
 //               and were re-added every few frames (472 new entries a frame, a cache of 2500 duplicates).
 //               Matching by nearness keeps a swaying tree one entry, and lets a walking character's entry
 //               move with it instead of leaving a trail. Each entry matches at most once a frame.
-//   Eviction    An entry is gone if it was NOT drawn this frame although it sits in view and near -- a
+//   Eviction    An entry is gone if it was NOT drawn this frame although it sits in view and near: a
 //               character that walked off, a mesh that switched level of detail. Out of view it stays,
 //               for up to cacheTime seconds: the tree over your head keeps shading you after you look away
 //               from it. There is deliberately no "too far from the player" rule: a model's reference
-//               point is its first bone, which for some models sits far from the geometry -- measured,
-//               trees inside the map reading 85-95 yards away -- so a step across that limit dropped a
+//               point is its first bone, which for some models sits far from the geometry (measured:
+//               trees inside the map reading 85-95 yards away). So a step across that limit dropped a
 //               nearby tree from the map and the air it shaded lit up. Far entries cost a draw that the
 //               map clips; the cap bounds them.
 //   Replay      Into a 2048x2048 INTZ depth texture (readable, like depth.cpp's), colour writes off, no
@@ -361,7 +361,7 @@ namespace
                 FromRegisters(&c[2 * 4], m);
                 Mul(m, camOut, e.absolute);
                 // Key point: the first bone's origin (c31..c33 .w), through A. For models whose c2..c5
-                // carry the world matrix instead, that is the model's own origin -- either way stable.
+                // carry the world matrix instead, that is the model's own origin. Either way it is stable.
                 const float b[4] = { c[31 * 4 + 3], c[32 * 4 + 3], c[33 * 4 + 3], 1.0f };
                 for (int j = 0; j < 3; ++j)
                     pos[j] = b[0] * e.absolute.m[0][j] + b[1] * e.absolute.m[1][j] + b[2] * e.absolute.m[2][j] +
@@ -683,7 +683,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const UINT recorded = static_cast<UINT>(g_frame.size());
     g_nRefreshed = g_nAdded = g_nEvictView = g_nEvictAge = g_nEvictCap = 0;
     if (logThis)
-        Log("shadow: this frame's world draws: %u seen, recorded %u; rejected -- depth test off %u, depth writes "
+        Log("shadow: this frame's world draws: %u seen, recorded %u; rejected: depth test off %u, depth writes "
             "off %u, blended %u, no vertex buffer %u, dynamic %u", g_seen, recorded, g_rejZ, g_rejZW, g_rejBlend,
             g_rejNoVB, g_rejDynamic);
     g_rejZ = g_rejZW = g_rejBlend = g_rejNoVB = g_rejDynamic = g_seen = 0;

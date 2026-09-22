@@ -1,19 +1,19 @@
-// volume -- volumetric light: the fog glowing where the sun reaches it.
+// volume: volumetric light: the fog glowing where the sun reaches it.
 //
 // A lamp in a foggy room: the beam is not an object but the fog itself, lit. Walk around and it does not
-// move, because it is defined by the lamp, the shade and the fog -- not by where you stand. Here the lamp
+// move, because it is defined by the lamp, the shade and the fog, not by where you stand. Here the lamp
 // is the sun, the shade is the shadow map (shadow.cpp) and the fog is what the client already draws.
 //
 // Per pixel, at reduced resolution:
 //   1. Read the scene's depth (depth.cpp's INTZ buffer) and rebuild the point it shows, camera-relative,
 //      through the inverse of the client's view-projection. The line of sight runs from the camera to it,
-//      clipped at maxDistance -- the reach of the shadow map.
+//      clipped at maxDistance (the reach of the shadow map).
 //   2. Step along it and ask the shadow map, at each step, whether that point in the air sees the sun.
 //      The shadow projection is orthographic, so it is affine: the line's two ends are taken into shadow
 //      space once and the steps interpolate between them. Outside the map counts as lit (no known
 //      occluder). Each pixel starts its steps at a different offset (interleaved-gradient noise) so
 //      banding turns into fine noise, and a small blur takes the noise out.
-//   3. Lit length x density x a Henyey-Greenstein phase -- sunlight scatters forward, so the glow is
+//   3. Lit length x density x a Henyey-Greenstein phase. Sunlight scatters forward, so the glow is
 //      strongest looking toward the sun.
 // Then it is added onto the world image in the [rays] colour, before glow and UI.
 //
@@ -71,8 +71,8 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
         return float4(1.0, 0.0, 0.0, 1.0);                                // debug 2: the pass runs
-    // Undo the viewport's squeeze; past the world's slice is sky or far horizon, so it clamps to far --
-    // just short of it: exactly the far plane reconstructs with w = 0 in some frames, and the NaN that
+    // Undo the viewport's squeeze; past the world's slice is sky or far horizon, so it clamps to
+    // slightly short of far: exactly the far plane reconstructs with w = 0 in some frames, and the NaN that
     // makes, once the client's glow has blurred it over the image, turned whole frames black.
     float  d    = min(saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y), 0.99999);
     if (gP.x > 2.5 && gP.x < 3.5)
@@ -339,7 +339,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     }
 
     // For the vs_3_0 march. A plain XYZ position: an XYZW one was read as three floats, which slid the
-    // texture coordinate four bytes early -- u became w (always 1) and every pixel sampled the depth
+    // texture coordinate four bytes early: u became w (always 1) and every pixel sampled the depth
     // buffer's right-hand edge.
     struct ClipVertex { float x, y, z, u, v; };
     struct QuadVertex { float x, y, z, rhw, u, v; };      // pre-transformed, for the ps_2_0 passes
@@ -383,7 +383,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     if (!depth || !shadow || !ShadowMatrix(shadowVP) || !RaysSunDirection(sunDir) || !haveCam)
     {
         if (logThis)
-            Log("volume: skipped -- %s", !depth ? "no readable depth ([depth] enabled?)" :
+            Log("volume: skipped: %s", !depth ? "no readable depth ([depth] enabled?)" :
                 !shadow ? "no shadow map ([shadow] enabled?)" : "no sun or camera yet");
         return;
     }

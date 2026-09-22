@@ -1,4 +1,4 @@
-// comfyfog.ini -- one dial (thickness, 0..100) plus the few numbers that say what 100 looks like.
+// comfyfog.ini: one dial (thickness, 0..100) plus the few numbers that say what 100 looks like.
 #pragma once
 
 #include <windows.h>
@@ -21,7 +21,7 @@ struct FogSettings
     float reach     = 0.60f;
 
     // Colour at 100. The sky is not fogged the way terrain is, so pulling the colour far from the
-    // client's leaves a visible seam where fogged terrain meets sky -- keep these modest.
+    // client's leaves a visible seam where fogged terrain meets sky. Keep these modest.
     float desaturate = 0.35f;        // 0 .. 1, toward grey
     float darken     = 0.20f;        // 0 .. 1, toward black
     DWORD tint       = 0x5A6470;     // RGB the colour is pulled toward, by tintAmount
@@ -40,8 +40,8 @@ struct RaysSettings
     float strength    = 35.0f;
     float maxExposure = 2.0f;
 
-    // A pixel casts rays when it is within relThreshold of the brightest pixel in the frame -- so the
-    // sky gaps in a dim, foggy forest cast as surely as the sky beside the sun -- and above threshold,
+    // A pixel casts rays when it is within relThreshold of the brightest pixel in the frame (so the
+    // sky gaps in a dim, foggy forest cast as surely as the sky beside the sun), and above threshold,
     // an absolute floor that keeps a dark cave's dim lights from streaking.
     float relThreshold = 0.75f;     // 0..1 of the frame's brightest luminance
     float threshold   = 0.20f;      // absolute luminance floor, 0..1
@@ -61,8 +61,8 @@ struct RaysSettings
     int   passes      = 3;          // blur passes of 16 samples each, 1..3
     int   downscale   = 2;          // work at 1/N resolution per axis, 1..8
 
-    // Where the sun is. 0: pinned to the screen at (sunX, sunY), texture space, y down -- "12 o'clock"
-    // is top centre just above the edge. 1: a fixed world direction, azimuth/elevation in degrees
+    // Where the sun is. 0: pinned to the screen at (sunX, sunY), texture space, y down. "12 o'clock"
+    // is top centre, directly above the edge. 1: a fixed world direction, azimuth/elevation in degrees
     // (Z up), projected through the client's camera. 2: the sun the client draws in the sky, so the rays
     // come from the visible sun and follow the time of day.
     int   sunMode     = 2;
@@ -74,7 +74,7 @@ struct RaysSettings
     int   debugView   = 0;          // 1 = show the mask, 2 = show the rays alone
 
     // 0: at the world -> UI boundary, so the UI gets no rays (and loading screens none at all).
-    // 1: over the finished frame at Present, UI included -- the fallback if the boundary is ever missed.
+    // 1: over the finished frame at Present, UI included: the fallback if the boundary is ever missed.
     int   placement     = 0;
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the boundary
 };

@@ -1,8 +1,8 @@
-// client -- reading the running client: where the camera and the local player are.
+// client: reading the running client: where the camera and the local player are.
 //
 // Both addresses were found by disassembling this WoW.exe and verified by comfygrass (see its README):
 // the camera's world position at 0x00C7CF20, and the object manager at 0x00B41414 walked to the local
-// player, whose position sits at +0x9B8. All reads are guarded -- a loading screen or another build fails
+// player, whose position sits at +0x9B8. All reads are guarded: a loading screen or another build fails
 // a read and the caller carries on without.
 
 #define WIN32_LEAN_AND_MEAN
