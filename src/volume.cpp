@@ -15,11 +15,20 @@
 //      banding turns into fine noise, and a small blur takes the noise out.
 //   3. Lit length x density x a Henyey-Greenstein phase. Sunlight scatters forward, so the glow is
 //      strongest looking toward the sun.
-// Then it is added onto the world image in the [volume] colour, before glow and UI.
+// The march writes the glow to red and the distance to the point it saw to green. The passes after it
+// use that distance so the glow of one surface does not spread onto another at a different distance:
+//   4. A small blur, whose taps count for less the further their distance is from the centre's.
+//   5. Part of the last frame is kept ([volume] smooth). The noise offset turns a little each frame, so
+//      the kept frames average the noise out rather than repeat it. The last frame is looked up where
+//      the pixel's point was on the last frame's screen, found from the camera's movement, so a turn or
+//      a step does not smear.
+//   6. Added onto the world at full resolution in the [volume] colour, before glow and UI. Each pixel
+//      takes the four low-resolution texels around it, weighted also by how near their distance is to
+//      its own: a tree trunk in front of the sky takes the trunk's glow, not the sky's.
 //
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
-// with a vs_3_0, so the march has its own trivial full-screen vertex shader. The blur and the composite
-// are ps_2_0 over pre-transformed quads, like the rest of comfyfog.
+// with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
+// shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
 
 #define CINTERFACE
 #define WIN32_LEAN_AND_MEAN
@@ -27,6 +36,7 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "client.h"
 #include "common.h"
 #include "config.h"
 #include "depth.h"
@@ -68,7 +78,7 @@ float4 gSh3  : register(c7);
 float4 gSun  : register(c8);        // direction to the sun, phase anisotropy g
 float4 gP    : register(c9);        // debug stage, max distance, density, shadow bias
 float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
-float4 gL    : register(c11);       // steps along the ray, 1 / steps
+float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
@@ -91,7 +101,9 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 
     float3 s0 = gSh3.xyz;                                                 // the camera, at the origin
     float3 s1 = e.x * gSh0.xyz + e.y * gSh1.xyz + e.z * gSh2.xyz + gSh3.xyz;
-    float  jit = frac(52.9829189 * frac(dot(vpos, float2(0.06711056, 0.00583715))));
+    // Interleaved-gradient noise, turned by a golden-ratio step each frame (gL.z), so the frames the
+    // temporal pass keeps each sample the ray at other places.
+    float  jit = frac(52.9829189 * frac(dot(vpos, float2(0.06711056, 0.00583715))) + gL.z);
 
     // The bias grows with how steeply the line of sight runs into the map. Looking along a low sun, a
     // ray crosses hardly any of the map while its depth changes a lot, so every sample lands on nearly
@@ -124,26 +136,129 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float g     = gSun.w;
     float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5);
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
+    // The same for the distance, which is capped where 16-bit floats still hold it.
     float v     = lit * phase;
     v = (v >= 0.0 && v < 16.0) ? v : 0.0;
-    return float4(v, 0.0, 0.0, 1.0);
+    dist = (dist >= 0.0 && dist < 30000.0) ? dist : 30000.0;
+    return float4(v, dist, 0.0, 1.0);
 }
 )HLSL";
 
-    // 5-tap Gaussian along gD (one texel step), run once across and once down.
+    // 5-tap Gaussian along gD (one texel step), run once across and once down. A tap counts for less the
+    // further its distance (green) is from the centre's: 5% nearer or further halves it.
     const char* kBlurHlsl = R"HLSL(
 sampler2D s0 : register(s0);
 float4 gD : register(c0);
+float W(float d, float c, float k)
+{
+    return k / (1.0 + abs(d - c) / max(c, 1e-3) * 20.0);
+}
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
-    float v = tex2D(s0, uv).r * 0.375
-            + (tex2D(s0, uv + gD.xy).r + tex2D(s0, uv - gD.xy).r) * 0.25
-            + (tex2D(s0, uv + gD.xy * 2.0).r + tex2D(s0, uv - gD.xy * 2.0).r) * 0.0625;
-    return float4(v, 0.0, 0.0, 1.0);
+    float4 c  = tex2D(s0, uv);
+    float4 a1 = tex2D(s0, uv + gD.xy);
+    float4 b1 = tex2D(s0, uv - gD.xy);
+    float4 a2 = tex2D(s0, uv + gD.xy * 2.0);
+    float4 b2 = tex2D(s0, uv - gD.xy * 2.0);
+    float wa1 = W(a1.g, c.g, 0.25),   wb1 = W(b1.g, c.g, 0.25);
+    float wa2 = W(a2.g, c.g, 0.0625), wb2 = W(b2.g, c.g, 0.0625);
+    float v = (c.r * 0.375 + a1.r * wa1 + b1.r * wb1 + a2.r * wa2 + b2.r * wb2)
+            / (0.375 + wa1 + wb1 + wa2 + wb2);
+    return float4(v, c.g, 0.0, 1.0);
 }
 )HLSL";
 
+    // The temporal pass, at the march's resolution. The pixel's point is rebuilt from its direction and
+    // distance, moved into the last camera's frame (the client draws camera-relative, so that is a shift
+    // by how far the camera moved), and projected through the last frame's view-projection. The glow
+    // found there is clamped to the range of this frame's 3x3 neighbourhood, so a glow the scene no longer
+    // has cannot linger, and is dropped where its distance does not match the point's: that point was
+    // hidden last frame, and the history there belongs to whatever hid it.
+    const char* kTemporalHlsl = R"HLSL(
+sampler2D sCur  : register(s0);     // this frame: glow (r), distance (g); point sampled
+sampler2D sHist : register(s1);     // the last frame's result, the same layout; bilinear
+float4 gInv0  : register(c0);       // rows of inverse(camera view-projection): clip -> camera-relative world
+float4 gInv1  : register(c1);
+float4 gInv2  : register(c2);
+float4 gInv3  : register(c3);
+float4 gPrev0 : register(c4);       // rows of the last frame's view-projection
+float4 gPrev1 : register(c5);
+float4 gPrev2 : register(c6);
+float4 gPrev3 : register(c7);
+float4 gMove  : register(c8);       // this camera minus the last one (yards), share of the last frame to keep
+float4 gT     : register(c9);       // one texel
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float4 cur = tex2Dlod(sCur, float4(uv, 0, 0));
+    if (gMove.w <= 0.0)
+        return cur;
+
+    float lo = cur.r, hi = cur.r;
+    for (int j = -1; j <= 1; ++j)
+        for (int i = -1; i <= 1; ++i)
+        {
+            float n = tex2Dlod(sCur, float4(uv + float2(i, j) * gT.xy, 0, 0)).r;
+            lo = min(lo, n);
+            hi = max(hi, n);
+        }
+
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    float4 wp  = ndc.x * gInv0 + ndc.y * gInv1 + 0.5 * gInv2 + gInv3;
+    float3 P   = normalize(wp.xyz / max(wp.w, 1e-6)) * cur.g;
+    float3 Q   = P + gMove.xyz;
+    float4 clip = Q.x * gPrev0 + Q.y * gPrev1 + Q.z * gPrev2 + gPrev3;
+    if (clip.w <= 1e-3)
+        return cur;
+    float2 puv = float2(clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5);
+    if (puv.x < 0.0 || puv.y < 0.0 || puv.x > 1.0 || puv.y > 1.0)
+        return cur;
+
+    float4 h      = tex2Dlod(sHist, float4(puv, 0, 0));
+    float  expect = length(Q);
+    float  same   = saturate(1.0 - abs(h.g - expect) / max(0.2 * expect, 1.0));
+    float  v      = lerp(cur.r, clamp(h.r, lo, hi), gMove.w * same);
+    return float4(v, cur.g, 0.0, 1.0);
+}
+)HLSL";
+
+    // Onto the world at full resolution: the four low-resolution texels around each pixel, weighted as a
+    // bilinear filter would, and by how near each texel's distance is to the pixel's own.
     const char* kCompositeHlsl = R"HLSL(
+sampler2D sGlow  : register(s0);    // glow (r), distance (g); point sampled
+sampler2D sDepth : register(s1);    // the scene's depth (INTZ), full resolution
+float4 gInv0 : register(c0);        // rows of inverse(camera view-projection)
+float4 gInv1 : register(c1);
+float4 gInv2 : register(c2);
+float4 gInv3 : register(c3);
+float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ)
+float4 gT    : register(c5);        // the glow's size, and one texel
+float4 gC    : register(c6);        // colour x gain
+float Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
+{
+    float4 s  = tex2Dlod(sGlow, float4((base + o + 0.5) * gT.zw, 0, 0));
+    float2 bw = lerp(1.0 - f, f, o);
+    float  w  = bw.x * bw.y / (1e-3 + abs(s.g - dist) / max(dist, 1e-3)) + 1e-6;
+    wsum += w;
+    return s.r * w;
+}
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float  d    = min(saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y), 0.99999);
+    float2 ndc  = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    float4 wp   = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
+    float  dist = min(length(wp.xyz / max(wp.w, 1e-6)), 30000.0);
+    float2 t    = uv * gT.xy - 0.5;
+    float2 base = floor(t);
+    float2 f    = t - base;
+    float  wsum = 0.0;
+    float  sum  = Tap(base, float2(0, 0), f, dist, wsum) + Tap(base, float2(1, 0), f, dist, wsum)
+                + Tap(base, float2(0, 1), f, dist, wsum) + Tap(base, float2(1, 1), f, dist, wsum);
+    return float4(gC.rgb * (sum / wsum), 0.0);
+}
+)HLSL";
+
+    // The march's debug stages carry no distance, so they are shown with a plain bilinear stretch.
+    const char* kPlainCompositeHlsl = R"HLSL(
 sampler2D s0 : register(s0);
 float4 gC : register(c0);      // colour x gain
 float4 main(float2 uv : TEXCOORD0) : COLOR
@@ -160,13 +275,19 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     };
 
     Target g_a, g_b;                          // the march result and the blur ping-pong
-    Target g_hist;                            // last frame's glow, for the smoothing
+    Target g_hist[2];                         // the temporal pass's result: last frame's and this frame's
+    int    g_histCur = 0;                     // which of the two holds the last result
     bool   g_histValid = false;
-    D3DMATRIX g_lastView = {};                // to tell how far the camera moved since
+    unsigned  g_frameNo   = 0;                // counted at Present
+    unsigned  g_histFrame = 0;                // the frame the last result was made in
+    D3DMATRIX g_histVP = {};                  // ...its camera view-projection
+    float     g_histCam[3] = {};              // ...and its camera position, world yards
     IDirect3DVertexShader9* g_vsMarch = nullptr;
     IDirect3DPixelShader9*  g_psMarch = nullptr;
     IDirect3DPixelShader9*  g_psBlur  = nullptr;
+    IDirect3DPixelShader9*  g_psTemporal = nullptr;
     IDirect3DPixelShader9*  g_psComp  = nullptr;
+    IDirect3DPixelShader9*  g_psPlain = nullptr;
     bool                    g_shadersTried = false;
     IDirect3DStateBlock9*   g_sb = nullptr;
     bool                    g_failed  = false;
@@ -200,7 +321,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     {
         ReleaseTarget(g_a);
         ReleaseTarget(g_b);
-        ReleaseTarget(g_hist);
+        ReleaseTarget(g_hist[0]);
+        ReleaseTarget(g_hist[1]);
         g_histValid = false;
         SafeRelease(g_sb);
     }
@@ -272,18 +394,21 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             g_vsMarch = MakeVS(dev, kMarchVsHlsl, "volume_march_vs");
             g_psMarch = MakePS(dev, kMarchPsHlsl, "volume_march", "ps_3_0");
             g_psBlur  = MakePS(dev, kBlurHlsl, "volume_blur", "ps_2_0");
-            g_psComp  = MakePS(dev, kCompositeHlsl, "volume_composite", "ps_2_0");
-            if (g_vsMarch && g_psMarch && g_psBlur && g_psComp)
+            g_psTemporal = MakePS(dev, kTemporalHlsl, "volume_temporal", "ps_3_0");
+            g_psComp  = MakePS(dev, kCompositeHlsl, "volume_composite", "ps_3_0");
+            g_psPlain = MakePS(dev, kPlainCompositeHlsl, "volume_plain_composite", "ps_2_0");
+            if (g_vsMarch && g_psMarch && g_psBlur && g_psTemporal && g_psComp && g_psPlain)
                 Log("volume: shaders compiled");
         }
-        if (!g_vsMarch || !g_psMarch || !g_psBlur || !g_psComp)
+        if (!g_vsMarch || !g_psMarch || !g_psBlur || !g_psTemporal || !g_psComp || !g_psPlain)
             return false;
         const UINT ds = static_cast<UINT>(g_cfg.volume.downscale);
         const UINT tw = w / ds > 0 ? w / ds : 1, th = h / ds > 0 ? h / ds : 1;
         if (g_a.w == tw && g_a.h == th && g_b.surf && g_sb)
             return true;
         ReleaseDefaultPool();
-        if (!MakeTarget(dev, tw, th, g_hist) || !MakeTarget(dev, tw, th, g_a) || !MakeTarget(dev, tw, th, g_b) ||
+        if (!MakeTarget(dev, tw, th, g_hist[0]) || !MakeTarget(dev, tw, th, g_hist[1]) ||
+            !MakeTarget(dev, tw, th, g_a) || !MakeTarget(dev, tw, th, g_b) ||
             FAILED(dev->lpVtbl->CreateStateBlock(dev, D3DSBT_ALL, &g_sb)) || !g_sb)
         {
             Log("volume: could not create %ux%u targets or a state block", tw, th);
@@ -474,6 +599,21 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         dev->lpVtbl->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
     }
 
+    // A full-screen quad for the vs_3_0 passes, with D3D9's half-pixel offset for a w x h target.
+    void ClipQuad(IDirect3DDevice9* dev, UINT w, UINT h)
+    {
+        const float half[4] = { -1.0f / w, 1.0f / h, 0.0f, 0.0f };
+        dev->lpVtbl->SetVertexShaderConstantF(dev, 0, half, 1);
+        const ClipVertex q[4] = {
+            { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
+            {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
+            { -1.0f, -1.0f, 0.0f, 0.0f, 1.0f },
+            {  1.0f, -1.0f, 0.0f, 1.0f, 1.0f },
+        };
+        dev->lpVtbl->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
+        dev->lpVtbl->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+    }
+
     const D3DRENDERSTATETYPE kTouched[] = {
         D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_SRCBLEND,
         D3DRS_DESTBLEND, D3DRS_BLENDOP, D3DRS_CULLMODE, D3DRS_FOGENABLE, D3DRS_STENCILENABLE,
@@ -482,14 +622,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     constexpr int kTouchedCount = sizeof(kTouched) / sizeof(kTouched[0]);
 }
 
-void VolumeDraw(IDirect3DDevice9* dev)
+bool VolumeDraw(IDirect3DDevice9* dev)
 {
     const bool logThis = g_logNext;
     g_logNext = false;
 
     const VolumeSettings& v = g_cfg.volume;
     if (!v.enabled || !g_on || g_failed || (v.strength <= 0.0f && !v.debug))
-        return;
+        return false;
     ++g_st.calls;
 
     IDirect3DTexture9* depth  = DepthWorldTexture();
@@ -507,7 +647,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
         if (logThis)
             Log("volume: skipped: %s", !depth ? "no readable depth ([depth] enabled?)" :
                 !shadow ? "no shadow map ([shadow] enabled?)" : "no sun or camera yet");
-        return;
+        return false;
     }
 
     // Faded out as the sun goes down.
@@ -515,7 +655,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     if (sunset <= 0.0f && !v.debug)
     {
         ++g_st.sunDown;
-        return;
+        return false;
     }
 
     auto* d = dev->lpVtbl;
@@ -524,7 +664,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     if (!world)
     {
         ++g_st.noTarget;
-        return;
+        return false;
     }
     D3DSURFACE_DESC wd = {};
     world->lpVtbl->GetDesc(world, &wd);
@@ -532,7 +672,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     {
         g_failed = true;
         world->lpVtbl->Release(world);
-        return;
+        return false;
     }
 
     D3DMATRIX camVP, inv;
@@ -547,7 +687,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
     {
         ++g_st.badMatrix;
         world->lpVtbl->Release(world);
-        return;   // a bad matrix this frame: no glow rather than a NaN the glow would spread over the screen
+        return false;   // a bad matrix this frame: no glow rather than a NaN the glow would spread over the screen
     }
     const double t0 = Now();
 
@@ -616,7 +756,11 @@ void VolumeDraw(IDirect3DDevice9* dev)
     ShadowWorldDepthRange(minZ, maxZ);
     pc[40] = minZ; pc[41] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f; pc[42] = 0.0f; pc[43] = 0.0f;
     const float steps = static_cast<float>(v.steps);
-    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = 0.0f; pc[47] = 0.0f;
+    // The noise offset turns by the golden ratio each frame, for the temporal pass to average. Without
+    // that pass it stays put: noise that changes every frame and is never averaged shimmers.
+    const bool temporal = v.smooth > 0.001f && v.debug < 2;
+    const float turn = temporal ? static_cast<float>(fmod(g_frameNo * 0.6180339887, 1.0)) : 0.0f;
+    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = turn; pc[47] = 0.0f;
     d->SetPixelShaderConstantF(dev, 0, pc, 12);
     const ClipVertex q[4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
@@ -652,7 +796,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
         LogMarchSamples(dev, true);
         {
             // The glow as it reaches the screen, against the last traced frame.
-            const Target& shown = (g_cfg.volume.smooth > 0.001f && g_histValid) ? g_hist : g_a;
+            const Target& shown = g_histValid ? g_hist[g_histCur] : g_a;
             IDirect3DSurface9* sys = nullptr;
             if (SUCCEEDED(dev->lpVtbl->CreateOffscreenPlainSurface(dev, shown.w, shown.h,
                     D3DFMT_A16B16G16R16F, D3DPOOL_SYSTEMMEM, &sys, nullptr)) && sys)
@@ -738,43 +882,55 @@ void VolumeDraw(IDirect3DDevice9* dev)
         RhwQuad(dev, g_a.w, g_a.h);
     }
 
-    // --- smooth over time ---------------------------------------------------------------------------
-    // The march is noisy, the shadow map changes under it, and what it reads moves as the camera does.
-    // Keeping part of the last frame settles all of it. The glow is a screen-space image, so the older
-    // frame does not line up after a turn: the weight falls away with how far the camera has moved.
+    // --- keep part of the last frame -----------------------------------------------------------------
+    // The march is noisy and the shadow map changes under it. The last frame's result is reprojected
+    // through the camera's movement and blended in (see kTemporalHlsl). The history belongs to the frame
+    // just before this one, or it is not used: after a skipped frame it is too old to trust.
     const Target* src = &g_a;
-    if (v.smooth > 0.001f && g_hist.surf)
+    float cam[3] = {};
+    const bool camRead = ClientCamera(cam);
+    if (temporal)
     {
-        float move = 0.0f;
-        for (int r = 0; r < 3; ++r)
-            for (int c = 0; c < 3; ++c)
-                move += fabsf(view.m[r][c] - g_lastView.m[r][c]);
-        // A gentle turn is about 0.02 here; by 0.15 the frames share too little to blend.
-        float fade = 1.0f - move / 0.15f;
-        fade = fade < 0.0f ? 0.0f : (fade > 1.0f ? 1.0f : fade);
-        const float keep = g_histValid ? v.smooth * fade : 0.0f;
-        const DWORD f = static_cast<DWORD>((1.0f - keep) * 255.0f + 0.5f);
+        const bool reuse = g_histValid && camRead && g_histFrame + 1 == g_frameNo;
+        const Target& hist = g_hist[g_histCur];
+        const Target& out  = g_hist[1 - g_histCur];
+        float tc[40];
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+            {
+                tc[r * 4 + c]      = inv.m[r][c];
+                tc[16 + r * 4 + c] = g_histVP.m[r][c];
+            }
+        tc[32] = cam[0] - g_histCam[0]; tc[33] = cam[1] - g_histCam[1]; tc[34] = cam[2] - g_histCam[2];
+        tc[35] = reuse ? v.smooth : 0.0f;
+        tc[36] = 1.0f / g_a.w; tc[37] = 1.0f / g_a.h; tc[38] = 0.0f; tc[39] = 0.0f;
 
-        d->SetRenderTarget(dev, 0, g_hist.surf);
+        d->SetRenderTarget(dev, 0, out.surf);
         d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(g_a.tex));
-        d->SetPixelShader(dev, g_psBlur);
-        const float none[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        d->SetPixelShaderConstantF(dev, 0, none, 1);      // no offset: the blur passes the texel through
-        d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, keep > 0.0f ? TRUE : FALSE);
-        d->SetRenderState(dev, D3DRS_SRCBLEND,         D3DBLEND_BLENDFACTOR);
-        d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_INVBLENDFACTOR);
-        d->SetRenderState(dev, D3DRS_BLENDOP,          D3DBLENDOP_ADD);
-        d->SetRenderState(dev, D3DRS_BLENDFACTOR,      D3DCOLOR_ARGB(f, f, f, f));
-        RhwQuad(dev, g_hist.w, g_hist.h);
-        d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, FALSE);
-        g_histValid = true;
-        g_lastView  = view;
-        src = &g_hist;
+        d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(hist.tex));
+        d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+        d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+        d->SetSamplerState(dev, 1, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, 1, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        d->SetVertexShader(dev, g_vsMarch);
+        d->SetPixelShader(dev, g_psTemporal);
+        d->SetPixelShaderConstantF(dev, 0, tc, 10);
+        ClipQuad(dev, out.w, out.h);
+        d->SetTexture(dev, 1, nullptr);
+        d->SetVertexShader(dev, nullptr);
+
+        g_histCur   = 1 - g_histCur;
+        g_histValid = camRead;
+        g_histFrame = g_frameNo;
+        g_histVP    = camVP;
+        memcpy(g_histCam, cam, sizeof(g_histCam));
+        src = &g_hist[g_histCur];
     }
     else
     {
         g_histValid = false;
-        g_lastView  = view;
     }
 
     // --- composite onto the world -------------------------------------------------------------------
@@ -786,8 +942,6 @@ void VolumeDraw(IDirect3DDevice9* dev)
                           v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, 0.0f };
     d->SetRenderTarget(dev, 0, world);
     d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(src->tex));
-    d->SetPixelShader(dev, g_psComp);
-    d->SetPixelShaderConstantF(dev, 0, cc, 1);
     d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
                                                    D3DCOLORWRITEENABLE_BLUE);
     if (!v.debug)
@@ -797,7 +951,39 @@ void VolumeDraw(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_ONE);
         d->SetRenderState(dev, D3DRS_BLENDOP,          D3DBLENDOP_ADD);
     }
-    RhwQuad(dev, wd.Width, wd.Height);
+    if (v.debug >= 2)
+    {
+        d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        d->SetPixelShader(dev, g_psPlain);
+        d->SetPixelShaderConstantF(dev, 0, cc, 1);
+        RhwQuad(dev, wd.Width, wd.Height);
+    }
+    else
+    {
+        float kc[28];
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                kc[r * 4 + c] = inv.m[r][c];
+        kc[16] = pc[40]; kc[17] = pc[41]; kc[18] = 0.0f; kc[19] = 0.0f;
+        kc[20] = static_cast<float>(src->w); kc[21] = static_cast<float>(src->h);
+        kc[22] = 1.0f / src->w;              kc[23] = 1.0f / src->h;
+        kc[24] = cc[0]; kc[25] = cc[1]; kc[26] = cc[2]; kc[27] = 0.0f;
+        d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
+        for (DWORD st = 0; st < 2; ++st)
+        {
+            d->SetSamplerState(dev, st, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, st, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, st, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, st, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        }
+        d->SetVertexShader(dev, g_vsMarch);
+        d->SetPixelShader(dev, g_psComp);
+        d->SetPixelShaderConstantF(dev, 0, kc, 7);
+        ClipQuad(dev, wd.Width, wd.Height);
+        d->SetTexture(dev, 1, nullptr);
+        d->SetVertexShader(dev, nullptr);
+    }
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
@@ -822,6 +1008,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
         Log("volume: drawn at %ux%u (%.2f ms CPU to issue), gain %.2f, density %.3f, max distance %.0f yards, "
             "sun (%.2f %.2f %.2f)", g_a.w, g_a.h, 1000.0 * (Now() - t0), gain, v.density, v.maxDistance,
             sunDir[0], sunDir[1], sunDir[2]);
+    return true;
 }
 
 bool VolumeActive()
@@ -839,6 +1026,7 @@ void VolumeReset()
 void VolumeToggle()
 {
     g_on = !g_on;
+    g_histValid = false;
     Log("--- volume %s ---", g_on ? "ON" : "OFF");
 }
 
@@ -850,6 +1038,7 @@ void VolumeProbe()
 
 void VolumeFrameEnd()
 {
+    ++g_frameNo;
     if (!g_cfg.volume.enabled || !g_on)
     {
         g_st = {};
@@ -857,9 +1046,10 @@ void VolumeFrameEnd()
     }
     if (++g_st.frames < kStatFrames)
         return;
-    Log("volume: %u frames: world end reached %u, drawn %u; skipped: no depth %u, no shadow map %u, "
-        "no shadow matrix %u, no sun %u, no camera %u, sun down %u, no target %u, bad matrix %u",
-        g_st.frames, g_st.calls, g_st.drawn, g_st.noDepth, g_st.noShadow, g_st.noMatrix, g_st.noSun,
-        g_st.noCam, g_st.sunDown, g_st.noTarget, g_st.badMatrix);
+    if (g_cfg.trace)   // [general] trace = 1 only: in normal play it was a file write every few seconds
+        Log("volume: %u frames: world end reached %u, drawn %u; skipped: no depth %u, no shadow map %u, "
+            "no shadow matrix %u, no sun %u, no camera %u, sun down %u, no target %u, bad matrix %u",
+            g_st.frames, g_st.calls, g_st.drawn, g_st.noDepth, g_st.noShadow, g_st.noMatrix, g_st.noSun,
+            g_st.noCam, g_st.sunDown, g_st.noTarget, g_st.badMatrix);
     g_st = {};
 }

@@ -20,6 +20,8 @@ add_library(comfyfog SHARED
     src/shadow.cpp
     src/client.cpp
     src/volume.cpp
+    src/rays.cpp
+    src/bench.cpp
     src/sun.cpp
 )
 

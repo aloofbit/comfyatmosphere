@@ -24,6 +24,9 @@ COMFYATMOSPHERE_FOG            = "Atmospheric Fog";
 COMFYATMOSPHERE_FOG_THICKNESS  = "Fog Thickness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
+COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
+COMFYATMOSPHERE_RAYS           = "Sun Rays";
+COMFYATMOSPHERE_RAYS_STRENGTH  = "Sun Rays Strength";
 COMFYATMOSPHERE_CLOUDS         = "Clouds";
 
 local ENTRIES = {
@@ -58,6 +61,35 @@ local ENTRIES = {
 		type = "slider",
 		cvar = "comfyVolumeStrength",
 		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Three positions: 1 low, 2 medium, 3 high. Without numberLabels the panel labels the ends Low
+		-- and High (OptionsFrame.lua in patch-9.mpq).
+		name = "COMFYATMOSPHERE_VOLUME_QUALITY",
+		desc = "Lower runs faster.",
+		type = "slider",
+		cvar = "comfyVolumeQuality",
+		dependency = { "comfyVolume", "1" },
+		minval = 1,
+		maxval = 3,
+		step = 1,
+	},
+	{
+		name = "COMFYATMOSPHERE_RAYS",
+		desc = "Rays of light from the sun, through gaps in the trees and clouds.",
+		type = "checkbutton",
+		cvar = "comfyRays",
+	},
+	{
+		name = "COMFYATMOSPHERE_RAYS_STRENGTH",
+		desc = "How bright the rays are.",
+		type = "slider",
+		cvar = "comfyRaysStrength",
+		dependency = { "comfyRays", "1" },
 		minval = 0,
 		maxval = 100,
 		step = 5,
