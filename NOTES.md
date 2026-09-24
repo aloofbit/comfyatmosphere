@@ -58,6 +58,9 @@ help, flags, default, callback, category, arg5, cbArg)` and ends `ret 0x18`. The
 as `(name, 0, 0, default, 0, 9, 0, 0)` only when `Lookup` misses. `arg5 = 0` is what sets `0x80000000`.
 The value string is at `+0x20`. The Lua `RegisterCVar` refuses a 31st addon CVar (a count at `0x00B4E3C8`);
 a DLL registration does not count toward it. `GetCVar` on a missing name raises a Lua error, not `nil`.
+The client saves these CVars to `Config.wtf` itself, and only the values that differ from the default
+(measured: `comfyFogThickness 85` was written, `comfyFog` at its default was not), so the addon keeps no
+copy of its own.
 **When to register matters.** Registered on the first frame after the CVar table existed, one start went
 white: the registration fell before the login screen had drawn, and the client drew nothing after it. The
 next start registered after the login screen and ran normally. The DLL now waits until the client's Lua
