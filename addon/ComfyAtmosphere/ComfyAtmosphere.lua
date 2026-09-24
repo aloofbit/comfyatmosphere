@@ -13,6 +13,9 @@
 -- The panel calls GetCVar for every entry on a page, so an entry for a missing CVar would break the
 -- whole Shaders page. The controls are added only when the DLL has registered its CVars.
 --
+-- Without the DLL the addon says nothing. A launcher that turns the mod off removes its dlls.txt line
+-- and leaves this folder, so a message here would repeat at every login.
+--
 -- The client saves the values to Config.wtf itself, and only the ones moved away from their default
 -- (measured: a thickness of 85 was written, fog at its default 1 was not). So a setting nobody moved
 -- still follows comfyfog.ini, and the addon keeps no copy of its own.
@@ -100,9 +103,6 @@ local frame = CreateFrame("Frame");
 frame:RegisterEvent("VARIABLES_LOADED");
 frame:SetScript("OnEvent", function()
 	if not DllLoaded() then
-		DEFAULT_CHAT_FRAME:AddMessage(
-			"|cff88cc88comfyatmosphere|r: comfyfog.dll is not loaded, so no controls were added "
-			.. "to Video > Shaders.");
 		return;
 	end
 	if not AddControls() then
