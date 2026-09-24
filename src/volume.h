@@ -3,7 +3,7 @@
 
 #include <d3d9.h>
 
-void VolumeDraw(IDirect3DDevice9* dev);   // at the end of the world, after the shadow map is drawn
+bool VolumeDraw(IDirect3DDevice9* dev);   // at the end of the world, after the shadow map; true if drawn
 void VolumeReset();                       // before Reset
 void VolumeToggle();
 void VolumeProbe();                       // log the next draw

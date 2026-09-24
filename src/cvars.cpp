@@ -64,12 +64,15 @@ namespace
                                            const char* dflt, void* callback, DWORD category,
                                            DWORD arg5, void* cbArg);
 
-    enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kKnobs };
+    enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
+                kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
         "comfyVolume", "comfyVolumeStrength",
         "comfyClouds",
+        "comfyRays", "comfyRaysStrength",
+        "comfyVolumeQuality",
     };
 
     struct Slot
@@ -154,6 +157,9 @@ namespace
                               break;
         case kVolumeStrength: snprintf(out, cap, "%.0f", s.volume.strength); break;
         case kClouds:         snprintf(out, cap, "%d", s.sky.clouds ? 1 : 0); break;
+        case kRays:           snprintf(out, cap, "%d", s.rays.enabled ? 1 : 0); break;
+        case kRaysStrength:   snprintf(out, cap, "%.0f", s.rays.strength); break;
+        case kVolumeQuality:  snprintf(out, cap, "%d", s.volume.quality); break;
         }
     }
 
@@ -165,6 +171,9 @@ namespace
         if (c[kFogThickness].seen)   s.fog.thickness   = Clamp(c[kFogThickness].value, 0.0f, 100.0f);
         if (c[kVolumeStrength].seen) s.volume.strength = Clamp(c[kVolumeStrength].value, 0.0f, 100.0f);
         if (c[kClouds].seen)         s.sky.clouds      = c[kClouds].value != 0.0f;
+        if (c[kRays].seen)           s.rays.enabled    = c[kRays].value != 0.0f;
+        if (c[kRaysStrength].seen)   s.rays.strength   = Clamp(c[kRaysStrength].value, 0.0f, 100.0f);
+        if (c[kVolumeQuality].seen)  s.volume.quality  = static_cast<int>(Clamp(c[kVolumeQuality].value, 1.0f, 3.0f) + 0.5f);
 
         // One tick box for the light, so it turns on what the light needs. Off, the depth buffer and the
         // shadow map go back to what the ini says.
@@ -175,6 +184,10 @@ namespace
             if (on)
                 s.depth.enabled = s.shadow.enabled = true;
         }
+
+        // Last: the quality level replaces the values it covers, whichever of the ini and the controls
+        // set it.
+        ApplyVolumeQuality(s);
     }
 
     // False when this is not the WoW.exe the addresses were found in, or [general] sliders = 0.

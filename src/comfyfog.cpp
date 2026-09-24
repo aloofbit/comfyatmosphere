@@ -20,10 +20,12 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "bench.h"
 #include "common.h"
 #include "config.h"
 #include "cvars.h"
 #include "depth.h"
+#include "rays.h"
 #include "shadow.h"
 #include "sun.h"
 #include "volume.h"
@@ -483,16 +485,68 @@ namespace
         DepthWorldEnded(dev);
         g_inPass = true;
         if (VolumeActive())          // the map costs more than the light does; it is only for the light
+        {
+            BenchSectionBegin(dev, kBenchShadow);
             ShadowWorldEnded(dev);
+            BenchSectionEnd(dev, kBenchShadow, true);
+            BenchSectionBegin(dev, kBenchVolume);
+            const bool drawn = VolumeDraw(dev);
+            BenchSectionEnd(dev, kBenchVolume, drawn);
+        }
         else
+        {
             ShadowNoReplay();        // so the cost report does not keep showing the last one
-        VolumeDraw(dev);
+        }
         g_inPass = false;
         if (g_probe.active)
         {
             Log("  [draw %4u] WORLD END      %s", g_probe.draws, why);
             g_probe.boundary = g_probe.draws;
         }
+    }
+
+    // Rays placement. hkSetTransform finds where the world ends (the first switch to a non-perspective
+    // projection), but that switch only ARMS the pass. With Full Screen Glow on (ffxGlow, the default) the
+    // world is drawn into an off-screen texture, not the back buffer; after the switch the client
+    // downsamples and blurs it, then draws world + glow onto the back buffer in one full-screen,
+    // pixel-shaded, unblended draw that replaces whatever was there. Rays drawn at the switch read a back
+    // buffer holding no world yet and were then painted over. So the pass fires immediately before the
+    // first draw that goes to the back buffer with no pixel shader bound: the first UI draw, with glow on
+    // or off. A probe showed both:
+    //
+    //   glow on:  world -> RT A | switch | glow passes into small RTs | composite to BB (ps) | UI (no ps)
+    //   glow off: world -> BB   | switch | UI (no ps)
+    bool               g_raysArmed = false;
+    bool               g_raysDone  = false;
+    IDirect3DSurface9* g_bbArmed   = nullptr;   // the back buffer when armed; compared, never dereferenced
+
+    void FireRays(IDirect3DDevice9* dev, const char* where)
+    {
+        g_raysArmed = false;
+        g_raysDone  = true;
+        g_inPass = true;
+        BenchSectionBegin(dev, kBenchRays);
+        const bool ran = RaysBeforeUI(dev);
+        BenchSectionEnd(dev, kBenchRays, ran);
+        g_inPass = false;
+        if (ran && g_probe.active)
+            Log("  [draw %4u] RAYS PASS      %s", g_probe.draws, where);
+    }
+
+    // Called before every draw is forwarded; does nothing unless armed.
+    void MaybeFireRays(IDirect3DDevice9* dev)
+    {
+        if (!g_raysArmed || g_inPass)
+            return;
+        IDirect3DSurface9*     rt = nullptr;
+        IDirect3DPixelShader9* ps = nullptr;
+        dev->lpVtbl->GetRenderTarget(dev, 0, &rt);
+        dev->lpVtbl->GetPixelShader(dev, &ps);
+        const bool firstUiDraw = rt && rt == g_bbArmed && !ps;
+        if (rt) rt->lpVtbl->Release(rt);
+        if (ps) ps->lpVtbl->Release(ps);
+        if (firstUiDraw)
+            FireRays(dev, "before the first UI draw");
     }
 
     // Pushes the current dial onto the device for every fog value the client has set, so a reload or a
@@ -537,7 +591,16 @@ namespace
         const bool reload = focused && (GetAsyncKeyState(g_cfg.reloadKey) & 0x8000) != 0;
         if (reload && !g_reloadDown)
         {
-            if (GetAsyncKeyState(VK_MENU) & 0x8000)
+            // Any of these changes what the benchmark measures. A plain reload rebuilds the settings from
+            // the ini, so the benchmark has nothing to put back.
+            const bool plain = !(GetAsyncKeyState(VK_MENU) & 0x8000) && !(GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+                               !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+            BenchCancel("F11", !plain);
+            if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
+            {
+                RaysToggle();
+            }
+            else if (GetAsyncKeyState(VK_MENU) & 0x8000)
             {
                 VolumeToggle();
             }
@@ -551,6 +614,7 @@ namespace
             {
                 LoadSettings(g_iniPath);
                 CVarsAfterLoad();
+                RaysReload();
                 LogDial("reloaded");
                 ApplyAll(dev);
             }
@@ -558,9 +622,20 @@ namespace
         g_reloadDown = reload;
 
         const bool probe = focused && (GetAsyncKeyState(g_cfg.probeKey) & 0x8000) != 0;
-        // Ctrl+F12 belongs to comfytime's clock search; only a plain press takes a probe.
+        // Ctrl+F12 belongs to comfytime's clock search. Alt+F12 runs the benchmark; a plain press takes a
+        // probe.
         if (probe && !g_probeDown && !(GetAsyncKeyState(VK_CONTROL) & 0x8000))
-            g_probe.armed = true;
+        {
+            if (GetAsyncKeyState(VK_MENU) & 0x8000)
+            {
+                BenchStart(dev);
+                ApplyAll(dev);
+            }
+            else
+            {
+                g_probe.armed = true;
+            }
+        }
         g_probeDown = probe;
     }
 
@@ -586,6 +661,26 @@ namespace
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
                                         HWND wnd, const RGNDATA* dirty)
     {
+        // Between captures, so the pass's own draws and state changes never show up in a probe.
+        // Armed but never fired: nothing was drawn to the back buffer after the world (UI hidden, say),
+        // so the finished frame is exactly the world and the pass can run here.
+        if (g_raysArmed)
+            FireRays(dev, "at Present (no UI draw followed)");
+        g_inPass = true;
+        if (g_cfg.rays.placement == 1)             // over the finished frame, UI included
+        {
+            BenchSectionBegin(dev, kBenchRays);
+            const bool drawn = RaysPresent(dev);
+            BenchSectionEnd(dev, kBenchRays, drawn);
+        }
+        else
+        {
+            RaysPresent(dev);                      // ends the frame for the rays
+        }
+        g_inPass = false;
+        g_raysArmed = false;
+        g_raysDone  = false;
+
         if (g_probe.active)
         {
             Log("--- end frame %llu: %u draws, %u fogged (%u of those through a vertex shader), "
@@ -600,6 +695,8 @@ namespace
             static double last = 0.0, worstFrame = 0.0, sumFrame = 0.0, sumShadow = 0.0, worstShadow = 0.0;
             static unsigned frames = 0, sumDrawn = 0, sumSkipped = 0;
             const double now = Now();
+            if (BenchFrame(dev, last > 0.0 ? now - last : 0.0))
+                ApplyAll(dev);   // the benchmark moved to its next step, or finished
             if (last > 0.0)
             {
                 const double dt = now - last;
@@ -611,7 +708,9 @@ namespace
                 if (sh > worstShadow) worstShadow = sh;
                 sumDrawn += drawn;
                 sumSkipped += skipped;
-                if (++frames >= 300)
+                // Only with [general] trace = 1: every write opens and closes comfyfog.log, and in normal
+                // play the benchmark (Alt+F12) gives the same numbers when they are wanted.
+                if (++frames >= 300 && g_cfg.trace)
                 {
                     unsigned copyFailed = 0;
                     const unsigned copies = ShadowCopies(copyFailed);
@@ -620,6 +719,9 @@ namespace
                         frames / sumFrame, 1000.0 * sumFrame / frames, 1000.0 * worstFrame,
                         1000.0 * sumShadow / frames, 1000.0 * worstShadow, sumDrawn / frames,
                         sumSkipped / frames, g_maxConstReg, copies, copyFailed);
+                }
+                if (frames >= 300)
+                {
                     frames = 0; sumFrame = sumShadow = worstFrame = worstShadow = 0.0;
                     sumDrawn = sumSkipped = 0;
                 }
@@ -636,7 +738,10 @@ namespace
 
         PollKeys(dev);
         if (CVarsPoll())
+        {
+            BenchCancel("a control in Video > Shaders moved", false);
             ApplyAll(dev);   // a moved slider shows this frame, not on the next zone change
+        }
 
         g_frame++;
         if (g_probe.armed)
@@ -665,6 +770,8 @@ namespace
         DepthReset(dev);   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
         ShadowReset();
         VolumeReset();
+        RaysReset();
+        BenchReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -750,7 +857,22 @@ namespace
                     persp ? "perspective" : "NOT perspective", m->m[3][3]);
 
             if (!persp && g_lastPersp && g_frameDraws >= static_cast<uint32_t>(g_cfg.minWorldDraws))
+            {
                 WorldEnded(dev, "switch to 2D");   // glow off: the world ends here instead
+                // The rays wait for the first UI draw (see FireRays).
+                if (!g_raysArmed && !g_raysDone)
+                {
+                    IDirect3DSurface9* bb = nullptr;
+                    if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
+                    {
+                        g_bbArmed   = bb;
+                        g_raysArmed = true;
+                        bb->lpVtbl->Release(bb);
+                        if (g_probe.active)
+                            Log("  [draw %4u] RAYS ARMED     world -> UI switch", g_probe.draws);
+                    }
+                }
+            }
             g_lastPersp = persp;
         }
         return g_oSetTransform(dev, st, m);
@@ -1011,6 +1133,7 @@ namespace
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
         if (!g_inPass)
             RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
+        MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         return g_oDrawPrim(dev, prim, sv, pc);
     }
@@ -1051,7 +1174,14 @@ namespace
                                                      UINT mvi, UINT nv, UINT si, UINT pc)
     {
         NoteSkySun(dev, prim, pc, nv);
-        if (!g_cfg.sky.clouds && IsCloudDraw(dev, prim, nv))
+        const bool cloud = IsCloudDraw(dev, prim, nv);
+        if (cloud)
+        {
+            g_inPass = true;
+            RaysBeforeClouds(dev);           // [rays] skyOnly: the rays cast from the sky without its clouds
+            g_inPass = false;
+        }
+        if (!g_cfg.sky.clouds && cloud)
         {
             if (g_probe.active)
                 Log("  [draw %4u] CLOUDS         skipped (%u vertices)", g_probe.draws, nv);
@@ -1060,6 +1190,7 @@ namespace
         }
         if (!g_inPass)
             RecordDraw(dev, true, prim, bvi, mvi, nv, si, pc);
+        MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
     }
@@ -1067,6 +1198,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitiveUP(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc,
                                                 const void* data, UINT stride)
     {
+        MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitiveUP", prim, pc, false, 0, VertsForPrims(prim, pc), data);
         return g_oDrawPrimUP(dev, prim, pc, data, stride);
     }
@@ -1075,6 +1207,7 @@ namespace
                                                        UINT nv, UINT pc, const void* idx, D3DFORMAT fmt,
                                                        const void* data, UINT stride)
     {
+        MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexedUP", prim, pc, true, 0, nv, data);
         return g_oDrawIdxPrimUP(dev, prim, mvi, nv, pc, idx, fmt, data, stride);
     }

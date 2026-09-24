@@ -23,6 +23,14 @@ extern UINT g_maxConstReg;   // how many shader registers the client uses, so th
 unsigned ShadowCopies(unsigned& failed);   // chunks copied out of the client's arena, and failures
 void ShadowNoReplay();   // the map was not built this frame
 double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped);   // what this frame's replay cost
+// For the benchmark: time the recording, the cache upkeep and the replay (CPU seconds), and count the
+// casters drawn and the entries held, summed over the frames since the last take.
+void ShadowTiming(bool on);
+// ...and within the cache upkeep: Merge's share, and how many entries were seen again and how many of
+// those had not moved, since the last take.
+void ShadowTakeCacheSplit(double& merge, unsigned& still, unsigned& refreshed);
+void ShadowTakeTimes(double& record, double& cache, double& replay, unsigned& drawn, unsigned& entries,
+                     unsigned& frames, unsigned& replays);
 const char* ShadowDropped();   // what the world filter threw away this frame
 unsigned ShadowOffWorld();   // records dropped this frame: not drawn with the world's camera and slice
 const char* ShadowChanges(unsigned& changed);   // refreshed entries whose inputs changed, and the biggest

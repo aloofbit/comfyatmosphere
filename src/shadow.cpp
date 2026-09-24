@@ -184,6 +184,7 @@ namespace
         DWORD                        alphaTest, alphaRef, alphaFunc;
         D3DMATRIX                    world;       // fixed-function: camera-relative, as drawn
         size_t                       consts;      // shader draws: offset of the snapshot in g_constPool
+        UINT                         nregs;       // ...and how many registers it holds
         uint64_t                     seq;         // writes seen when this draw was recorded
         float                        minZ, maxZ;  // the viewport's depth slice, to tell world draws apart
         bool                         hasProj;     // fixed-function: the projection it was drawn with
@@ -351,6 +352,7 @@ namespace
         uint64_t           seq;            // writes seen when its geometry was last recorded
         float              pos[3];         // absolute position of its reference point
         double             lastSeen;       // == now once matched this frame
+        float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
     };
 
     // Each key holds the instances of that model, wherever they stand.
@@ -390,9 +392,12 @@ namespace
     // drop every other object in the same buffer, which took the abbey out of the map altogether. So each
     // write keeps its byte range, and an entry is gone only once a later write lands on its own vertices.
     struct Write { UINT start, end; uint64_t seq; };
-    struct BufferWrites { Write ring[16]; int next = 0; uint64_t last = 0; };
+    // frames: in how many different frames the client wrote the buffer. A static buffer is written once,
+    // when it is loaded; a buffer written in two frames or more is one the client streams through.
+    struct BufferWrites { Write ring[16]; int next = 0; uint64_t last = 0; unsigned frames = 0; unsigned lastFrame = 0; };
     std::unordered_map<const void*, BufferWrites> g_written;
     uint64_t g_writeSeq = 0;
+    unsigned g_frameId  = 1;                 // counted at Present, for BufferWrites::frames
     unsigned g_nEvictWritten = 0;
 
     bool WrittenOver(const void* b, UINT start, UINT bytes, uint64_t seq)
@@ -460,6 +465,14 @@ namespace
     std::unordered_map<ArenaKey, ArenaCopy, ArenaKeyHash> g_copies;
     unsigned g_copiesTaken = 0;      // this frame
     unsigned g_copyFailed  = 0;
+    unsigned g_copyRefusedStream2 = 0;   // arena draws not copied: they use a second vertex stream
+    unsigned g_copyRefusedOther   = 0;   // ...no vertex buffer, no stride or no vertices
+    // camAddr when the frame's recording began. camAddr moves during the frame: a trace while walking
+    // measured 0.27 yards on average between the start of the frame and the end of the world, in 173 of
+    // 180 frames. Model (M2) matrices are relative to the start value, fixed-function draws to the end
+    // value (see Merge).
+    float    g_camAtBegin[3] = {};
+    bool     g_haveCamAtBegin = false;
     bool     g_copying     = false;  // our own writes must not count as the client re-filling a buffer
     uint64_t g_frameSeqStart = 0;    // writes seen when this frame began
 
@@ -483,12 +496,18 @@ namespace
 
     bool TakeCopy(IDirect3DDevice9* dev, const Rec& r, ArenaCopy& out)
     {
-        if (!r.vb[0] || !r.vbStride[0] || r.vb[1])       // one stream only: a second would need its own copy
+        if (r.vb[1])                                     // one stream only: a second would need its own copy
+        {
+            ++g_copyRefusedStream2;
             return false;
+        }
         const UINT first = static_cast<UINT>(r.baseVertex + r.minIndex);
         const UINT bytes = r.numVertices * r.vbStride[0];
-        if (!bytes)
+        if (!r.vb[0] || !r.vbStride[0] || !bytes)
+        {
+            ++g_copyRefusedOther;
             return false;
+        }
 
         auto* d = dev->lpVtbl;
         g_copying = true;
@@ -559,10 +578,23 @@ namespace
     double   g_replaySeconds = 0.0;          // what this frame's replay cost
     unsigned g_replaySkipped = 0;            // entries outside the map, not drawn
 
+    // For the benchmark only (ShadowTiming): CPU time in the three parts, summed over frames until taken.
+    bool     g_timing       = false;
+    double   g_tRecord      = 0.0;           // RecordDraw, over the whole world pass
+    double   g_tCache       = 0.0;           // Merge and Evict
+    double   g_tMerge       = 0.0;           // ...of which Merge
+    unsigned g_tStill       = 0;             // models seen again that had not moved
+    unsigned g_tRefreshed   = 0;             // entries seen again
+    double   g_tReplay      = 0.0;           // drawing the cache into the map
+    unsigned g_tDrawn       = 0;             // casters drawn into the map
+    unsigned g_tEntries     = 0;             // entries in the cache
+    unsigned g_tFrames      = 0;             // frames the cache was kept
+    unsigned g_tReplays     = 0;             // frames the map was drawn ([shadow] mapEvery)
+
     // The absolute transform derived for the frame's first M2 record, against the camera's own rotation:
     // if an entry's frame of reference is the camera, keeping it across frames cannot work.
     char g_frameInfo[360] = {};
-    char g_frameInfo2[240] = {};
+    char g_frameInfo2[800] = {};
 
     // Refreshed entries whose replay inputs changed since last frame, for the volume trace: how many,
     // and the biggest change.
@@ -591,10 +623,49 @@ namespace
 
     // The frame's records into the cache. camVPInv takes the frame's camera out of shader draws; cam is
     // the camera's absolute position, to put fixed-function draws back into absolute coordinates.
-    void Merge(const D3DMATRIX& camVPInv, const float cam[3], double now)
+    // Trace only: how far a still object's stored position drifts from one frame to the next, with the
+    // camera read when the frame began ("start") and at the end of the world ("end"), for models (M2,
+    // shader) and fixed-function draws apart. The right camera gives about zero drift.
+    double   g_prevMergeNow = 0.0;
+    double   g_driftSum[2][2] = {};          // [M2, ff][start, end]
+    unsigned g_driftN[2] = {};
+    // Trace only: large models (over 4000 vertices, buildings): matched in place and how far they
+    // shifted, matched only by the move rule and how far they jumped, and added new, this frame.
+    unsigned g_bigNear = 0, g_bigMoved = 0, g_bigNew = 0;
+    float    g_bigNearShift = 0.0f, g_bigMoveJump = 0.0f;
+
+    // cam: camAddr at the end of the world, which fixed-function draws are relative to (a fixed-function
+    // object's stored position drifted 0.0000 yards a frame with it, by trace). camModels: the camera the
+    // model (M2) matrices are taken back to. It is the same value now; camAddr as the frame began was tried
+    // for models on 2026-09-24 and did not stop a distant tower jumping, because the jump came from the
+    // projection (see IsProjection below).
+    // A D3D perspective projection and nothing else: no rotation, no translation, w = z.
+    bool IsProjection(const D3DMATRIX& m)
     {
+        const float eps = 1e-3f;
+        return fabsf(m.m[0][1]) < eps && fabsf(m.m[0][2]) < eps && fabsf(m.m[0][3]) < eps &&
+               fabsf(m.m[1][0]) < eps && fabsf(m.m[1][2]) < eps && fabsf(m.m[1][3]) < eps &&
+               fabsf(m.m[2][0]) < eps && fabsf(m.m[2][1]) < eps && fabsf(m.m[2][3] - 1.0f) < eps &&
+               fabsf(m.m[3][0]) < eps && fabsf(m.m[3][1]) < eps && fabsf(m.m[3][3]) < eps &&
+               fabsf(m.m[0][0]) > eps && fabsf(m.m[1][1]) > eps;
+    }
+    unsigned g_nProjOnly = 0;                // this frame: model records with a projection alone in c2..c5
+    unsigned g_nStill    = 0;                // this frame: models seen again that had not moved (not copied)
+
+    void Merge(const D3DMATRIX& camVPInv, const float cam[3], const float camModels[3], double now)
+    {
+        float camEnd[3] = { cam[0], cam[1], cam[2] };
+        if (g_cfg.trace)
+            ClientCamera(camEnd);
+        const float delta[3] = { camEnd[0] - cam[0], camEnd[1] - cam[1], camEnd[2] - cam[2] };
+        g_driftSum[0][0] = g_driftSum[0][1] = g_driftSum[1][0] = g_driftSum[1][1] = 0.0;
+        g_driftN[0] = g_driftN[1] = 0;
+        g_bigNear = g_bigMoved = g_bigNew = 0;
+        g_nProjOnly = 0;
+        g_nStill = 0;
+        g_bigNearShift = g_bigMoveJump = 0.0f;
         D3DMATRIX toAbs;
-        Translation(cam[0], cam[1], cam[2], toAbs);
+        Translation(camModels[0], camModels[1], camModels[2], toAbs);
         D3DMATRIX camOut;
         Mul(camVPInv, toAbs, camOut);   // camera clip -> absolute world
         g_newInfo[0] = 0; g_newInfoLen = 0; g_newInfoCount = 0;
@@ -622,7 +693,7 @@ namespace
             const bool keep     = g_cfg.shadow.horizon && !r.vs;
             if ((offSlice || offCam) && !keep)
             {
-                if (g_dropInfoCount < 5)   // the trace: what the world filter throws away
+                if (g_cfg.trace && g_dropInfoCount < 5)   // the trace: what the world filter throws away
                 {
                     ++g_dropInfoCount;
                     g_dropInfoLen += _snprintf_s(g_dropInfo + g_dropInfoLen, sizeof(g_dropInfo) - g_dropInfoLen,
@@ -643,8 +714,28 @@ namespace
                 const float* c = &g_constPool[r.consts];
                 D3DMATRIX m;
                 FromRegisters(&c[2 * 4], m);
-                Mul(m, camOut, e.absolute);
-                if (!g_frameInfo[0])
+                // Some models upload only the projection in c2..c5 and carry world and view in the bones.
+                // Dividing the world camera's projection out of that left whatever the two projections
+                // differ by, in the depth direction: a tower 200 yards away had one row of A change by
+                // 0.008 from frame to frame with the view unchanged, 1.6 yards at its distance, and it
+                // jumped in the shadow map as you walked. For those, A is the inverse of the view (a pure
+                // rotation here) and the camera's position, with no projection in it at all.
+                if (IsProjection(m) && g_haveWorldCam)
+                {
+                    D3DMATRIX& a = e.absolute;
+                    a = {};
+                    for (int i = 0; i < 3; ++i)
+                        for (int j = 0; j < 3; ++j)
+                            a.m[i][j] = g_worldView.m[j][i];
+                    a.m[3][0] = camModels[0]; a.m[3][1] = camModels[1]; a.m[3][2] = camModels[2];
+                    a.m[3][3] = 1.0f;
+                    ++g_nProjOnly;
+                }
+                else
+                {
+                    Mul(m, camOut, e.absolute);
+                }
+                if (g_cfg.trace && !g_frameInfo[0])
                 {
                     const D3DMATRIX& a = e.absolute;
                     _snprintf_s(g_frameInfo, sizeof(g_frameInfo), _TRUNCATE,
@@ -700,6 +791,9 @@ namespace
             if (best)
             {
                 // Seen again: fresh position, matrices, constants and alpha state; same objects referenced.
+                // What changed is only for the trace. Compared for every shader draw every frame, 1024
+                // constants each, it cost the light CPU time with the trace off.
+                if (g_cfg.trace)
                 {
                     float dm = 0.0f;
                     for (int i = 0; i < 4; ++i)
@@ -707,10 +801,11 @@ namespace
                             dm = (std::max)(dm, fabsf(best->absolute.m[i][j] - e.absolute.m[i][j]));
                     float dc = 0.0f;
                     int   dcReg = -1;
-                    if (r.vs && best->consts.size() == 256 * 4)
+                    if (r.vs && !best->consts.empty())
                     {
                         const float* nc = &g_constPool[r.consts];
-                        for (int i = 0; i < 256 * 4; ++i)
+                        const int n = static_cast<int>((std::min)(best->consts.size(), static_cast<size_t>(r.nregs) * 4));
+                        for (int i = 0; i < n; ++i)
                         {
                             const float dd = fabsf(best->consts[i] - nc[i]);
                             if (dd > dc) { dc = dd; dcReg = i; }
@@ -731,10 +826,53 @@ namespace
                         }
                     }
                 }
-                best->absolute = e.absolute;
-                memcpy(best->pos, pos, sizeof(pos));
-                if (r.vs)
-                    best->consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + 256 * 4);
+                if (g_cfg.trace && r.vs && r.numVertices > 4000)
+                {
+                    const float dx = best->pos[0] - pos[0], dy = best->pos[1] - pos[1], dz = best->pos[2] - pos[2];
+                    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+                    if (moved) { ++g_bigMoved; g_bigMoveJump = (std::max)(g_bigMoveJump, d); }
+                    else       { ++g_bigNear;  g_bigNearShift = (std::max)(g_bigNearShift, d); }
+                }
+                if (g_cfg.trace && best->lastSeen == g_prevMergeNow && !moved)
+                {
+                    const float pe[3] = { pos[0] + delta[0], pos[1] + delta[1], pos[2] + delta[2] };
+                    float db = 0.0f, de = 0.0f;
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        db += (pos[j] - best->pos[j]) * (pos[j] - best->pos[j]);
+                        de += (pe[j] - best->posEnd[j]) * (pe[j] - best->posEnd[j]);
+                    }
+                    db = sqrtf(db); de = sqrtf(de);
+                    if (db < 2.0f && de < 2.0f)
+                    {
+                        const int kind = r.vs ? 0 : 1;
+                        g_driftSum[kind][0] += db;
+                        g_driftSum[kind][1] += de;
+                        ++g_driftN[kind];
+                    }
+                }
+                // A model that has not moved keeps the matrix and constants it has: they were recorded
+                // together and still describe it, and copying them again (up to 3.5 KB) for every still
+                // model every frame was a good part of the cache's CPU time. For many models the bones
+                // are relative to the camera, so their constants change whenever the camera moves; that is
+                // not the model moving. A model that does animate in place (a windmill) keeps the pose it
+                // was first seen in, in the map.
+                const float sx = best->pos[0] - pos[0], sy = best->pos[1] - pos[1], sz = best->pos[2] - pos[2];
+                const bool still = r.vs && !moved && sx * sx + sy * sy + sz * sz < 0.02f * 0.02f &&
+                                   !best->consts.empty();
+                if (still)
+                {
+                    ++g_nStill;
+                }
+                else
+                {
+                    for (int j = 0; j < 3; ++j)
+                        best->posEnd[j] = pos[j] + delta[j];
+                    best->absolute = e.absolute;
+                    memcpy(best->pos, pos, sizeof(pos));
+                    if (r.vs)
+                        best->consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + r.nregs * 4);
+                }
                 best->rec.alphaTest = r.alphaTest; best->rec.alphaRef = r.alphaRef; best->rec.alphaFunc = r.alphaFunc;
                 best->seq = r.seq;
                 best->mobile = best->mobile || moved;
@@ -746,15 +884,19 @@ namespace
             {
                 e.rec = r;                         // the entry takes over the references
                 if (r.vs)
-                    e.consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + 256 * 4);
+                    e.consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + r.nregs * 4);
                 memcpy(e.pos, pos, sizeof(pos));
+                for (int j = 0; j < 3; ++j)
+                    e.posEnd[j] = pos[j] + delta[j];
+                if (g_cfg.trace && r.vs && r.numVertices > 4000)
+                    ++g_bigNew;
                 e.mobile = false;
                 e.seq = r.seq;
                 e.lastSeen = now;
                 list.push_back(std::move(e));
                 ++g_entries;
                 ++g_nAdded;
-                if (g_newInfoCount < 5)
+                if (g_cfg.trace && g_newInfoCount < 5)
                 {
                     ++g_newInfoCount;
                     const D3DMATRIX& a = list.back().absolute;
@@ -776,6 +918,7 @@ namespace
         }
         g_frame.clear();
         g_constPool.clear();
+        g_prevMergeNow = now;
     }
 
     // Gone if unseen this frame while in view and near; else aged out, or beyond the map's reach.
@@ -793,7 +936,7 @@ namespace
                 {
                     gone = true;
                     ++g_nEvictWritten;
-                    if (g_overInfoCount < 5)   // the trace: what the client overwrites under us
+                    if (g_cfg.trace && g_overInfoCount < 5)   // the trace: what the client overwrites under us
                     {
                         ++g_overInfoCount;
                         g_overInfoLen += _snprintf_s(g_overInfo + g_overInfoLen, sizeof(g_overInfo) - g_overInfoLen,
@@ -810,11 +953,7 @@ namespace
                         c[j] = rel[0] * camVP.m[0][j] + rel[1] * camVP.m[1][j] + rel[2] * camVP.m[2][j] + camVP.m[3][j];
                     const float dist2 = rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2];
                     const bool inView = c[3] > 0.0f && fabsf(c[0]) < 0.9f * c[3] && fabsf(c[1]) < 0.9f * c[3];
-                    if (OverwrittenSince(e.rec, e.seq))
-                    {
-                        gone = true; ++g_nEvictWritten;
-                    }
-                    else if (inView && dist2 < s.evictDistance * s.evictDistance)
+                    if (inView && dist2 < s.evictDistance * s.evictDistance)
                     {
                         gone = true; ++g_nEvictView;
                     }
@@ -883,6 +1022,7 @@ namespace
     bool                  g_valid     = false;
     bool                  g_logNext   = false;
     D3DMATRIX             g_shadowVP  = {};        // camera-relative world -> shadow clip, for the reader
+    D3DMATRIX             g_mapAbsToSun = {};      // absolute world -> shadow clip, as the map was last drawn
 
     void ReleaseResources()
     {
@@ -953,6 +1093,8 @@ namespace
 void ShadowSetPhase(bool recording)
 {
     g_recording = recording && g_cfg.shadow.enabled && !g_failed;
+    if (recording && !g_haveCamAtBegin)
+        g_haveCamAtBegin = ClientCamera(g_camAtBegin);
     if (recording)
     {
         g_frameSeqStart = g_writeSeq;
@@ -968,6 +1110,11 @@ void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size)
         return;
     BufferWrites& b = g_written[buffer];
     b.last = ++g_writeSeq;
+    if (b.lastFrame != g_frameId)
+    {
+        b.lastFrame = g_frameId;
+        ++b.frames;
+    }
     b.ring[b.next] = { offset, size ? offset + size : 0xFFFFFFFFu, b.last };   // size 0 is the whole buffer
     b.next = (b.next + 1) % 16;
 }
@@ -991,6 +1138,11 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
 {
     if (!g_recording)
         return;
+    struct Timer
+    {
+        double t0 = g_timing ? Now() : 0.0;
+        ~Timer() { if (g_timing) g_tRecord += Now() - t0; }
+    } timer;
     auto* d = dev->lpVtbl;
     if (!g_mirrorValid)
     {
@@ -1042,8 +1194,11 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
     d->GetTransform(dev, D3DTS_WORLD, &r.world);
     if (r.vs)
     {
+        // Only as far as the highest register the client has set (157 to 220 measured), not all 256:
+        // this copy is made for every model draw, every frame. At least c0..c33, which Merge reads.
+        r.nregs  = g_maxConstReg < 34 ? 34 : (g_maxConstReg > 256 ? 256 : g_maxConstReg);
         r.consts = g_constPool.size();
-        g_constPool.insert(g_constPool.end(), g_mirror, g_mirror + 256 * 4);
+        g_constPool.insert(g_constPool.end(), g_mirror, g_mirror + r.nregs * 4);
     }
     D3DVIEWPORT9 vp = {};
     r.minZ = 0.0f; r.maxZ = 1.0f;
@@ -1062,13 +1217,20 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         r.proj00 = cp.m[0][0]; r.proj22 = cp.m[2][2]; r.proj32 = cp.m[3][2];
     }
 
-    // Arena geometry: the client wrote this buffer earlier in this very frame, so by the end of the world
-    // pass what it holds will be something else. A copy of our own stands in, taken once per chunk and
-    // kept: the same terrain arrives at the same place with the same counts every frame, which is what
+    // Arena geometry: a buffer the client streams through, so by the end of the world pass, or a few
+    // frames on, what it holds will be something else. A copy of our own stands in, taken once per chunk
+    // and kept: the same terrain arrives at the same place with the same counts every frame, which is what
     // identifies it, since its buffer and offsets are different each time.
+    //
+    // A buffer counts as an arena when the client wrote it earlier in this frame, or in two frames or
+    // more. The first rule alone missed terrain the client wrote into the arena in an earlier frame and
+    // drew from it now: that was cached as a plain pointer, dropped as soon as the client refilled the
+    // buffer, and back the next frame. A trace while walking showed 8 to 12 such chunks dropped a frame
+    // and up to 168 at once, all from one buffer, and the shade of the ground blinked: the jitter while
+    // walking.
     {
         auto w = g_written.find(r.vb[0]);
-        const bool arena = w != g_written.end() && w->second.last > g_frameSeqStart;
+        const bool arena = w != g_written.end() && (w->second.last > g_frameSeqStart || w->second.frames >= 2);
         if (arena && !r.vs && g_cfg.shadow.copyMax > 0)
         {
             float cam[3] = { 0.0f, 0.0f, 0.0f };
@@ -1190,6 +1352,31 @@ void ShadowNoReplay()
     g_replaySkipped = 0;
 }
 
+void ShadowTiming(bool on)
+{
+    g_timing = on;
+    g_tRecord = g_tCache = g_tReplay = 0.0;
+    g_tDrawn = g_tEntries = g_tFrames = g_tReplays = 0;
+    g_tMerge = 0.0;
+    g_tStill = g_tRefreshed = 0;
+}
+
+void ShadowTakeCacheSplit(double& merge, unsigned& still, unsigned& refreshed)
+{
+    merge = g_tMerge; still = g_tStill; refreshed = g_tRefreshed;
+    g_tMerge = 0.0;
+    g_tStill = g_tRefreshed = 0;
+}
+
+void ShadowTakeTimes(double& record, double& cache, double& replay, unsigned& drawn, unsigned& entries,
+                     unsigned& frames, unsigned& replays)
+{
+    record = g_tRecord; cache = g_tCache; replay = g_tReplay;
+    drawn = g_tDrawn; entries = g_tEntries; frames = g_tFrames; replays = g_tReplays;
+    g_tRecord = g_tCache = g_tReplay = 0.0;
+    g_tDrawn = g_tEntries = g_tFrames = g_tReplays = 0;
+}
+
 double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped)
 {
     drawn   = g_replayDrawn;
@@ -1258,9 +1445,20 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         g_samplesLeft = 6;
         memcpy(g_logPlayer, pl, sizeof(g_logPlayer));
     }
-    Merge(camVPInv, cam, now);
+    Merge(camVPInv, cam, cam, now);
+    const double tMerged = Now();
     g_samplesLeft = 0;
     Evict(camVP, cam, now);
+    const double tCache = Now();
+    if (g_timing)
+    {
+        g_tCache   += tCache - t0;
+        g_tMerge   += tMerged - t0;
+        g_tStill   += g_nStill;
+        g_tRefreshed += g_nRefreshed;
+        g_tEntries += static_cast<unsigned>(g_entries);
+        ++g_tFrames;
+    }
 
     if (g_cache.empty() || !EnsureResources(dev, static_cast<UINT>(s.size)))
     {
@@ -1298,9 +1496,23 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         }
     }
     const float centre[3] = { pl[0] - cam[0], pl[1] - cam[1], pl[2] - cam[2] };
-    _snprintf_s(g_frameInfo2, sizeof(g_frameInfo2), _TRUNCATE,
-                "map centre abs (%.4f %.4f %.4f), camera (%.4f %.4f %.4f), sun (%.6f %.6f %.6f)",
-                pl[0], pl[1], pl[2], cam[0], cam[1], cam[2], sunDir[0], sunDir[1], sunDir[2]);
+    if (g_cfg.trace)   // the trace's line about this frame; formatted every frame, it was wasted work
+    {
+        const float mx = cam[0] - g_camAtBegin[0], my = cam[1] - g_camAtBegin[1], mz = cam[2] - g_camAtBegin[2];
+        _snprintf_s(g_frameInfo2, sizeof(g_frameInfo2), _TRUNCATE,
+                    "map centre abs (%.4f %.4f %.4f), camera (%.4f %.4f %.4f), sun (%.6f %.6f %.6f); camera moved "
+                    "%.4f yards since the frame began%s; copies refused: second stream %u, other %u; drift a frame: "
+                    "M2 start %.4f end %.4f (%u), ff start %.4f end %.4f (%u); big models: %u in place (largest "
+                    "shift %.2f), %u by the move rule (largest jump %.2f), %u new; model records with a projection "
+                    "alone %u",
+                    pl[0], pl[1], pl[2], cam[0], cam[1], cam[2], sunDir[0], sunDir[1], sunDir[2],
+                    g_haveCamAtBegin ? sqrtf(mx * mx + my * my + mz * mz) : -1.0f,
+                    g_haveCamAtBegin ? "" : " (not read at the start)", g_copyRefusedStream2, g_copyRefusedOther,
+                    g_driftN[0] ? g_driftSum[0][0] / g_driftN[0] : 0.0, g_driftN[0] ? g_driftSum[0][1] / g_driftN[0] : 0.0,
+                    g_driftN[0], g_driftN[1] ? g_driftSum[1][0] / g_driftN[1] : 0.0,
+                    g_driftN[1] ? g_driftSum[1][1] / g_driftN[1] : 0.0, g_driftN[1], g_bigNear, g_bigNearShift,
+                    g_bigMoved, g_bigMoveJump, g_bigNew, g_nProjOnly);
+    }
     const float eye[3] = { centre[0] + sunDir[0] * s.depth, centre[1] + sunDir[1] * s.depth,
                            centre[2] + sunDir[2] * s.depth };
     const float up[3]  = { 0.0f, 0.0f, 1.0f };
@@ -1311,18 +1523,30 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     Mul(sunView, sunProj, sunVP);
     Translation(-cam[0], -cam[1], -cam[2], fromAbs);
     Mul(fromAbs, sunVP, fromAbsToSun);   // absolute world -> sun clip, for the shader entries
-    g_shadowVP = sunVP;
 
     // The cache is kept up to date every frame; the map itself need not be redrawn every frame, and the
     // replay is the expensive half. What it holds is then a frame or two old, which the light's own
     // smoothing covers.
+    //
+    // On a frame without a replay, the reader must see the map as it was DRAWN: the replay's matrix,
+    // kept in absolute coordinates, brought to this frame's camera. This frame's own sunVP is centred on
+    // where the player is now, while the map holds the shade around where the player was at the replay:
+    // read through it, the shade was shifted by the distance walked since then and snapped back at the
+    // next replay, which was jitter while walking, none standing still, and worse at mapEvery 3 than 2.
+    // A first try at this (2026-09-24) flashed every few frames. Tried again the same day, after a
+    // distant model's transform was fixed (IsProjection), it neither flashed nor jittered.
     static unsigned tick = 0;
     if (s.mapEvery > 1 && (++tick % static_cast<unsigned>(s.mapEvery)) != 0 && g_valid)
     {
+        D3DMATRIX toAbs;
+        Translation(cam[0], cam[1], cam[2], toAbs);
+        Mul(toAbs, g_mapAbsToSun, g_shadowVP);
         g_replayOutcome = 0;
         g_replaySeconds = Now() - t0;
         return;
     }
+    g_shadowVP    = sunVP;
+    g_mapAbsToSun = fromAbsToSun;
 
     auto* d = dev->lpVtbl;
 
@@ -1384,6 +1608,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     DWORD tci = 0, ttf = 0;
     d->GetTextureStageState(dev, 0, D3DTSS_TEXCOORDINDEX, &tci);
     d->GetTextureStageState(dev, 0, D3DTSS_TEXTURETRANSFORMFLAGS, &ttf);
+    if (g_cfg.trace)
     {
         const DWORD* g = &saved[kFirstGeometry];
         float bias = 0.0f, slope = 0.0f;
@@ -1441,7 +1666,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             Mul(e.absolute, fromAbsToSun, m);
             float c[16];
             ToRegisters(m, c);
-            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), g_maxConstReg ? g_maxConstReg : 256);
+            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), static_cast<UINT>(e.consts.size() / 4));
             d->SetVertexShaderConstantF(dev, 2, c, 4);
             d->SetVertexShader(dev, r.vs);
             ++drawnVS;
@@ -1501,6 +1726,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     g_valid = true;
     g_replayOutcome = 0;
     g_replayDrawn   = drawn;
+    if (g_timing)
+    {
+        g_tReplay += Now() - tCache;
+        g_tDrawn  += drawn;
+        ++g_tReplays;
+    }
     if (logThis)
         Log("shadow: cache %u entries (%u not drawn this frame, kept from earlier): %u refreshed, %u new; evicted "
             "%u in view but gone, %u aged out, %u over the cap. Replayed %u (%u through M2 "
@@ -1514,6 +1745,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
 
 void ShadowFrameEnd()
 {
+    ++g_frameId;
+    g_haveCamAtBegin = false;
     g_recording = false;
     ReleaseFrame();
     g_sliceCount = 0;

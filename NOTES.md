@@ -1,10 +1,22 @@
 # ComfyFogAndRays design notes
 
-**Status: working in game, all in one DLL (`comfyfog.dll`, sources in `src/`).** Fog, volumetric light
-(depth + sun shadow map + ray-march), and cloud removal, with controls in the game's options through the
-ComfyAtmosphere addon. The screen-space sun rays (`rays.cpp`) were removed on 2026-09-23: they were a step
-toward the volumetric light, which replaced them. Git history keeps them. The sun direction and the camera
-they tracked moved to `sun.cpp`, their light colour to `[volume] color`. Time-of-day control, first
+**Status: working in game, all in one DLL (`comfyfog.dll`, sources in `src/`).** Fog, screen-space sun
+rays, volumetric light (depth + sun shadow map + ray-march), and cloud removal, with controls in the game's
+options through the ComfyAtmosphere addon. The sun rays (`rays.cpp`) were removed on 2026-09-23 as a step the
+volumetric light had replaced, and put back on 2026-09-24 because players asked for them. They are cheap and
+need no depth, so they are on by default and the light is not. Shafts need a large bright source that
+trees and ridges cut into, and the bright sky around the sun is that source: at `relThreshold` 0.75 only
+the sun and its halo cast, and a ridge in front of the sun gave one smooth fan (`debugView = 1` showed
+it). 0.35 lets the sky cast. Lit clouds then cast too, and glow around the sun. `[rays] skyOnly = 1`
+casts from the image kept just before the cloud draw (a probe shows the order: sun sprite, sky dome
+added, cloud layer alpha-blended, then the world), per pixel the darker of that and the finished frame.
+It was first judged broken, because only the sun disk cast. The kept image is also free of the client's
+Full-Screen Glow, which brightens everything near the sun in the finished frame, so its sky is dimmer and
+needs a lower `relThreshold`. `debugView = 3` shows the kept image. The defaults since 2026-09-24,
+chosen in game: `skyOnly = 1` and `relThreshold = 0.20`. At 0.35 the kept sky only just cast (about 10%
+strength in the mask); at 0.20 it casts about three times as strongly. 0.20 is also the absolute floor
+(`threshold`), so a lower value changes nothing. The sun direction and the camera they
+tracked stay in `sun.cpp`, which all three passes share. Time-of-day control, first
 built here, is now its own DLL: comfytime (https://github.com/aloofbit/comfytime). Everything is tuned from
 `comfyfog.ini` and reloads with F11. The sections after *What was found* are the original feasibility
 write-up, kept for the reasoning. Where they disagree with *What was found*, *What was found* is what
@@ -14,10 +26,12 @@ measurement showed.
 | --- | --- | --- |
 | Fog: one `thickness` dial, haze floor + gentler climb | `comfyfog.cpp` | Shift+F11 toggle |
 | Sun direction and world camera, for the shadow map and the light | `sun.cpp` | none |
+| Sun rays: radial blur of the bright sky toward the sun | `rays.cpp` | Ctrl+F11 toggle |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
 | Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | none |
-| In-game controls: CVars for the addon's sliders | `cvars.cpp` | none |
+| In-game controls: CVars for the addon's sliders, and the quality levels | `cvars.cpp`, `config.cpp` | none |
 | Diagnostics | all | F12: one-frame probe, then a 180-frame trace of the light and the map |
+| Benchmark: each feature in turn, frame rate and our own GPU and CPU time | `bench.cpp` | Alt+F12 |
 
 ## What was found (measured in this `WoW.exe`)
 
@@ -147,9 +161,83 @@ light costs little against the client's own 17 to 21 ms a frame, `mapEvery` 2 ha
 visible difference, and `cacheTime` is worth more than it looks: 30 seconds of history held 5000 entries
 where 10 seconds holds 600, because a tree is several batches and every level of detail is its own.
 
-What the light still does not do: the glow is smoothed over time (`[volume] smooth`, eased off as the
-camera turns) because the march is noisy and the map changes under it; and the bias grows with how
-steeply a line of sight runs into the map, without which a low sun flickered badly around itself.
+What the light still does not do: the bias grows with how steeply a line of sight runs into the map,
+without which a low sun flickered badly around itself.
+
+## Volumetric Light Quality (2026-09-24)
+
+Players reported low frame rates with the light on, so the light got a quality control: a three-position
+slider in Video > Shaders (`comfyVolumeQuality`, `[volume] quality`). High uses the ini's values as they
+are, so hand tuning keeps working. Medium and Low replace four values (`ApplyVolumeQuality`, applied
+after the controls are laid over the ini):
+
+| | Low | Medium | High |
+| --- | --- | --- | --- |
+| `[shadow] size` | 1024 | 1024 | ini (2048) |
+| `[volume] steps` | 32 | 48 | ini (64) |
+| `[volume] downscale` | 3 | 2 | ini (2) |
+| `[shadow] mapEvery` | 4 | 3 | ini (3) |
+
+A slider, not a dropdown: the options window labels a slider's ends Low and High when it has no
+`numberLabels` (OptionsFrame.lua in patch-9.mpq), and a dropdown needs menu code of its own. Not yet
+measured with the benchmark.
+
+## Jitter in the light while walking (2026-09-24)
+
+The light was steady standing still and jittered while walking. The shadow map view (`[volume] debug =
+6`) showed where: a mountain slid smoothly with the player, a tower 200 yards away jumped. Traces (F12 with
+`[general] trace = 1`) found three causes, fixed in this order:
+
+**Streamed terrain blinked.** An arena chunk was only recognised as streamed when the client had written
+its buffer earlier in the same frame. Terrain written into the arena in an earlier frame and drawn from it
+later was cached as a plain pointer, dropped as soon as the client refilled the buffer, and back the next
+frame: 8 to 12 entries a frame, up to 168 at once, all from one buffer. A buffer written in two frames or
+more now counts as streamed, so it gets a copy. That made copies the bottleneck, so `copyPerFrame` went
+from 2 to 16 and `copyMax` from 768 to 2048.
+
+**The tower's transform carried the projection's error.** Some models upload only the projection in c2..c5
+and carry world and view in their bones. Their absolute transform was found by dividing the world
+camera's projection out, and the two projections differ in their depth range: one row of A changed by
+0.008 between frames with the view unchanged, 1.6 yards at the tower's distance. When c2..c5 is a pure
+projection (`IsProjection`), A is now the inverse of the view plus the camera position. A large model's
+stored position then shifted 0.000 yards a frame while the camera moved 0.28 (it was up to 0.33).
+
+**Frames without a replay read the map through the wrong matrix.** With `mapEvery` above 1, those frames
+used a matrix centred on the player's position now, while the map held the shade around the position at
+the last replay, so the shade shifted by the distance walked and snapped back. They now use the replay's
+matrix, kept in absolute coordinates, brought to the current camera. A first try at this flashed; after
+the tower fix it neither flashed nor jittered.
+
+On the way, the camera position was measured: `camAddr` moves by one frame's walk (0.27 yards on average)
+between the start of the frame and the end of the world. Fixed-function draws are relative to the value at
+the end of the world (0.0000 yards of drift with it). Using the start value was tried and was not the
+cause. `smooth` went from 0.6 to 0.85, which calms the noise standing still.
+
+## Smoothing and upsampling the light (2026-09-24)
+
+Taken as ideas, not code, from coa-vfog (a volumetric fog DLL for a 3.3.5a client). Not yet checked in game.
+
+**The noise did not average out.** The march starts each pixel's steps at an offset from interleaved-gradient
+noise. The offset was the same every frame, so `[volume] smooth` blended the same noise pattern into
+itself: it hid the frame-to-frame change and removed none of the noise. The offset now turns by the golden
+ratio each frame (`frac(noise + frame * 0.618)`), so each kept frame samples the ray at other places.
+
+**The kept frame smeared on a turn.** It was blended in at the same screen position, so it was faded out
+as the camera turned. It is now reprojected. The march writes each pixel's distance to green. The temporal
+pass rebuilds the point from its direction and distance, shifts it by how far the camera moved (the client
+draws camera-relative, so the last frame's space is this one moved by that vector, read from `camAddr`),
+and projects it through the last frame's view-projection. What it finds there is clamped to the range of
+this frame's 3x3 neighbourhood, and dropped where the stored distance does not match the point's (that
+point was hidden last frame). A history older than one frame is not used.
+
+**The glow bled across edges.** The march runs at half resolution and was stretched over the world, so a
+tree trunk in front of bright air took a rim of that air's glow. The blur and the composite now weight each
+tap by how near its distance is to the centre's. The composite takes the four low-resolution texels
+around each full-resolution pixel, with bilinear weights divided by `1e-3 + |distance difference| /
+distance`.
+
+Not taken: extinction in the march (`(1 - e^-t) / t` per step), which would stop a thick `density` from
+blowing out toward the sun. It changes how the tuned defaults look, so it waits for a session in game.
 
 ## The framing that matters
 
