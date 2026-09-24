@@ -13,8 +13,9 @@
 -- The panel calls GetCVar for every entry on a page, so an entry for a missing CVar would break the
 -- whole Shaders page. The controls are added only when the DLL has registered its CVars.
 --
--- The addon keeps its own copy of the values (ComfyAtmosphereSaved), because it is not known whether
--- the client writes a CVar registered by a DLL to Config.wtf.
+-- The client saves the values to Config.wtf itself, and only the ones moved away from their default
+-- (measured: a thickness of 85 was written, fog at its default 1 was not). So a setting nobody moved
+-- still follows comfyfog.ini, and the addon keeps no copy of its own.
 
 COMFYATMOSPHERE_FOG            = "Atmospheric Fog";
 COMFYATMOSPHERE_FOG_THICKNESS  = "Fog Thickness";
@@ -73,31 +74,6 @@ local function DllLoaded()
 	return ok and value ~= nil;
 end
 
--- The saved values go back before the panel is first opened, and before the next frame reads them.
-local function Restore()
-	if type(ComfyAtmosphereSaved) ~= "table" then
-		return;
-	end
-	for _, option in ipairs(ENTRIES) do
-		local value = ComfyAtmosphereSaved[option.cvar];
-		if value ~= nil then
-			SetCVar(option.cvar, value);
-		end
-	end
-end
-
--- Only a value moved away from its default is kept. The default is the ini value, so a setting nobody
--- moved still follows comfyfog.ini, and the Defaults button clears what was saved.
-local function Save()
-	ComfyAtmosphereSaved = {};
-	for _, option in ipairs(ENTRIES) do
-		local value = GetCVar(option.cvar);
-		if tonumber(value) ~= tonumber(GetCVarDefault(option.cvar)) then
-			ComfyAtmosphereSaved[option.cvar] = value;
-		end
-	end
-end
-
 local function AddControls()
 	if type(GameOptions) ~= "table" or not PIXEL_SHADERS then
 		return false;
@@ -120,27 +96,18 @@ local function AddControls()
 	return false;
 end
 
-local loaded = false;
-
 local frame = CreateFrame("Frame");
 frame:RegisterEvent("VARIABLES_LOADED");
-frame:RegisterEvent("PLAYER_LOGOUT");
 frame:SetScript("OnEvent", function()
-	if event == "VARIABLES_LOADED" then
-		if not DllLoaded() then
-			DEFAULT_CHAT_FRAME:AddMessage(
-				"|cff88cc88comfyatmosphere|r: comfyfog.dll is not loaded, so no controls were added "
-				.. "to Video > Shaders.");
-			return;
-		end
-		loaded = true;
-		Restore();
-		if not AddControls() then
-			DEFAULT_CHAT_FRAME:AddMessage(
-				"|cff88cc88comfyatmosphere|r: this client's options panel is not the data-driven one, "
-				.. "so no controls were added. Use the F11 keys and comfyfog.ini instead.");
-		end
-	elseif event == "PLAYER_LOGOUT" and loaded then
-		Save();
+	if not DllLoaded() then
+		DEFAULT_CHAT_FRAME:AddMessage(
+			"|cff88cc88comfyatmosphere|r: comfyfog.dll is not loaded, so no controls were added "
+			.. "to Video > Shaders.");
+		return;
+	end
+	if not AddControls() then
+		DEFAULT_CHAT_FRAME:AddMessage(
+			"|cff88cc88comfyatmosphere|r: this client's options panel is not the data-driven one, "
+			.. "so no controls were added. Use the F11 keys and comfyfog.ini instead.");
 	end
 end);
