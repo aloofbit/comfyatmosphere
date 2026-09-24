@@ -11,7 +11,7 @@
 // map). Multisampled surfaces are left alone: a texture cannot be multisampled, and the render target
 // would no longer match. Every INTZ texture is released before Reset.
 //
-// NOTES.md deferred this as the risky part of the rays work; it is behind [depth] enabled so it can be
+// NOTES.md deferred this as the risky part of the work; it is behind [depth] enabled so it can be
 // switched off with F11 if it ever misbehaves.
 
 #define CINTERFACE

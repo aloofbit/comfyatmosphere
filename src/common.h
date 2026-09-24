@@ -1,4 +1,4 @@
-// Shared between the fog and the rays halves of comfyfog.dll.
+// Shared between the parts of comfyfog.dll.
 #pragma once
 
 #include <windows.h>

@@ -15,7 +15,7 @@
 //      banding turns into fine noise, and a small blur takes the noise out.
 //   3. Lit length x density x a Henyey-Greenstein phase. Sunlight scatters forward, so the glow is
 //      strongest looking toward the sun.
-// Then it is added onto the world image in the [rays] colour, before glow and UI.
+// Then it is added onto the world image in the [volume] colour, before glow and UI.
 //
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march has its own trivial full-screen vertex shader. The blur and the composite
@@ -30,7 +30,7 @@
 #include "common.h"
 #include "config.h"
 #include "depth.h"
-#include "rays.h"
+#include "sun.h"
 #include "shadow.h"
 #include "volume.h"
 
@@ -496,11 +496,11 @@ void VolumeDraw(IDirect3DDevice9* dev)
     IDirect3DTexture9* shadow = ShadowTexture();
     float sunDir[3];
     D3DMATRIX view, proj, shadowVP;
-    // The camera the depth was drawn with (see ShadowWorldCamera); rays.cpp's can be the sky's.
+    // The camera the depth was drawn with (see ShadowWorldCamera); sun.cpp's can be the sky's.
     const bool worldCam = ShadowWorldCamera(view, proj);
-    const bool haveCam  = worldCam || RaysCamera(view, proj);
+    const bool haveCam  = worldCam || SunCamera(view, proj);
     unsigned* skip = !depth ? &g_st.noDepth : !shadow ? &g_st.noShadow : !ShadowMatrix(shadowVP) ? &g_st.noMatrix :
-                     !RaysSunDirection(sunDir) ? &g_st.noSun : !haveCam ? &g_st.noCam : nullptr;
+                     !SunDirection(sunDir) ? &g_st.noSun : !haveCam ? &g_st.noCam : nullptr;
     if (skip)
     {
         ++*skip;
@@ -779,7 +779,7 @@ void VolumeDraw(IDirect3DDevice9* dev)
 
     // --- composite onto the world -------------------------------------------------------------------
     // debug replaces the world with the glow alone, white, to see its shape.
-    const DWORD col = g_cfg.rays.color;
+    const DWORD col = g_cfg.volume.color;
     const float gain = v.debug ? 1.0f : (v.strength * 0.01f) * v.maxIntensity * sunset;
     const float cc[4] = { v.debug ? gain : ((col >> 16) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col >>  8) & 0xFF) / 255.0f * gain,

@@ -9,7 +9,7 @@ Settings g_cfg;
 namespace
 {
     const wchar_t* kFog     = L"fog";
-    const wchar_t* kRays    = L"rays";
+    const wchar_t* kSun     = L"sun";
     const wchar_t* kClient  = L"client";
     const wchar_t* kSky     = L"sky";
     const wchar_t* kDepth   = L"depth";
@@ -71,35 +71,9 @@ void LoadSettings(const wchar_t* ini)
     s.fog.tintAmount = Clamp(GetF(kFog, L"tintAmount", s.fog.tintAmount, ini), 0.0f, 1.0f);
     s.fog.shaderReg  = GetI(kFog, L"shaderReg",  s.fog.shaderReg,  ini);
 
-    s.rays.enabled     = GetB(kRays, L"enabled",     s.rays.enabled,     ini);
-    s.rays.strength    = Clamp(GetF(kRays, L"strength",    s.rays.strength,    ini), 0.0f, 100.0f);
-    s.rays.maxExposure = Clamp(GetF(kRays, L"maxExposure", s.rays.maxExposure, ini), 0.0f, 20.0f);
-    s.rays.threshold   = Clamp(GetF(kRays, L"threshold",   s.rays.threshold,   ini), 0.0f, 0.99f);
-    s.rays.relThreshold = Clamp(GetF(kRays, L"relThreshold", s.rays.relThreshold, ini), 0.0f, 0.99f);
-    s.rays.radius      = Clamp(GetF(kRays, L"radius",      s.rays.radius,      ini), 0.05f, 10.0f);
-    s.rays.falloff     = Clamp(GetF(kRays, L"falloff",     s.rays.falloff,     ini), 0.25f, 8.0f);
-    s.rays.length      = Clamp(GetF(kRays, L"length",      s.rays.length,      ini), 0.0f, 1.0f);
-    s.rays.maxLength   = Clamp(GetF(kRays, L"maxLength",   s.rays.maxLength,   ini), 0.05f, 3.0f);
-    s.rays.maxAngle    = Clamp(GetF(kRays, L"maxAngle",    s.rays.maxAngle,    ini), 45.0f, 180.0f);
-    s.rays.viewFalloff = Clamp(GetF(kRays, L"viewFalloff", s.rays.viewFalloff, ini), 0.1f, 8.0f);
-    s.rays.parallel    = Clamp(GetF(kRays, L"parallel",    s.rays.parallel,    ini), 0.0f, 1.0f);
-    s.rays.adaptTime   = Clamp(GetF(kRays, L"adaptTime",   s.rays.adaptTime,   ini), 0.0f, 10.0f);
-    s.rays.decay       = Clamp(GetF(kRays, L"decay",       s.rays.decay,       ini), 0.5f, 1.0f);
-    s.rays.color       = GetX(kRays, L"color", s.rays.color, ini) & 0xFFFFFF;
-    s.rays.passes      = GetI(kRays, L"passes",      s.rays.passes,      ini);
-    s.rays.downscale   = GetI(kRays, L"downscale",   s.rays.downscale,   ini);
-    s.rays.sunMode     = GetI(kRays, L"sunMode",     s.rays.sunMode,     ini);
-    s.rays.sunX        = GetF(kRays, L"sunX",        s.rays.sunX,        ini);
-    s.rays.sunY        = GetF(kRays, L"sunY",        s.rays.sunY,        ini);
-    s.rays.azimuth     = GetF(kRays, L"azimuth",     s.rays.azimuth,     ini);
-    s.rays.elevation   = GetF(kRays, L"elevation",   s.rays.elevation,   ini);
-    s.rays.debugView   = GetI(kRays, L"debugView",   s.rays.debugView,   ini);
-    s.rays.placement     = GetI(kRays, L"placement",     s.rays.placement,     ini);
-    s.rays.minWorldDraws = GetI(kRays, L"minWorldDraws", s.rays.minWorldDraws, ini);
-    if (s.rays.passes < 1)    s.rays.passes = 1;
-    if (s.rays.passes > 3)    s.rays.passes = 3;
-    if (s.rays.downscale < 1) s.rays.downscale = 1;
-    if (s.rays.downscale > 8) s.rays.downscale = 8;
+    s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);
+    s.sun.azimuth      = GetF(kSun, L"azimuth",   s.sun.azimuth,   ini);
+    s.sun.elevation    = GetF(kSun, L"elevation", s.sun.elevation, ini);
 
     s.client.camAddr      = GetX(kClient, L"camAddr",      s.client.camAddr,      ini);
     s.client.objMgrAddr   = GetX(kClient, L"objMgrAddr",   s.client.objMgrAddr,   ini);
@@ -107,7 +81,6 @@ void LoadSettings(const wchar_t* ini)
 
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
-    s.depth.viewRange   = Clamp(GetF(kDepth, L"viewRange", s.depth.viewRange, ini), 1.0f, 5000.0f);
     s.shadow.enabled    = GetB(kShadow, L"enabled", s.shadow.enabled, ini);
     s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
@@ -136,6 +109,7 @@ void LoadSettings(const wchar_t* ini)
     s.volume.maxDistance  = Clamp(GetF(kVolume, L"maxDistance",  s.volume.maxDistance,  ini), 1.0f, 1000.0f);
     s.volume.anisotropy   = Clamp(GetF(kVolume, L"anisotropy",   s.volume.anisotropy,   ini), 0.0f, 0.95f);
     s.volume.bias         = Clamp(GetF(kVolume, L"bias",         s.volume.bias,         ini), 0.0f, 20.0f);
+    s.volume.color        = GetX(kVolume, L"color", s.volume.color, ini) & 0xFFFFFF;
     s.volume.downscale    = GetI(kVolume, L"downscale", s.volume.downscale, ini);
     s.volume.blur         = GetB(kVolume, L"blur",  s.volume.blur,  ini);
     s.volume.debug        = GetI(kVolume, L"debug", s.volume.debug, ini);
@@ -148,9 +122,11 @@ void LoadSettings(const wchar_t* ini)
     s.trace       = GetB(kGeneral, L"trace", s.trace, ini);
     s.logEnabled  = GetB(kGeneral, L"log",         s.logEnabled,  ini);
     s.hook        = GetB(kGeneral, L"hook",        s.hook,        ini);
+    s.sliders     = GetB(kGeneral, L"sliders",     s.sliders,     ini);
     s.reloadKey   = GetI(kGeneral, L"reloadKey",   s.reloadKey,   ini);
     s.probeKey    = GetI(kGeneral, L"probeKey",    s.probeKey,    ini);
     s.chainWaitMs = GetI(kGeneral, L"chainWaitMs", s.chainWaitMs, ini);
+    s.minWorldDraws = GetI(kGeneral, L"minWorldDraws", s.minWorldDraws, ini);
 
     g_cfg = s;
 }

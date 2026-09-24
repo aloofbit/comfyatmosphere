@@ -1,7 +1,10 @@
 # ComfyFogAndRays design notes
 
-**Status: working in game, all in one DLL (`comfyfog.dll`, sources in `src/`).** Fog, screen-space sun
-rays, volumetric light (depth + sun shadow map + ray-march), and cloud removal. Time-of-day control, first
+**Status: working in game, all in one DLL (`comfyfog.dll`, sources in `src/`).** Fog, volumetric light
+(depth + sun shadow map + ray-march), and cloud removal, with controls in the game's options through the
+ComfyAtmosphere addon. The screen-space sun rays (`rays.cpp`) were removed on 2026-09-23: they were a step
+toward the volumetric light, which replaced them. Git history keeps them. The sun direction and the camera
+they tracked moved to `sun.cpp`, their light colour to `[volume] color`. Time-of-day control, first
 built here, is now its own DLL: comfytime (https://github.com/aloofbit/comfytime). Everything is tuned from
 `comfyfog.ini` and reloads with F11. The sections after *What was found* are the original feasibility
 write-up, kept for the reasoning. Where they disagree with *What was found*, *What was found* is what
@@ -10,9 +13,10 @@ measurement showed.
 | Piece | File | Keys |
 | --- | --- | --- |
 | Fog: one `thickness` dial, haze floor + gentler climb | `comfyfog.cpp` | Shift+F11 toggle |
-| Screen rays: radial blur toward the sun, before the UI | `rays.cpp` | Ctrl+F11 toggle |
+| Sun direction and world camera, for the shadow map and the light | `sun.cpp` | none |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
 | Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | none |
+| In-game controls: CVars for the addon's sliders | `cvars.cpp` | none |
 | Diagnostics | all | F12: one-frame probe, then a 180-frame trace of the light and the map |
 
 ## What was found (measured in this `WoW.exe`)
@@ -26,8 +30,9 @@ so grass sees the rewritten fog.
 after some world has been drawn (the client also switches at draw 0 with nothing drawn). `ZENABLE` is never
 set, so it is no marker. With **Full Screen Glow** on (the default), the world is drawn into an off-screen
 render target. After the switch, the client blurs it and draws world + glow onto the back buffer in one
-unblended, pixel-shaded draw. Rays drawn at the switch were painted over. They now run before the first
-back-buffer draw with no pixel shader (the first UI draw, glow on or off).
+unblended, pixel-shaded draw. Rays drawn at the switch were painted over. They then ran before the first
+back-buffer draw with no pixel shader (the first UI draw, glow on or off), until they were removed. The
+world end is still found here, for depth, shadows and the light.
 
 **The sun is not the directional light.** The world light is a fixed direction (azimuth 45°, elevation
 28°, orange) that never follows the time. The visible sun is the **first draw of the frame**: a unit quad
@@ -44,6 +49,22 @@ minutes, `0x00CE9B64` float day fraction (continuous), `0x00CE8574` float minute
 writes them every frame between `BeginScene` and `Present`, so comfytime writes the chosen time at `Present`
 and again at `BeginScene`, before the sky reads it. A second pair at `0x00CE9D00/04` runs at the same rate, 78 minutes behind. It is
 not understood and not written.
+
+**CVars, for the in-game controls.** Found by disassembling the Lua `RegisterCVar` (`0x00488B00`) and
+`GetCVar` (`0x00488BA0`), which the Lua function table at `0x0083DEE0` names.
+`0x0063DEC0` is `CVar* __fastcall Lookup(name)`. It returns 0 for an entry whose flags at `+0x1C` do not
+have `0x80000000` set, which is an entry not registered yet. `0x0063DB90` is `CVar* __fastcall Register(name,
+help, flags, default, callback, category, arg5, cbArg)` and ends `ret 0x18`. The Lua `RegisterCVar` calls it
+as `(name, 0, 0, default, 0, 9, 0, 0)` only when `Lookup` misses. `arg5 = 0` is what sets `0x80000000`.
+The value string is at `+0x20`. The Lua `RegisterCVar` refuses a 31st addon CVar (a count at `0x00B4E3C8`);
+a DLL registration does not count toward it. `GetCVar` on a missing name raises a Lua error, not `nil`.
+**When to register matters.** Registered on the first frame after the CVar table existed, one start went
+white: the registration fell before the login screen had drawn, and the client drew nothing after it. The
+next start registered after the login screen and ran normally. The DLL now waits until the client's Lua
+state (`[0x00CEEF74]`, read by `0x007040D0`) has been non-zero for one second, which is where an addon's
+`RegisterCVar` would run. The cause of the white window is not known.
+The Turtle options window (`Interface\FrameXML\OptionsFrame.lua` in `patch-9.mpq`) calls `SetCVar` on
+every slider move and `GetCVarDefault` for its Defaults button.
 
 **Why screen rays alone were not enough.** They are rebuilt from the image each frame, so they swing as the
 camera moves. A `parallel` blend was simulated and swings *more* (75° vs 58° over a ±40° pan), because the fan
