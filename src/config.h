@@ -32,51 +32,13 @@ struct FogSettings
     int   shaderReg  = 30;
 };
 
-struct RaysSettings
+// Where the sun is, for the shadow map and the volumetric light (sun.cpp). By default it is the sun the
+// client draws in the sky, so both follow the time of day.
+struct SunSettings
 {
-    bool  enabled     = true;
-
-    // The dial. 0 = no rays, 100 = maxExposure. The rest describes the look and is not scaled by it.
-    float strength    = 35.0f;
-    float maxExposure = 2.0f;
-
-    // A pixel casts rays when it is within relThreshold of the brightest pixel in the frame (so the
-    // sky gaps in a dim, foggy forest cast as surely as the sky beside the sun), and above threshold,
-    // an absolute floor that keeps a dark cave's dim lights from streaking.
-    float relThreshold = 0.75f;     // 0..1 of the frame's brightest luminance
-    float threshold   = 0.20f;      // absolute luminance floor, 0..1
-    float falloff     = 2.0f;       // exponent on the distance weight: higher keeps casting close to the sun
-    float radius      = 0.8f;       // how far from the sun (screen heights) pixels still cast rays;
-                                    // weight (1 - d/radius)^falloff
-    float length      = 0.85f;      // ray length, as a fraction of the way from each pixel to the sun
-    float maxLength   = 0.6f;       // but never more than this many screen heights (a far sun)
-    float maxAngle    = 140.0f;     // degrees between view and sun at which rays are gone
-    float viewFalloff = 1.0f;       // shape of the fade from looking at the sun to maxAngle; higher = faster
-    float parallel    = 0.0f;       // 0 = rays fan out from the sun, 1 = parallel shafts falling away from it.
-                                    // 0 is the geometrically right one: parallel shafts in the world run to the
-                                    // sun on screen, and a simulation showed 1 swings MORE as the camera turns
-    float adaptTime   = 0.5f;       // seconds the brightness reference takes to follow the scene
-    float decay       = 0.96f;      // per-sample falloff along a ray; lower = shorter, softer shafts
-    DWORD color       = 0xFFE6BE;   // RGB tint of the light
-    int   passes      = 3;          // blur passes of 16 samples each, 1..3
-    int   downscale   = 2;          // work at 1/N resolution per axis, 1..8
-
-    // Where the sun is. 0: pinned to the screen at (sunX, sunY), texture space, y down. "12 o'clock"
-    // is top centre, directly above the edge. 1: a fixed world direction, azimuth/elevation in degrees
-    // (Z up), projected through the client's camera. 2: the sun the client draws in the sky, so the rays
-    // come from the visible sun and follow the time of day.
-    int   sunMode     = 2;
-    float sunX        = 0.5f;
-    float sunY        = -0.30f;     // above the top edge; more negative = more parallel, wider rays
-    float azimuth     = 45.0f;      // sunMode 1: the afternoon sun logged while tuning
-    float elevation   = 50.0f;
-
-    int   debugView   = 0;          // 1 = show the mask, 2 = show the rays alone
-
-    // 0: at the world -> UI boundary, so the UI gets no rays (and loading screens none at all).
-    // 1: over the finished frame at Present, UI included: the fallback if the boundary is ever missed.
-    int   placement     = 0;
-    int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the boundary
+    bool  fixed     = false;        // true: a fixed world direction, azimuth/elevation in degrees (Z up)
+    float azimuth   = 45.0f;        // the afternoon sun logged while tuning
+    float elevation = 50.0f;
 };
 
 // Where the client keeps the camera and the player (verified for this WoW.exe by comfygrass). Shadows
@@ -88,11 +50,10 @@ struct ClientSettings
     DWORD playerPosOff = 0x9B8;
 };
 
-// A readable depth buffer (depth.cpp), the groundwork for volumetric light. Off unless enabled.
+// A readable depth buffer (depth.cpp), which the volumetric light reads. Off unless enabled.
 struct DepthSettings
 {
     bool  enabled   = false;
-    float viewRange = 150.0f;     // [rays] debugView = 3: distance, yards, that shows as black
 };
 
 // A shadow map from the sun (shadow.cpp): the frame's opaque world draws replayed from the sun.
@@ -135,6 +96,7 @@ struct VolumeSettings
                                     // does not smear.
     float anisotropy   = 0.15f;     // 0 = glows the same from every side, toward 1 = only toward the sun
     float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
+    DWORD color        = 0xFFE6BE;  // RGB of the light (default: warm late-morning)
     int   downscale    = 2;         // work at 1/N resolution per axis
     bool  blur         = true;
     int   debug        = 0;         // 1 = the glow alone, white; 2..5 = one stage of the march (see ini)
@@ -152,7 +114,7 @@ struct Settings
     ShadowSettings shadow;
     VolumeSettings volume;
     FogSettings  fog;
-    RaysSettings rays;
+    SunSettings  sun;
     ClientSettings client;
 
     bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:
@@ -160,9 +122,12 @@ struct Settings
                                     // reads buffers back from the GPU, so it is off unless asked for.
     bool  logEnabled  = true;
     bool  hook        = true;       // 0: load, log, patch nothing (bisecting)
+    bool  sliders     = true;       // register the CVars the in-game controls set (cvars.cpp)
     int   reloadKey   = VK_F11;     // reload comfyfog.ini; with Shift, toggle the override
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts
     int   chainWaitMs = 10000;      // how long to wait for comfygrass to finish patching first
+    int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the end of the
+                                    // world (depth, shadows and volumetric light run there)
 };
 
 extern Settings g_cfg;

@@ -51,7 +51,7 @@
 #include "client.h"
 #include "common.h"
 #include "config.h"
-#include "rays.h"
+#include "sun.h"
 #include "shadow.h"
 
 #include <algorithm>
@@ -934,7 +934,7 @@ namespace
     }
 
     // Render states the replay changes; re-set afterwards through the vtable so other hooks' mirrors stay
-    // true, then the state block restores the device exactly (the same pattern as rays.cpp and volume.cpp).
+    // true, then the state block restores the device exactly (the same pattern as volume.cpp).
     const D3DRENDERSTATETYPE kTouched[] = {
         D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ZFUNC, D3DRS_ALPHATESTENABLE, D3DRS_ALPHAREF, D3DRS_ALPHAFUNC,
         D3DRS_ALPHABLENDENABLE, D3DRS_CULLMODE, D3DRS_FOGENABLE, D3DRS_LIGHTING, D3DRS_STENCILENABLE,
@@ -1225,7 +1225,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     D3DMATRIX view, proj;
     const bool worldCam = g_haveWorldCam;
     if (worldCam) { view = g_worldView; proj = g_worldProj; }
-    if (!RaysSunDirection(sunDir) || !(worldCam || RaysCamera(view, proj)) || !ClientCamera(cam))
+    if (!SunDirection(sunDir) || !(worldCam || SunCamera(view, proj)) || !ClientCamera(cam))
     {
         if (logThis) Log("shadow: nothing replayed (no sun, camera matrices or camera position)");
         g_replayOutcome = 2;

@@ -22,9 +22,10 @@
 
 #include "common.h"
 #include "config.h"
-#include "rays.h"
+#include "cvars.h"
 #include "depth.h"
 #include "shadow.h"
+#include "sun.h"
 #include "volume.h"
 
 #include <cmath>
@@ -263,7 +264,7 @@ namespace
         uint32_t fogSets = 0;
         uint32_t constSets = 0;
         uint32_t constLogs = 0;
-        uint32_t boundary  = 0xFFFFFFFF;  // draw index the rays pass ran at, for the detail window
+        uint32_t boundary  = 0xFFFFFFFF;  // draw index the world ended at, for the detail window
     };
 
     Probe    g_probe;
@@ -360,7 +361,7 @@ namespace
     SetRTFn         g_oSetRT         = nullptr;
 
     StretchRectFn   g_oStretchRect   = nullptr;
-    bool            g_inRays         = false;   // the pass's own calls stay out of the probe detail
+    bool            g_inPass         = false;   // our own passes: their calls stay out of the mirrors and the probe
 
     // ---------------------------------------------------------------------------------------------
     // vertex-shader fog
@@ -434,7 +435,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkSetVertexShaderConstantF(IDirect3DDevice9* dev, UINT reg, const float* data,
                                                          UINT count)
     {
-        if (g_inRays)
+        if (g_inPass)
             return g_oSetVSConstF(dev, reg, data, count);   // our own passes: no fog remap, no recording
         RecordConstants(reg, data, count);                  // the client's values, before the c30 remap
         if (g_probe.active && data)
@@ -469,20 +470,6 @@ namespace
         return g_oSetVSConstF(dev, reg, buf.data(), count);
     }
 
-    // Rays placement. hkSetTransform finds where the world ends (the first switch to a non-perspective
-    // projection), but that switch only ARMS the pass. With Full Screen Glow on (ffxGlow, the default) the world is drawn
-    // into an off-screen texture, not the back buffer; after the switch the client downsamples and blurs
-    // it, then draws world + glow onto the back buffer in one full-screen, pixel-shaded, unblended draw
-    // that replaces whatever was there. Rays drawn at the switch read a back buffer holding no world yet
-    // and were then painted over. So the pass fires immediately before the first draw that goes to the back
-    // buffer with no pixel shader bound: the first UI draw, with glow on or off. A probe showed both:
-    //
-    //   glow on:  world -> RT A | switch | glow passes into small RTs | composite to BB (ps) | UI (no ps)
-    //   glow off: world -> BB   | switch | UI (no ps)
-    bool               g_raysArmed = false;
-    bool               g_raysDone  = false;
-
-    IDirect3DSurface9* g_bbArmed   = nullptr;   // the back buffer when armed; compared, never dereferenced
     bool               g_sunSeen   = false;     // the sky's sun sprite was found this frame
     bool               g_worldEnded = false;    // the world finished drawing this frame
 
@@ -494,45 +481,18 @@ namespace
             return;
         g_worldEnded = true;
         DepthWorldEnded(dev);
-        g_inRays = true;
+        g_inPass = true;
         if (VolumeActive())          // the map costs more than the light does; it is only for the light
             ShadowWorldEnded(dev);
         else
             ShadowNoReplay();        // so the cost report does not keep showing the last one
         VolumeDraw(dev);
-        g_inRays = false;
+        g_inPass = false;
         if (g_probe.active)
-            Log("  [draw %4u] WORLD END      %s", g_probe.draws, why);
-    }
-
-    void FireRays(IDirect3DDevice9* dev, const char* where)
-    {
-        g_raysArmed = false;
-        g_raysDone  = true;
-        g_inRays = true;
-        const bool ran = RaysBeforeUI(dev);
-        g_inRays = false;
-        if (ran && g_probe.active)
         {
-            Log("  [draw %4u] RAYS PASS      %s", g_probe.draws, where);
+            Log("  [draw %4u] WORLD END      %s", g_probe.draws, why);
             g_probe.boundary = g_probe.draws;
         }
-    }
-
-    // Called before every draw is forwarded; does nothing unless armed.
-    void MaybeFireRays(IDirect3DDevice9* dev)
-    {
-        if (!g_raysArmed || g_inRays)
-            return;
-        IDirect3DSurface9*     rt = nullptr;
-        IDirect3DPixelShader9* ps = nullptr;
-        dev->lpVtbl->GetRenderTarget(dev, 0, &rt);
-        dev->lpVtbl->GetPixelShader(dev, &ps);
-        const bool firstUiDraw = rt && rt == g_bbArmed && !ps;
-        if (rt) rt->lpVtbl->Release(rt);
-        if (ps) ps->lpVtbl->Release(ps);
-        if (firstUiDraw)
-            FireRays(dev, "before the first UI draw");
     }
 
     // Pushes the current dial onto the device for every fog value the client has set, so a reload or a
@@ -577,11 +537,7 @@ namespace
         const bool reload = focused && (GetAsyncKeyState(g_cfg.reloadKey) & 0x8000) != 0;
         if (reload && !g_reloadDown)
         {
-            if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
-            {
-                RaysToggle();
-            }
-            else if (GetAsyncKeyState(VK_MENU) & 0x8000)
+            if (GetAsyncKeyState(VK_MENU) & 0x8000)
             {
                 VolumeToggle();
             }
@@ -594,7 +550,7 @@ namespace
             else
             {
                 LoadSettings(g_iniPath);
-                RaysReload();
+                CVarsAfterLoad();
                 LogDial("reloaded");
                 ApplyAll(dev);
             }
@@ -612,7 +568,7 @@ namespace
     // recording opens.
     HRESULT STDMETHODCALLTYPE hkBeginScene(IDirect3DDevice9* dev)
     {
-        if (!g_inRays)
+        if (!g_inPass)
         {
             DepthBeginScene(dev);
             if (!g_worldEnded)
@@ -624,7 +580,7 @@ namespace
     // The client binding a depth buffer: hand the device our readable stand-in instead (depth.cpp).
     HRESULT STDMETHODCALLTYPE hkSetDepthStencilSurface(IDirect3DDevice9* dev, IDirect3DSurface9* s)
     {
-        return g_oSetDS(dev, g_inRays ? s : DepthSubstitute(dev, s));
+        return g_oSetDS(dev, g_inPass ? s : DepthSubstitute(dev, s));
     }
 
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
@@ -638,11 +594,6 @@ namespace
             g_probe = Probe();
         }
 
-        // Between captures, so the pass's own draws and state changes never show up in a probe.
-        // Armed but never fired: nothing was drawn to the back buffer after the world (UI hidden, say),
-        // so the finished frame is exactly the world and the pass can run here.
-        if (g_raysArmed)
-            FireRays(dev, "at Present (no UI draw followed)");
         // What the whole thing costs, measured on ordinary frames: the probe's own readbacks make its
         // numbers meaningless, and a mod that hitches is worse than one that does nothing.
         {
@@ -675,18 +626,17 @@ namespace
             }
             last = now;
         }
-        RaysPresent(dev);
         ShadowFrameEnd();
         VolumeFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
-        g_raysArmed  = false;
-        g_raysDone   = false;
         g_sunSeen = false;
         g_worldEnded = false;
         g_skyPhase  = true;
 
         PollKeys(dev);
+        if (CVarsPoll())
+            ApplyAll(dev);   // a moved slider shows this frame, not on the next zone change
 
         g_frame++;
         if (g_probe.armed)
@@ -694,7 +644,6 @@ namespace
             g_probe = Probe();
             g_probe.active = true;
             LogDial("probe");
-            RaysProbe();
             DepthProbe();
             ShadowProbe();
             VolumeProbe();
@@ -713,8 +662,7 @@ namespace
     // afterwards, so the mirror goes back to defaults too, rather than re-pushing stale values.
     HRESULT STDMETHODCALLTYPE hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
-        RaysReset();   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
-        DepthReset(dev);
+        DepthReset(dev);   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
         ShadowReset();
         VolumeReset();
         const HRESULT hr = g_oReset(dev, pp);
@@ -779,17 +727,15 @@ namespace
 
     // Where the world ends and the UI begins. A probe of this client shows the world drawn under a
     // perspective projection, then (in the same call sequence that parks fog at start 0 / end 1 /
-    // magenta) the first switch to an orthographic one, after which it is all UI. That first
-    // perspective -> non-perspective switch, with some world already drawn, is where the rays pass goes:
-    // the UI is then neither in the mask nor under the rays. The draw minimum skips a flip the client
-    // makes at the top of the frame, before anything is drawn. (Counters are declared with the
-    // other per-frame state above.) The switch arms the pass; FireRays, above, says why it does not run
-    // here.
+    // magenta) the first switch to an orthographic one, after which it is all UI. With Full Screen Glow
+    // off, that first perspective -> non-perspective switch, with some world already drawn, is where the
+    // world ends; with it on, hkSetRenderTarget sees the end first. The draw minimum skips a flip the
+    // client makes at the top of the frame, before anything is drawn.
     HRESULT STDMETHODCALLTYPE hkSetTransform(IDirect3DDevice9* dev, D3DTRANSFORMSTATETYPE st, const D3DMATRIX* m)
     {
-        if (g_inRays)
-            return g_oSetTransform(dev, st, m);   // the shafts' own transforms: not the client's camera
-        RaysSetTransform(st, m);
+        if (g_inPass)
+            return g_oSetTransform(dev, st, m);   // our passes' own transforms: not the client's camera
+        SunSetTransform(st, m);
         if (st == D3DTS_WORLD && m)
             g_world = *m;
         if (st == D3DTS_VIEW && m)
@@ -803,22 +749,8 @@ namespace
                 Log("  [draw %4u] PROJECTION     %s (m33=%.3f)", g_probe.draws,
                     persp ? "perspective" : "NOT perspective", m->m[3][3]);
 
-            if (!persp && g_lastPersp && g_frameDraws >= static_cast<uint32_t>(g_cfg.rays.minWorldDraws))
-            {
+            if (!persp && g_lastPersp && g_frameDraws >= static_cast<uint32_t>(g_cfg.minWorldDraws))
                 WorldEnded(dev, "switch to 2D");   // glow off: the world ends here instead
-                if (!g_raysArmed && !g_raysDone)
-                {
-                    IDirect3DSurface9* bb = nullptr;
-                    if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
-                    {
-                        g_bbArmed   = bb;
-                        g_raysArmed = true;
-                        bb->lpVtbl->Release(bb);
-                        if (g_probe.active)
-                            Log("  [draw %4u] RAYS ARMED     world -> UI switch", g_probe.draws);
-                    }
-                }
-            }
             g_lastPersp = persp;
         }
         return g_oSetTransform(dev, st, m);
@@ -832,8 +764,8 @@ namespace
     }
 
     // Around the world -> UI boundary the probe logs every draw in detail: which render target it lands
-    // on, what it samples, and how it blends. That is what shows whether a full-screen pass (the client's
-    // glow) redraws the frame after the rays and paints over them.
+    // on, what it samples, and how it blends. That is what shows what the client's glow does after the
+    // world ends.
     // Two windows get the detail: the first draws of the frame, where the sky (and the sun disc in it)
     // is drawn, and the draws around the world -> UI boundary. For the sky window each line also carries
     // where the draw sits relative to the camera: this client renders camera-relative, so a sky object's
@@ -964,7 +896,7 @@ namespace
     void DetailDraw(IDirect3DDevice9* dev, const char* kind, D3DPRIMITIVETYPE prim, UINT pc,
                     bool indexed, UINT first, UINT nv, const void* upData)
     {
-        if (g_inRays)
+        if (g_inPass)
             return;
         const bool early    = g_probe.draws < 300;
         const bool boundary = g_probe.boundary != 0xFFFFFFFF && g_probe.draws <= g_probe.boundary + 40;
@@ -1001,8 +933,8 @@ namespace
     {
         // With Full Screen Glow the world is drawn into its own render target, and the first switch away
         // from it, still under the world's perspective projection, is where the world ends.
-        if (idx == 0 && !g_inRays && !g_worldEnded && g_lastPersp &&
-            g_frameDraws >= static_cast<uint32_t>(g_cfg.rays.minWorldDraws))
+        if (idx == 0 && !g_inPass && !g_worldEnded && g_lastPersp &&
+            g_frameDraws >= static_cast<uint32_t>(g_cfg.minWorldDraws))
         {
             IDirect3DSurface9* cur = nullptr;
             dev->lpVtbl->GetRenderTarget(dev, 0, &cur);
@@ -1010,7 +942,7 @@ namespace
                 WorldEnded(dev, "render target switch");
             if (cur) cur->lpVtbl->Release(cur);
         }
-        if (g_probe.active && !g_inRays)
+        if (g_probe.active && !g_inPass)
             Log("  [draw %4u] SetRenderTarget %u -> %p", g_probe.draws, idx, s);
         return g_oSetRT(dev, idx, s);
     }
@@ -1018,7 +950,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkStretchRect(IDirect3DDevice9* dev, IDirect3DSurface9* src, const RECT* sr,
                                             IDirect3DSurface9* dst, const RECT* dr, D3DTEXTUREFILTERTYPE f)
     {
-        if (g_probe.active && !g_inRays)
+        if (g_probe.active && !g_inPass)
             Log("  [draw %4u] StretchRect     %p -> %p", g_probe.draws, src, dst);
         return g_oStretchRect(dev, src, sr, dst, dr, f);
     }
@@ -1048,7 +980,7 @@ namespace
     // first few draws of a frame are looked at, and only until the sprite is found.
     void NoteSkySun(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc, UINT nv)
     {
-        if (g_sunSeen || g_inRays || g_frameDraws >= 8 || prim != D3DPT_TRIANGLESTRIP || pc != 2 || nv != 4)
+        if (g_sunSeen || g_inPass || g_frameDraws >= 8 || prim != D3DPT_TRIANGLESTRIP || pc != 2 || nv != 4)
             return;
 
         for (int r = 0; r < 3; ++r)
@@ -1068,7 +1000,7 @@ namespace
         Mul4(origin, g_viewAll, v);
         if (v[2] * v[2] + v[1] * v[1] + v[0] * v[0] < 1e-6f)
             return;
-        RaysSetSunView(v);
+        SunSetView(v);
         g_sunSeen = true;
         if (g_probe.active)
             Log("  [draw %4u] SKY SUN        camera-space (%.3f %.3f %.3f)", g_probe.draws, v[0], v[1], v[2]);
@@ -1077,9 +1009,8 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT sv, UINT pc)
     {
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
-        if (!g_inRays)
+        if (!g_inPass)
             RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
-        MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         return g_oDrawPrim(dev, prim, sv, pc);
     }
@@ -1093,7 +1024,7 @@ namespace
     // under whatever world the previous draw left behind. With [sky] clouds = 0 it is not forwarded.
     bool IsCloudDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT nv)
     {
-        if (!g_skyPhase || g_inRays)
+        if (!g_skyPhase || g_inPass)
             return false;
         DWORD zwrite = 1;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
@@ -1127,9 +1058,8 @@ namespace
             CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
             return S_OK;
         }
-        if (!g_inRays)
+        if (!g_inPass)
             RecordDraw(dev, true, prim, bvi, mvi, nv, si, pc);
-        MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
     }
@@ -1137,7 +1067,6 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitiveUP(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc,
                                                 const void* data, UINT stride)
     {
-        MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitiveUP", prim, pc, false, 0, VertsForPrims(prim, pc), data);
         return g_oDrawPrimUP(dev, prim, pc, data, stride);
     }
@@ -1146,7 +1075,6 @@ namespace
                                                        UINT nv, UINT pc, const void* idx, D3DFORMAT fmt,
                                                        const void* data, UINT stride)
     {
-        MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexedUP", prim, pc, true, 0, nv, data);
         return g_oDrawIdxPrimUP(dev, prim, mvi, nv, pc, idx, fmt, data, stride);
     }
@@ -1354,6 +1282,7 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         wcscpy_s(wcsrchr(g_logPath, L'\\') + 1, 16, L"comfyfog.log");
         DeleteFileW(g_logPath);
         LoadSettings(g_iniPath);
+        CVarsAfterLoad();
         Log("comfyfog loaded (module=%p, thickness=%.0f, enabled=%d)",
             self, g_cfg.fog.thickness, g_cfg.fog.enabled ? 1 : 0);
 
