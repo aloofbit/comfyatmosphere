@@ -292,9 +292,10 @@ IDirect3DTexture9* DepthWorldTexture()
 
 void DepthReset(IDirect3DDevice9* dev)
 {
-    // Unbind first, so the device does not keep ours alive through the Reset.
+    // Unbind first, so the device does not keep ours alive through the Reset. Null for a device the client
+    // has let go of (CheckDevice in comfyfog.cpp): nothing is called on it, ours are only released.
     IDirect3DSurface9* cur = nullptr;
-    if (SUCCEEDED(dev->lpVtbl->GetDepthStencilSurface(dev, &cur)) && cur)
+    if (dev && SUCCEEDED(dev->lpVtbl->GetDepthStencilSurface(dev, &cur)) && cur)
     {
         if (IsOurs(cur))
             dev->lpVtbl->SetDepthStencilSurface(dev, nullptr);
