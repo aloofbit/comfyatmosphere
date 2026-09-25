@@ -1086,6 +1086,17 @@ namespace
     constexpr int kTouchedCount = sizeof(kTouched) / sizeof(kTouched[0]);
     constexpr int kFirstGeometry = 14;   // index of D3DRS_VERTEXBLEND above
 
+    // Texture stage states the replay changes, re-set by hand the same way. With only the state block
+    // restoring them, and the pass run at the copy of the world (anti-aliasing on), the chat background and
+    // the XP bar drew as opaque white on the replay frames: 11 of 30 captures. Re-set by hand: 0 of 40.
+    struct StageState { DWORD stage; D3DTEXTURESTAGESTATETYPE type; };
+    const StageState kStageTouched[] = {
+        { 0, D3DTSS_COLOROP }, { 0, D3DTSS_COLORARG1 }, { 0, D3DTSS_ALPHAOP }, { 0, D3DTSS_ALPHAARG1 },
+        { 0, D3DTSS_TEXCOORDINDEX }, { 0, D3DTSS_TEXTURETRANSFORMFLAGS },
+        { 1, D3DTSS_COLOROP }, { 1, D3DTSS_ALPHAOP },
+    };
+    constexpr int kStageTouchedCount = sizeof(kStageTouched) / sizeof(kStageTouched[0]);
+
     // What the client left in those states at this frame's replay, for the volume trace.
     char g_inherited[200] = {};
 }
@@ -1559,6 +1570,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     DWORD saved[kTouchedCount];
     for (int i = 0; i < kTouchedCount; ++i)
         d->GetRenderState(dev, kTouched[i], &saved[i]);
+    DWORD savedStage[kStageTouchedCount];
+    for (int i = 0; i < kStageTouchedCount; ++i)
+        d->GetTextureStageState(dev, kStageTouched[i].stage, kStageTouched[i].type, &savedStage[i]);
     D3DMATRIX oldWorld, oldView, oldProj;
     d->GetTransform(dev, D3DTS_WORLD, &oldWorld);
     d->GetTransform(dev, D3DTS_VIEW, &oldView);
@@ -1703,6 +1717,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
         d->SetRenderState(dev, kTouched[i], saved[i]);
+    for (int i = 0; i < kStageTouchedCount; ++i)
+        d->SetTextureStageState(dev, kStageTouched[i].stage, kStageTouched[i].type, savedStage[i]);
     d->SetTransform(dev, D3DTS_WORLD, &oldWorld);
     d->SetTransform(dev, D3DTS_VIEW, &oldView);
     d->SetTransform(dev, D3DTS_PROJECTION, &oldProj);

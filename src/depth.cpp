@@ -8,8 +8,15 @@
 //
 // The swap: at BeginScene, and whenever the client binds a depth surface, a client D24S8-style surface is
 // replaced by an INTZ texture's surface of the same size (made once per client surface, kept in a small
-// map). Multisampled surfaces are left alone: a texture cannot be multisampled, and the render target
-// would no longer match. Every INTZ texture is released before Reset.
+// map). Every INTZ texture is released before Reset.
+//
+// A multisampled client surface (anti-aliasing on, gxMultisample above 1) cannot become a texture: a
+// texture cannot be multisampled, and the depth buffer must match the render target's sample count. It is
+// swapped for a multisampled INTZ SURFACE instead, which the client draws into, and when the world ends
+// StretchRect resolves that into a plain INTZ texture of the same size. DXVK takes a StretchRect between
+// two surfaces of the same format as a Vulkan depth resolve. It refuses a depth StretchRect inside a scene,
+// so the scene is ended for it and begun again. RESZ, the resolve drivers offer for this, was tried first:
+// DXVK 2.7.1 turns it on only for an AMD GPU (d3d9_device.cpp, D3DRS_POINTSIZE).
 //
 // NOTES.md deferred this as the risky part of the work; it is behind [depth] enabled so it can be
 // switched off with F11 if it ever misbehaves.
@@ -32,8 +39,11 @@ namespace
     {
         IDirect3DSurface9* client = nullptr;   // compared only; not referenced
         UINT               w = 0, h = 0;       // its size, so a new surface reusing a freed address is caught
-        IDirect3DTexture9* tex    = nullptr;
-        IDirect3DSurface9* surf   = nullptr;
+        IDirect3DTexture9* tex    = nullptr;   // what the light reads
+        IDirect3DSurface9* surf   = nullptr;   // tex's level 0
+        IDirect3DSurface9* msaa   = nullptr;   // for a multisampled client surface: what the client draws into,
+                                               // resolved into surf when the world ends. Null otherwise
+        IDirect3DSurface9* Bound() const { return msaa ? msaa : surf; }
     };
 
     constexpr int kMaxSwaps = 8;
@@ -43,6 +53,12 @@ namespace
     bool  g_supported = false;
     bool  g_logNext   = false;
     IDirect3DTexture9* g_worldTex = nullptr;   // not referenced separately: owned by g_swaps
+    bool  g_resolveFailed = false;              // StretchRect refused once: not tried again until Reset
+
+    // A client surface that could not be swapped, so it is not tried (and logged) again at every
+    // BeginScene and every bind.
+    IDirect3DSurface9* g_refused = nullptr;
+    UINT               g_refusedW = 0, g_refusedH = 0;
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -73,7 +89,7 @@ namespace
     bool IsOurs(IDirect3DSurface9* s)
     {
         for (int i = 0; i < g_swapCount; ++i)
-            if (g_swaps[i].surf == s)
+            if (g_swaps[i].Bound() == s)
                 return true;
         return false;
     }
@@ -99,20 +115,18 @@ namespace
             if (s->w == desc.Width && s->h == desc.Height)
                 return s;
             // Same address, different surface: the old one was freed. Rebuild in place.
+            SafeRelease(s->msaa);
             SafeRelease(s->surf);
             SafeRelease(s->tex);
             *s = g_swaps[--g_swapCount];
             g_swaps[g_swapCount] = Swap();
         }
+        if (client == g_refused && desc.Width == g_refusedW && desc.Height == g_refusedH)
+            return nullptr;
         if (g_swapCount >= kMaxSwaps || !CheckSupport(dev))
             return nullptr;
-        if (desc.MultiSampleType != D3DMULTISAMPLE_NONE)
-        {
-            Log("depth: client depth surface %p is multisampled (%d): left alone, depth stays unreadable",
-                client, static_cast<int>(desc.MultiSampleType));
-            return nullptr;
-        }
 
+        const bool multisampled = desc.MultiSampleType != D3DMULTISAMPLE_NONE;
         Swap s;
         s.client = client;
         s.w = desc.Width; s.h = desc.Height;
@@ -120,16 +134,27 @@ namespace
                                                 D3DPOOL_DEFAULT, &s.tex, nullptr);
         if (SUCCEEDED(hr))
             hr = s.tex->lpVtbl->GetSurfaceLevel(s.tex, 0, &s.surf);
+        if (SUCCEEDED(hr) && multisampled)
+            hr = dev->lpVtbl->CreateDepthStencilSurface(dev, desc.Width, desc.Height, kINTZ, desc.MultiSampleType,
+                                                        desc.MultiSampleQuality, FALSE, &s.msaa, nullptr);
         if (FAILED(hr))
         {
-            Log("depth: could not create an INTZ %ux%u stand-in for %p (hr=0x%08X)", desc.Width, desc.Height, client, hr);
+            Log("depth: could not create an INTZ %ux%u stand-in for %p (multisample %d, hr=0x%08X): depth stays unreadable",
+                desc.Width, desc.Height, client, static_cast<int>(desc.MultiSampleType), hr);
+            SafeRelease(s.msaa);
             SafeRelease(s.surf);
             SafeRelease(s.tex);
+            g_refused = client; g_refusedW = desc.Width; g_refusedH = desc.Height;
             return nullptr;
         }
         g_swaps[g_swapCount] = s;
-        Log("depth: client depth %p (%ux%u, format %d) now drawn into INTZ texture %p",
-            client, desc.Width, desc.Height, static_cast<int>(desc.Format), s.tex);
+        if (multisampled)
+            Log("depth: client depth %p (%ux%u, format %d, multisample %d) now drawn into multisampled INTZ %p, "
+                "resolved into INTZ texture %p", client, desc.Width, desc.Height, static_cast<int>(desc.Format),
+                static_cast<int>(desc.MultiSampleType), s.msaa, s.tex);
+        else
+            Log("depth: client depth %p (%ux%u, format %d) now drawn into INTZ texture %p",
+                client, desc.Width, desc.Height, static_cast<int>(desc.Format), s.tex);
         return &g_swaps[g_swapCount++];
     }
 }
@@ -139,7 +164,7 @@ IDirect3DSurface9* DepthSubstitute(IDirect3DDevice9* dev, IDirect3DSurface9* cli
     if (!g_cfg.depth.enabled)
         return clientSurface;
     Swap* s = ForClient(dev, clientSurface);
-    return s ? s->surf : clientSurface;
+    return s ? s->Bound() : clientSurface;
 }
 
 void DepthBeginScene(IDirect3DDevice9* dev)
@@ -151,7 +176,7 @@ void DepthBeginScene(IDirect3DDevice9* dev)
     {
         // Switched off mid-session: hand the client its own surface back. It may never rebind it itself.
         for (int i = 0; i < g_swapCount; ++i)
-            if (g_swaps[i].surf == cur)
+            if (g_swaps[i].Bound() == cur)
                 dev->lpVtbl->SetDepthStencilSurface(dev, g_swaps[i].client);
         cur->lpVtbl->Release(cur);
         return;
@@ -160,12 +185,12 @@ void DepthBeginScene(IDirect3DDevice9* dev)
     {
         // Goes through our SetDepthStencilSurface hook, which passes our own surfaces straight on.
         if (Swap* s = ForClient(dev, cur))
-            dev->lpVtbl->SetDepthStencilSurface(dev, s->surf);
+            dev->lpVtbl->SetDepthStencilSurface(dev, s->Bound());
     }
     cur->lpVtbl->Release(cur);
 }
 
-void DepthWorldEnded(IDirect3DDevice9* dev)
+void DepthWorldEnded(IDirect3DDevice9* dev, bool resolve)
 {
     g_worldTex = nullptr;
     IDirect3DSurface9* cur = nullptr;
@@ -174,16 +199,40 @@ void DepthWorldEnded(IDirect3DDevice9* dev)
         if (g_logNext) { g_logNext = false; Log("depth: no depth surface bound when the world ended"); }
         return;
     }
+    const Swap* s = nullptr;
     for (int i = 0; i < g_swapCount; ++i)
-        if (g_swaps[i].surf == cur)
-            g_worldTex = g_swaps[i].tex;
+        if (g_swaps[i].Bound() == cur)
+            s = &g_swaps[i];
+    if (s && !s->msaa)
+    {
+        g_worldTex = s->tex;
+    }
+    else if (s && resolve && !g_resolveFailed)
+    {
+        auto* d = dev->lpVtbl;
+        const bool inScene = SUCCEEDED(d->EndScene(dev));
+        const HRESULT hr = d->StretchRect(dev, s->msaa, nullptr, s->surf, nullptr, D3DTEXF_NONE);
+        if (inScene)
+            d->BeginScene(dev);
+        if (SUCCEEDED(hr))
+        {
+            g_worldTex = s->tex;
+        }
+        else
+        {
+            g_resolveFailed = true;
+            Log("depth: resolving the multisampled depth failed (hr=0x%08X): depth stays unreadable", hr);
+        }
+    }
     if (g_logNext)
     {
         g_logNext = false;
         D3DSURFACE_DESC d = {};
         cur->lpVtbl->GetDesc(cur, &d);
-        Log("depth: world ended with depth %p (%ux%u, format 0x%08X): %s", cur, d.Width, d.Height,
-            static_cast<unsigned>(d.Format), g_worldTex ? "our INTZ, readable" : "NOT ours, unreadable");
+        Log("depth: world ended with depth %p (%ux%u, format 0x%08X, multisample %d): %s", cur, d.Width, d.Height,
+            static_cast<unsigned>(d.Format), static_cast<int>(d.MultiSampleType),
+            !s ? "NOT ours, unreadable" : g_worldTex ? (s->msaa ? "ours, resolved, readable" : "our INTZ, readable") :
+            "ours, not resolved this frame");
     }
     cur->lpVtbl->Release(cur);
 }
@@ -205,12 +254,16 @@ void DepthReset(IDirect3DDevice9* dev)
     }
     for (int i = 0; i < g_swapCount; ++i)
     {
+        SafeRelease(g_swaps[i].msaa);
         SafeRelease(g_swaps[i].surf);
         SafeRelease(g_swaps[i].tex);
         g_swaps[i].client = nullptr;
     }
     g_swapCount = 0;
     g_worldTex  = nullptr;
+    g_resolveFailed = false;
+    g_refused = nullptr;
+    g_refusedW = g_refusedH = 0;
 }
 
 void DepthProbe()

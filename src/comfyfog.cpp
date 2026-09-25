@@ -482,8 +482,8 @@ namespace
         if (g_worldEnded)
             return;
         g_worldEnded = true;
-        DepthWorldEnded(dev);
         g_inPass = true;
+        DepthWorldEnded(dev, VolumeActive());   // a multisampled depth buffer is resolved only for the light
         if (VolumeActive())          // the map costs more than the light does; it is only for the light
         {
             BenchSectionBegin(dev, kBenchShadow);
@@ -1074,6 +1074,19 @@ namespace
     {
         if (g_probe.active && !g_inPass)
             Log("  [draw %4u] StretchRect     %p -> %p", g_probe.draws, src, dst);
+        // With anti-aliasing on, Full Screen Glow cannot draw the world into its texture: a texture cannot be
+        // multisampled. The world goes to the multisampled back buffer and is copied out here, and the glow
+        // composite later paints over the whole back buffer. Anything drawn after this copy is lost, so a
+        // copy of the world's own render target is where the world ends.
+        if (!g_inPass && !g_worldEnded && g_lastPersp && src &&
+            g_frameDraws >= static_cast<uint32_t>(g_cfg.minWorldDraws))
+        {
+            IDirect3DSurface9* cur = nullptr;
+            dev->lpVtbl->GetRenderTarget(dev, 0, &cur);
+            if (cur == src)
+                WorldEnded(dev, "world copied out");
+            if (cur) cur->lpVtbl->Release(cur);
+        }
         return g_oStretchRect(dev, src, sr, dst, dr, f);
     }
 

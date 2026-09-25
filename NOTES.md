@@ -239,6 +239,39 @@ distance`.
 Not taken: extinction in the march (`(1 - e^-t) / t` per step), which would stop a thick `density` from
 blowing out toward the sun. It changes how the tuned defaults look, so it waits for a session in game.
 
+## Anti-aliasing (2026-09-25)
+
+**With multisampling on, there was no volumetric light.** `gxMultisample` 4 gives the client a multisampled
+depth buffer. A texture cannot be multisampled, so the INTZ swap skipped it and the light had no depth. The
+log said so on every BeginScene and every bind: 67,918 lines, 6 MB, in one session.
+
+**RESZ does not work on NVIDIA under DXVK.** RESZ is the driver resolve for this case: an INTZ texture on
+sampler 0, then `D3DRS_POINTSIZE` set to `0x7FA05000`. DXVK 2.7.1 implements it, but only when the GPU
+reports as AMD (`d3d9_device.cpp`, `D3DRS_POINTSIZE`; `d3d9_adapter.cpp` gives the same answer to
+`CheckDeviceFormat`). Measured on the RTX 2080: `hr=0x8876086A`.
+
+**StretchRect does it on any GPU.** The client's multisampled surface is swapped for a multisampled INTZ
+SURFACE (`CreateDepthStencilSurface`, same sample count), and when the world ends `StretchRect` resolves it
+into a plain INTZ texture. DXVK does a Vulkan depth resolve only when the two D3D formats are the same.
+Between D24S8 and INTZ it takes a framebuffer blit, which binds the depth view as a colour attachment. It
+refuses a depth StretchRect inside a scene, so the scene is ended for it and begun again. It resolves only
+when the light is on.
+
+**With depth fixed, the light still did not show.** A probe found the reason. Full Screen Glow cannot draw
+a multisampled world into its texture, so with anti-aliasing on the client draws the world into the back
+buffer and copies it out with `StretchRect` (draw 526 of 1202 in the probe). The world end was found later,
+at the switch to 2D, so the light went into the back buffer after the copy. The glow composite then drew
+over the whole back buffer, unblended, and the light was lost. `debug 1`, which should show only the
+glow, looked the same as the normal view. A `StretchRect` from the world's render target now ends the
+world, so the light is drawn before the copy. Without anti-aliasing the client makes no such copy.
+
+**Drawn at the copy, the shadow pass made the UI flash.** On the frames that rebuild the shadow map
+(`mapEvery` 3), the chat background and the XP bar drew as opaque white: the look of stage 0 left on
+`SELECTARG1` from the texture, which is what the replay sets. It was measured by screen captures of the chat
+area: 11 of 30 with the light on, 0 of 30 with it off. The replay restored its texture stage states only
+through the state block. They are now also re-set by hand, as its render states already were: 0 of 40.
+Why the state block alone was not enough at this point in the frame is not known.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
