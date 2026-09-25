@@ -461,9 +461,38 @@ namespace
         IDirect3DVertexBuffer9* vb = nullptr;
         IDirect3DIndexBuffer9*  ib = nullptr;
         UINT stride = 0, firstVertex = 0;
+        double lastUsed = 0.0;       // when a draw last used it, for eviction
     };
     std::unordered_map<ArenaKey, ArenaCopy, ArenaKeyHash> g_copies;
     unsigned g_copiesTaken = 0;      // this frame
+    double   g_copyNow     = 0.0;    // the time at this frame's recording
+    double   g_copySwept   = 0.0;    // when the full store was last swept
+
+    // With the store full, frees the copies no draw has used for cacheTime: a caster out of view that long
+    // has left the cache as well. Until 2026-09-25 a copy lived until the next device reset, so after
+    // copyMax distinct chunks nothing new was copied: logged in at Stormwind, the store held 2048 and the
+    // city's buildings and ground were missing from the map. A cache entry holds its own references, so
+    // an entry still drawing a freed copy keeps its buffers.
+    void SweepCopies()
+    {
+        if (g_copyNow - g_copySwept < 1.0)
+            return;
+        g_copySwept = g_copyNow;
+        const double stale = g_cfg.shadow.cacheTime > 1.0f ? g_cfg.shadow.cacheTime : 1.0;
+        for (auto it = g_copies.begin(); it != g_copies.end();)
+        {
+            if (g_copyNow - it->second.lastUsed > stale)
+            {
+                SafeRelease(it->second.vb);
+                SafeRelease(it->second.ib);
+                it = g_copies.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
     unsigned g_copyFailed  = 0;
     unsigned g_copyRefusedStream2 = 0;   // arena draws not copied: they use a second vertex stream
     unsigned g_copyRefusedOther   = 0;   // ...no vertex buffer, no stride or no vertices
@@ -1110,6 +1139,7 @@ void ShadowSetPhase(bool recording)
     {
         g_frameSeqStart = g_writeSeq;
         g_copiesTaken = 0;
+        g_copyNow = Now();
     }
 }
 
@@ -1253,6 +1283,9 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
                 static_cast<int>((r.world.m[3][2] + cam[2]) * 10.0f),
             };
             auto it = g_copies.find(key);
+            if (it == g_copies.end() && g_copiesTaken < static_cast<unsigned>(g_cfg.shadow.copyPerFrame) &&
+                g_copies.size() >= static_cast<size_t>(g_cfg.shadow.copyMax))
+                SweepCopies();
             if (it == g_copies.end() &&
                 g_copiesTaken < static_cast<unsigned>(g_cfg.shadow.copyPerFrame) &&
                 g_copies.size() < static_cast<size_t>(g_cfg.shadow.copyMax))
@@ -1266,6 +1299,7 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
             }
             if (it != g_copies.end())
             {
+                it->second.lastUsed = g_copyNow;
                 // Point the record at the copy: the vertices start at 0 in it, so baseVertex carries the
                 // difference and the indices are used as they were recorded.
                 SafeRelease(r.vb[0]);
