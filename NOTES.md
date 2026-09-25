@@ -272,6 +272,21 @@ area: 11 of 30 with the light on, 0 of 30 with it off. The replay restored its t
 through the state block. They are now also re-set by hand, as its render states already were: 0 of 40.
 Why the state block alone was not enough at this point in the frame is not known.
 
+## The copy store filled and stayed full (2026-09-25)
+
+**In Stormwind the shadow map held trees and nothing else.** `debug 6` showed it, and the cost line said
+`2048 copied chunks (0 failed)`, which is `copyMax`. A copy was freed only on a device reset, so after 2048
+distinct terrain and building chunks nothing new was copied, and a chunk with no copy is not cached at all.
+Trees are M2s drawn through shaders and need no copy, so they stayed. Moving around one city was enough.
+
+Each copy now records when a draw last used it. When the store is full, it frees the copies unused for
+`cacheTime` (at most one sweep a second). Tested with `copyMax` 100 at the harbour: the store fell from 197 to
+79, and the new area's buildings came into the map. A cache entry holds its own references, so an entry still
+drawing a freed copy keeps its buffers.
+
+Standing still, the harbour needed 125 copies. The cache is a separate limit: a caster out of view for
+`cacheTime` (8 s) leaves the map, so a building behind you stops shading you after 8 seconds.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
