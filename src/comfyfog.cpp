@@ -650,10 +650,45 @@ namespace
         g_probeDown = probe;
     }
 
+    // The client can let its device go and make a new one, with no Reset: measured on 2026-09-25, changing
+    // the resolution between 1080p and 1440p did it, with no `device reset` line. The hooks sit in DXVK's
+    // shared vtable, so they carry on for the new device, but everything made on the old one stayed in use:
+    // the shadow cache's buffers, the depth stand-ins, the light's targets and the state blocks. Used on the
+    // new device, they drew the font texture over the whole screen, and in one run WoW stopped with
+    // ERROR #124 (SMem3: pointer does not refer to a valid allocated block). All of it is released here,
+    // as a Reset releases it. The objects we hold keep the old device alive until then, so its address
+    // cannot come back as the new one's.
+    IDirect3DDevice9* g_seenDev = nullptr;   // compared only; not referenced
+
+    void CheckDevice(IDirect3DDevice9* dev)
+    {
+        if (dev == g_seenDev)
+            return;
+        if (g_seenDev)
+        {
+            Log("device changed from %p to %p: everything made on the old one is released", g_seenDev, dev);
+            DepthReset(nullptr);   // nothing is called on the old device
+            ShadowReset();
+            VolumeReset();
+            RaysReset();
+            BenchReset();
+            g_fog       = ClientFog();
+            g_haveC30   = false;
+            g_fogEnable = 0;
+            g_vshader   = nullptr;
+            g_worldEnded     = false;
+            g_volumePending  = false;
+            g_raysArmed      = false;
+            g_raysDone       = false;
+        }
+        g_seenDev = dev;
+    }
+
     // The first call of a frame's rendering: the readable depth buffer goes in, and the shadow
     // recording opens.
     HRESULT STDMETHODCALLTYPE hkBeginScene(IDirect3DDevice9* dev)
     {
+        CheckDevice(dev);
         if (!g_inPass)
         {
             DepthBeginScene(dev);
@@ -666,12 +701,14 @@ namespace
     // The client binding a depth buffer: hand the device our readable stand-in instead (depth.cpp).
     HRESULT STDMETHODCALLTYPE hkSetDepthStencilSurface(IDirect3DDevice9* dev, IDirect3DSurface9* s)
     {
+        CheckDevice(dev);
         return g_oSetDS(dev, g_inPass ? s : DepthSubstitute(dev, s));
     }
 
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
                                         HWND wnd, const RGNDATA* dirty)
     {
+        CheckDevice(dev);
         // Between captures, so the pass's own draws and state changes never show up in a probe.
         // Armed but never fired: nothing was drawn to the back buffer after the world (UI hidden, say),
         // so the finished frame is exactly the world and the pass can run here.
@@ -779,6 +816,7 @@ namespace
     // afterwards, so the mirror goes back to defaults too, rather than re-pushing stale values.
     HRESULT STDMETHODCALLTYPE hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
+        CheckDevice(dev);
         DepthReset(dev);   // Reset fails outright while any D3DPOOL_DEFAULT object is alive
         ShadowReset();
         VolumeReset();
@@ -852,6 +890,7 @@ namespace
     // client makes at the top of the frame, before anything is drawn.
     HRESULT STDMETHODCALLTYPE hkSetTransform(IDirect3DDevice9* dev, D3DTRANSFORMSTATETYPE st, const D3DMATRIX* m)
     {
+        CheckDevice(dev);
         if (g_inPass)
             return g_oSetTransform(dev, st, m);   // our passes' own transforms: not the client's camera
         SunSetTransform(st, m);
@@ -1065,6 +1104,7 @@ namespace
 
     HRESULT STDMETHODCALLTYPE hkSetRenderTarget(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* s)
     {
+        CheckDevice(dev);
         // With Full Screen Glow the world is drawn into its own render target, and the first switch away
         // from it, still under the world's perspective projection, is where the world ends.
         if (idx == 0 && !g_inPass && !g_worldEnded && g_lastPersp &&
@@ -1084,6 +1124,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkStretchRect(IDirect3DDevice9* dev, IDirect3DSurface9* src, const RECT* sr,
                                             IDirect3DSurface9* dst, const RECT* dr, D3DTEXTUREFILTERTYPE f)
     {
+        CheckDevice(dev);
         if (g_probe.active && !g_inPass)
             Log("  [draw %4u] StretchRect     %p -> %p", g_probe.draws, src, dst);
         // With anti-aliasing on, Full Screen Glow cannot draw the world into its texture: a texture cannot be

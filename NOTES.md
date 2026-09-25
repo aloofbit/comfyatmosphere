@@ -329,6 +329,23 @@ stand-in and the light went without depth. A stand-in the client has not bound f
 lines for the old size a few seconds later. A surface the client binds rarely (one at the loading screen)
 gets its stand-in made again when it is next bound.
 
+## A resolution change makes a new device (2026-09-25)
+
+Unchecking Maximized in the video options stopped WoW with `ERROR #124 (0x8510007c) Memory Invalid Block`,
+`SMem3: Pointer does not refer to a valid allocated block of memory`, the stack all in `WoW.exe`. The same
+stack came up on 2026-09-24 with an older build. Without comfyfog in `dlls.txt` it did not happen. With it,
+switching 1080p to 1440p drew the font texture over the whole screen, and the log had no `device reset`.
+
+The client lets its device go and makes a new one for a resolution change or a Maximized toggle. The hooks
+sit in DXVK's shared vtable, so they carried on for the new device, while everything made on the old one
+stayed in use: shadow cache buffers, depth stand-ins, the light's targets, the state blocks. `CheckDevice`
+now compares the device each hook is given with the last one seen, and on a change releases all of it, as a
+Reset does. It is called from BeginScene, SetDepthStencilSurface, SetRenderTarget, StretchRect,
+SetTransform, Present and Reset. Tested with six switches: six `device changed` lines, a normal picture, the
+light back each time, no crash.
+
+comfygrass keeps its wind vertex shader (`g_windVS`) across the same change.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
