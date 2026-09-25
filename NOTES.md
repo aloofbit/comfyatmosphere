@@ -287,6 +287,48 @@ drawing a freed copy keeps its buffers.
 Standing still, the harbour needed 125 copies. The cache is a separate limit: a caster out of view for
 `cacheTime` (8 s) leaves the map, so a building behind you stops shading you after 8 seconds.
 
+## The cache is kept only on the frames that redraw the map (2026-09-25)
+
+With the city in the map, the benchmark in Stormwind put the light at 2.0 ms of CPU a frame: 0.72 recording
+the client's draws, 0.68 keeping the cache, 0.51 replaying it. The first two ran on every frame, but at
+`mapEvery` 3 only one frame in three reads the cache.
+
+Now only the frames that redraw the map record the draws in full and merge them. The other frames still
+vote on the world camera from the same draws, because the light needs this frame's camera. Which kind a
+frame is gets decided at the end of the frame before (`g_fullFrame`). A probe forces a full frame.
+
+Measured in Stormwind, the same way: 1.05 ms of CPU (0.33 recording, 0.19 cache, 0.43 replay), with 1091
+casters against 1255. The light's cost in frame time went from 2.48 ms to 1.27 ms.
+
+## The light through leaves re-formed as you walked (2026-09-25)
+
+Alpha-tested leaves leave a sponge of gaps in the shadow map, and the light comes through them. Standing
+still the sponge held; walking, it came out as a new pattern at every step, and the light jittered. Two
+causes, found with `debug 6` and screenshots a few steps apart.
+
+**Every tree was placed again at each redraw.** A model seen again keeps its stored matrix and constants
+when it has not moved, and "not moved" was 0.02 yards. Its position is worked out through the camera,
+which moves by one frame's walk during the frame, so walking put every tree past that and each redraw
+placed it again, up to a texel off. It is now `[shadow] stillRadius`, 0.3 yards. `snap` did not help on its
+own: it holds the grid still, and the tree moved against it. With both fixes in, snap off looked better than
+snap on, so it stays off. Turtle's trees do not sway.
+
+**The client's Full Screen Glow bloomed the light.** The light was drawn with the world, before the glow,
+and the glow blooms a small copy of the screen. The sponge is too fine for it, so the bloom re-formed at
+every step. Turning the glow off stopped it. The light is now drawn where the rays are, before the first UI
+draw and after the glow: the depth resolve and the shadow map stay at the end of the world, and the light
+waits (`g_volumePending`). It draws before the rays, which streak what is bright on screen.
+
+## Depth stand-ins were kept after the window changed size (2026-09-25)
+
+The client makes new depth surfaces when the window changes size, often with no Reset. The mod holds no
+reference to the client's surfaces, so it never saw the old ones freed, and their stand-ins stayed until the
+next Reset: at 4x and 2560x1440, some 75 MB of video memory each. After 8 (`kMaxSwaps`), new surfaces got no
+stand-in and the light went without depth. A stand-in the client has not bound for 3 seconds is now freed
+(`PruneSwaps`, at most once a second). Tested with several resizes: each left `depth: freed the stand-in`
+lines for the old size a few seconds later. A surface the client binds rarely (one at the loading screen)
+gets its stand-in made again when it is next bound.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
