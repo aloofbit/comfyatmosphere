@@ -82,6 +82,11 @@ struct ShadowSettings
     float cacheTime     = 8.0f;   // seconds a caster out of view is kept. Every caster held is drawn
                                   // into the map, and at 15 long play grew the cache to 2,500 entries
     float evictDistance = 20.0f;  // yards: a caster in view this near that was not drawn is gone
+    float stillRadius   = 0.3f;   // yards: a model seen again this near where it was stored keeps the
+                                  // placement it has. Its position is worked out through the camera, which
+                                  // moves by one frame's walk during a frame; at 0.02 every tree was placed
+                                  // again at each redraw while walking, a fraction of a texel off, and its
+                                  // leaves re-sampled into a new pattern
 };
 
 // Volumetric light (volume.cpp): the fog glowing where the sun reaches it. Needs [depth] and [shadow].

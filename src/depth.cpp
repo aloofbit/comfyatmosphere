@@ -38,11 +38,14 @@ namespace
     struct Swap
     {
         IDirect3DSurface9* client = nullptr;   // compared only; not referenced
-        UINT               w = 0, h = 0;       // its size, so a new surface reusing a freed address is caught
+        // Its size and sample count, so a new surface that reuses a freed address is caught.
+        UINT               w = 0, h = 0;
+        D3DMULTISAMPLE_TYPE ms = D3DMULTISAMPLE_NONE;
         IDirect3DTexture9* tex    = nullptr;   // what the light reads
         IDirect3DSurface9* surf   = nullptr;   // tex's level 0
         IDirect3DSurface9* msaa   = nullptr;   // for a multisampled client surface: what the client draws into,
                                                // resolved into surf when the world ends. Null otherwise
+        DWORD              used   = 0;         // GetTickCount when the client last bound it
         IDirect3DSurface9* Bound() const { return msaa ? msaa : surf; }
     };
 
@@ -63,6 +66,40 @@ namespace
     template <typename T> void SafeRelease(T*& p)
     {
         if (p) { p->lpVtbl->Release(p); p = nullptr; }
+    }
+
+    // Frees the stand-ins the client has not bound for 3 seconds. The client makes new depth surfaces when
+    // the window changes size, often with no Reset, and the mod holds no reference to the client's own, so
+    // it cannot see one freed. Measured on 2026-09-25: three size changes without a Reset, and each left its
+    // stand-ins behind (at 4x and 2560x1440, some 75 MB of video memory each), until kMaxSwaps ran out and
+    // new surfaces went without one. The client binds a live depth surface every frame. A stand-in still
+    // bound when freed is safe: the device holds its own reference.
+    void PruneSwaps()
+    {
+        static DWORD lastPrune = 0;
+        const DWORD now = GetTickCount();
+        if (now - lastPrune < 1000)
+            return;
+        lastPrune = now;
+        for (int i = 0; i < g_swapCount;)
+        {
+            Swap& s = g_swaps[i];
+            if (now - s.used > 3000)
+            {
+                Log("depth: freed the stand-in for client depth %p (%ux%u), not bound for 3 seconds", s.client, s.w, s.h);
+                if (g_worldTex == s.tex)
+                    g_worldTex = nullptr;
+                SafeRelease(s.msaa);
+                SafeRelease(s.surf);
+                SafeRelease(s.tex);
+                s = g_swaps[--g_swapCount];
+                g_swaps[g_swapCount] = Swap();
+            }
+            else
+            {
+                ++i;
+            }
+        }
     }
 
     bool CheckSupport(IDirect3DDevice9* dev)
@@ -112,8 +149,11 @@ namespace
             return nullptr;
         if (Swap* s = Find(client))
         {
-            if (s->w == desc.Width && s->h == desc.Height)
+            if (s->w == desc.Width && s->h == desc.Height && s->ms == desc.MultiSampleType)
+            {
+                s->used = GetTickCount();
                 return s;
+            }
             // Same address, different surface: the old one was freed. Rebuild in place.
             SafeRelease(s->msaa);
             SafeRelease(s->surf);
@@ -129,7 +169,8 @@ namespace
         const bool multisampled = desc.MultiSampleType != D3DMULTISAMPLE_NONE;
         Swap s;
         s.client = client;
-        s.w = desc.Width; s.h = desc.Height;
+        s.w = desc.Width; s.h = desc.Height; s.ms = desc.MultiSampleType;
+        s.used = GetTickCount();
         HRESULT hr = dev->lpVtbl->CreateTexture(dev, desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ,
                                                 D3DPOOL_DEFAULT, &s.tex, nullptr);
         if (SUCCEEDED(hr))
@@ -187,7 +228,14 @@ void DepthBeginScene(IDirect3DDevice9* dev)
         if (Swap* s = ForClient(dev, cur))
             dev->lpVtbl->SetDepthStencilSurface(dev, s->Bound());
     }
+    else
+    {
+        for (int i = 0; i < g_swapCount; ++i)   // still bound from the last frame: the client did not rebind it
+            if (g_swaps[i].Bound() == cur)
+                g_swaps[i].used = GetTickCount();
+    }
     cur->lpVtbl->Release(cur);
+    PruneSwaps();
 }
 
 void DepthWorldEnded(IDirect3DDevice9* dev, bool resolve)

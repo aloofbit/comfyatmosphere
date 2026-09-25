@@ -474,9 +474,13 @@ namespace
 
     bool               g_sunSeen   = false;     // the sky's sun sprite was found this frame
     bool               g_worldEnded = false;    // the world finished drawing this frame
+    bool               g_volumePending = false; // the map is ready; the light waits for the first UI draw
 
-    // The world has finished drawing: depth, shadows and volumetric light go in now, with the world's
-    // render target and depth buffer still bound.
+    // The world has finished drawing: depth and the shadow map go in now, with the world's render target
+    // and depth buffer still bound. The light itself waits for the rays' place before the UI (FireRays):
+    // drawn here, it went through the client's Full Screen Glow, which blooms a small copy of the screen,
+    // and the light through the leaves was too fine for it. The bloom came out different at every step, and
+    // the pattern of light through a tree re-formed as you walked.
     void WorldEnded(IDirect3DDevice9* dev, const char* why)
     {
         if (g_worldEnded)
@@ -489,9 +493,7 @@ namespace
             BenchSectionBegin(dev, kBenchShadow);
             ShadowWorldEnded(dev);
             BenchSectionEnd(dev, kBenchShadow, true);
-            BenchSectionBegin(dev, kBenchVolume);
-            const bool drawn = VolumeDraw(dev);
-            BenchSectionEnd(dev, kBenchVolume, drawn);
+            g_volumePending = true;
         }
         else
         {
@@ -525,6 +527,15 @@ namespace
         g_raysArmed = false;
         g_raysDone  = true;
         g_inPass = true;
+        if (g_volumePending)
+        {
+            // The light first: the rays streak what is bright on screen, and the light was part of that
+            // when it was drawn with the world.
+            g_volumePending = false;
+            BenchSectionBegin(dev, kBenchVolume);
+            const bool drawn = VolumeDraw(dev);
+            BenchSectionEnd(dev, kBenchVolume, drawn);
+        }
         BenchSectionBegin(dev, kBenchRays);
         const bool ran = RaysBeforeUI(dev);
         BenchSectionEnd(dev, kBenchRays, ran);
@@ -680,6 +691,7 @@ namespace
         g_inPass = false;
         g_raysArmed = false;
         g_raysDone  = false;
+        g_volumePending = false;     // the rays never armed: no place before the UI was found this frame
 
         if (g_probe.active)
         {

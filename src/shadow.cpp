@@ -196,6 +196,11 @@ namespace
     float              g_mirror[256 * 4];   // the vertex-shader constants as the client last set them
     bool               g_mirrorValid = false;
     bool               g_recording   = false;
+    // Whether this frame redraws the map. Only such a frame records the client's draws in full and brings
+    // the cache up to date; the others only vote on the world camera, which the light needs every frame.
+    // Decided at the end of the frame before, so the recording knows from the first draw.
+    bool               g_fullFrame   = true;
+    unsigned           g_mapTick     = 0;
     constexpr size_t   kMaxFrame     = 6000;
 
     // Why world draws were not recorded, this frame.
@@ -886,8 +891,14 @@ namespace
                 // are relative to the camera, so their constants change whenever the camera moves; that is
                 // not the model moving. A model that does animate in place (a windmill) keeps the pose it
                 // was first seen in, in the map.
+                //
+                // "Not moved" is within [shadow] stillRadius of the stored position. It was 0.02 yards, and
+                // walking put every tree past it: the position comes through the camera, which moves by
+                // one frame's walk during the frame. Each redraw then placed the tree again, up to a
+                // texel off, and its leaves came out as a new pattern in the map while in game they stayed.
                 const float sx = best->pos[0] - pos[0], sy = best->pos[1] - pos[1], sz = best->pos[2] - pos[2];
-                const bool still = r.vs && !moved && sx * sx + sy * sy + sz * sz < 0.02f * 0.02f &&
+                const float sr = g_cfg.shadow.stillRadius;
+                const bool still = r.vs && !moved && sx * sx + sy * sy + sz * sz < sr * sr &&
                                    !best->consts.empty();
                 if (still)
                 {
@@ -1218,6 +1229,31 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         ++g_rejDynamic;
         return;
     }
+    if (!g_fullFrame)
+    {
+        // A frame that does not redraw the map: the same votes as below, from the same draws, and nothing
+        // else. Recording every draw and merging it into the cache on every frame cost 1.4 ms of CPU a
+        // frame in Stormwind (1391 entries), for a cache that only the replay frames read.
+        SafeRelease(r.vb[0]);
+        IDirect3DVertexShader9* vs = nullptr;
+        d->GetVertexShader(dev, &vs);
+        D3DVIEWPORT9 vp = {};
+        float minZ = 0.0f, maxZ = 1.0f;
+        if (SUCCEEDED(d->GetViewport(dev, &vp)))
+        {
+            VoteSlice(vp.MinZ, vp.MaxZ);
+            minZ = vp.MinZ; maxZ = vp.MaxZ;
+        }
+        if (!vs)
+        {
+            D3DMATRIX cv, cp;
+            d->GetTransform(dev, D3DTS_VIEW, &cv);
+            d->GetTransform(dev, D3DTS_PROJECTION, &cp);
+            VoteCamera(cv, cp, minZ, maxZ);
+        }
+        SafeRelease(vs);
+        return;
+    }
 
     r.seq = g_writeSeq;
     r.indexed = indexed; r.prim = prim; r.baseVertex = baseVertex; r.minIndex = minIndex;
@@ -1490,19 +1526,23 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         g_samplesLeft = 6;
         memcpy(g_logPlayer, pl, sizeof(g_logPlayer));
     }
-    Merge(camVPInv, cam, cam, now);
-    const double tMerged = Now();
-    g_samplesLeft = 0;
-    Evict(camVP, cam, now);
-    const double tCache = Now();
-    if (g_timing)
+    double tCache = t0;   // where the replay's own timing starts
+    if (g_fullFrame)
     {
-        g_tCache   += tCache - t0;
-        g_tMerge   += tMerged - t0;
-        g_tStill   += g_nStill;
-        g_tRefreshed += g_nRefreshed;
-        g_tEntries += static_cast<unsigned>(g_entries);
-        ++g_tFrames;
+        Merge(camVPInv, cam, cam, now);
+        const double tMerged = Now();
+        g_samplesLeft = 0;
+        Evict(camVP, cam, now);
+        tCache = Now();
+        if (g_timing)
+        {
+            g_tCache   += tCache - t0;
+            g_tMerge   += tMerged - t0;
+            g_tStill   += g_nStill;
+            g_tRefreshed += g_nRefreshed;
+            g_tEntries += static_cast<unsigned>(g_entries);
+            ++g_tFrames;
+        }
     }
 
     if (g_cache.empty() || !EnsureResources(dev, static_cast<UINT>(s.size)))
@@ -1569,9 +1609,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     Translation(-cam[0], -cam[1], -cam[2], fromAbs);
     Mul(fromAbs, sunVP, fromAbsToSun);   // absolute world -> sun clip, for the shader entries
 
-    // The cache is kept up to date every frame; the map itself need not be redrawn every frame, and the
-    // replay is the expensive half. What it holds is then a frame or two old, which the light's own
-    // smoothing covers.
+    // The map need not be redrawn every frame. What it holds is then a frame or two old, which the light's
+    // own smoothing covers. The cache is brought up to date on the same frames only (g_fullFrame).
     //
     // On a frame without a replay, the reader must see the map as it was DRAWN: the replay's matrix,
     // kept in absolute coordinates, brought to this frame's camera. This frame's own sunVP is centred on
@@ -1580,8 +1619,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // next replay, which was jitter while walking, none standing still, and worse at mapEvery 3 than 2.
     // A first try at this (2026-09-24) flashed every few frames. Tried again the same day, after a
     // distant model's transform was fixed (IsProjection), it neither flashed nor jittered.
-    static unsigned tick = 0;
-    if (s.mapEvery > 1 && (++tick % static_cast<unsigned>(s.mapEvery)) != 0 && g_valid)
+    if (!g_fullFrame && g_valid)
     {
         D3DMATRIX toAbs;
         Translation(cam[0], cam[1], cam[2], toAbs);
@@ -1795,6 +1833,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
 
 void ShadowFrameEnd()
 {
+    const int every = g_cfg.shadow.mapEvery;
+    g_fullFrame = every <= 1 || !g_valid || (++g_mapTick % static_cast<unsigned>(every)) == 0;
     ++g_frameId;
     g_haveCamAtBegin = false;
     g_recording = false;
@@ -1850,4 +1890,5 @@ void ShadowReset()
 void ShadowProbe()
 {
     g_logNext = true;
+    g_fullFrame = true;   // called after ShadowFrameEnd: the probed frame records in full and redraws the map
 }
