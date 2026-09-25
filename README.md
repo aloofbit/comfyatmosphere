@@ -1,12 +1,8 @@
 # comfyatmosphere
 
-**Bugs, questions and screenshots: [join our Discord](https://discord.gg/YSWzYk8xP).**
-
-[![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
-
-> **Early alpha.** TY FOR TESTING!!! Tested on one computer, with one 1.12 client build (VanillaFixes + DXVK).
-> comfyatmosphere hooks deep into the game's rendering. Expect bugs. Back up your client folder first.
-> To remove it, delete the `comfyfog.dll` line from `dlls.txt`.
+> **Bugs, questions and screenshots. Ty for testing!: [join our Discord](https://discord.gg/YSWzYk8xP).**
+>
+> [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
 
 Atmosphere for the World of Warcraft 1.12 client: thicker fog, sun rays, and volumetric light through the trees. It is
 one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names come from the first version, which only
