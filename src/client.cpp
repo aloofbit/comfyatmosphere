@@ -83,3 +83,17 @@ bool ClientPlayer(float pos[3])
         return false;
     }
 
+// The game clock: the time of day as a fraction of the day, a float that carries the seconds. comfytime
+// found it by measurement against the minimap clock (its timeofday.cpp) and writes it to set the time,
+// so this reads the time comfytime shows as well.
+bool ClientHour(float& hour)
+    {
+        const ClientSettings& b = g_cfg.client;
+        float f = 0.0f;
+        if (!b.clockAddr || !SafeCopy(static_cast<uintptr_t>(b.clockAddr + Slide()), &f, 4))
+            return false;
+        if (!(f >= 0.0f && f <= 1.0f))
+            return false;
+        hour = f * 24.0f;
+        return true;
+    }

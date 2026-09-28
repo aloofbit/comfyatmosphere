@@ -21,7 +21,9 @@
 #include <d3d9.h>
 
 #include "bench.h"
+#include "client.h"
 #include "common.h"
+#include "cover.h"
 #include "config.h"
 #include "cvars.h"
 #include "depth.h"
@@ -472,7 +474,6 @@ namespace
         return g_oSetVSConstF(dev, reg, buf.data(), count);
     }
 
-    bool               g_sunSeen   = false;     // the sky's sun sprite was found this frame
     bool               g_worldEnded = false;    // the world finished drawing this frame
     bool               g_volumePending = false; // the map is ready; the light waits for the first UI draw
 
@@ -671,6 +672,7 @@ namespace
             ShadowReset();
             VolumeReset();
             RaysReset();
+            CoverReset();
             BenchReset();
             g_fog       = ClientFog();
             g_haveC30   = false;
@@ -781,9 +783,9 @@ namespace
         VolumeFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
-        g_sunSeen = false;
         g_worldEnded = false;
         g_skyPhase  = true;
+        SunFrameStart();
 
         PollKeys(dev);
         if (CVarsPoll())
@@ -798,9 +800,17 @@ namespace
             g_probe = Probe();
             g_probe.active = true;
             LogDial("probe");
+            float hour = 0.0f;
+            if (ClientHour(hour))
+                Log("night: game time %02d:%02d, night %.2f, rays and light x %.2f ([night] strength %.0f)",
+                    static_cast<int>(hour), static_cast<int>(hour * 60.0f) % 60, NightWeight(hour), NightScale(),
+                    g_cfg.night.strength);
+            else
+                Log("night: no game clock at [client] clockAddr, so the rays and the light keep their day strength");
             DepthProbe();
             ShadowProbe();
             VolumeProbe();
+            CoverProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -821,6 +831,7 @@ namespace
         ShadowReset();
         VolumeReset();
         RaysReset();
+        CoverReset();
         BenchReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
@@ -1095,7 +1106,7 @@ namespace
         Log("  [draw %4u] %-15s prim=%d prims=%u verts=%u tex0=%p ps=%p vs=%p blend=%u src=%u dst=%u z=%u zw=%u rt=%p%s",
             g_probe.draws, kind, static_cast<int>(prim), pc, nv, tex, ps, g_vshader, blend, src, dst, zen, zwrite,
             rt, where);
-        if (early && g_probe.draws < 8 && nv && nv <= 8)
+        if (early && g_probe.draws < 32 && nv && nv <= 8)
             DumpSkyDraw(dev, first, nv, upData);
         if (rt)  rt->lpVtbl->Release(rt);
         if (tex) tex->lpVtbl->Release(tex);
@@ -1164,11 +1175,15 @@ namespace
     // off, drawn under a special view matrix whose rotation is fixed and whose TRANSLATION is where the
     // sun sits in camera space. Projected through the ordinary world projection, it lands exactly on the
     // sun disc (measured: view[3] = (0.30, 5.00, 10.91) -> screen (0.52, 0.15), with the sun top centre).
-    // So the quad's centre, origin * world * view, is the direction to the sun in camera space. Only the
-    // first few draws of a frame are looked at, and only until the sprite is found.
+    // So the quad's centre, origin * world * view, is the direction to the sun in camera space.
+    //
+    // At night the sky starts with a dozen model draws (stars, sky models) and then draws TWO such quads,
+    // at draws 12 and 13 (probe, 01:00): Azeroth's two moons. So every quad of the sky phase is handed to
+    // sun.cpp, which picks one (PickQuad). Until 2026-09-28 only the first 8 draws were looked at, and at night the light
+    // kept the last direction it had by day.
     void NoteSkySun(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc, UINT nv)
     {
-        if (g_sunSeen || g_inPass || g_frameDraws >= 8 || prim != D3DPT_TRIANGLESTRIP || pc != 2 || nv != 4)
+        if (!g_skyPhase || g_inPass || g_frameDraws >= 48 || prim != D3DPT_TRIANGLESTRIP || pc != 2 || nv != 4)
             return;
 
         for (int r = 0; r < 3; ++r)
@@ -1189,7 +1204,6 @@ namespace
         if (v[2] * v[2] + v[1] * v[1] + v[0] * v[0] < 1e-6f)
             return;
         SunSetView(v);
-        g_sunSeen = true;
         if (g_probe.active)
             Log("  [draw %4u] SKY SUN        camera-space (%.3f %.3f %.3f)", g_probe.draws, v[0], v[1], v[2]);
     }
@@ -1217,7 +1231,7 @@ namespace
             return false;
         DWORD zwrite = 1;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
-        if (zwrite || g_frameDraws >= 16)
+        if (zwrite || g_frameDraws >= 48)      // 16 until the night sky's dozen extra draws (see NoteSkySun)
         {
             g_skyPhase = false;
             return false;

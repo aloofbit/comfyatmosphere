@@ -16,6 +16,7 @@ namespace
     const wchar_t* kShadow  = L"shadow";
     const wchar_t* kVolume  = L"volume";
     const wchar_t* kRays    = L"rays";
+    const wchar_t* kNight   = L"night";
     const wchar_t* kBench   = L"bench";
     const wchar_t* kGeneral = L"general";
 
@@ -96,6 +97,7 @@ void LoadSettings(const wchar_t* ini)
     s.client.camAddr      = GetX(kClient, L"camAddr",      s.client.camAddr,      ini);
     s.client.objMgrAddr   = GetX(kClient, L"objMgrAddr",   s.client.objMgrAddr,   ini);
     s.client.playerPosOff = GetX(kClient, L"playerPosOff", s.client.playerPosOff, ini);
+    s.client.clockAddr    = GetX(kClient, L"clockAddr",    s.client.clockAddr,    ini);
 
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
@@ -133,6 +135,7 @@ void LoadSettings(const wchar_t* ini)
     s.volume.blur         = GetB(kVolume, L"blur",  s.volume.blur,  ini);
     s.volume.debug        = GetI(kVolume, L"debug", s.volume.debug, ini);
     s.volume.quality      = GetI(kVolume, L"quality", s.volume.quality, ini);
+    s.volume.occlusion    = GetB(kVolume, L"occlusion", s.volume.occlusion, ini);
     if (s.volume.quality < 1) s.volume.quality = 1;
     if (s.volume.quality > 3) s.volume.quality = 3;
     if (s.volume.downscale < 1) s.volume.downscale = 1;
@@ -160,10 +163,19 @@ void LoadSettings(const wchar_t* ini)
     s.rays.debugView    = GetI(kRays, L"debugView", s.rays.debugView, ini);
     s.rays.placement    = GetI(kRays, L"placement", s.rays.placement, ini);
     s.rays.skyOnly      = GetB(kRays, L"skyOnly",   s.rays.skyOnly,   ini);
+    s.rays.secondMoon   = GetB(kRays, L"secondMoon", s.rays.secondMoon, ini);
+    s.rays.occlusion       = GetB(kRays, L"occlusion", s.rays.occlusion, ini);
+    s.rays.occlusionRadius = Clamp(GetF(kRays, L"occlusionRadius", s.rays.occlusionRadius, ini), 0.01f, 0.5f);
+    s.rays.occlusionFull   = Clamp(GetF(kRays, L"occlusionFull",   s.rays.occlusionFull,   ini), 0.05f, 1.0f);
     if (s.rays.passes < 1)    s.rays.passes = 1;
     if (s.rays.passes > 3)    s.rays.passes = 3;
     if (s.rays.downscale < 1) s.rays.downscale = 1;
     if (s.rays.downscale > 8) s.rays.downscale = 8;
+
+    s.night.strength = Clamp(GetF(kNight, L"strength", s.night.strength, ini), 0.0f, 100.0f);
+    s.night.dusk     = Clamp(GetF(kNight, L"dusk",     s.night.dusk,     ini), 0.0f, 24.0f);
+    s.night.dawn     = Clamp(GetF(kNight, L"dawn",     s.night.dawn,     ini), 0.0f, 24.0f);
+    s.night.fade     = Clamp(GetF(kNight, L"fade",     s.night.fade,     ini), 0.0f, 6.0f);
 
     s.bench.settle  = Clamp(GetF(kBench, L"settle",  s.bench.settle,  ini), 0.5f, 30.0f);
     s.bench.measure = Clamp(GetF(kBench, L"measure", s.bench.measure, ini), 1.0f, 60.0f);

@@ -23,8 +23,9 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 | | What it does | Default |
 | --- | --- | --- |
 | **Fog** | One `thickness` dial from 0 to 100: haze near the camera, increasing gently with distance. Trees and characters get the same fog as the terrain. | on |
-| **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. Lit clouds do not cast rays. Cheap. | on |
+| **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. Lit clouds do not cast rays. The rays fade when a mountain or a wall covers the sun. Cheap. | on |
 | **Volumetric light** | Fog is lit where sunlight reaches it and dark where leaves and walls shade it. It stays fixed in the world when the camera moves. Needs `[depth]` and `[shadow]`. | off |
+| **Night strength** | Sun rays and volumetric light at night, as a percentage of their day strength. Night comes from the game clock. At night the volumetric light follows the larger of the two moons, and both moons cast rays. | 100 |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | shown |
 
 All settings are in `comfyfog.ini`. **F11 reloads it in game.**
@@ -42,6 +43,7 @@ game's options:
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
 | Sun Rays, Sun Rays Strength | `[rays] enabled`, `strength` |
+| Night Strength | `[night] strength` |
 | Clouds | `[sky] clouds` |
 
 A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
@@ -49,6 +51,10 @@ the values from `comfyfog.ini` back.
 
 - A control you move wins over `comfyfog.ini`, also after F11.
 - The **Volumetric Light** box also turns on `[depth]` and `[shadow]`, which the light needs.
+- **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns
+  both off at night. The change to night starts at 20:00 and the change to day at 05:00. Each takes 1.5
+  hours. Set other hours with `[night] dusk`, `dawn` and `fade`. For rays from the larger moon only, set
+  `[rays] secondMoon = 0`.
 - **Volumetric Light Quality** at High uses the values in `comfyfog.ini`. Medium and Low replace four of
   them with cheaper values: a smaller shadow map, fewer samples, a lower resolution for the light, and a
   shadow map that is drawn less often. If the frame rate drops with the light on, set it lower.
@@ -119,8 +125,8 @@ cmake --build build --config Release
 
 ## Caveats
 
-- **Made for one client build.** The volumetric light uses camera and player addresses from one `WoW.exe`.
-  Another build moves them. The ini exposes them.
+- **Made for one client build.** The volumetric light uses camera and player addresses from one `WoW.exe`,
+  and Night Strength uses the address of the game clock. Another build moves them. The ini exposes them.
 - **Volumetric light** draws the world's solid geometry again from the sun, every third frame by default. It
   is the most expensive feature. If the frame rate drops, lower **Volumetric Light Quality** or turn the light
   off with Alt+F11. To see what it costs, run the benchmark (Alt+F12).

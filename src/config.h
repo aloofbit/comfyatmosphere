@@ -48,6 +48,18 @@ struct ClientSettings
     DWORD camAddr      = 0x00C7CF20;
     DWORD objMgrAddr   = 0x00B41414;
     DWORD playerPosOff = 0x9B8;
+    DWORD clockAddr    = 0x00CE9B64;  // float, the time of day as a fraction of the day (found by comfytime)
+};
+
+// Sun rays and volumetric light at night (sun.cpp, NightScale). The client draws its night sky light with
+// the same sprite as the sun, high in the sky (logged: 75 to 83 degrees up at 01:00), so the sun's
+// height cannot tell night from day. The game clock can.
+struct NightSettings
+{
+    float strength = 100.0f;    // the dial, 0..100: the rays and the light at night, as % of their day strength
+    float dusk     = 20.0f;     // hour the change to night starts
+    float dawn     = 5.0f;      // hour the change to day starts
+    float fade     = 1.5f;      // hours each change takes
 };
 
 // A readable depth buffer (depth.cpp), which the volumetric light reads. Off unless enabled.
@@ -117,6 +129,11 @@ struct VolumeSettings
     // and 1 (low) replace four of them with cheaper fixed values (ApplyVolumeQuality). Added 2026-09-24
     // because players reported low frame rates with the light on.
     int   quality      = 3;
+
+    // Fade the light when the sun's disc is behind terrain on screen (cover.cpp). The shadow map holds only
+    // what lies within [shadow] depth, so a sun setting behind the far horizon kept lighting the fog. Uses
+    // [rays] occlusionRadius and occlusionFull. Added 2026-09-28.
+    bool  occlusion    = true;
 };
 
 // Sun rays (rays.cpp): a radial blur of the bright sky toward the sun, drawn after the world and before
@@ -165,6 +182,19 @@ struct RaysSettings
     // relThreshold has to be lower for the sky to cast. debugView 3 shows it. On by default since
     // 2026-09-24: with it off, lit clouds near the sun cast and glowed.
     bool  skyOnly     = true;
+
+    // At night the sky has two moons. The volumetric light follows one (sun.cpp, PickQuad); with this
+    // on, the other casts rays as well. Each moon costs one mask, blur and composite.
+    bool  secondMoon  = true;
+
+    // Rays fade when the sun itself is covered (rays.cpp, kVisDepthHlsl and kVisHlsl): nine points on and
+    // around the sun, tested by depth when [depth] gives a readable one, else by comparing the finished
+    // frame with the sky kept before the world (needs skyOnly; heavy fog defeats it). Added 2026-09-28:
+    // with the sun behind a mountain, the sky above the ridge cast rays straight down over it.
+    bool  occlusion       = true;
+    float occlusionRadius = 0.08f;   // screen heights around the sun that are tested
+    float occlusionFull   = 0.35f;   // share of that sky in view that gives full rays; less fades them.
+                                     // Under 1, so a canopy with gaps still casts in full
 };
 
 struct SkySettings
@@ -190,6 +220,7 @@ struct Settings
     VolumeSettings volume;
     FogSettings  fog;
     SunSettings  sun;
+    NightSettings night;
     ClientSettings client;
 
     bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:

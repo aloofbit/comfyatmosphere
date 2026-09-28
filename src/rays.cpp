@@ -47,6 +47,8 @@
 
 #include "common.h"
 #include "config.h"
+#include "cover.h"
+#include "depth.h"
 #include "rays.h"
 #include "sun.h"
 
@@ -60,6 +62,7 @@ namespace
     const char* kMaskHlsl = R"HLSL(
 sampler2D s0 : register(s0);   // the scene, downsampled
 sampler2D s1 : register(s1);   // 1x1: the brightest luminance in the frame
+sampler2D s2 : register(s2);   // 1x1: how much of this sun is in view (cover.cpp)
 float4 gSun : register(c0);   // entry point uv.xy, 1/radius, absolute threshold floor
 float4 gP   : register(c1);   // unused, aspect (w/h), relative threshold, falloff exponent
 float4 main(float2 uv : TEXCOORD0) : COLOR
@@ -72,7 +75,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float2 d = uv - gSun.xy;
     d.x *= gP.y;
     float  f = pow(saturate(1.0 - length(d) * gSun.z), gP.w);
-    return float4(c * (m * f), 1.0);
+    return float4(c * (m * f * tex2D(s2, float2(0.5, 0.5)).r), 1.0);
 }
 )HLSL";
 
@@ -225,7 +228,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         g_rw = g_rh = 0;
     }
 
-    IDirect3DPixelShader9* MakePixelShader(IDirect3DDevice9* dev, const char* src, const char* name)
+    IDirect3DPixelShader9* MakePixelShader(IDirect3DDevice9* dev, const char* src, const char* name,
+                                           const char* profile = "ps_2_0")
     {
         auto compile = reinterpret_cast<PFN_D3DCompile>(CompilerProc("D3DCompile"));
         if (!compile)
@@ -235,7 +239,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         }
         OgBlob* code = nullptr;
         OgBlob* errs = nullptr;
-        const HRESULT hr = compile(src, strlen(src), name, nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errs);
+        const HRESULT hr = compile(src, strlen(src), name, nullptr, nullptr, "main", profile, 0, 0, &code, &errs);
         if (FAILED(hr) || !code)
         {
             Log("rays: %s failed to compile hr=0x%08X: %s", name, hr,
@@ -357,6 +361,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         float fade;          // 0..1
         float awayX, awayY;  // unit direction away from the sun on screen, texture space (aspect-corrected)
         float parallel;      // 0..1 share of the blur that runs along (awayX, awayY) instead of radially
+        bool  onScreen;      // the sun itself is on screen, so whether it is covered can be measured
+        int   id;            // 0 the sun (or the moon the light follows), 1 the other moon
     };
 
     constexpr float kMaxDistance = 3.0f;   // texture-space units from centre; rays are ~parallel by then
@@ -379,6 +385,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // The entry point: the sun itself if it is on screen, otherwise where a line from the screen
         // centre toward the sun crosses the edge. (tx, ty) is that toward-the-sun direction.
         const bool onScreen = s.gather > 0.0f && s.px >= 0.0f && s.px <= 1.0f && s.py >= 0.0f && s.py <= 1.0f;
+        s.onScreen = onScreen;
         if (onScreen)
         {
             s.ex = s.px; s.ey = s.py;
@@ -416,18 +423,21 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             s.lengthFrac = r.maxLength / dh;
     }
 
-    bool SunOnScreen(SunScreen& s, float aspect)
+    // second: the other moon at night (sun.cpp, SunSecondDirection) instead of the sun.
+    bool SunOnScreen(SunScreen& s, float aspect, bool second = false)
     {
         const RaysSettings& r = g_cfg.rays;
         s.fade   = 1.0f;
         s.gather = 1.0f;
+        s.onScreen = false;
+        s.id     = second ? 1 : 0;
 
         // The sky's sun (or [sun] fixed), and the world camera, both from sun.cpp. A direction, so
         // w = 0: the camera's position (folded into each world matrix by this client, see comfygrass's
         // README) drops out and only the view rotation matters.
         D3DMATRIX view, proj;
         float dir[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        if (!SunCamera(view, proj) || !SunDirection(dir))
+        if (!SunCamera(view, proj) || !(second ? SunSecondDirection(dir) : SunDirection(dir)))
             return false;
 
         float vs[4], clip[4];
@@ -436,10 +446,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
         // vs[2] is the cosine between the view axis and the sun. Intensity follows the view: full when
         // looking straight at the sun, easing down as you turn away, nothing at maxAngle: one smooth
-        // curve, shaped by viewFalloff. And fading as the sun sets, gone 5 degrees below the horizon.
+        // curve, shaped by viewFalloff. And fading as the sun sets, gone 5 degrees below the horizon, and
+        // turned down at night by [night] strength.
         const float cosMax = cosf(r.maxAngle * 0.01745329f);
         s.fade = powf(Sat((vs[2] - cosMax) / (1.0f - cosMax > 1e-4f ? 1.0f - cosMax : 1e-4f)), r.viewFalloff);
-        s.fade *= Sat(1.0f + dir[2] / 0.087f);
+        s.fade *= Sat(1.0f + dir[2] / 0.087f) * NightScale();
         if (s.fade <= 0.001f)
             return false;
 
@@ -521,7 +532,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         sys->lpVtbl->Release(sys);
     }
 
-    void Run(IDirect3DDevice9* dev, IDirect3DSurface9* bb, UINT bbW, UINT bbH, const SunScreen& sun)
+    // One scene copy and one brightness reference; then a mask, a blur and a composite for each sun
+    // (two at night: the moons), added together on the back buffer.
+    void Run(IDirect3DDevice9* dev, IDirect3DSurface9* bb, UINT bbW, UINT bbH, const SunScreen* suns, int nSuns)
     {
         const RaysSettings& r = g_cfg.rays;
         auto* d = dev->lpVtbl;
@@ -572,10 +585,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
         // --- only the sky casts ([rays] skyOnly) ---------------------------------------------------
         // The darker of the frame and the sky before the clouds, into g_pong, which the blur does not
-        // write before the mask has read it.
+        // write before the mask has read it. The blur does write it afterwards, so a second sun needs it
+        // made again.
         const Target* scene = &g_scene;
-        if (r.skyOnly && g_skyCaptured)
+        const auto skyOnly = [&]()
         {
+            if (!(r.skyOnly && g_skyCaptured))
+                return;
             d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(g_sky.tex));
             d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
             d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
@@ -587,7 +603,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             Pass(dev, g_scene.tex, g_pong.surf, g_rw, g_rh, g_psSkyMin, none, 1);
             d->SetTexture(dev, 1, nullptr);
             scene = &g_pong;
-        }
+        };
+        skyOnly();
 
         // --- brightest pixel -----------------------------------------------------------------------
         d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
@@ -631,6 +648,41 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
 
+        for (int si = 0; si < nSuns; ++si)
+        {
+        const SunScreen& sun = suns[si];
+        if (si > 0)
+        {
+            d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, FALSE);   // the last composite added
+            skyOnly();
+        }
+
+        // --- how much of this sun is in view ([rays] occlusion, cover.cpp) -------------------------
+        // Tested only with the sun on screen. The mask reads the eased result on stage 2. The cover pass
+        // changes the render target and stages 0 and 1, which the mask sets again below.
+        {
+            CoverInput in = {};
+            in.px = sun.px; in.py = sun.py;
+            in.test   = r.occlusion && sun.onScreen;
+            in.aspect = static_cast<float>(bbW) / static_cast<float>(bbH);
+            in.depth  = DepthWorldTexture();
+            in.sky    = (r.skyOnly && g_skyCaptured) ? g_sky.tex : nullptr;
+            in.scene  = g_scene.tex;
+            IDirect3DTexture9* cover = CoverMeasure(dev, sun.id ? kCoverRaysMoon : kCoverRaysSun, in, r.adaptTime);
+            if (!cover)
+                continue;                  // no cover texture: the mask would read nothing and draw black
+            d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(cover));
+            d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 2, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, 2, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, 2, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            d->SetSamplerState(dev, 2, D3DSAMP_SRGBTEXTURE, 0);
+            d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            d->SetFVF(dev, D3DFVF_XYZRHW | D3DFVF_TEX1);
+        }
+
         // --- mask ---------------------------------------------------------------------------------
         IDirect3DTexture9* peak = g_peakSmooth.tex;
         d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(peak));
@@ -646,6 +698,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         };
         Pass(dev, scene->tex, g_ping.surf, g_rw, g_rh, g_psMask, maskC, 2);
         d->SetTexture(dev, 1, nullptr);
+        d->SetTexture(dev, 2, nullptr);
 
         // --- radial blur --------------------------------------------------------------------------
         // Step per sample for pass p is length / 16^(passes - p): the last pass spans the full length
@@ -700,6 +753,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         }
         const Target* shown = (r.debugView == 3 && g_skyCaptured) ? &g_sky : src;
         Pass(dev, shown->tex, bb, bbW, bbH, g_psComp, gain, 1);
+        if (r.debugView)
+            break;                         // a debug view replaces the frame: one sun only
+        }
 
 
         if (began)
@@ -746,11 +802,17 @@ namespace
         D3DSURFACE_DESC desc = {};
         bb->lpVtbl->GetDesc(bb, &desc);
 
-        SunScreen sun = {};
+        SunScreen suns[2] = {};
+        int nSuns = 0;
         const float aspect = desc.Height ? static_cast<float>(desc.Width) / static_cast<float>(desc.Height) : 1.0f;
         // No sun on screen or near it: behind the camera past maxAngle, below the horizon, or not seen yet.
+        // At night the second moon may cast when the first does not, and the other way round.
+        if (SunOnScreen(suns[nSuns], aspect))
+            ++nSuns;
+        if (r.secondMoon && SunOnScreen(suns[nSuns], aspect, true))
+            ++nSuns;
         bool drawn = false;
-        if (!SunOnScreen(sun, aspect))
+        if (nSuns == 0)
         {
             drawn = false;
         }
@@ -763,7 +825,7 @@ namespace
         }
         else
         {
-            Run(dev, bb, desc.Width, desc.Height, sun);
+            Run(dev, bb, desc.Width, desc.Height, suns, nSuns);
             drawn = true;
         }
         bb->lpVtbl->Release(bb);

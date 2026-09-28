@@ -27,6 +27,7 @@ COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
 COMFYATMOSPHERE_RAYS           = "Sun Rays";
 COMFYATMOSPHERE_RAYS_STRENGTH  = "Sun Rays Strength";
+COMFYATMOSPHERE_NIGHT_STRENGTH = "Night Strength";
 COMFYATMOSPHERE_CLOUDS         = "Clouds";
 
 local ENTRIES = {
@@ -90,6 +91,17 @@ local ENTRIES = {
 		type = "slider",
 		cvar = "comfyRaysStrength",
 		dependency = { "comfyRays", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- No dependency: it scales both the rays and the light.
+		name = "COMFYATMOSPHERE_NIGHT_STRENGTH",
+		desc = "Sun rays and volumetric light at night. 100 is as strong as by day. 0 is off.",
+		type = "slider",
+		cvar = "comfyNightStrength",
 		minval = 0,
 		maxval = 100,
 		step = 5,

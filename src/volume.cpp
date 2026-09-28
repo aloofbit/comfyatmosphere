@@ -39,6 +39,7 @@
 #include "client.h"
 #include "common.h"
 #include "config.h"
+#include "cover.h"
 #include "depth.h"
 #include "sun.h"
 #include "shadow.h"
@@ -226,13 +227,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     const char* kCompositeHlsl = R"HLSL(
 sampler2D sGlow  : register(s0);    // glow (r), distance (g); point sampled
 sampler2D sDepth : register(s1);    // the scene's depth (INTZ), full resolution
+sampler2D sCover : register(s2);    // 1x1: how much of the sun is in view on screen (cover.cpp)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection)
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
 float4 gInv3 : register(c3);
 float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gT    : register(c5);        // the glow's size, and one texel
-float4 gC    : register(c6);        // colour x gain
+float4 gC    : register(c6);        // colour x gain; a = 1 when sCover is bound
 float Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
 {
     float4 s  = tex2Dlod(sGlow, float4((base + o + 0.5) * gT.zw, 0, 0));
@@ -253,17 +255,18 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float  wsum = 0.0;
     float  sum  = Tap(base, float2(0, 0), f, dist, wsum) + Tap(base, float2(1, 0), f, dist, wsum)
                 + Tap(base, float2(0, 1), f, dist, wsum) + Tap(base, float2(1, 1), f, dist, wsum);
-    return float4(gC.rgb * (sum / wsum), 0.0);
+    return float4(gC.rgb * (sum / wsum) * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a), 0.0);
 }
 )HLSL";
 
     // The march's debug stages carry no distance, so they are shown with a plain bilinear stretch.
     const char* kPlainCompositeHlsl = R"HLSL(
 sampler2D s0 : register(s0);
-float4 gC : register(c0);      // colour x gain
+sampler2D sCover : register(s2);   // 1x1: how much of the sun is in view on screen (cover.cpp)
+float4 gC : register(c0);      // colour x gain; a = 1 when sCover is bound
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
-    return float4(gC.rgb * tex2D(s0, uv).r, 0.0);
+    return float4(gC.rgb * tex2D(s0, uv).r * lerp(1.0, tex2D(sCover, float2(0.5, 0.5)).r, gC.a), 0.0);
 }
 )HLSL";
 
@@ -650,8 +653,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         return false;
     }
 
-    // Faded out as the sun goes down.
-    const float sunset = sunDir[2] > 0.0f ? (sunDir[2] < 0.1f ? sunDir[2] / 0.1f : 1.0f) : 0.0f;
+    // Faded out as the sun goes down, and turned down at night by [night] strength.
+    const float sunset = (sunDir[2] > 0.0f ? (sunDir[2] < 0.1f ? sunDir[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
     if (sunset <= 0.0f && !v.debug)
     {
         ++g_st.sunDown;
@@ -933,14 +936,41 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         g_histValid = false;
     }
 
+    // --- how much of the sun is in view on screen ([volume] occlusion, cover.cpp) -------------------
+    // The shadow map holds only what lies within [shadow] depth of you, so a sun setting behind the far
+    // horizon kept lighting the fog. With the sun on screen, the depth buffer shows whether terrain covers
+    // it, however far away. Off screen, or in a debug view, it is not tested and counts as in view.
+    IDirect3DTexture9* cover = nullptr;
+    {
+        float s4[4] = { sunDir[0], sunDir[1], sunDir[2], 0.0f }, clip[4];
+        for (int c = 0; c < 4; ++c)
+            clip[c] = s4[0] * camVP.m[0][c] + s4[1] * camVP.m[1][c] + s4[2] * camVP.m[2][c];
+        const float w = clip[3];
+        const float nx = w > 1e-4f ? clip[0] / w : 9.0f, ny = w > 1e-4f ? clip[1] / w : 9.0f;
+        CoverInput in = {};
+        in.px = 0.5f + 0.5f * nx;
+        in.py = 0.5f - 0.5f * ny;
+        in.test   = v.occlusion && !v.debug && fabsf(nx) <= 1.0f && fabsf(ny) <= 1.0f;
+        in.aspect = wd.Height ? static_cast<float>(wd.Width) / static_cast<float>(wd.Height) : 1.0f;
+        in.depth  = depth;
+        cover = CoverMeasure(dev, kCoverVolume, in, 0.5f);
+    }
+
     // --- composite onto the world -------------------------------------------------------------------
     // debug replaces the world with the glow alone, white, to see its shape.
     const DWORD col = g_cfg.volume.color;
     const float gain = v.debug ? 1.0f : (v.strength * 0.01f) * v.maxIntensity * sunset;
     const float cc[4] = { v.debug ? gain : ((col >> 16) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col >>  8) & 0xFF) / 255.0f * gain,
-                          v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, 0.0f };
+                          v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, cover ? 1.0f : 0.0f };
     d->SetRenderTarget(dev, 0, world);
+    d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(cover));
+    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 2, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 2, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 2, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    d->SetSamplerState(dev, 2, D3DSAMP_SRGBTEXTURE, 0);
     d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(src->tex));
     d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
                                                    D3DCOLORWRITEENABLE_BLUE);
@@ -968,7 +998,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         kc[16] = pc[40]; kc[17] = pc[41]; kc[18] = 0.0f; kc[19] = 0.0f;
         kc[20] = static_cast<float>(src->w); kc[21] = static_cast<float>(src->h);
         kc[22] = 1.0f / src->w;              kc[23] = 1.0f / src->h;
-        kc[24] = cc[0]; kc[25] = cc[1]; kc[26] = cc[2]; kc[27] = 0.0f;
+        kc[24] = cc[0]; kc[25] = cc[1]; kc[26] = cc[2]; kc[27] = cc[3];
         d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
         for (DWORD st = 0; st < 2; ++st)
         {
@@ -984,6 +1014,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         d->SetTexture(dev, 1, nullptr);
         d->SetVertexShader(dev, nullptr);
     }
+
+    d->SetTexture(dev, 2, nullptr);
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
@@ -1048,7 +1080,7 @@ void VolumeFrameEnd()
         return;
     if (g_cfg.trace)   // [general] trace = 1 only: in normal play it was a file write every few seconds
         Log("volume: %u frames: world end reached %u, drawn %u; skipped: no depth %u, no shadow map %u, "
-            "no shadow matrix %u, no sun %u, no camera %u, sun down %u, no target %u, bad matrix %u",
+            "no shadow matrix %u, no sun %u, no camera %u, sun down or night %u, no target %u, bad matrix %u",
             g_st.frames, g_st.calls, g_st.drawn, g_st.noDepth, g_st.noShadow, g_st.noMatrix, g_st.noSun,
             g_st.noCam, g_st.sunDown, g_st.noTarget, g_st.badMatrix);
     g_st = {};

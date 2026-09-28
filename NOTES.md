@@ -346,6 +346,39 @@ light back each time, no crash.
 
 comfygrass keeps its wind vertex shader (`g_windVS`) across the same change.
 
+## Night and the two moons (2026-09-28)
+
+At night the rays and the light were as strong as by day. The sun's height cannot tell night from day,
+because at night the client draws Azeroth's two moons with the same sprite as the sun, high in the sky
+(logged: 75 to 83 degrees up at 01:00). So `[night]` reads the game clock at `0x00CE9B64` (the day fraction
+comfytime found), and **Night Strength** scales both effects by it (`NightScale`, `sun.cpp`).
+
+The moons were not found at first. At night the sky starts with a dozen model draws (stars, sky models),
+and the two moon quads come at draws 12 and 13, where the sprite match only looked at the first 8. The light
+kept the last day direction all night. The match now covers the whole sky phase, up to the first depth
+write, and so does cloud hiding, which had a 16-draw limit with the clouds at draw 15 at night.
+
+The two moons stand at the same height and about 92 degrees apart in azimuth (45.3 degrees each at 00:40).
+Following "the highest" swapped between them every few seconds. The light now follows the first quad above
+the horizon, which is the larger moon (a quad of 1.8 against 1.0), and the other moon casts rays of its own
+(`[rays] secondMoon`). Late in the night the client stops drawing the larger moon, and the light moves to
+the other one.
+
+## Rays and light through mountains (2026-09-28)
+
+The rays came over mountains with the sun behind them. `[volume] debug = 5` showed the light shaded right;
+it was the rays: the mask keeps only sky, but the blur carries the sky above a ridge toward the sun and over
+the ridge. `cover.cpp` now measures how much of the sun's disc is in view on screen, at nine points, and the
+rays fade by it. A first version compared brightness with the sky kept before the world, and failed at fog
+thickness 100: a distant mountain takes the fog colour, and near the sun that is nearly as bright as the
+sky. It now reads depth when there is a readable one: the sky keeps the clear value 1, the world and the far
+horizon sit below 0.96. Linear, a sun 80% behind a ridge still showed through it, so the share is squared.
+
+The light had the same fault at sunset for another reason: the shadow map reaches only `[shadow] depth`,
+so terrain on the far horizon cannot shade you, and a sun setting behind it kept lighting the fog. The
+light takes the same test, with its own eased value (`[volume] occlusion`). Neither test runs with the sun
+off screen; a sun just past the edge behind a ridge still lights the fog and casts rays.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
@@ -466,7 +499,9 @@ pass in an `IDirect3DStateBlock9` capture/apply: one call each way, built into D
   Is it stable across zones, and with the map or character sheet open?
 - Does DXVK's `StretchRect` from the backbuffer behave at quarter res here, or is a full-res intermediate
   needed?
-- Does the client's directional light stay sane indoors and at night, or does it need gating?
+- Does the client's directional light stay sane indoors and at night, or does it need gating? (The sun is
+  not the directional light, see above. At night the rays and the light follow the moons, and `[night]`
+  gates them by the game clock.)
 - Do fog state overrides fight anything? Does the client set fog per draw, or per zone?
 
 ## Build
