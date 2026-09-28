@@ -35,7 +35,7 @@ All settings are in `comfyfog.ini`. **F11 reloads it in game.**
 The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds these controls to **Video > Shaders** in the
 game's options:
 
-![The comfyatmosphere controls in Video > Shaders: fog, volumetric light with its strength and quality, sun rays, and clouds.](media/settings-example.png)
+![The comfyatmosphere controls in Video > Shaders: fog, volumetric light with its strength and quality, sun rays, night strength, and clouds.](media/settings-example.png)
 
 | Control | Setting in `comfyfog.ini` |
 | --- | --- |
