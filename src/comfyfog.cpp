@@ -27,6 +27,7 @@
 #include "config.h"
 #include "cvars.h"
 #include "depth.h"
+#include "lamps.h"
 #include "rays.h"
 #include "shadow.h"
 #include "sun.h"
@@ -359,6 +360,11 @@ namespace
     using SetTransformFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DTRANSFORMSTATETYPE, const D3DMATRIX*);
     SetTransformFn  g_oSetTransform  = nullptr;
 
+    using SetLightFn    = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, DWORD, const D3DLIGHT9*);
+    using LightEnableFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, DWORD, BOOL);
+    SetLightFn      g_oSetLight      = nullptr;
+    LightEnableFn   g_oLightEnable   = nullptr;
+
     using SetRTFn       = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, DWORD, IDirect3DSurface9*);
     using StretchRectFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, IDirect3DSurface9*, const RECT*,
                                                       IDirect3DSurface9*, const RECT*, D3DTEXTUREFILTERTYPE);
@@ -442,6 +448,7 @@ namespace
         if (g_inPass)
             return g_oSetVSConstF(dev, reg, data, count);   // our own passes: no fog remap, no recording
         RecordConstants(reg, data, count);                  // the client's values, before the c30 remap
+        LampsConstants(reg, data, count);
         if (g_probe.active && data)
         {
             g_probe.constSets++;
@@ -674,6 +681,7 @@ namespace
             RaysReset();
             CoverReset();
             BenchReset();
+            LampsReset();
             g_fog       = ClientFog();
             g_haveC30   = false;
             g_fogEnable = 0;
@@ -781,6 +789,7 @@ namespace
         }
         ShadowFrameEnd();
         VolumeFrameEnd();
+        LampsFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_worldEnded = false;
@@ -811,6 +820,7 @@ namespace
             ShadowProbe();
             VolumeProbe();
             CoverProbe();
+            LampsProbe(dev);
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -833,6 +843,7 @@ namespace
         RaysReset();
         CoverReset();
         BenchReset();
+        LampsReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -1208,11 +1219,37 @@ namespace
             Log("  [draw %4u] SKY SUN        camera-space (%.3f %.3f %.3f)", g_probe.draws, v[0], v[1], v[2]);
     }
 
+    // The lamp probe (lamps.cpp): the client's lights and its world draws, while a window is open.
+    HRESULT STDMETHODCALLTYPE hkSetLight(IDirect3DDevice9* dev, DWORD index, const D3DLIGHT9* light)
+    {
+        if (!g_inPass)
+            LampsSetLight(index, light);
+        return g_oSetLight(dev, index, light);
+    }
+
+    HRESULT STDMETHODCALLTYPE hkLightEnable(IDirect3DDevice9* dev, DWORD index, BOOL on)
+    {
+        if (!g_inPass)
+            LampsLightEnable(index, on);
+        return g_oLightEnable(dev, index, on);
+    }
+
+    void NoteLampDraw(IDirect3DDevice9* dev, bool indexed, UINT first, UINT nv, const void* up = nullptr,
+                      UINT upStride = 0)
+    {
+        if (!LampsActive() || g_inPass || g_skyPhase || g_worldEnded || !g_lastPersp)
+            return;
+        LampDraw d = { indexed, first, nv, up, upStride, &g_world,
+                       static_cast<IDirect3DVertexShader9*>(g_vshader), g_fog.color };
+        LampsDraw(dev, d);
+    }
+
     HRESULT STDMETHODCALLTYPE hkDrawPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT sv, UINT pc)
     {
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
         if (!g_inPass)
             RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
+        NoteLampDraw(dev, false, sv, VertsForPrims(prim, pc));
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         return g_oDrawPrim(dev, prim, sv, pc);
@@ -1270,6 +1307,7 @@ namespace
         }
         if (!g_inPass)
             RecordDraw(dev, true, prim, bvi, mvi, nv, si, pc);
+        NoteLampDraw(dev, true, static_cast<UINT>(bvi) + mvi, nv);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
@@ -1278,6 +1316,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitiveUP(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc,
                                                 const void* data, UINT stride)
     {
+        NoteLampDraw(dev, false, 0, VertsForPrims(prim, pc), data, stride);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitiveUP", prim, pc, false, 0, VertsForPrims(prim, pc), data);
         return g_oDrawPrimUP(dev, prim, pc, data, stride);
@@ -1287,6 +1326,7 @@ namespace
                                                        UINT nv, UINT pc, const void* idx, D3DFORMAT fmt,
                                                        const void* data, UINT stride)
     {
+        NoteLampDraw(dev, true, mvi, nv, data, stride);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexedUP", prim, pc, true, 0, nv, data);
         return g_oDrawIdxPrimUP(dev, prim, mvi, nv, pc, idx, fmt, data, stride);
@@ -1343,6 +1383,8 @@ namespace
             HookSlot(reinterpret_cast<void**>(&v->StretchRect),            &hkStretchRect,            reinterpret_cast<void**>(&g_oStretchRect))   &&
             HookSlot(reinterpret_cast<void**>(&v->SetVertexShader),        &hkSetVertexShader,        reinterpret_cast<void**>(&g_oSetVS))         &&
             HookSlot(reinterpret_cast<void**>(&v->SetVertexShaderConstantF), &hkSetVertexShaderConstantF, reinterpret_cast<void**>(&g_oSetVSConstF)) &&
+            HookSlot(reinterpret_cast<void**>(&v->SetLight),               &hkSetLight,               reinterpret_cast<void**>(&g_oSetLight))      &&
+            HookSlot(reinterpret_cast<void**>(&v->LightEnable),            &hkLightEnable,            reinterpret_cast<void**>(&g_oLightEnable))   &&
             HookSlot(reinterpret_cast<void**>(&v->DrawPrimitive),          &hkDrawPrimitive,          reinterpret_cast<void**>(&g_oDrawPrim))      &&
             HookSlot(reinterpret_cast<void**>(&v->DrawIndexedPrimitive),   &hkDrawIndexedPrimitive,   reinterpret_cast<void**>(&g_oDrawIdxPrim))   &&
             HookSlot(reinterpret_cast<void**>(&v->DrawPrimitiveUP),        &hkDrawPrimitiveUP,        reinterpret_cast<void**>(&g_oDrawPrimUP))    &&

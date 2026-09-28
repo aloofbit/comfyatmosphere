@@ -31,6 +31,7 @@ measurement showed.
 | Clouds off: `[sky] clouds = 0` | `comfyfog.cpp` | none |
 | In-game controls: CVars for the addon's sliders, and the quality levels | `cvars.cpp`, `config.cpp` | none |
 | Diagnostics | all | F12: one-frame probe, then a 180-frame trace of the light and the map |
+| Lamp probe: where local lights can be found (street lamps, lanterns, torches) | `lamps.cpp` | F12, with the frame probe: a 60-frame report |
 | Benchmark: each feature in turn, frame rate and our own GPU and CPU time | `bench.cpp` | Alt+F12 |
 
 ## What was found (measured in this `WoW.exe`)
@@ -378,6 +379,66 @@ The light had the same fault at sunset for another reason: the shadow map reache
 so terrain on the far horizon cannot shade you, and a sun setting behind it kept lighting the fog. The
 light takes the same test, with its own eased value (`[volume] occlusion`). Neither test runs with the sun
 off screen; a sun just past the edge behind a ridge still lights the fog and casts rays.
+
+## Local lights: the lamp probe (2026-09-28)
+
+The question was whether street lamps and lanterns can emit rays and light. The effect is the smaller
+part. The positions of the lamps are the hard part. Three sources were found or proposed:
+
+**The client's model shaders carry two point lights.** From the disassembly of shader `1229F540`: the
+positions are `c21` and `c22`, in the same space as the skinned vertex (the space `c2..c5` takes to clip),
+the colours are `c17` and `c18`, and the attenuation is `1 / (c25 + c26 d + c27 d^2)`, `.x` for the first
+light and `.y` for the second. The client lights a model near a torch through these. A position goes back
+to the world through `c2..c5` and the inverse of the world camera. That works for models that fold their
+world matrix into `c2..c5` and for those that carry it in the bones.
+
+**Fixed-function lights** (`SetLight`) were never checked. comfygrass reads only the directional one.
+
+**Glow sprites** are additive draws (`DESTBLEND ONE`), which the client fogs to black. Spell effects and
+particles are too, so these need a filter.
+
+`lamps.cpp` watches all three for 60 frames after F12 and writes one report to `comfyfog.log`, lines
+starting `lamps:`. It gives each source's places in world coordinates, nearest first, with the screen
+position of each, and the number of frames it was seen in. A lamp is seen in all of them. Stand still
+during the window. The first 40 new places of each source are also logged raw, and the `SetLight` calls
+of the first frame. A shader light's raw line gives the distance from the light to the model it lit, as a
+check on the transform. The probe costs nothing outside its window.
+
+**The road into Duskwood, near the Elwynn border (probe 1, 2026-09-28).** Camera at (-10906, -418), not
+in Darkshire town, although it was taken to be. 750 world draws a frame.
+- Shader lights: none. No world draw used a shader that reads `c21`. The light-capable shaders were bound
+  only before the device reset, on the character select screen (fog `0x808080`). In the world the models
+  are lit by `c10..c16` (the sun and the ambient, as spherical harmonics) and nothing else, so the
+  lamps do not light the models near them.
+- Fixed lights: 540 `SetLight` calls, all the directional light (type 3). No point or spot light was
+  enabled at any draw.
+- Glows: about 12 additive draws a frame, at 10 places. The lamppost beside the player drew a
+  four-vertex M2 sprite, 1.6 yards from centre to corner, 64x64 DXT5 with a grey texture (0.48),
+  source blend `SRCALPHA`, fogged black, in 60 of 60 frames. A screenshot put the lantern within about a
+  yard of where the probe placed it. The same texture 102 yards away is the next lamppost. The others
+  were a glow on the character, small particles and sky sprites 250 yards up.
+
+
+**Darkshire town, outdoors (2026-09-28).** Camera at (-10553, -1204), 1290 world draws a frame.
+- Client point lights: 5 in view, in 60 of 60 frames. All have the colour (1.40 0.87 0.40) and the
+  attenuation (0, 0.7, 0.03), so they reach 16.7 yards at 5%. The shader route (`c21` through `c2..c5`)
+  and the fixed-function route (`SetLight`, camera-relative, plus the camera) gave the same absolute
+  positions to 0.1 yard, which proves both transforms. The client sets them with `SetLight` on indices
+  1 to 3 (about 70 calls a frame), so that hook alone finds every light. Two more fixed lights sat 40
+  and 75 yards above the street, with flame particles at the same places.
+- Each of the 5 lights sits on a 64-vertex additive M2 with a flame texture (64x64 DXT1, nearly black
+  on average): torches or braziers.
+- The lampposts have no point light. Each is found only by its glow sprite: the four-vertex M2 with the
+  grey 64x64 texture. `c28 + c29` at that draw is (0.95 0.60 0.22 0.91), the lamp's orange. Three were
+  in view.
+
+**The Darkshire inn (2026-09-28).** Camera at (-10525, -1162). No point lights at all: interiors are lit
+by the client's baked vertex colours. The candles are fixed-function particles, each a group of three
+textures in one place (orange 64x128, yellow 32x32, blue 128x128).
+
+So there are two sources to build on. The client's point lights give torches and braziers with their
+exact position, colour and reach. The glow sprites, filtered to four-vertex additive M2 draws with a
+warm `c28 + c29`, give the lampposts.
 
 ## The framing that matters
 
