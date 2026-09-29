@@ -42,6 +42,7 @@ The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of con
 | Atmospheric Fog, Fog Thickness | `[fog] enabled`, `thickness` |
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
+| Sun Shadows, Sun Shadow Strength | `[sunshadows] enabled`, `strength` |
 | Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
 | Shadow Softness | `[sunshadows] softness` |
 | Shadow Redraw | `[shadow] mapEvery` |
@@ -56,6 +57,9 @@ the values from `comfyfog.ini` back.
 
 - A control you move wins over `comfyfog.ini`, also after F11.
 - The **Volumetric Light** box also turns on `[depth]` and `[shadow]`, which the light needs.
+- **Sun Shadows** use the volumetric light's shadow map, so they need Volumetric Light on. While both are
+  on, the game's round shadow under each character is off (the CVar `shadowLOD`). At logout it is set
+  back, so it returns if the mod is removed.
 - **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns
   both off at night. The change to night starts at 20:00 and the change to day at 05:00. Each takes 1.5
   hours. Set other hours with `[night] dusk`, `dawn` and `fade`. For rays from the larger moon only, set
@@ -64,9 +68,26 @@ the values from `comfyfog.ini` back.
   them with cheaper values: fewer samples and a lower resolution for the light. If the frame rate drops
   with the light on, set it lower, or set Shadow Resolution lower or Shadow Redraw higher.
 - The addon needs `comfyfog.dll`. Without the DLL, it adds no controls.
-- The other settings stay in `comfyfog.ini` only.
+- The other settings stay in `comfyfog.ini`. Set them in game with `/atmos` (below).
 
 The addon needs the Turtle WoW options window, which builds its pages from a table the addon can add to.
+
+### /atmos
+
+`/atmos` reads and sets any value in `comfyfog.ini` from the game's chat. A change shows at once.
+
+| Command | |
+| --- | --- |
+| `/atmos` | The commands and the sections |
+| `/atmos <section>` | Every value in a section |
+| `/atmos <section>.<key>` | One value, and where it came from |
+| `/atmos <section>.<key> <value>` | Set it. The key alone will do when no other section has it |
+| `/atmos list` | The values set with `/atmos` |
+| `/atmos reset` | Drop them. `comfyfog.ini` applies again |
+| `/atmos save` | Write them into `comfyfog.ini`. The comment on each line stays |
+
+A value set with `/atmos` stays until `reset` or `save`, also after F11. A value that a control on the
+Atmosphere page sets is refused: use the control.
 
 ## Keys
 

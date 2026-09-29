@@ -31,6 +31,8 @@ COMFYATMOSPHERE_FOG_THICKNESS  = "Fog Thickness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
+COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
+COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
 COMFYATMOSPHERE_SHADOW_SOFTNESS = "Shadow Softness";
 COMFYATMOSPHERE_SHADOW_EVERY   = "Shadow Redraw";
@@ -90,6 +92,26 @@ local ENTRIES = {
 		minval = 1,
 		maxval = 3,
 		step = 1,
+	},
+	{
+		-- The sun shadows use the volumetric light's shadow map, so they need it on. While both are on,
+		-- the round shadow the game draws under each character is turned off (SyncUnitShadow below).
+		name = "COMFYATMOSPHERE_SUN_SHADOWS",
+		desc = "Trees, buildings and characters shade the ground and each other. Replaces the round shadow under characters. Needs Volumetric Light on.",
+		type = "checkbutton",
+		cvar = "comfySunShadows",
+		dependency = { "comfyVolume", "1" },
+	},
+	{
+		name = "COMFYATMOSPHERE_SUN_SHADOW_STRENGTH",
+		desc = "How dark the shadows are.",
+		type = "slider",
+		cvar = "comfySunShadowStrength",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
 	},
 	{
 		-- Three positions: 1024, 2048 and 4096 texels a side. The sun shadows use the volumetric light's
@@ -193,17 +215,16 @@ local ENTRIES = {
 			.. "3 volumetric light: the shadow map\n"
 			.. "4 volumetric light: the depth it reads\n"
 			.. "5 sun shadows: the shade alone\n"
-			.. "6 sun shadows: how much each surface faces the sun\n"
-			.. "7 lamps: the glow alone\n"
-			.. "8 lamps: the distance read\n"
-			.. "9 lamps: the light on surfaces alone\n"
-			.. "10 sun rays: the mask\n"
-			.. "11 sun rays: the rays alone\n"
-			.. "12 sun rays: the sky kept before the clouds",
+			.. "6 lamps: the glow alone\n"
+			.. "7 lamps: the distance read\n"
+			.. "8 lamps: the light on surfaces alone\n"
+			.. "9 sun rays: the mask\n"
+			.. "10 sun rays: the rays alone\n"
+			.. "11 sun rays: the sky kept before the clouds",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 12,
+		maxval = 11,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -250,10 +271,103 @@ local function AddControls()
 	return false;
 end
 
+-- /atmos: read and set any comfyfog.ini value (tune.cpp in comfyfog.dll). The command goes to the DLL in
+-- the CVar comfyTune as "<number> <text>"; the DLL answers by registering comfyTuneReply<number>, the
+-- count of lines, and comfyTuneReply<number>_1 and on, the lines. CVars stay registered until the
+-- client closes, /reload included, so each command takes the next number that has no answer yet.
+local tuneNumber = 0;
+local tuneWaiting = nil;
+local tuneUntil = 0;
+
+local function Say(text)
+	DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: " .. text);
+end
+
+local tuneFrame = CreateFrame("Frame");
+tuneFrame:Hide();
+tuneFrame:SetScript("OnUpdate", function()
+	if not tuneWaiting then
+		this:Hide();
+		return;
+	end
+	local count = HasCVar("comfyTuneReply" .. tuneWaiting) and tonumber(GetCVar("comfyTuneReply" .. tuneWaiting));
+	if count then
+		for i = 1, count do
+			local name = "comfyTuneReply" .. tuneWaiting .. "_" .. i;
+			if HasCVar(name) then
+				Say(GetCVar(name));
+			end
+		end
+	elseif GetTime() < tuneUntil then
+		return;
+	else
+		Say("no answer from comfyfog.dll.");
+	end
+	tuneWaiting = nil;
+	SetCVar("comfyTune", "");
+	this:Hide();
+end);
+
+SLASH_COMFYATMOS1 = "/atmos";
+SlashCmdList["COMFYATMOS"] = function(msg)
+	if not HasCVar("comfyTune") then
+		Say("this comfyfog.dll has no /atmos. It needs the version from 2026-09-29 or later.");
+		return;
+	end
+	if tuneWaiting then
+		Say("still waiting for the last answer.");
+		return;
+	end
+	repeat
+		tuneNumber = tuneNumber + 1;
+	until not HasCVar("comfyTuneReply" .. tuneNumber);
+	tuneWaiting = tuneNumber;
+	tuneUntil = GetTime() + 3;
+	SetCVar("comfyTune", tuneNumber .. " " .. (msg or ""));
+	tuneFrame:Show();
+end;
+
+-- The round shadow the game draws under each character and creature. The CVar shadowLOD ("Unit shadow
+-- LOD", default 1) turns it off at 0; showShadow, which looks like the switch, is a console command that
+-- does not (both measured 2026-09-29). It is off while the sun shadows draw, which is while Volumetric
+-- Light and Sun Shadows are both ticked, and at the game's default otherwise.
+--
+-- At logout it goes back to the default, so the client does not save the 0 to Config.wtf: with the mod
+-- removed, the round shadow comes back. VARIABLES_LOADED turns it off again at the next login.
+local unitShadowOff = nil;
+
+local function SyncUnitShadow(logout)
+	local off = not logout and GetCVar("comfyVolume") == "1" and HasCVar("comfySunShadows")
+		and GetCVar("comfySunShadows") == "1";
+	if off == unitShadowOff then
+		return;
+	end
+	unitShadowOff = off;
+	SetCVar("shadowLOD", off and "0" or GetCVarDefault("shadowLOD"));
+end
+
+local syncFrame = CreateFrame("Frame");
+syncFrame:Hide();
+local syncWait = 0;
+syncFrame:SetScript("OnUpdate", function()
+	syncWait = syncWait - arg1;
+	if syncWait > 0 then
+		return;
+	end
+	syncWait = 0.5;
+	SyncUnitShadow(false);
+end);
+
 local frame = CreateFrame("Frame");
 frame:RegisterEvent("VARIABLES_LOADED");
+frame:RegisterEvent("PLAYER_LOGOUT");
 frame:SetScript("OnEvent", function()
 	if not DllLoaded() then
+		return;
+	end
+	if event == "PLAYER_LOGOUT" then
+		syncFrame:Hide();
+		SyncUnitShadow(true);
 		return;
 	end
 	if not AddControls() then
@@ -261,4 +375,5 @@ frame:SetScript("OnEvent", function()
 			"|cff88cc88comfyatmosphere|r: this client's options panel is not the data-driven one, "
 			.. "so no controls were added. Use the F11 keys and comfyfog.ini instead.");
 	end
+	syncFrame:Show();
 end);

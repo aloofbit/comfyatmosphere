@@ -4,24 +4,26 @@
 // character. The volumetric light already keeps a map of the world as the sun sees it (shadow.cpp): trees,
 // buildings and characters, replayed from the sun each few frames. This pass lays that map on the world:
 //
-//   1. Rebuild the point each pixel shows from the scene's depth, as the volumetric light does, and the
-//      surface's facing from how that point changes between neighbouring pixels.
-//   2. Move the point a little along its facing ([sunshadows] normalBias) and look it up in the map, nine
-//      taps a texel apart times [sunshadows] softness, so the edge is soft rather than stepped. The offset
-//      keeps a surface from shading itself. Each tap tests the four texels around its point and blends
-//      the answers by where the point falls between them (2026-09-29). Before, a tap tested one texel,
-//      so nine taps gave ten levels of shade and the edge moved in whole texels: at the far map's quarter
-//      of a yard a texel, shadows had the stepped outline of the map. Near the player the near map is used ([shadow] nearRange, a
-//      texel of 0.03 yards against the far map's 0.24), blended into the far one toward its edge. Bias and
-//      offset are in texels of each map, so the near map gets finer ones.
-//   3. Darken by the share in shade: out = scene x (1 - strength x shaded). A surface that faces away from
-//      the sun is in shade by definition and gets [sunshadows] backShade, with no map test; one facing it
-//      gets what the map says, and the facing blends the two. At first a surface facing away got no shade,
-//      on the idea that the client's own lighting had darkened it already; it does not for models, which
-//      it lights almost evenly all round, and backlit trunks stayed bright in the canopy's shade. Then it
-//      was tested against the map, and the back of a walking character flickered (both 2026-09-29).
-//      backShade is under 1, so that terrain facing away, which the client does darken, is not darkened
-//      twice. Shade fades out over the last tenth of the far map, where it ends.
+//   1. Rebuild the point each pixel shows from the scene's depth, as the volumetric light does.
+//   2. Move it [sunshadows] sunOffset yards toward the sun, so a surface does not shade itself, and look
+//      it up in the map: nine taps a texel apart times [sunshadows] softness. Each tap tests the four
+//      texels around its point and blends the answers by where the point falls between them, so an edge
+//      moves smoothly inside a texel. Near the player the near map is used ([shadow] nearRange), blended
+//      into the far one toward its edge. The bias is in texels of each map, so the near map gets a finer
+//      one. [sunshadows] minGap adds yards to it on both maps: a blocker nearer the point than that,
+//      along the sun, does not shade it. That stands in for "no shadow on itself", which would need to
+//      know which object each pixel belongs to: an arm is about 0.2 yards from the body it shades, the
+//      leaves of a canopy are close to each other, and a canopy is yards above the ground.
+//   3. Darken by the share in shade: out = scene x (1 - strength x shaded). Shade fades out over the last
+//      tenth of the far map, where it ends.
+//
+// The map alone decides, also for a surface facing away from the sun: the body in front of it, as the
+// sun sees it, shades it. Until 2026-09-29 the pass also rebuilt each surface's facing from the depth,
+// to shade surfaces facing away and to offset the lookup along the surface. On a model the depth gives
+// each triangle's flat facing, where the client lights it with smooth normals, and every use of it put
+// the triangles on the character: blocks, facets, a copy of the nose, speckle, patches where the arm
+// shades the body. NOTES.md has the steps. The facing is still rebuilt for [sunshadows] normalBias and
+// slope, both 0 by default: only when either is above 0.
 //
 // It draws only while the volumetric light does, since the map is built for it. It follows the sun's
 // height and [night] strength as the light does (the map follows the moon at night).
@@ -68,92 +70,131 @@ float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): 
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
 float4 gInv3 : register(c3);
-float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ)
+float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ), one pixel of the depth (uv)
 float4 gSh0  : register(c5);        // rows of the far map's view-projection: camera-relative world -> clip
 float4 gSh1  : register(c6);
 float4 gSh2  : register(c7);
 float4 gSh3  : register(c8);
 float4 gSun  : register(c9);        // direction to the sun, strength
 float4 gB    : register(c10);       // far map: depth bias (map units), normal offset (yards), one texel (uv), softness
-float4 gD    : register(c11);       // debug, shade on surfaces facing away from the sun
+// c11 is free: the debug view is drawn by the blend state alone.
 float4 gN0   : register(c12);       // rows of the near map's view-projection
 float4 gN1   : register(c13);
 float4 gN2   : register(c14);
 float4 gN3   : register(c15);
 float4 gNB   : register(c16);       // near map: depth bias, normal offset, one texel, 1 if there is one
+float4 gG    : register(c17);       // the largest slope in each map's units: far, near
+float4 gT    : register(c18);       // slope (share used), sunOffset (yards), 1 if the facing is needed
+// The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
+// surface are carried into the map, and the plane through them solved for depth against u and v.
+float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
+{
+    float3 t1 = normalize(cross(N, abs(N.z) < 0.9 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0)));
+    float3 t2 = cross(N, t1);
+    float3 d1 = (t1.x * m0 + t1.y * m1 + t1.z * m2).xyz;     // clip units per yard along t1
+    float3 d2 = (t2.x * m0 + t2.y * m1 + t2.z * m2).xyz;
+    float  u1 = d1.x * 0.5, v1 = -d1.y * 0.5, u2 = d2.x * 0.5, v2 = -d2.y * 0.5;
+    float  det = u1 * v2 - u2 * v1;
+    det = abs(det) < 1e-12 ? 1e-12 : det;
+    float2 g = float2(d1.z * v2 - d2.z * v1, u1 * d2.z - u2 * d1.z) / det;
+    float  len = length(g);
+    return len > most ? g * (most / len) : g;
+}
 float Test(sampler2D m, float2 uv, float z, float bias)
 {
     return (z <= tex2Dlod(m, float4(uv, 0, 0)).r + bias) ? 1.0 : 0.0;
 }
-// One tap: the four texels around uv tested, the answers blended by where uv falls between them.
-float Tap(sampler2D m, float2 uv, float z, float bias, float size, float texel)
+// One tap: the four texels around uv tested, each against the surface's depth at that texel (z at uv0,
+// plus the slope g across), and the answers blended by where uv falls between them.
+float Tap(sampler2D m, float2 uv, float z, float2 uv0, float2 g, float bias, float size, float texel)
 {
     float2 t = uv * size - 0.5;
     float2 f = frac(t);
     float2 b = (t - f + 0.5) * texel;           // the centre of the texel up and to the left
-    float  a = Test(m, b,                       z, bias);
-    float  c = Test(m, b + float2(texel, 0.0),  z, bias);
-    float  d = Test(m, b + float2(0.0, texel),  z, bias);
-    float  e = Test(m, b + float2(texel, texel), z, bias);
+    float2 bx = b + float2(texel, 0.0), by = b + float2(0.0, texel), bxy = b + float2(texel, texel);
+    float  a = Test(m, b,   z + dot(g, b   - uv0), bias);
+    float  c = Test(m, bx,  z + dot(g, bx  - uv0), bias);
+    float  d = Test(m, by,  z + dot(g, by  - uv0), bias);
+    float  e = Test(m, bxy, z + dot(g, bxy - uv0), bias);
     return lerp(lerp(a, c, f.x), lerp(d, e, f.x), f.y);
 }
 // The share of nine taps, a texel x softness apart, that sees the sun.
-float Lit(sampler2D m, float4 s, float bias, float texel)
+float Lit(sampler2D m, float4 s, float2 g, float bias, float texel)
 {
     float2 uv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
     float  n  = 1.0 / texel;
     float  o  = texel * gB.w;
-    float lit = Tap(m, uv, s.z, bias, n, texel)
-              + Tap(m, uv + float2(-o, -o), s.z, bias, n, texel) + Tap(m, uv + float2(0.0, -o), s.z, bias, n, texel)
-              + Tap(m, uv + float2( o, -o), s.z, bias, n, texel) + Tap(m, uv + float2(-o, 0.0), s.z, bias, n, texel)
-              + Tap(m, uv + float2( o, 0.0), s.z, bias, n, texel) + Tap(m, uv + float2(-o,  o), s.z, bias, n, texel)
-              + Tap(m, uv + float2(0.0,  o), s.z, bias, n, texel) + Tap(m, uv + float2( o,  o), s.z, bias, n, texel);
+    float  z  = s.z;
+    float lit = Tap(m, uv, z, uv, g, bias, n, texel)
+              + Tap(m, uv + float2(-o, -o), z, uv, g, bias, n, texel) + Tap(m, uv + float2(0.0, -o), z, uv, g, bias, n, texel)
+              + Tap(m, uv + float2( o, -o), z, uv, g, bias, n, texel) + Tap(m, uv + float2(-o, 0.0), z, uv, g, bias, n, texel)
+              + Tap(m, uv + float2( o, 0.0), z, uv, g, bias, n, texel) + Tap(m, uv + float2(-o,  o), z, uv, g, bias, n, texel)
+              + Tap(m, uv + float2(0.0,  o), z, uv, g, bias, n, texel) + Tap(m, uv + float2( o,  o), z, uv, g, bias, n, texel);
     return lit / 9.0;
 }
-float4 main(float2 uv : TEXCOORD0) : COLOR
+float Raw(float2 uv)
 {
-    float  raw = saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+    return saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+}
+// The camera-relative point a pixel shows.
+float3 PointAt(float2 uv, float raw)
+{
     float  d   = min(raw, 0.99999);
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp  = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
-    float3 P   = wp.xyz / max(wp.w, 1e-6);
-    // The facing, from the neighbours, before any branch (see lampglow.cpp).
-    float3 N   = cross(ddy(P), ddx(P));
-    N = N / max(length(N), 1e-8);
-    N = dot(N, P) > 0.0 ? -N : N;
+    return wp.xyz / max(wp.w, 1e-6);
+}
+// The step to the neighbour o away that is nearer in depth, from P.
+float3 Near(float2 uv, float raw, float3 P, float2 o)
+{
+    float a = Raw(uv + o), b = Raw(uv - o);
+    return abs(a - raw) < abs(raw - b) ? PointAt(uv + o, a) - P : P - PointAt(uv - o, b);
+}
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float  raw = Raw(uv);
     if (raw >= 0.99999)
         return 1.0;                                                        // the sky: nothing to shade
-    float facing = saturate(dot(N, gSun.xyz) * 4.0);
-    if (gD.x > 1.5)
-        return float4(facing.xxx, 1.0);                                    // debug 2: facing the sun
+    float3 P   = PointAt(uv, raw);
+    // The facing, for normalBias and slope only: from the neighbours a pixel away, nearer in depth on
+    // each axis. The offset along it grows as the sun grazes the surface.
+    float3 N     = float3(0.0, 0.0, 1.0);
+    float  graze = 1.0;
+    [branch] if (gT.z > 0.5)
+    {
+        float3 dx = Near(uv, raw, P, float2(gZ.z, 0.0));
+        float3 dy = Near(uv, raw, P, float2(0.0, gZ.w));
+        N = cross(dy, dx);
+        N = N / max(length(N), 1e-8);
+        N = dot(N, P) > 0.0 ? -N : N;
+        float ndl = dot(N, gSun.xyz);
+        graze = 1.0 + 3.0 * sqrt(saturate(1.0 - ndl * ndl));
+    }
 
     // The near map where it reaches, blended into the far one over the band from 80% to 90% of its
     // half-width. The far map is read only where the near map does not cover all of the shade.
     float wn = 0.0, litN = 1.0;
     [branch] if (gNB.w > 0.5)
     {
-        float3 Qn = P + N * gNB.y;
+        float3 Qn = P + N * (gNB.y * graze) + gSun.xyz * gT.y;
         float4 sn = Qn.x * gN0 + Qn.y * gN1 + Qn.z * gN2 + gN3;
         float2 en = abs(sn.xy);
         wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
         [branch] if (wn > 0.0)
-            litN = Lit(sNear, sn, gNB.x, gNB.z);
+            litN = Lit(sNear, sn, Slope(N, gN0, gN1, gN2, gG.y) * gT.x, gNB.x, gNB.z);
     }
     // The far map, fading out over its last tenth, where it ends.
     float litF = 1.0;
     [branch] if (wn < 1.0)
     {
-        float3 Qf = P + N * gB.y;
+        float3 Qf = P + N * (gB.y * graze) + gSun.xyz * gT.y;
         float4 sf = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
         float2 ef = abs(sf.xy);
-        litF = lerp(1.0, Lit(sShadow, sf, gB.x, gB.z), saturate((1.0 - max(ef.x, ef.y)) * 10.0));
+        litF = lerp(1.0, Lit(sShadow, sf, Slope(N, gSh0, gSh1, gSh2, gG.x) * gT.x, gB.x, gB.z),
+                    saturate((1.0 - max(ef.x, ef.y)) * 10.0));
     }
-    float lit = lerp(litF, litN, wn);
-    // A surface that faces away from the sun cannot see it, so it takes gD.y of the shade with no test:
-    // the client lights models almost evenly all round, and a backlit trunk stayed bright in the canopy's
-    // shade. Tested there, the back of a walking character read the map at a grazing angle against its
-    // own body and flickered (2026-09-29). Between the two, the map's answer blends in with the facing.
-    float  shade = lerp(gD.y, 1.0 - lit, facing);
+    float lit   = lerp(litF, litN, wn);
+    float shade = 1.0 - lit;
     float  f     = 1.0 - gSun.w * shade;
     f = (f >= 0.0 && f <= 1.0) ? f : 1.0;
     return float4(f, f, f, 1.0);
@@ -383,7 +424,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[68] = {};
+    float pc[76] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -391,19 +432,32 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
             pc[20 + r * 4 + c] = shadowVP.m[r][c];
         }
     pc[16] = minZ; pc[17] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f;
+    D3DSURFACE_DESC dd = {};
+    depth->lpVtbl->GetLevelDesc(depth, 0, &dd);
+    pc[18] = 1.0f / static_cast<float>(dd.Width ? dd.Width : td.Width);
+    pc[19] = 1.0f / static_cast<float>(dd.Height ? dd.Height : td.Height);
     pc[36] = sunDir[0]; pc[37] = sunDir[1]; pc[38] = sunDir[2]; pc[39] = strength;
     // Bias and offset are in texels of each map: yards = texels x the map's width / its size.
     const float size    = static_cast<float>(g_cfg.shadow.size > 0 ? g_cfg.shadow.size : 2048);
     const float farTex  = g_cfg.shadow.range * 2.0f / size;
     const float nearTex_ = nearRange * 2.0f / size;
-    pc[40] = ss.bias * farTex / span; pc[41] = ss.normalBias * farTex; pc[42] = 1.0f / size; pc[43] = ss.softness;
-    pc[44] = static_cast<float>(ss.debug); pc[45] = ss.backShade;
+    // The slack in the depth test: bias texels of the map, plus minGap yards on either map. The map is
+    // orthographic, so its depth is yards / span.
+    pc[40] = (ss.bias * farTex + ss.minGap) / span; pc[41] = ss.normalBias * farTex; pc[42] = 1.0f / size; pc[43] = ss.softness;
+    pc[44] = static_cast<float>(ss.debug);
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
             pc[48 + r * 4 + c] = nearVP.m[r][c];
-    pc[64] = ss.bias * nearTex_ / span; pc[65] = ss.normalBias * nearTex_; pc[66] = 1.0f / size;
+    pc[64] = (ss.bias * nearTex_ + ss.minGap) / span; pc[65] = ss.normalBias * nearTex_; pc[66] = 1.0f / size;
     pc[67] = haveNear ? 1.0f : 0.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 17);
+    // The largest slope, 8 yards of depth a yard, in each map's units: depth (0..1 over span) per uv
+    // (0..1 over the map's width).
+    pc[68] = 8.0f * g_cfg.shadow.range * 2.0f / span;
+    pc[69] = 8.0f * nearRange * 2.0f / span;
+    pc[72] = ss.slope;
+    pc[73] = ss.sunOffset;
+    pc[74] = (ss.slope > 0.0f || ss.normalBias > 0.0f) ? 1.0f : 0.0f;
+    d->SetPixelShaderConstantF(dev, 0, pc, 19);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -437,9 +491,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
 
     if (logThis)
         Log("sunshadows: drawn, strength %.2f (sun height x night %.2f), sun (%.2f %.2f %.2f); far map %.3f yd a "
-            "texel, near map %s %.3f yd a texel; bias %.1f and offset %.1f texels, softness %.1f, backShade %.2f",
+            "texel, near map %s %.3f yd a texel; bias %.1f texels, sunOffset %.2f yd, normalBias %.1f texels, "
+            "slope %.2f, softness %.1f",
             strength, sunset, sunDir[0], sunDir[1], sunDir[2], farTex, haveNear ? "on," : "off,", nearTex_, ss.bias,
-            ss.normalBias, ss.softness, ss.backShade);
+            ss.sunOffset, ss.normalBias, ss.slope, ss.softness);
     return true;
 }
 

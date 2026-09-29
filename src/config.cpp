@@ -8,6 +8,44 @@ Settings g_cfg;
 
 namespace
 {
+    std::vector<ConfigKey>             g_keys;
+    std::map<std::string, std::string> g_overrides;
+    wchar_t                            g_ini[MAX_PATH] = {};
+
+    std::string Narrow(const wchar_t* w)
+    {
+        std::string s;
+        for (; *w; ++w)
+            s += static_cast<char>(*w < 128 ? *w : '?');
+        return s;
+    }
+
+    // The raw text for a key: from /atmos, else the ini, else none (the code's default is used).
+    ConfigSource ReadRaw(const wchar_t* sec, const wchar_t* key, const wchar_t* ini, wchar_t* buf, int cap)
+    {
+        const auto it = g_overrides.find(Narrow(sec) + "." + Narrow(key));
+        if (it != g_overrides.end())
+        {
+            MultiByteToWideChar(CP_ACP, 0, it->second.c_str(), -1, buf, cap);
+            return kFromTune;
+        }
+        buf[0] = 0;
+        GetPrivateProfileStringW(sec, key, L"", buf, cap, ini);
+        return buf[0] ? kFromIni : kFromDefault;
+    }
+
+    void Note(const wchar_t* sec, const wchar_t* key, const char* value, ConfigSource source)
+    {
+        g_keys.push_back({ Narrow(sec), Narrow(key), value, source });
+    }
+}
+
+const std::vector<ConfigKey>& ConfigKeys() { return g_keys; }
+const wchar_t* ConfigIniPath() { return g_ini; }
+std::map<std::string, std::string>& ConfigOverrides() { return g_overrides; }
+
+namespace
+{
     const wchar_t* kFog     = L"fog";
     const wchar_t* kSun     = L"sun";
     const wchar_t* kClient  = L"client";
@@ -22,33 +60,49 @@ namespace
     const wchar_t* kBench   = L"bench";
     const wchar_t* kGeneral = L"general";
 
+    // Each reader notes the key and the value it used (ConfigKeys). The ini's text runs on to any comment,
+    // so a number is read from its start.
     float GetF(const wchar_t* sec, const wchar_t* key, float dflt, const wchar_t* ini)
     {
-        wchar_t buf[64] = {};
-        wchar_t def[64];
-        swprintf(def, 64, L"%.6f", dflt);
-        GetPrivateProfileStringW(sec, key, def, buf, 64, ini);
-        return static_cast<float>(_wtof(buf));
+        wchar_t buf[64];
+        const ConfigSource src = ReadRaw(sec, key, ini, buf, 64);
+        const float v = src != kFromDefault ? static_cast<float>(_wtof(buf)) : dflt;
+        char text[32];
+        snprintf(text, sizeof(text), "%g", v);
+        Note(sec, key, text, src);
+        return v;
     }
 
     int GetI(const wchar_t* sec, const wchar_t* key, int dflt, const wchar_t* ini)
     {
-        return static_cast<int>(GetPrivateProfileIntW(sec, key, dflt, ini));
+        wchar_t buf[64];
+        const ConfigSource src = ReadRaw(sec, key, ini, buf, 64);
+        const int v = src != kFromDefault ? _wtoi(buf) : dflt;
+        char text[32];
+        snprintf(text, sizeof(text), "%d", v);
+        Note(sec, key, text, src);
+        return v;
     }
 
     bool GetB(const wchar_t* sec, const wchar_t* key, bool dflt, const wchar_t* ini)
     {
-        return GetPrivateProfileIntW(sec, key, dflt ? 1 : 0, ini) != 0;
+        wchar_t buf[64];
+        const ConfigSource src = ReadRaw(sec, key, ini, buf, 64);
+        const bool v = src != kFromDefault ? _wtoi(buf) != 0 : dflt;
+        Note(sec, key, v ? "1" : "0", src);
+        return v;
     }
 
     // Reads a value that may be written in hex ("0x5A6470") or decimal.
     DWORD GetX(const wchar_t* sec, const wchar_t* key, DWORD dflt, const wchar_t* ini)
     {
-        wchar_t buf[64] = {};
-        GetPrivateProfileStringW(sec, key, L"", buf, 64, ini);
-        if (!buf[0])
-            return dflt;
-        return static_cast<DWORD>(wcstoul(buf, nullptr, 0));
+        wchar_t buf[64];
+        const ConfigSource src = ReadRaw(sec, key, ini, buf, 64);
+        const DWORD v = src != kFromDefault ? static_cast<DWORD>(wcstoul(buf, nullptr, 0)) : dflt;
+        char text[32];
+        snprintf(text, sizeof(text), "0x%06lX", static_cast<unsigned long>(v));
+        Note(sec, key, text, src);
+        return v;
     }
 
     float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -77,6 +131,9 @@ void ApplyVolumeQuality(Settings& s)
 void LoadSettings(const wchar_t* ini)
 {
     Settings s;
+    g_keys.clear();
+    if (ini != g_ini)
+        wcsncpy_s(g_ini, ini, _TRUNCATE);
 
     s.fog.enabled    = GetB(kFog, L"enabled",    s.fog.enabled,    ini);
     s.fog.thickness  = Clamp(GetF(kFog, L"thickness",  s.fog.thickness,  ini), 0.0f, 100.0f);
@@ -146,7 +203,9 @@ void LoadSettings(const wchar_t* ini)
     s.sunShadows.strength   = Clamp(GetF(kSunShadows, L"strength",   s.sunShadows.strength,   ini), 0.0f, 100.0f);
     s.sunShadows.bias       = Clamp(GetF(kSunShadows, L"bias",       s.sunShadows.bias,       ini), 0.0f, 20.0f);
     s.sunShadows.normalBias = Clamp(GetF(kSunShadows, L"normalBias", s.sunShadows.normalBias, ini), 0.0f, 20.0f);
-    s.sunShadows.backShade  = Clamp(GetF(kSunShadows, L"backShade",  s.sunShadows.backShade,  ini), 0.0f, 1.0f);
+    s.sunShadows.slope      = Clamp(GetF(kSunShadows, L"slope",      s.sunShadows.slope,      ini), 0.0f, 1.0f);
+    s.sunShadows.minGap     = Clamp(GetF(kSunShadows, L"minGap",     s.sunShadows.minGap,     ini), 0.0f, 20.0f);
+    s.sunShadows.sunOffset  = Clamp(GetF(kSunShadows, L"sunOffset",  s.sunShadows.sunOffset,  ini), 0.0f, 2.0f);
     s.sunShadows.softness   = Clamp(GetF(kSunShadows, L"softness",   s.sunShadows.softness,   ini), 0.0f, 8.0f);
     s.sunShadows.debug      = GetI(kSunShadows, L"debug", s.sunShadows.debug, ini);
 

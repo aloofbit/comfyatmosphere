@@ -528,6 +528,53 @@ before `VARIABLES_LOADED`, so the addon calls `OptionsFrame_UpdateCategories` af
 The cost of the near map and of the pass has not been measured: the benchmark has a line for the pass
 (`bench: the sun shadows`), and the replay's share is in the shadow map's line.
 
+## Shadows on models, and /atmos (2026-09-29)
+
+The sun shadows are drawn from the depth buffer only, so a surface's facing is rebuilt from the depth.
+Four faults followed one another on a character's face and shoulder, each from the fix before it:
+
+- **2 x 2 blocks.** The facing came from ddx and ddy of the rebuilt point, which the GPU works out once
+  for each 2 x 2 block of pixels. That was harmless while the facing only chose the back shade; once it
+  set each shadow tap's depth (the slope that stopped stripes on sloped ground), models were shaded in
+  2 x 2 blocks. The facing now comes from the four neighbouring pixels, nearer in depth on each axis.
+- **Triangles.** The depth gives each triangle's flat facing, and the client lights a model with smooth
+  normals. The back shade switched on sharply (facing x 4), so a face was shaded triangle by triangle.
+  The facing is now taken from points `[sunshadows] normalSmooth` yards apart (0.1), which spans several
+  triangles, and the back shade fades in over a wider range (smoothstep from -0.1 to 0.4).
+- **A copy of the nose.** A pixel near the edge of the nose took a wide point from the cheek or the
+  background behind it, and a copy of the nose's outline showed 0.1 yards away. A wide point now counts
+  only if it lies near the plane the one-pixel neighbours give.
+- **Speckle.** A hard cut-off for that test flipped from pixel to pixel on a face. It is now a blend:
+  all of the wide point within about 12 degrees of the plane, none past 30.
+
+Also the normal offset grows up to 4 times where the sun grazes the surface, against self-shading on
+the far side of a shoulder, where one texel of the map covers most surface.
+
+**/atmos.** Each of these took a build and a client restart to try one value. `/atmos` (tune.cpp) sets
+any ini value from the chat, at once. The DLL cannot write chat, so it answers by registering new CVars
+(`comfyTuneReply<n>`), which the addon prints; a CVar at its default is not saved to Config.wtf. Every
+key LoadSettings reads is noted with the value it used (`ConfigKeys`), so every setting is reachable and
+a misspelt key is refused. Values the Atmosphere page's controls set are refused too, since the control
+is laid over the ini and the value would not show.
+
+## The map alone, and the round shadow (2026-09-29)
+
+With `/atmos` the owner tried the lookup settings one at a time against the debug view of the map's
+answer alone (`[sunshadows] debug` 3, since removed). The map alone was clean; every patch on the
+character came from the facing rebuilt from the depth. The facing term, `backShade`, `normalSmooth`
+and the face blend were removed. The values kept: `bias` 3 texels and `sunOffset` 0.06 yards toward the
+sun, against the body shading itself in bands; `normalBias` and `slope` 0 (the facing is rebuilt for
+them only when either is above 0). The back of a character is shaded by its front, as the sun sees it.
+
+`[sunshadows] minGap` (yards, on both maps alike) ignores a blocker nearer than that along the sun: an
+approximation of "no shadow on itself", which would need an object id for each pixel. Tried at 0.25 to
+1 against trees at odd sun angles; the owner preferred 0, and it stays 0 until that is looked at again.
+
+The game's round shadow under each unit is the CVar `shadowLOD` ("Unit shadow LOD", default 1): 0 turns
+it off. `showShadow`, next to it in the strings, is a console command registered with `waterRipples`
+and `showLowDetail`, and does not. The addon sets `shadowLOD` to 0 while Volumetric Light and the new
+Sun Shadows box are on, and back to the default at logout, so Config.wtf never keeps the 0.
+
 ## Sun rays jumping behind leaves (2026-09-29)
 
 Tilting the camera slowly down from the sun past trees 100 yards away, the sun rays jumped by 50 pixels

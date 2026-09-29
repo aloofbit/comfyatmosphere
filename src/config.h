@@ -3,6 +3,10 @@
 
 #include <windows.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 struct FogSettings
 {
     bool  enabled   = true;
@@ -147,14 +151,23 @@ struct SunShadowSettings
 {
     bool  enabled    = true;
     float strength   = 50.0f;     // the dial, 0..100: how much of the light a shaded surface loses
-    float bias       = 1.5f;      // texels of slack in the depth test, against speckle (of each map: a
-                                  // quarter of a yard is 1 texel of the far map, 8 of the near one)
-    float normalBias = 1.5f;      // texels each point is moved along its surface before the test
-    float backShade  = 0.8f;      // 0..1: the shade a surface facing away from the sun gets. The client
-                                  // lights models almost evenly all round, so 0 left backlit trunks bright
+    float bias       = 3.0f;      // texels of slack in the depth test, against a surface shading itself
+                                  // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the
+                                  // far map, 8 of the near one)
+    float minGap     = 0.0f;      // yards: a blocker nearer than this along the sun does not shade. Stands
+                                  // in for no shadow on itself (an arm on the body, leaves on leaves); on
+                                  // both maps alike, where bias is in texels of each
+    float sunOffset  = 0.06f;     // yards each point is moved toward the sun before the test, against
+                                  // the same. Values tuned in game with /atmos (2026-09-29)
+    float normalBias = 0.0f;      // texels each point is moved along its rebuilt facing, up to 4 times
+                                  // that where the sun grazes the surface. The facing is per triangle on
+                                  // a model, so any of this put the triangles on the character
+    float slope      = 0.0f;      // 0..1: how much of the surface's slope (from the same facing) sets each
+                                  // tap's depth. Against stripes on sloped ground at a high softness; on
+                                  // a model it made patches where the arm shades the body
     float softness   = 1.0f;      // how far apart the nine taps of the soft edge are, in map texels.
                                   // Each tap blends four texels, so 0 is sharp but not stepped
-    int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = how much each surface faces the sun
+    int   debug      = 0;         // 1 = the shade alone (white = lit)
 };
 
 // Lamps, lanterns and torches (lamps.cpp finds them, lampglow.cpp draws): the fog glowing around them, and
@@ -299,6 +312,22 @@ struct Settings
 extern Settings g_cfg;
 
 void LoadSettings(const wchar_t* iniPath);
+
+// Every ini key LoadSettings read, in the order it read them, with the value it used. /atmos (tune.cpp)
+// finds settings here, so a key needs no list of its own to be tunable.
+enum ConfigSource { kFromDefault, kFromIni, kFromTune };
+struct ConfigKey
+{
+    std::string  section, key;   // as the code spells them
+    std::string  value;          // the value read, before any clamp
+    ConfigSource source;
+};
+const std::vector<ConfigKey>& ConfigKeys();
+const wchar_t* ConfigIniPath();                        // the ini LoadSettings last read
+
+// Values set with /atmos, "section.key" -> value. They win over the ini on every LoadSettings, F11 too,
+// until cleared or saved into the ini.
+std::map<std::string, std::string>& ConfigOverrides();
 
 // [volume] quality below 3: the march's steps and resolution are replaced by cheaper fixed values. After the in-game controls are laid over the ini.
 void ApplyVolumeQuality(Settings& s);

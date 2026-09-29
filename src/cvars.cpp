@@ -20,6 +20,13 @@
 // runs, so the pointer Register returns is kept. The string it points to is not: SetCVar can replace it,
 // so +0x20 is read again on every poll.
 //
+// The /atmos command (tune.cpp) uses the same two functions. The addon sets the string CVar comfyTune to
+// "<number> <command>"; each new value is run once, and the answer is registered as new CVars, since the
+// DLL can register a CVar but has no way to write chat: comfyTuneReply<number>_1 and on, one chat line
+// each, then comfyTuneReply<number> holding how many. The addon waits for that last one and prints the
+// lines. A CVar at its default value is not written to Config.wtf, so the answers are not saved; the
+// addon sets comfyTune back to empty once answered, which is its default.
+//
 // All of this runs on the client's main thread (Present is called from the client's render), the same
 // thread Lua runs on, so nothing here races the options panel.
 
@@ -30,6 +37,10 @@
 #include "cvars.h"
 #include "common.h"
 #include "config.h"
+#include "tune.h"
+
+#include <deque>
+#include <string>
 
 #include <cstdio>
 #include <cstdlib>
@@ -66,7 +77,7 @@ namespace
 
     enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
                 kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
-                kShadowEvery, kKnobs };
+                kShadowEvery, kSunShadows, kSunShadowStrength, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -81,6 +92,8 @@ namespace
         "comfyShadowResolution",
         "comfyShadowSoftness",
         "comfyShadowEvery",
+        "comfySunShadows",
+        "comfySunShadowStrength",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -95,7 +108,6 @@ namespace
         { "volumetric light: the shadow map",                 6, 0, 0, 0 },
         { "volumetric light: the depth it reads",             3, 0, 0, 0 },
         { "sun shadows: the shade alone",                     0, 1, 0, 0 },
-        { "sun shadows: how much each surface faces the sun", 0, 2, 0, 0 },
         { "lamps: the glow alone",                            0, 0, 1, 0 },
         { "lamps: the distance read",                         0, 0, 2, 0 },
         { "lamps: the light on surfaces alone",               0, 0, 3, 0 },
@@ -122,6 +134,9 @@ namespace
     bool     g_checked  = false;    // the function heads matched this WoW.exe
     double   g_luaSince = 0.0;      // when the Lua state was first seen, 0 while it is not there
     double   g_nextPoll = 0.0;
+    void*    g_tune     = nullptr;  // comfyTune, the /atmos command
+    char     g_tuneLast[256] = {};
+    std::deque<std::string> g_tuneText;   // names and values given to Register, kept for good
 
     intptr_t Slide()
     {
@@ -200,6 +215,8 @@ namespace
                               break;
         case kShadowSoftness: snprintf(out, cap, "%.0f", s.sunShadows.softness); break;
         case kShadowEvery:    snprintf(out, cap, "%d", s.shadow.mapEvery); break;
+        case kSunShadows:     snprintf(out, cap, "%d", s.sunShadows.enabled ? 1 : 0); break;
+        case kSunShadowStrength: snprintf(out, cap, "%.0f", s.sunShadows.strength); break;
         }
     }
 
@@ -220,6 +237,8 @@ namespace
             s.shadow.size = 512 << static_cast<int>(Clamp(c[kShadowResolution].value, 1.0f, 3.0f) + 0.5f);
         if (c[kShadowSoftness].seen) s.sunShadows.softness = Clamp(c[kShadowSoftness].value, 0.0f, 8.0f);
         if (c[kShadowEvery].seen)    s.shadow.mapEvery = static_cast<int>(Clamp(c[kShadowEvery].value, 1.0f, 8.0f) + 0.5f);
+        if (c[kSunShadows].seen)     s.sunShadows.enabled = c[kSunShadows].value != 0.0f;
+        if (c[kSunShadowStrength].seen) s.sunShadows.strength = Clamp(c[kSunShadowStrength].value, 0.0f, 100.0f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);
@@ -304,6 +323,11 @@ namespace
             if (!cv)
                 Log("could not register CVar %s", kNames[k]);
         }
+        g_tune = lookup("comfyTune");
+        if (!g_tune)
+            g_tune = registerFn("comfyTune", nullptr, 0, "", nullptr, kCategory, 0, nullptr);
+        if (!g_tune)
+            Log("could not register CVar comfyTune: no /atmos");
         Log("in-game controls: %d CVars registered, %.1f s after the client's Lua came up", kKnobs,
             Now() - g_luaSince);
     }
@@ -362,6 +386,42 @@ bool CVarsPoll()
         s.seen = true;
         changed = true;
         Log("--- control: %s = %s ---", kNames[k], buf);
+    }
+
+    // /atmos: a new "<number> <command>" in comfyTune.
+    char tune[256];
+    DWORD tstr = 0;
+    if (g_tune && SafeCopy(reinterpret_cast<uintptr_t>(g_tune) + 0x20, &tstr, 4) && tstr &&
+        SafeString(tstr, tune, sizeof(tune)) && strcmp(tune, g_tuneLast) != 0)
+    {
+        strcpy_s(g_tuneLast, tune);
+        char* rest = nullptr;
+        const unsigned long seq = strtoul(tune, &rest, 10);
+        if (seq && rest && (*rest == ' ' || !*rest))
+        {
+            bool reloaded = false;
+            const std::vector<std::string> lines = TuneRun(*rest ? rest + 1 : "", reloaded);
+            if (reloaded)
+            {
+                CVarsAfterLoad();
+                changed = true;
+            }
+            const auto registerFn = reinterpret_cast<RegisterFn>(kRegister + Slide());
+            char name[64];
+            for (size_t i = 0; i < lines.size(); ++i)
+            {
+                snprintf(name, sizeof(name), "comfyTuneReply%lu_%u", seq, static_cast<unsigned>(i + 1));
+                g_tuneText.push_back(name);
+                const char* n = g_tuneText.back().c_str();
+                g_tuneText.push_back(lines[i]);
+                registerFn(n, nullptr, 0, g_tuneText.back().c_str(), nullptr, kCategory, 0, nullptr);
+            }
+            snprintf(name, sizeof(name), "comfyTuneReply%lu", seq);
+            g_tuneText.push_back(name);
+            const char* n = g_tuneText.back().c_str();
+            g_tuneText.push_back(std::to_string(lines.size()));
+            registerFn(n, nullptr, 0, g_tuneText.back().c_str(), nullptr, kCategory, 0, nullptr);
+        }
     }
 
     if (changed)
