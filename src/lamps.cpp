@@ -32,6 +32,24 @@
 // many frames of the window each was seen in. A lamp is in all or nearly all of them; a spell effect that
 // moves is not. The first kRawLines new places of each source are also logged as they are found, and the
 // SetLight calls of the first frame.
+//
+// The tracker (below the probe) keeps the lights the glow draws (lampglow.cpp), every frame the glow is on.
+// It takes two of the three sources, as the probe found them in Darkshire (NOTES.md):
+//
+//   Client lights  Point lights from SetLight: torches and braziers, carried by NPCs too. The position is
+//                  camera-relative; the colour and the attenuation are the client's.
+//   Lamp sprites   Four-vertex additive M2 draws with a warm c28 + c29: the lampposts, which have no
+//                  light of their own. A sprite must stay where it was first seen: one that moves more
+//                  than kStill yards is a spell effect and never glows. It glows only after kSpriteDelay
+//                  seconds, so a brief spark does not either.
+//
+// Sightings are merged into lights held in world coordinates. A light is matched to the nearest held light
+// of its kind within kFollow yards, so an NPC's torch moves with the NPC. The client names a light only
+// while it draws a model near it, and draws a sprite only while its lamp is on screen, so a light off
+// screen is kept as it is: its glow can still reach the air in view (Darkshire, 2026-09-28: a lamppost
+// beside the camera faded out, and the fog around it went dark). Only the time a light spends on screen
+// unseen counts; after [lamps] keep seconds of it the light is dropped, fading out after kGrace. A light
+// further than kForget yards past [lamps] maxDistance is dropped too.
 
 #define CINTERFACE
 #define WIN32_LEAN_AND_MEAN
@@ -42,7 +60,9 @@
 
 #include "client.h"
 #include "common.h"
+#include "config.h"
 #include "lamps.h"
+#include "shadow.h"
 #include "sun.h"
 
 #include <algorithm>
@@ -63,6 +83,22 @@ namespace
     constexpr unsigned kReportLines   = 40;    // per source: places in the report, nearest first
     constexpr unsigned kSample        = 32;    // vertices read from a glow draw
     constexpr unsigned kReadsPerFrame = 400;   // glow draws read per frame; the rest are counted only
+
+    // The tracker.
+    constexpr unsigned kTrackReads    = 32;    // sprite draws read per frame
+    constexpr size_t   kMaxSightings  = 128;   // per frame
+    constexpr size_t   kMaxTracked    = 256;
+    constexpr float    kSame          = 0.2f;  // yards: two sightings in one frame this near are one light
+    constexpr float    kFollow[2]     = { 3.0f, 1.0f };   // yards a light may move between frames, by kind
+    constexpr float    kStill         = 1.0f;  // yards a sprite may drift from where it was first seen
+    constexpr float    kNearLight     = 1.5f;  // yards: a sprite this near a client light is that light
+    constexpr double   kGrace         = 0.25;  // seconds unseen before a light starts to fade
+    constexpr float    kEdge          = 0.03f; // share of the screen at each edge that does not count as on it
+    constexpr float    kForget        = 60.0f; // yards past [lamps] maxDistance at which a held light goes
+    constexpr double   kFadeIn[2]     = { 0.2, 0.35 };    // seconds, by kind
+    constexpr double   kSpriteDelay   = 0.25;  // seconds a sprite must be seen before it glows
+    constexpr unsigned kCacheFrames   = 600;   // the shader and declaration caches are dropped this often,
+                                               // so a freed object's address cannot be taken for a new one
 
     // ---------------------------------------------------------------------------------------------
     // matrices (D3D9: row vectors, v' = v * M)
@@ -230,6 +266,12 @@ namespace
         g_haveCam = ClientCamera(g_cam);
         D3DMATRIX view, proj;
         g_haveVP = SunCamera(view, proj);
+        // The projection the world is drawn with, when the light's vote has one: the latest perspective
+        // projection can be the far horizon's, whose near and far planes differ. The view is this frame's
+        // either way; the vote's is a frame old, and a turn would move every sprite.
+        D3DMATRIX wv, wp;
+        if (g_haveVP && ShadowWorldCamera(wv, wp))
+            proj = wp;
         if (g_haveVP)
         {
             Mul(view, proj, g_vp);
@@ -394,9 +436,10 @@ namespace
                     info.biComp = line[r + biReg.size() + 1];
             }
         }
-        Log("lamps: shader %p reads light 1 %s, light 2 %s, bones %s, blend index .%c",
-            sh, info.light[0] ? "yes" : "no", info.light[1] ? "yes" : "no", info.bones ? "yes" : "no",
-            info.biComp ? info.biComp : '-');
+        if (g_active)
+            Log("lamps: shader %p reads light 1 %s, light 2 %s, bones %s, blend index .%c",
+                sh, info.light[0] ? "yes" : "no", info.light[1] ? "yes" : "no", info.bones ? "yes" : "no",
+                info.biComp ? info.biComp : '-');
         return info;
     }
 
@@ -838,6 +881,203 @@ namespace
     }
 
     // ---------------------------------------------------------------------------------------------
+    // the tracker
+
+    struct Sighting
+    {
+        float abs[3];
+        float colour[3];
+        float reach;
+        int   kind;
+    };
+
+    struct Tracked
+    {
+        float  abs[3];
+        float  origin[3];      // where it was first seen
+        float  colour[3];
+        float  reach;
+        int    kind;
+        double born;
+        double lastSeen;
+        double unseen;         // seconds on screen and not seen, since it was last seen
+        bool   mobile;         // a sprite that moved: a spell effect, never drawn
+        bool   claimed;        // matched a sighting this frame
+    };
+
+    bool                  g_tracking  = false;
+    bool                  g_cValid    = false;   // g_c holds the client's constants
+    bool                  g_merged    = false;   // this frame's sightings are in
+    unsigned              g_trackReads = 0;
+    unsigned              g_cacheAge  = 0;
+    std::vector<Sighting> g_sightings;
+    std::vector<Tracked>  g_tracked;
+
+    float Dist3(const float a[3], const float b[3])
+    {
+        const float d[3] = { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+        return Len3(d);
+    }
+
+    void AddSighting(const float camRel[3], const float colour[3], float reach, int kind)
+    {
+        if (!g_haveCam || g_sightings.size() >= kMaxSightings)
+            return;
+        float abs[3];
+        for (int i = 0; i < 3; ++i)
+            abs[i] = camRel[i] + g_cam[i];
+        // The client sets the same lights again for every model it draws near them: about 70 calls a
+        // frame for five lights in Darkshire.
+        for (Sighting& s : g_sightings)
+            if (s.kind == kind && Dist3(s.abs, abs) <= kSame)
+                return;
+        Sighting s;
+        memcpy(s.abs, abs, sizeof(abs));
+        memcpy(s.colour, colour, sizeof(s.colour));
+        s.reach = reach;
+        s.kind  = kind;
+        g_sightings.push_back(s);
+    }
+
+    void TrackLight(const D3DLIGHT9& L)
+    {
+        if (L.Type != D3DLIGHT_POINT)
+            return;
+        EnsureFrame();
+        const float camRel[3] = { L.Position.x, L.Position.y, L.Position.z };
+        if (Len3(camRel) > g_cfg.lamps.maxDistance + 40.0f)
+            return;
+        const float colour[3] = { L.Diffuse.r, L.Diffuse.g, L.Diffuse.b };
+        if (std::max(colour[0], std::max(colour[1], colour[2])) < 0.02f)
+            return;
+        const float att[3] = { L.Attenuation0, L.Attenuation1, L.Attenuation2 };
+        float reach = Reach(att);
+        if (!(reach > 0.0f))
+            reach = L.Range > 0.0f ? L.Range : 15.0f;
+        reach = std::min(std::max(reach, 3.0f), 40.0f);
+        AddSighting(camRel, colour, reach, 0);
+    }
+
+    // A lamppost's glow sprite. The cheap tests come first: most additive draws are particles.
+    void TrackSprite(IDirect3DDevice9* dev, const LampDraw& d)
+    {
+        if (!g_cfg.lamps.sprites || !d.vs || d.up || d.nv != 4)
+            return;
+        DWORD blend = 0, dst = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        if (!blend)
+            return;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+        if (dst != D3DBLEND_ONE)
+            return;
+        if (!g_cValid)
+        {
+            if (FAILED(dev->lpVtbl->GetVertexShaderConstantF(dev, 0, g_c, 256)))
+                return;
+            g_cValid = true;
+        }
+        // The colour an unlit M2 shader draws: (0.95 0.60 0.22) at a Darkshire lamppost. Warm only, which
+        // leaves out most spell effects.
+        float tint[3];
+        for (int i = 0; i < 3; ++i)
+            tint[i] = g_c[28 * 4 + i] + g_c[29 * 4 + i];
+        const float top = std::max(tint[0], std::max(tint[1], tint[2]));
+        if (top < 0.2f || tint[0] < tint[2] * 1.3f || tint[0] < tint[1])
+            return;
+        if (g_trackReads >= kTrackReads)
+            return;
+        ++g_trackReads;
+        EnsureFrame();
+        const ShaderInfo& sh = Analyse(d.vs);
+        float centre[3], size = 0.0f;
+        if (!GlowCentre(dev, d, &sh, centre, size))
+            return;
+        if (size < 0.2f || size > 4.0f || Len3(centre) > g_cfg.lamps.maxDistance)
+            return;
+        const float colour[3] = { tint[0] * g_cfg.lamps.spriteGain, tint[1] * g_cfg.lamps.spriteGain,
+                                  tint[2] * g_cfg.lamps.spriteGain };
+        AddSighting(centre, colour, g_cfg.lamps.spriteReach, 1);
+    }
+
+    void Merge()
+    {
+        if (g_merged)
+            return;
+        g_merged = true;
+        const double now = Now();
+        static double last = 0.0;
+        const double dt = last > 0.0 && now - last < 1.0 ? now - last : 0.0;
+        last = now;
+        EnsureFrame();
+        for (Tracked& t : g_tracked)
+            t.claimed = false;
+        for (const Sighting& s : g_sightings)
+        {
+            if (s.kind == 1)
+            {
+                bool nearLight = false;
+                for (const Sighting& o : g_sightings)
+                    if (o.kind == 0 && Dist3(o.abs, s.abs) <= kNearLight) { nearLight = true; break; }
+                if (nearLight)
+                    continue;
+            }
+            Tracked* best = nullptr;
+            float bestD = kFollow[s.kind];
+            for (Tracked& t : g_tracked)
+            {
+                if (t.kind != s.kind || t.claimed)
+                    continue;
+                const float dd = Dist3(t.abs, s.abs);
+                if (dd <= bestD) { bestD = dd; best = &t; }
+            }
+            if (!best)
+            {
+                if (g_tracked.size() >= kMaxTracked)
+                {
+                    // Full: the one unseen longest makes room.
+                    auto oldest = std::min_element(g_tracked.begin(), g_tracked.end(),
+                        [](const Tracked& a, const Tracked& b) { return a.lastSeen < b.lastSeen; });
+                    g_tracked.erase(oldest);
+                }
+                Tracked t = {};
+                memcpy(t.origin, s.abs, sizeof(t.origin));
+                t.kind = s.kind;
+                t.born = now;
+                g_tracked.push_back(t);
+                best = &g_tracked.back();
+            }
+            memcpy(best->abs, s.abs, sizeof(best->abs));
+            memcpy(best->colour, s.colour, sizeof(best->colour));
+            best->reach    = s.reach;
+            best->lastSeen = now;
+            best->unseen   = 0.0;
+            best->claimed  = true;
+            if (best->kind == 1 && Dist3(best->abs, best->origin) > kStill)
+                best->mobile = true;
+        }
+        g_sightings.clear();
+        // A sprite that moved is kept too, only never drawn: dropped, it would be found again as a new one.
+        // Unseen time counts only on screen, where the client would have named it.
+        const float forget = g_cfg.lamps.maxDistance + kForget;
+        for (Tracked& t : g_tracked)
+        {
+            if (t.claimed || !g_haveCam)
+                continue;
+            float camRel[3], uv[2];
+            for (int i = 0; i < 3; ++i)
+                camRel[i] = t.abs[i] - g_cam[i];
+            ScreenUV(camRel, uv);
+            if (uv[0] >= kEdge && uv[0] <= 1.0f - kEdge && uv[1] >= kEdge && uv[1] <= 1.0f - kEdge)
+                t.unseen += dt;
+            if (Len3(camRel) > forget)
+                t.unseen = 1e9;
+        }
+        const double keep = g_cfg.lamps.keep;
+        g_tracked.erase(std::remove_if(g_tracked.begin(), g_tracked.end(),
+            [&](const Tracked& t) { return t.unseen > keep; }), g_tracked.end());
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // the report
 
     void SortByDistance(PlaceList& list)
@@ -945,18 +1185,46 @@ bool LampsActive()
     return g_active;
 }
 
+void LampsSetTracking(bool on)
+{
+    if (on == g_tracking)
+        return;
+    g_tracking = on;
+    if (!on)
+    {
+        // The mirror stops following the client, so it is read again before it is next used.
+        g_cValid = false;
+        g_sightings.clear();
+        g_tracked.clear();
+    }
+}
+
+bool LampsTracking()
+{
+    return g_tracking;
+}
+
+bool LampsWanted()
+{
+    return g_active || g_tracking;
+}
+
 void LampsConstants(UINT reg, const float* data, UINT count)
 {
-    if (!g_active || !data || reg >= 256)
+    if (!LampsWanted() || !data || reg >= 256)
         return;
     if (reg + count > 256)
         count = 256 - reg;
     memcpy(&g_c[reg * 4], data, count * 4 * sizeof(float));
 }
 
-void LampsSetLight(DWORD index, const D3DLIGHT9* L)
+void LampsSetLight(DWORD index, const D3DLIGHT9* L, bool inWorld)
 {
-    if (!g_active || !L)
+    if (!L)
+        return;
+    if (g_tracking && inWorld)
+        TrackLight(*L);
+    if (!g_active)
         return;
     EnsureFrame();
     ++g_nSetLight;
@@ -984,6 +1252,8 @@ void LampsLightEnable(DWORD index, BOOL on)
 
 void LampsDraw(IDirect3DDevice9* dev, const LampDraw& d)
 {
+    if (g_tracking)
+        TrackSprite(dev, d);
     if (!g_active)
         return;
     EnsureFrame();
@@ -996,11 +1266,82 @@ void LampsDraw(IDirect3DDevice9* dev, const LampDraw& d)
     Glow(dev, d, sh);
 }
 
+void LampsWorldEnded()
+{
+    if (g_tracking)
+        Merge();
+}
+
+int LampsGather(const float cam[3], LampLight* out, int max)
+{
+    if (!g_tracking || max <= 0)
+        return 0;
+    Merge();
+    const double now   = Now();
+    const double keep  = g_cfg.lamps.keep;
+    const float  reach = g_cfg.lamps.maxDistance;
+    int n = 0;
+    for (const Tracked& t : g_tracked)
+    {
+        if (t.mobile)
+            continue;
+        LampLight l;
+        for (int i = 0; i < 3; ++i)
+            l.pos[i] = t.abs[i] - cam[i];
+        l.dist = Len3(l.pos);
+        if (l.dist > reach + t.reach)
+            continue;
+        const double age    = now - t.born - (t.kind == 1 ? kSpriteDelay : 0.0);
+        const double unseen = t.unseen;
+        double fade = std::min(1.0, std::max(0.0, age / kFadeIn[t.kind]));
+        if (unseen > kGrace)
+            fade *= std::max(0.0, 1.0 - (unseen - kGrace) / std::max(keep - kGrace, 0.01));
+        if (fade <= 0.0)
+            continue;
+        for (int i = 0; i < 3; ++i)
+            l.colour[i] = t.colour[i] * static_cast<float>(fade);
+        l.reach = t.reach;
+        l.kind  = t.kind;
+        // Nearest first; the list is short, so an insertion keeps it sorted.
+        int at = n < max ? n : max;
+        while (at > 0 && out[at - 1].dist > l.dist)
+        {
+            if (at < max)
+                out[at] = out[at - 1];
+            --at;
+        }
+        if (at < max)
+        {
+            out[at] = l;
+            if (n < max)
+                ++n;
+        }
+    }
+    return n;
+}
+
+unsigned LampsTracked()
+{
+    return static_cast<unsigned>(g_tracked.size());
+}
+
 void LampsFrameEnd()
 {
+    g_frameReady = false;
+    if (g_tracking)
+    {
+        Merge();              // a frame with no world end: its sightings still count
+        g_merged = false;
+        g_trackReads = 0;
+        if (++g_cacheAge >= kCacheFrames && !g_active)
+        {
+            g_cacheAge = 0;
+            g_shaders.clear();
+            g_decls.clear();
+        }
+    }
     if (!g_active)
         return;
-    g_frameReady = false;
     if (++g_windowFrame < kWindow)
         return;
     Report();
@@ -1014,4 +1355,8 @@ void LampsReset()
         Log("lamps: the device went away, so the open window is dropped");
     g_active = false;
     ClearWindow();
+    g_cValid = false;
+    g_merged = false;
+    g_sightings.clear();
+    g_tracked.clear();
 }

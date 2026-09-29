@@ -136,6 +136,37 @@ struct VolumeSettings
     bool  occlusion    = true;
 };
 
+// Lamps, lanterns and torches (lamps.cpp finds them, lampglow.cpp draws): the fog glowing around them, and
+// lampposts lighting the surfaces near them as the client's torches do.
+// It reads the volumetric light's depth and world camera, so it draws only while [volume] does, but at
+// night too, when the sun's light is turned down. Added 2026-09-28.
+struct LampSettings
+{
+    bool  enabled      = true;
+    float strength     = 40.0f;     // the dial, 0..100
+    float maxIntensity = 10.0f;     // the glow in the air: gain at 100. 4 until 2026-09-28, too faint to see
+    float surface      = 7.0f;      // a lamppost's light on the surfaces near it: gain at 100 (0 = none).
+                                    // About 1 / the night's own light, so a lamp lights like a torch
+    float density      = 0.03f;     // how much the air scatters a lamp's light, per yard
+    float day          = 30.0f;     // % of the night strength by day, by [night] dusk, dawn and fade
+    float maxDistance  = 120.0f;    // yards: a light further away than this adds nothing
+    int   maxLights    = 16;        // the nearest this many are drawn, 1..16
+    float keep         = 2.0f;      // seconds a light on screen may go unseen before it fades out. A light
+                                    // off screen is kept: the client draws a lamp's sprite only while the
+                                    // lamp is on screen
+    float softness     = 0.4f;      // yards: the radius of a light's bright core
+    float through      = 1.5f;      // yards the glow runs on past the first surface in the line of sight.
+                                    // The client's light sits inside the torch head or the brazier bowl,
+                                    // and at 0 the bowl hid it from below or from the side
+    bool  sprites      = true;      // also glow around lampposts, found by their glow sprite
+    float spriteReach  = 16.0f;     // yards a lamppost's light reaches; a torch's is 16.7 (the client's
+                                    // lights carry their own). 10 until 2026-09-28
+    float spriteGain   = 1.5f;      // a lamppost's brightness: its sprite's colour (0.95 0.60 0.22) x this.
+                                    // 1.5 is about a torch's (1.40 0.87 0.40)
+    int   debug        = 0;         // 1 = the glow alone, over black; 2 = the distance it reads (white = 50 yd);
+                                    // 3 = the light on surfaces alone
+};
+
 // Sun rays (rays.cpp): a radial blur of the bright sky toward the sun, drawn after the world and before
 // the UI. Cheap, and needs neither [depth] nor [shadow].
 struct RaysSettings
@@ -218,6 +249,7 @@ struct Settings
     DepthSettings depth;
     ShadowSettings shadow;
     VolumeSettings volume;
+    LampSettings lamps;
     FogSettings  fog;
     SunSettings  sun;
     NightSettings night;

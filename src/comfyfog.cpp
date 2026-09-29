@@ -27,6 +27,7 @@
 #include "config.h"
 #include "cvars.h"
 #include "depth.h"
+#include "lampglow.h"
 #include "lamps.h"
 #include "rays.h"
 #include "shadow.h"
@@ -140,6 +141,11 @@ namespace
 
     ClientFog g_fog;
     bool      g_on = true;   // Shift+reload toggles; independent of [fog] enabled in the ini
+
+    // The fog the world is drawn with, for the lamp glow (lampglow.cpp), which is drawn after the client
+    // has parked its fog for the UI (start 0, end 1). Taken from each end the client sets during the world.
+    DWORD     g_worldFogStart = 0, g_worldFogEnd = 0;
+    bool      g_haveWorldFog  = false;
 
     bool Active()
     {
@@ -507,6 +513,7 @@ namespace
         {
             ShadowNoReplay();        // so the cost report does not keep showing the last one
         }
+        LampsWorldEnded();
         g_inPass = false;
         if (g_probe.active)
         {
@@ -543,6 +550,10 @@ namespace
             BenchSectionBegin(dev, kBenchVolume);
             const bool drawn = VolumeDraw(dev);
             BenchSectionEnd(dev, kBenchVolume, drawn);
+            // The fog around lamps, which reads the same depth and camera, and draws at night too.
+            BenchSectionBegin(dev, kBenchLamps);
+            const bool lamps = LampGlowDraw(dev);
+            BenchSectionEnd(dev, kBenchLamps, lamps);
         }
         BenchSectionBegin(dev, kBenchRays);
         const bool ran = RaysBeforeUI(dev);
@@ -682,7 +693,9 @@ namespace
             CoverReset();
             BenchReset();
             LampsReset();
+            LampGlowReset();
             g_fog       = ClientFog();
+            g_haveWorldFog = false;
             g_haveC30   = false;
             g_fogEnable = 0;
             g_vshader   = nullptr;
@@ -703,7 +716,10 @@ namespace
         {
             DepthBeginScene(dev);
             if (!g_worldEnded)
+            {
                 ShadowSetPhase(VolumeActive());
+                LampsSetTracking(LampGlowActive());
+            }
         }
         return g_oBeginScene(dev);
     }
@@ -821,6 +837,7 @@ namespace
             VolumeProbe();
             CoverProbe();
             LampsProbe(dev);
+            LampGlowProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -844,10 +861,12 @@ namespace
         CoverReset();
         BenchReset();
         LampsReset();
+        LampGlowReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
             g_fog      = ClientFog();
+            g_haveWorldFog = false;
             g_haveC30  = false;
             g_fogEnable = 0;
             g_vshader  = nullptr;
@@ -870,6 +889,12 @@ namespace
         case D3DRS_FOGEND:
             // Start is derived from end, so a new end re-sends start too.
             g_fog.end = value; g_fog.haveEnd = true;
+            if (!g_worldEnded && D2F(value) > 2.0f)
+            {
+                g_worldFogEnd   = value;
+                g_worldFogStart = g_fog.start;
+                g_haveWorldFog  = true;
+            }
             hr = g_oSetRS(dev, st, OutEnd());
             if (g_fog.haveStart && Active())
                 g_oSetRS(dev, D3DRS_FOGSTART, OutStart());
@@ -1223,7 +1248,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkSetLight(IDirect3DDevice9* dev, DWORD index, const D3DLIGHT9* light)
     {
         if (!g_inPass)
-            LampsSetLight(index, light);
+            LampsSetLight(index, light, !g_worldEnded);
         return g_oSetLight(dev, index, light);
     }
 
@@ -1237,7 +1262,7 @@ namespace
     void NoteLampDraw(IDirect3DDevice9* dev, bool indexed, UINT first, UINT nv, const void* up = nullptr,
                       UINT upStride = 0)
     {
-        if (!LampsActive() || g_inPass || g_skyPhase || g_worldEnded || !g_lastPersp)
+        if (!LampsWanted() || g_inPass || g_skyPhase || g_worldEnded || !g_lastPersp)
             return;
         LampDraw d = { indexed, first, nv, up, upStride, &g_world,
                        static_cast<IDirect3DVertexShader9*>(g_vshader), g_fog.color };
@@ -1518,6 +1543,14 @@ namespace
         Log("attach %s in %.0f ms", ok ? "succeeded" : "FAILED", 1000.0 * (Now() - t0));
         return 0;
     }
+}
+
+bool WorldFog(float& start, float& end)
+{
+    if (!g_haveWorldFog)
+        return false;
+    Remap(D2F(g_worldFogStart), D2F(g_worldFogEnd), start, end);
+    return true;
 }
 
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)

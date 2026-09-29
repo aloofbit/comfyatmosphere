@@ -25,6 +25,7 @@ add_library(comfyfog SHARED
     src/sun.cpp
     src/cover.cpp
     src/lamps.cpp
+    src/lampglow.cpp
 )
 
 # comfyfog.dll, loaded by VanillaFixes from dlls.txt, same as comfygrass. It exports nothing.

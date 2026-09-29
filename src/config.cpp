@@ -15,6 +15,7 @@ namespace
     const wchar_t* kDepth   = L"depth";
     const wchar_t* kShadow  = L"shadow";
     const wchar_t* kVolume  = L"volume";
+    const wchar_t* kLamps   = L"lamps";
     const wchar_t* kRays    = L"rays";
     const wchar_t* kNight   = L"night";
     const wchar_t* kBench   = L"bench";
@@ -142,6 +143,24 @@ void LoadSettings(const wchar_t* ini)
     if (s.volume.downscale > 8) s.volume.downscale = 8;
     if (s.shadow.size < 256)  s.shadow.size = 256;
     if (s.shadow.size > 4096) s.shadow.size = 4096;
+
+    s.lamps.enabled      = GetB(kLamps, L"enabled", s.lamps.enabled, ini);
+    s.lamps.strength     = Clamp(GetF(kLamps, L"strength",     s.lamps.strength,     ini), 0.0f, 100.0f);
+    s.lamps.maxIntensity = Clamp(GetF(kLamps, L"maxIntensity", s.lamps.maxIntensity, ini), 0.0f, 50.0f);
+    s.lamps.surface      = Clamp(GetF(kLamps, L"surface",      s.lamps.surface,      ini), 0.0f, 20.0f);
+    s.lamps.density      = Clamp(GetF(kLamps, L"density",      s.lamps.density,      ini), 0.0f, 1.0f);
+    s.lamps.day          = Clamp(GetF(kLamps, L"day",          s.lamps.day,          ini), 0.0f, 100.0f);
+    s.lamps.maxDistance  = Clamp(GetF(kLamps, L"maxDistance",  s.lamps.maxDistance,  ini), 5.0f, 1000.0f);
+    s.lamps.maxLights    = GetI(kLamps, L"maxLights", s.lamps.maxLights, ini);
+    if (s.lamps.maxLights < 1)  s.lamps.maxLights = 1;
+    if (s.lamps.maxLights > 16) s.lamps.maxLights = 16;
+    s.lamps.keep         = Clamp(GetF(kLamps, L"keep",         s.lamps.keep,         ini), 0.0f, 30.0f);
+    s.lamps.softness     = Clamp(GetF(kLamps, L"softness",     s.lamps.softness,     ini), 0.05f, 5.0f);
+    s.lamps.through      = Clamp(GetF(kLamps, L"through",      s.lamps.through,      ini), 0.0f, 10.0f);
+    s.lamps.sprites      = GetB(kLamps, L"sprites", s.lamps.sprites, ini);
+    s.lamps.spriteReach  = Clamp(GetF(kLamps, L"spriteReach",  s.lamps.spriteReach,  ini), 1.0f, 60.0f);
+    s.lamps.spriteGain   = Clamp(GetF(kLamps, L"spriteGain",   s.lamps.spriteGain,   ini), 0.0f, 10.0f);
+    s.lamps.debug        = GetI(kLamps, L"debug", s.lamps.debug, ini);
 
     s.rays.enabled      = GetB(kRays, L"enabled",      s.rays.enabled,      ini);
     s.rays.strength     = Clamp(GetF(kRays, L"strength",     s.rays.strength,     ini), 0.0f, 100.0f);

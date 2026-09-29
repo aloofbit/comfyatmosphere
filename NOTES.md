@@ -32,6 +32,7 @@ measurement showed.
 | In-game controls: CVars for the addon's sliders, and the quality levels | `cvars.cpp`, `config.cpp` | none |
 | Diagnostics | all | F12: one-frame probe, then a 180-frame trace of the light and the map |
 | Lamp probe: where local lights can be found (street lamps, lanterns, torches) | `lamps.cpp` | F12, with the frame probe: a 60-frame report |
+| Lamps: the fog glows around lamps and torches, and lampposts light the surfaces near them | `lamps.cpp` (tracker), `lampglow.cpp` | none; `[lamps]` in the ini |
 | Benchmark: each feature in turn, frame rate and our own GPU and CPU time | `bench.cpp` | Alt+F12 |
 
 ## What was found (measured in this `WoW.exe`)
@@ -439,6 +440,47 @@ textures in one place (orange 64x128, yellow 32x32, blue 128x128).
 So there are two sources to build on. The client's point lights give torches and braziers with their
 exact position, colour and reach. The glow sprites, filtered to four-vertex additive M2 draws with a
 warm `c28 + c29`, give the lampposts.
+
+## Lamps: the glow and the light (2026-09-28)
+
+`lamps.cpp` keeps a list of lights every frame; `lampglow.cpp` draws two full-screen passes from it,
+just after the volumetric light. It reads the light's depth, world camera and depth range, so it draws
+only while `[volume]` draws, but it does not follow the sun and draws at night too. By day it is turned
+down to `[lamps] day` by the game clock.
+
+**The lights.** Client point lights from `SetLight` (torches and braziers, and those NPCs carry), and
+lamppost sprites (four-vertex additive M2 draws with a warm `c28 + c29`, which stay where they were first
+seen). They are held in world coordinates. A light is dropped only after `[lamps] keep` seconds **on
+screen** without being seen. The client draws a lamp's sprite only while the lamp is on screen, so a
+lamppost beside the camera faded out while the fog around it was still in view. At some places in
+Darkshire the client sends no point light in most frames, and the lampposts are all there is.
+
+A row of client point lights sits about 120 yards above Darkshire, at the same world positions frame
+after frame. What they belong to is not known. Nearest-first keeps them behind the street lamps.
+
+**The glow in the air.** The integral of 1 / d^2 along the line of sight has a closed form, so there is no
+march and no noise (the formula is in `lampglow.cpp`). The scene's depth ends the line, and it runs on
+`[lamps] through` yards past it, since the client's light point sits inside the torch head or the bowl.
+
+**The light on surfaces.** Lampposts only: the client already lights with its own lights. The facing
+of a surface comes from `ddx`/`ddy` of the rebuilt position. The falloff is the torch's, 1 / (0.7 d +
+0.03 d^2), and the light scales the colour already there, out = scene x (1 + light). The client adds a
+torch's light to the dim light a model already has, so `[lamps] surface` is about 1 / the night's light:
+7 at 100, 2.8 at the default strength of 40. `spriteGain` 1.5 puts a lamp's colour near a torch's.
+
+**The trap: no `break` in an unrolled light loop.** The first version stopped the loop after the last
+light (`if (i >= count) break;` in an `[unroll]` loop). d3dcompiler_47 compiled it so that light 0,
+the nearest, never added anything. In game that looked like "the lamp goes dim at some angles": it went
+dim whenever it was the nearest light. The loop now always runs over all 16 slots, and an empty slot has
+a reach too short to pass the test. A plain `[loop]` indexes the arrays by comparing against every
+element (32 compares a light), which is why it is unrolled at all.
+
+The debug views found it: `[lamps] debug` 1 is the glow alone, 2 the distance read (white = 50 yards),
+3 the light on surfaces alone. F12 also draws the pass into a target of its own and logs, for each
+light, the glow and the distance at its pixel and beside it (lines `lampglow:   read back`).
+
+`maxIntensity` 4 could not be seen; the default is 10 at strength 40. The cost has not been measured:
+the benchmark has a line for it (`bench: the fog around lamps`).
 
 ## The framing that matters
 

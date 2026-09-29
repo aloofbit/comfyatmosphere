@@ -281,6 +281,8 @@ namespace
             "entries seen again had not moved and were not copied", all.mergeMs, all.cacheMs - all.mergeMs,
             100.0 * all.stillShare);
         Log("bench: the rays, a frame: GPU %.2f ms, CPU %.2f ms", all.gpuMs[kBenchRays], all.cpuMs[kBenchRays]);
+        Log("bench: the fog around lamps, a frame: GPU %.2f ms, CPU %.2f ms, drawn in %u of %u frames",
+            all.gpuMs[kBenchLamps], all.cpuMs[kBenchLamps], all.ran[kBenchLamps], all.frames);
 
         const Result& rays = g_results[kRaysStep];
         if (rays.frames && rays.ran[kBenchRays] < rays.frames / 2)
