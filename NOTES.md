@@ -33,6 +33,7 @@ measurement showed.
 | Diagnostics | all | F12: one-frame probe, then a 180-frame trace of the light and the map |
 | Lamp probe: where local lights can be found (street lamps, lanterns, torches) | `lamps.cpp` | F12, with the frame probe: a 60-frame report |
 | Lamps: the fog glows around lamps and torches, and lampposts light the surfaces near them | `lamps.cpp` (tracker), `lampglow.cpp` | none; `[lamps]` in the ini |
+| Sun shadows on the world, from the light's shadow map and its near map | `sunshadows.cpp` (+ `shadow.cpp`) | none; `[sunshadows]` in the ini |
 | Benchmark: each feature in turn, frame rate and our own GPU and CPU time | `bench.cpp` | Alt+F12 |
 
 ## What was found (measured in this `WoW.exe`)
@@ -481,6 +482,37 @@ light, the glow and the distance at its pixel and beside it (lines `lampglow:   
 
 `maxIntensity` 4 could not be seen; the default is 10 at strength 40. The cost has not been measured:
 the benchmark has a line for it (`bench: the fog around lamps`).
+
+## Sun shadows on the world (2026-09-29)
+
+`sunshadows.cpp` lays the volumetric light's shadow map on the world, just before the light: the point
+each pixel shows is rebuilt from the depth, looked up in the map with nine taps, and the scene is scaled
+by 1 - strength x shaded. It draws only while `[volume]` draws, since the map is built for the light, and
+follows the sun's height and `[night] strength` as the light does.
+
+**The near map.** The far map is 2048 texels over 500 yards, a quarter of a yard a texel, and too coarse
+for a trunk, a post or a character. `shadow.cpp` now replays the same cache a second time into a map of
+the same size over `[shadow] nearRange` yards either side of the player (32: 0.03 yards a texel), with the
+full depth toward the sun. Models whose reference point is well outside the small box are not drawn into
+it. The shadows blend from the near map into the far one over 80% to 90% of the near map's half-width.
+The volumetric light still reads the far map only. `bias` and `normalBias` are in texels of each map.
+
+**Surfaces facing away from the sun.** At first they got no shade, on the idea that the client's lighting
+had darkened them already. It does not for models: it lights trees and characters almost evenly all
+round, and backlit trunks stayed bright in the canopy's shade. Then they were tested against the map, and
+the back of a walking character flickered: the test there grazes the model's own body. Now a surface
+facing away gets `[sunshadows] backShade` (0.8) with no test, one facing the sun gets the map's answer,
+and the facing blends the two. backShade is under 1 so that terrain facing away, which the client does
+darken, is not darkened twice.
+
+**The player's shadow.** The cache keeps a model's stored place and pose while it stays within
+`[shadow] stillRadius` (0.3 yards), so that trees do not shimmer as the camera drifts. The player runs
+about 0.12 yards a frame, so the character's own shadow held for two frames and then jumped 0.3 yards,
+ten texels of the near map, and flickered over the character. Models within 3 yards of the player are
+now always placed again. With that, `[shadow] mapEvery` 3 looks the same as 1 in game.
+
+The cost of the near map and of the pass has not been measured: the benchmark has a line for the pass
+(`bench: the sun shadows`), and the replay's share is in the shadow map's line.
 
 ## The framing that matters
 

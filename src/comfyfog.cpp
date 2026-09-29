@@ -32,6 +32,7 @@
 #include "rays.h"
 #include "shadow.h"
 #include "sun.h"
+#include "sunshadows.h"
 #include "volume.h"
 
 #include <cmath>
@@ -547,6 +548,10 @@ namespace
             // The light first: the rays streak what is bright on screen, and the light was part of that
             // when it was drawn with the world.
             g_volumePending = false;
+            // The shade first: it darkens surfaces, and the light in the air goes over it.
+            BenchSectionBegin(dev, kBenchSunShadows);
+            const bool shaded = SunShadowsDraw(dev);
+            BenchSectionEnd(dev, kBenchSunShadows, shaded);
             BenchSectionBegin(dev, kBenchVolume);
             const bool drawn = VolumeDraw(dev);
             BenchSectionEnd(dev, kBenchVolume, drawn);
@@ -694,6 +699,7 @@ namespace
             BenchReset();
             LampsReset();
             LampGlowReset();
+            SunShadowsReset();
             g_fog       = ClientFog();
             g_haveWorldFog = false;
             g_haveC30   = false;
@@ -838,6 +844,7 @@ namespace
             CoverProbe();
             LampsProbe(dev);
             LampGlowProbe();
+            SunShadowsProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -862,6 +869,7 @@ namespace
         BenchReset();
         LampsReset();
         LampGlowReset();
+        SunShadowsReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {

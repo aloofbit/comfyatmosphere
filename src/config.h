@@ -75,6 +75,8 @@ struct ShadowSettings
     int   size    = 2048;     // texels per side. 4096 took twice the GPU time for the same look
                               // (benchmark, 2026-09-24: 2.35 against 1.66 microseconds a caster)
     float range   = 250.0f;    // yards covered either side of the player
+    float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
+                               // map's texel, a quarter of a yard, was too coarse for a trunk or a post
     float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
     int   copyPerFrame  = 16;     // arena chunks copied into our own buffers per frame. The client
                                   // streams terrain through a buffer it re-fills, so a cached pointer
@@ -134,6 +136,21 @@ struct VolumeSettings
     // what lies within [shadow] depth, so a sun setting behind the far horizon kept lighting the fog. Uses
     // [rays] occlusionRadius and occlusionFull. Added 2026-09-28.
     bool  occlusion    = true;
+};
+
+// Sun shadows on the world (sunshadows.cpp), from the volumetric light's shadow map, so they draw only while
+// [volume] draws. Added 2026-09-29.
+struct SunShadowSettings
+{
+    bool  enabled    = true;
+    float strength   = 50.0f;     // the dial, 0..100: how much of the light a shaded surface loses
+    float bias       = 1.5f;      // texels of slack in the depth test, against speckle (of each map: a
+                                  // quarter of a yard is 1 texel of the far map, 8 of the near one)
+    float normalBias = 1.5f;      // texels each point is moved along its surface before the test
+    float backShade  = 0.8f;      // 0..1: the shade a surface facing away from the sun gets. The client
+                                  // lights models almost evenly all round, so 0 left backlit trunks bright
+    float softness   = 1.0f;      // how far apart the nine taps of the soft edge are, in map texels
+    int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = how much each surface faces the sun
 };
 
 // Lamps, lanterns and torches (lamps.cpp finds them, lampglow.cpp draws): the fog glowing around them, and
@@ -250,6 +267,7 @@ struct Settings
     ShadowSettings shadow;
     VolumeSettings volume;
     LampSettings lamps;
+    SunShadowSettings sunShadows;
     FogSettings  fog;
     SunSettings  sun;
     NightSettings night;

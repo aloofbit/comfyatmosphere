@@ -16,6 +16,7 @@ namespace
     const wchar_t* kShadow  = L"shadow";
     const wchar_t* kVolume  = L"volume";
     const wchar_t* kLamps   = L"lamps";
+    const wchar_t* kSunShadows = L"sunshadows";
     const wchar_t* kRays    = L"rays";
     const wchar_t* kNight   = L"night";
     const wchar_t* kBench   = L"bench";
@@ -105,6 +106,7 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.enabled    = GetB(kShadow, L"enabled", s.shadow.enabled, ini);
     s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
+    s.shadow.nearRange  = Clamp(GetF(kShadow, L"nearRange", s.shadow.nearRange, ini), 0.0f, 200.0f);
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
     s.shadow.horizon    = GetB(kShadow, L"horizon", s.shadow.horizon, ini);
     s.shadow.copyPerFrame = GetI(kShadow, L"copyPerFrame", s.shadow.copyPerFrame, ini);
@@ -143,6 +145,14 @@ void LoadSettings(const wchar_t* ini)
     if (s.volume.downscale > 8) s.volume.downscale = 8;
     if (s.shadow.size < 256)  s.shadow.size = 256;
     if (s.shadow.size > 4096) s.shadow.size = 4096;
+
+    s.sunShadows.enabled    = GetB(kSunShadows, L"enabled", s.sunShadows.enabled, ini);
+    s.sunShadows.strength   = Clamp(GetF(kSunShadows, L"strength",   s.sunShadows.strength,   ini), 0.0f, 100.0f);
+    s.sunShadows.bias       = Clamp(GetF(kSunShadows, L"bias",       s.sunShadows.bias,       ini), 0.0f, 20.0f);
+    s.sunShadows.normalBias = Clamp(GetF(kSunShadows, L"normalBias", s.sunShadows.normalBias, ini), 0.0f, 20.0f);
+    s.sunShadows.backShade  = Clamp(GetF(kSunShadows, L"backShade",  s.sunShadows.backShade,  ini), 0.0f, 1.0f);
+    s.sunShadows.softness   = Clamp(GetF(kSunShadows, L"softness",   s.sunShadows.softness,   ini), 0.0f, 8.0f);
+    s.sunShadows.debug      = GetI(kSunShadows, L"debug", s.sunShadows.debug, ini);
 
     s.lamps.enabled      = GetB(kLamps, L"enabled", s.lamps.enabled, ini);
     s.lamps.strength     = Clamp(GetF(kLamps, L"strength",     s.lamps.strength,     ini), 0.0f, 100.0f);

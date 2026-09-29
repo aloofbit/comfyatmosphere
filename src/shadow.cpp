@@ -38,6 +38,13 @@
 //               Each entry is put back relative to the current camera: fixed-function under the sun's view
 //               and projection, shader draws with c2..c5 = A * T(-camera) * sunViewProj.
 //
+// The near map (added 2026-09-29, for the sun shadows on the world): the same cache replayed a second time
+// into a second map of the same size that covers only [shadow] nearRange yards either side of the player,
+// with the same depth toward the sun, so a tall tree further off still shades the near ground. At the
+// default 32 a texel is 0.03 yards against the far map's 0.24, which was too coarse for a trunk, a post or
+// a character. Models whose reference point is well outside the small box are not drawn into it. The
+// volumetric light reads the far map only.
+//
 // Two things the client does that this has to allow for, both measured: it draws the world into depth
 // slice 0.0..0.94 of the buffer, and it draws the sky and the far horizon with cameras of their own. So the
 // world's depth slice and camera are taken by vote over the frame's depth-writing draws.
@@ -686,6 +693,8 @@ namespace
     unsigned g_nProjOnly = 0;                // this frame: model records with a projection alone in c2..c5
     unsigned g_nStill    = 0;                // this frame: models seen again that had not moved (not copied)
 
+    constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
+
     void Merge(const D3DMATRIX& camVPInv, const float cam[3], const float camModels[3], double now)
     {
         float camEnd[3] = { cam[0], cam[1], cam[2] };
@@ -708,6 +717,10 @@ namespace
         g_nChanged = 0; g_maxDiff = 0.0f; g_diffInfo[0] = 0;
         g_nOffWorld = 0;
         g_frameInfo[0] = 0;
+        // The player's own models (the character, a mount, a pet) are always placed again: see below.
+        float player[3] = {};
+        const bool havePlayer = ClientPlayer(player);
+        player[2] += 1.0f;
 
         for (Rec& r : g_frame)
         {
@@ -896,9 +909,16 @@ namespace
                 // walking put every tree past it: the position comes through the camera, which moves by
                 // one frame's walk during the frame. Each redraw then placed the tree again, up to a
                 // texel off, and its leaves came out as a new pattern in the map while in game they stayed.
+                //
+                // Not for a model within kPlayerModels yards of the player. The player moves about 0.12 yards
+                // a frame at a run, so the still rule held the character's shadow, in place and in pose,
+                // for two frames and then moved it 0.3 yards at once: ten texels of the near map, which
+                // flickered over the character's own body (2026-09-29).
                 const float sx = best->pos[0] - pos[0], sy = best->pos[1] - pos[1], sz = best->pos[2] - pos[2];
                 const float sr = g_cfg.shadow.stillRadius;
-                const bool still = r.vs && !moved && sx * sx + sy * sy + sz * sz < sr * sr &&
+                const float px = pos[0] - player[0], py = pos[1] - player[1], pz = pos[2] - player[2];
+                const bool  playerModel = havePlayer && px * px + py * py + pz * pz < kPlayerModels * kPlayerModels;
+                const bool still = r.vs && !moved && !playerModel && sx * sx + sy * sy + sz * sz < sr * sr &&
                                    !best->consts.empty();
                 if (still)
                 {
@@ -1063,9 +1083,17 @@ namespace
     bool                  g_logNext   = false;
     D3DMATRIX             g_shadowVP  = {};        // camera-relative world -> shadow clip, for the reader
     D3DMATRIX             g_mapAbsToSun = {};      // absolute world -> shadow clip, as the map was last drawn
+    IDirect3DTexture9*    g_nearTex   = nullptr;   // the near map: [shadow] nearRange either side
+    IDirect3DSurface9*    g_nearSurf  = nullptr;
+    bool                  g_nearValid = false;
+    D3DMATRIX             g_nearVP    = {};        // camera-relative world -> near map clip, for the reader
+    D3DMATRIX             g_nearAbsToSun = {};     // absolute world -> near map clip, as it was last drawn
 
     void ReleaseResources()
     {
+        SafeRelease(g_nearSurf);
+        SafeRelease(g_nearTex);
+        g_nearValid = false;
         SafeRelease(g_depthSurf);
         SafeRelease(g_depthTex);
         SafeRelease(g_colour);
@@ -1076,7 +1104,8 @@ namespace
 
     bool EnsureResources(IDirect3DDevice9* dev, UINT size)
     {
-        if (g_size == size && g_depthSurf && g_colour && g_sb)
+        const bool wantNear = g_cfg.shadow.nearRange > 0.0f;
+        if (g_size == size && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr))
             return true;
         ReleaseResources();
         auto* d = dev->lpVtbl;
@@ -1084,6 +1113,13 @@ namespace
                                       &g_depthTex, nullptr);
         if (SUCCEEDED(hr))
             hr = g_depthTex->lpVtbl->GetSurfaceLevel(g_depthTex, 0, &g_depthSurf);
+        // The near map is the same size, so the one colour target serves both.
+        if (SUCCEEDED(hr) && wantNear)
+        {
+            hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_nearTex, nullptr);
+            if (SUCCEEDED(hr))
+                hr = g_nearTex->lpVtbl->GetSurfaceLevel(g_nearTex, 0, &g_nearSurf);
+        }
         if (FAILED(hr))
         {
             Log("shadow: could not create the %ux%u INTZ depth map (hr=0x%08X)", size, size, hr);
@@ -1109,7 +1145,8 @@ namespace
             return false;
         }
         g_size = size;
-        Log("shadow: %ux%u INTZ depth map ready (colour target %s)", size, size, colourKind);
+        Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)", size, size, g_nearSurf ? "s, far and near," : "",
+            colourKind);
         return true;
     }
 
@@ -1624,12 +1661,24 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         D3DMATRIX toAbs;
         Translation(cam[0], cam[1], cam[2], toAbs);
         Mul(toAbs, g_mapAbsToSun, g_shadowVP);
+        if (g_nearValid)
+            Mul(toAbs, g_nearAbsToSun, g_nearVP);
         g_replayOutcome = 0;
         g_replaySeconds = Now() - t0;
         return;
     }
     g_shadowVP    = sunVP;
     g_mapAbsToSun = fromAbsToSun;
+
+    // The near map: the same sun camera, narrower.
+    const bool doNear = s.nearRange > 0.0f && g_nearSurf;
+    D3DMATRIX nearProj, nearVP, nearAbsToSun;
+    if (doNear)
+    {
+        OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, 1.0f, s.depth * 2.0f, nearProj);
+        Mul(sunView, nearProj, nearVP);
+        Mul(fromAbs, nearVP, nearAbsToSun);
+    }
 
     auto* d = dev->lpVtbl;
 
@@ -1664,7 +1713,6 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // --- replay the cache ---------------------------------------------------------------------------
     d->SetRenderTarget(dev, 0, g_colour);
     d->SetDepthStencilSurface(dev, g_depthSurf);
-    d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
     d->SetRenderState(dev, D3DRS_ZENABLE,           D3DZB_TRUE);
     d->SetRenderState(dev, D3DRS_ZWRITEENABLE,      TRUE);
     d->SetRenderState(dev, D3DRS_ZFUNC,             D3DCMP_LESSEQUAL);
@@ -1716,19 +1764,28 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetStreamSourceFreq(dev, 0, 1);
     d->SetStreamSourceFreq(dev, 1, 1);
 
+    UINT drawn = 0, drawnVS = 0, unseen = 0, skipped = 0, nearDrawn = 0;
+    for (int pass = 0; pass < (doNear ? 2 : 1); ++pass)
+    {
+    const bool nearPass = pass == 1;
+    const float mapRange = nearPass ? s.nearRange : s.range;
+    const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : fromAbsToSun;
+    d->SetDepthStencilSurface(dev, nearPass ? g_nearSurf : g_depthSurf);
+    d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+    d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : &sunProj);
+
     // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
     // the map: 2000 to 5000 draws a frame, 6 to 9 ms of CPU, which the game feels. An entry whose
     // reference point is well outside the box the map covers cannot mark it, so it is not drawn. The
     // margin is generous because a model's reference point is its first bone, which for some models sits
     // far from the geometry (trees measured at 85 to 95 yards away).
-    const float sideReach = s.range + 40.0f;     // the map is `range` either side of the player
+    const float sideReach = mapRange + 40.0f;    // the map is `range` either side of the player
     const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
-    UINT drawn = 0, drawnVS = 0, unseen = 0, skipped = 0;
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
         const Rec&   r = e.rec;
-        if (e.lastSeen < now)
+        if (e.lastSeen < now && !nearPass)
             ++unseen;
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
         // hundred of them rather than thousands, and one chunk covers so much ground that the point we
@@ -1742,14 +1799,15 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             const float side2 = sx * sx + sy * sy + sz * sz;
             if (side2 > sideReach * sideReach || along > alongReach || along < -alongReach)
             {
-                ++skipped;
+                if (!nearPass)
+                    ++skipped;
                 continue;
             }
         }
         if (r.vs)
         {
             D3DMATRIX m;
-            Mul(e.absolute, fromAbsToSun, m);
+            Mul(e.absolute, passAbsToSun, m);
             float c[16];
             ToRegisters(m, c);
             d->SetVertexShaderConstantF(dev, 0, e.consts.data(), static_cast<UINT>(e.consts.size() / 4));
@@ -1783,7 +1841,21 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             d->DrawPrimitive(dev, r.prim, r.baseVertex, r.primCount);
         if (r.vb[1])
             d->SetStreamSource(dev, 1, nullptr, 0, 0);
-        ++drawn;
+        if (nearPass)
+            ++nearDrawn;
+        else
+            ++drawn;
+    }
+    }   // the two maps
+    if (doNear)
+    {
+        g_nearVP       = nearVP;
+        g_nearAbsToSun = nearAbsToSun;
+        g_nearValid    = true;
+    }
+    else
+    {
+        g_nearValid = false;
     }
 
     // --- restore ------------------------------------------------------------------------------------
@@ -1823,9 +1895,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (logThis)
         Log("shadow: cache %u entries (%u not drawn this frame, kept from earlier): %u refreshed, %u new; evicted "
             "%u in view but gone, %u aged out, %u over the cap. Replayed %u (%u through M2 "
-            "shaders) in %.2f ms CPU; sun (%.2f %.2f %.2f), centred on the %s",
+            "shaders), and %u into the near map, in %.2f ms CPU; sun (%.2f %.2f %.2f), centred on the %s",
             static_cast<unsigned>(g_entries), unseen, g_nRefreshed, g_nAdded, g_nEvictView, g_nEvictAge,
-            g_nEvictCap, drawn, drawnVS, 1000.0 * (Now() - t0), sunDir[0], sunDir[1], sunDir[2],
+            g_nEvictCap, drawn, drawnVS, nearDrawn, 1000.0 * (Now() - t0), sunDir[0], sunDir[1], sunDir[2],
             havePlayer ? "player" : "camera");
     g_replaySeconds = Now() - t0;
     g_replaySkipped = skipped;
@@ -1856,6 +1928,16 @@ void ShadowWorldDepthRange(float& minZ, float& maxZ)
 {
     minZ = g_worldMinZ;
     maxZ = g_worldMaxZ;
+}
+
+bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range)
+{
+    if (!g_cfg.shadow.enabled || !g_valid || !g_nearValid || !g_nearTex)
+        return false;
+    tex = g_nearTex;
+    camRelToShadowClip = g_nearVP;
+    range = g_cfg.shadow.nearRange;
+    return true;
 }
 
 IDirect3DTexture9* ShadowTexture()

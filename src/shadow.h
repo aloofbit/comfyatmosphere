@@ -11,6 +11,8 @@ void ShadowFrameEnd();                                                  // at Pr
 void ShadowSetPhase(bool recording);                                    // the world phase begins / ends
 IDirect3DTexture9* ShadowTexture();                                     // the sun's depth, or null
 bool ShadowMatrix(D3DMATRIX& camRelToShadowClip);                       // camera-relative world -> shadow clip
+// The near map ([shadow] nearRange either side of the player), for the sun shadows; false if there is none.
+bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
 // This frame's replay, for the volume trace: how it ended (0 = drawn) and how many entries it drew.
 // counts: refreshed, added, evicted in view, aged out, over the cap. newInfo: the first new entries.
 void ShadowWorldCameraPlanes(float& nearZ, float& farZ);   // the camera the replay is using

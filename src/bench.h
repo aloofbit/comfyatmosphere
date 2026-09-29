@@ -3,7 +3,7 @@
 
 #include <d3d9.h>
 
-enum BenchSection { kBenchShadow, kBenchVolume, kBenchRays, kBenchLamps, kBenchSections };
+enum BenchSection { kBenchShadow, kBenchVolume, kBenchRays, kBenchLamps, kBenchSunShadows, kBenchSections };
 
 void BenchStart(IDirect3DDevice9* dev);                    // Alt + the probe key
 bool BenchFrame(IDirect3DDevice9* dev, double frameSeconds);   // at Present; true when it changed g_cfg
