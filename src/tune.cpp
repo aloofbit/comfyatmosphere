@@ -34,7 +34,13 @@ namespace
     struct Control { const char* key; const char* name; };
     const Control kControls[] = {
         { "fog.enabled",         "Atmospheric Fog" },
+        { "general.enabled",     "Atmosphere Effects" },
         { "fog.thickness",       "Fog Thickness" },
+        { "fog.density",         "Ground Haze" },
+        { "fog.height",          "Fog Height" },
+        { "fog.cover",           "Fog Edge Fade" },
+        { "fog.darken",          "Fog Darkness" },
+        { "fog.desaturate",      "Fog Greyness" },
         { "volume.enabled",      "Volumetric Light" },
         { "volume.strength",     "Volumetric Light Strength" },
         { "volume.quality",      "Volumetric Light Quality" },

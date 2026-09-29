@@ -39,7 +39,11 @@ The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of con
 
 | Control | Setting in `comfyfog.ini` |
 | --- | --- |
+| Atmosphere Effects | `[general] enabled`: every effect at once |
 | Atmospheric Fog, Fog Thickness | `[fog] enabled`, `thickness` |
+| Ground Haze | `[fog] density` (100 = 0.02 a yard) |
+| Fog Height (yards), Fog Edge Fade (%) | `[fog] height`, `cover` |
+| Fog Darkness, Fog Greyness (%) | `[fog] darken`, `desaturate` |
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
 | Sun Shadows, Sun Shadow Strength | `[sunshadows] enabled`, `strength` |

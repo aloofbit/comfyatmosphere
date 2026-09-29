@@ -24,12 +24,40 @@ struct FogSettings
     // climb after the haze floor is gentle rather than a wall. Interpolated geometrically in the dial.
     float reach     = 0.60f;
 
-    // Colour at 100. The sky is not fogged the way terrain is, so pulling the colour far from the
-    // client's leaves a visible seam where fogged terrain meets sky. Keep these modest.
-    float desaturate = 0.35f;        // 0 .. 1, toward grey
-    float darken     = 0.20f;        // 0 .. 1, toward black
+    // Our own fog (mode 1, 2026-09-29): drawn over the picture from the depth, while the volumetric light
+    // runs (it needs the depth), with the game's fog moved out of the way. The game's fog is linear from
+    // start to end, the same in the terrain and in the tree shaders, so a fog made stronger with it
+    // still ended in a wall, and a far tree fogged in full stood out white against the sky behind it.
+    // This one is height fog: thick low down and thinning upward, so a line of sight toward the sky
+    // meets a known amount of it, and the sky near the horizon is the fog colour. Mode 0, or with the
+    // volumetric light off, is the game's fog moved by haze and reach as before.
+    int   mode      = 1;
+    float density   = 0.005f;   // the height fog: fog per yard at the camera's height (the Ground Haze
+                                // control, 0..0.02). Not scaled by the dial: the dial is the distance
+                                // fog. 0.02 scaled by the dial was tuned before the distance fog existed,
+                                // and with it on top the view distance shrank (2026-09-29)
+    float height    = 40.0f;    // yards: the fog thins by e (2.7 times) every this many yards up
+    float distance  = 1.0f;     // 0..1: how much of the game's distance fog (its start and end, as the dial
+                                // moves them) is kept, on a soft curve. Far mountains need it
+    float cover     = 0.85f;    // 0..1: past this share of the view distance, things fade in full into
+                                // the fog by the view distance, so nothing stops at a hard edge
+    float skyDepth  = 0.99999f; // depth at or past which a pixel is the sky itself. Between the world's
+                                // slice and this: scenery drawn with the sky (far mountains), fogged in full
+    int   debug     = 0;        // 1 = our fog's amount alone (white = all fog); 2 = that far scenery, red
+
+    // The game's fog colour. Not part of the dial: applied as set, with the fog on or off (Shift+F11
+    // turns it off with the rest). Until 2026-09-29 it was scaled by the dial, so these are the old
+    // values at the default thickness of 60.
+    float desaturate = 0.2f;         // 0 .. 1, toward grey
+    float darken     = 0.12f;        // 0 .. 1, toward black
     DWORD tint       = 0x5A6470;     // RGB the colour is pulled toward, by tintAmount
     float tintAmount = 0.0f;         // 0 .. 1
+    // The sky near the horizon gets the same change as the colour, so that seam does not show: it is
+    // what shows between trees past the view distance, and a darker fog alone left it bright
+    // (2026-09-29). Needs the depth buffer (Volumetric Light on).
+    float skyMatch   = 1.0f;         // 0 .. 1, how far the sky at the horizon fades into the fog colour
+    float skyBand    = 0.35f;        // up to this height (sine of the angle above the horizon) it fades out
+    bool  skyDebug   = false;        // 1 = the sky it changes shows red
 
     // The vertex-shader constant the client's M2 shaders fog from: (-1/(end-start), end/(end-start)).
     // Found by disassembly for this WoW.exe (see comfyfog.cpp); -1 leaves M2 fog stock.
@@ -302,6 +330,8 @@ struct Settings
     bool  logEnabled  = true;
     bool  hook        = true;       // 0: load, log, patch nothing (bisecting)
     bool  sliders     = true;       // register the CVars the in-game controls set (cvars.cpp)
+    bool  master      = true;       // [general] enabled: every effect at once. Off, the game draws as
+                                    // stock: fog, its colour, light, shadows, rays and lamps all off
     int   reloadKey   = VK_F11;     // reload comfyfog.ini; with Shift, toggle the override
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
     int   chainWaitMs = 10000;      // how long to wait for comfygrass to finish patching first

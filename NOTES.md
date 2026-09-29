@@ -575,6 +575,39 @@ it off. `showShadow`, next to it in the strings, is a console command registered
 and `showLowDetail`, and does not. The addon sets `shadowLOD` to 0 while Volumetric Light and the new
 Sun Shadows box are on, and back to the default at logout, so Config.wtf never keeps the 0.
 
+## Our own fog (2026-09-29)
+
+Far away looked lit up, and it took several steps to see why.
+
+- **The gaps were sky.** Past the view distance (`farclip`) the client draws nothing, and between the
+  trees the sky showed, bright. Darkening the fog colour made far trees darker and left the sky as it
+  was. The sky match (`[fog] skyMatch`, `skyBand`) faded the sky near the horizon into the fog colour.
+  Scaling the sky by the fog colour's change first gave two tones, since the game's sky at the horizon
+  is not quite its fog colour.
+- **The fog colour was part of the dial.** `darken`, `desaturate` and `tint` were scaled by the
+  thickness and did nothing with Atmospheric Fog off. They now apply as set, fog on or off.
+- **Shadows were drawn over the fog.** A shaded tree at the fog wall came out darker than the fog and
+  the sky it should fade into. The shade now weakens with the fog at each pixel's depth.
+- **The game's fog is a straight ramp**, the same in the terrain and in the tree shaders, so a stronger
+  fog still ended in a wall and fogged models stood out as flat white shapes. `[fog] mode 1` draws our
+  own fog over the picture from the depth, with the game's fog moved past anything drawn (`Remap`, which
+  also rewrites the tree shaders' c30). It runs only while the volumetric light does, since it needs the
+  depth; otherwise the game's fog is used as before.
+- **Height fog alone thinned out on mountains**, which showed every flat face, where the game's fog makes
+  far mountains one flat layer. Our fog is now the game's distance fog (its start and end as the dial
+  moves them) on an S curve, plus height fog (`density`, `height`) on top. The sky gets no distance fog,
+  so a ridge keeps its line against the sky.
+- **A second ridge.** Far mountains are drawn with the sky, in the sky's depth slice (past the world's
+  0..0.94, in front of the sky itself). Every pass took them for sky. Pixels in that slice but in front
+  of `[fog] skyDepth` now get full fog, as the game gives them. `[fog] debug 2` shows them in red.
+- **The view distance shrank** once both parts were on: the height fog had been tuned alone, scaled by
+  the dial, at 0.012 a yard. It is now its own control, Ground Haze (`density`, 100 = 0.02 a yard,
+  default 0.005), not scaled by the dial; Fog Thickness moves only the distance fog.
+
+The Atmosphere page gained Ground Haze, Fog Height, Fog Edge Fade (`cover`), Fog Darkness and Fog
+Greyness, and a master box at the top, Atmosphere Effects (`[general] enabled`), that turns every effect
+off at once (and with it the depth buffer and the shadow map).
+
 ## Sun rays jumping behind leaves (2026-09-29)
 
 Tilting the camera slowly down from the sun past trees 100 yards away, the sun rays jumped by 50 pixels

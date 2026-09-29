@@ -147,6 +147,8 @@ namespace
     // has parked its fog for the UI (start 0, end 1). Taken from each end the client sets during the world.
     DWORD     g_worldFogStart = 0, g_worldFogEnd = 0;
     bool      g_haveWorldFog  = false;
+    DWORD     g_worldFogColor = 0;          // the last fog colour the world set that was not black
+    bool      g_haveWorldFogColor = false;
 
     bool Active()
     {
@@ -154,6 +156,12 @@ namespace
     }
 
     float Dial() { return g_cfg.fog.thickness * 0.01f; }
+
+    // Our own fog draws this frame (FogDraw), so the game's is moved out of the way.
+    bool OwnFog()
+    {
+        return Active() && g_cfg.fog.mode == 1 && VolumeActive();
+    }
 
     // Geometric in the dial, so 0->10 feels about as big a step as 90->100.
     float EndMul() { return powf(g_cfg.fog.reach, Dial()); }
@@ -165,7 +173,9 @@ namespace
     // the client's own toward a negative one. Linear fog amount at distance d is (d - start) / (end -
     // start), so a start of -h/(1-h) of end puts fog amount h at the camera and still reaches full fog
     // at end: a haze floor with a gentler slope behind it, rather than clear air that thickens into a wall.
-    void Remap(float s, float e, float& sOut, float& eOut)
+    // The game's fog as the dial moves it: what the game draws in mode 0, and the distance part of our
+    // own fog in mode 1.
+    void RemapGame(float s, float e, float& sOut, float& eOut)
     {
         if (!Active())
         {
@@ -178,6 +188,18 @@ namespace
         const float hazeFrac  = -h / (1.0f - h);
         const float frac      = stockFrac + (hazeFrac - stockFrac) * Dial();
         sOut = eOut * frac;
+    }
+
+    // What the game is sent: with our own fog, no fog at all.
+    void Remap(float s, float e, float& sOut, float& eOut)
+    {
+        if (OwnFog())
+        {
+            // Past anything drawn: no fog. Linear fog is (end - d) / (end - start), 1 = none.
+            sOut = 100000.0f; eOut = 200000.0f;
+            return;
+        }
+        RemapGame(s, e, sOut, eOut);
     }
 
     DWORD OutEnd()
@@ -204,21 +226,26 @@ namespace
     // Exponential fog modes carry no start/end; the density is scaled to match the linear case.
     DWORD OutDensity()
     {
+        if (OwnFog())
+            return F2D(0.0f);
         return Active() ? F2D(D2F(g_fog.density) / EndMul()) : g_fog.density;
     }
 
-    DWORD OutColor()
+    // The game's fog colour, changed by [fog] darken, desaturate and tint. Not tied to the distance
+    // part: it applies with Atmospheric Fog off too, and is not scaled by the thickness. Until
+    // 2026-09-29 it was both, so with the fog off the colour settings did nothing at all.
+    DWORD ShapeColor(DWORD color)
     {
         // Black fog is how additive passes (glows, particles) are kept from brightening into the fog,
         // and the client switches to it several times a frame. Tinting it would haze those effects.
-        if (!Active() || (g_fog.color & 0xFFFFFF) == 0)
-            return g_fog.color;
+        if (!g_on || !g_cfg.master || (color & 0xFFFFFF) == 0)
+            return color;
         const FogSettings& f = g_cfg.fog;
-        const float t = Dial();
+        const float t = 1.0f;
 
-        float c[3] = { ((g_fog.color >> 16) & 0xFF) / 255.0f,
-                       ((g_fog.color >>  8) & 0xFF) / 255.0f,
-                       ((g_fog.color      ) & 0xFF) / 255.0f };
+        float c[3] = { ((color >> 16) & 0xFF) / 255.0f,
+                       ((color >>  8) & 0xFF) / 255.0f,
+                       ((color      ) & 0xFF) / 255.0f };
         const float tint[3] = { ((f.tint >> 16) & 0xFF) / 255.0f,
                                 ((f.tint >>  8) & 0xFF) / 255.0f,
                                 ((f.tint      ) & 0xFF) / 255.0f };
@@ -226,7 +253,7 @@ namespace
         const float lum = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
         const float ds = f.desaturate * t, ta = f.tintAmount * t, dk = 1.0f - f.darken * t;
 
-        DWORD out = g_fog.color & 0xFF000000;
+        DWORD out = color & 0xFF000000;
         for (int i = 0; i < 3; ++i)
         {
             float v = c[i] + (lum - c[i]) * ds;
@@ -236,6 +263,8 @@ namespace
         }
         return out;
     }
+
+    DWORD OutColor() { return ShapeColor(g_fog.color); }
 
     // ---------------------------------------------------------------------------------------------
     // diagnostics
@@ -550,7 +579,21 @@ namespace
             g_volumePending = false;
             // The shade first: it darkens surfaces, and the light in the air goes over it.
             BenchSectionBegin(dev, kBenchSunShadows);
+            if (!OwnFog())
+                SkyMatchDraw(dev);   // the sky near the horizon, to the fog's colour; before the shade
             const bool shaded = SunShadowsDraw(dev);
+            // Our fog over the shaded world, before the light in the air.
+            if (OwnFog())
+            {
+                DWORD client = 0, shaped = 0;
+                if (!WorldFogColor(client, shaped))
+                    shaped = 0x808080;
+                // Its distance part: the game's own fog distances, as the dial moves them.
+                float ds = 0.0f, de = 0.0f;
+                if (g_haveWorldFog)
+                    RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), ds, de);
+                FogDraw(dev, shaped, g_cfg.fog.density, ds, de);
+            }
             BenchSectionEnd(dev, kBenchSunShadows, shaded);
             BenchSectionBegin(dev, kBenchVolume);
             const bool drawn = VolumeDraw(dev);
@@ -702,6 +745,7 @@ namespace
             SunShadowsReset();
             g_fog       = ClientFog();
             g_haveWorldFog = false;
+            g_haveWorldFogColor = false;
             g_haveC30   = false;
             g_fogEnable = 0;
             g_vshader   = nullptr;
@@ -875,6 +919,7 @@ namespace
         {
             g_fog      = ClientFog();
             g_haveWorldFog = false;
+            g_haveWorldFogColor = false;
             g_haveC30  = false;
             g_fogEnable = 0;
             g_vshader  = nullptr;
@@ -917,6 +962,11 @@ namespace
 
         case D3DRS_FOGCOLOR:
             g_fog.color = value; g_fog.haveColor = true;
+            if (!g_worldEnded && (value & 0xFFFFFF) != 0)
+            {
+                g_worldFogColor = value;
+                g_haveWorldFogColor = true;
+            }
             hr = g_oSetRS(dev, st, OutColor());
             NoteFogState(st, value, OutColor());
             return hr;
@@ -1553,11 +1603,26 @@ namespace
     }
 }
 
+bool WorldFogColor(DWORD& client, DWORD& shaped)
+{
+    if (!g_haveWorldFogColor)
+        return false;
+    client = g_worldFogColor;
+    shaped = ShapeColor(g_worldFogColor);
+    return true;
+}
+
+bool OwnFogActive()
+{
+    return OwnFog();
+}
+
 bool WorldFog(float& start, float& end)
 {
+    // With our own fog, its distance part: the game's fog as the dial moves it.
     if (!g_haveWorldFog)
         return false;
-    Remap(D2F(g_worldFogStart), D2F(g_worldFogEnd), start, end);
+    RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), start, end);
     return true;
 }
 

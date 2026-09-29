@@ -14,8 +14,11 @@
 //      along the sun, does not shade it. That stands in for "no shadow on itself", which would need to
 //      know which object each pixel belongs to: an arm is about 0.2 yards from the body it shades, the
 //      leaves of a canopy are close to each other, and a canopy is yards above the ground.
-//   3. Darken by the share in shade: out = scene x (1 - strength x shaded). Shade fades out over the last
-//      tenth of the far map, where it ends.
+//   3. Darken by the share in shade: out = scene x (1 - strength x shaded x (1 - fog)). Shade fades out
+//      over the last tenth of the far map, where it ends, and with the game's fog at that distance: a
+//      fogged pixel is already the fog colour, and the shade is drawn after it. Without that, a shaded
+//      tree at the fog wall came out darker than the fog and the sky it should fade into, a hard edge
+//      against the gaps where the view distance ends (2026-09-29).
 //
 // The map alone decides, also for a surface facing away from the sun: the body in front of it, as the
 // sun sees it, shades it. Until 2026-09-29 the pass also rebuilt each surface's facing from the depth,
@@ -85,6 +88,8 @@ float4 gN3   : register(c15);
 float4 gNB   : register(c16);       // near map: depth bias, normal offset, one texel, 1 if there is one
 float4 gG    : register(c17);       // the largest slope in each map's units: far, near
 float4 gT    : register(c18);       // slope (share used), sunOffset (yards), 1 if the facing is needed
+float4 gV    : register(c19);       // the view matrix's third column: camera-relative world -> view depth
+float4 gFog  : register(c20);       // the world's fog start, 1 / (end - start), 1 if there is fog
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -195,14 +200,107 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     }
     float lit   = lerp(litF, litN, wn);
     float shade = 1.0 - lit;
+    // The game's fog at this depth: a fogged pixel shows the fog colour, not what the shade falls on.
+    float vz    = dot(P, gV.xyz) + gV.w;
+    shade *= 1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0);
     float  f     = 1.0 - gSun.w * shade;
     f = (f >= 0.0 && f <= 1.0) ? f : 1.0;
     return float4(f, f, f, 1.0);
 }
 )HLSL";
 
+    // The sky match: sky pixels (depth at the far plane) faded into the fog's shaped colour, in full at
+    // and below the horizon and not at all from skyBand up. At first the sky was scaled by as much as
+    // the fog colour was; the game's sky at the horizon is not quite its fog colour, so a far mountain
+    // fogged in full and the sky beside it came out in two tones (2026-09-29). Faded into the fog colour
+    // itself, they are the same colour at the horizon. Blended by alpha.
+    const char* kSkyHlsl = R"HLSL(
+sampler2D sDepth : register(s0);
+float4 gInv0 : register(c0);
+float4 gInv1 : register(c1);
+float4 gInv2 : register(c2);
+float4 gInv3 : register(c3);
+float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ)
+float4 gF    : register(c5);        // the fog's shaped colour, band
+float4 gA    : register(c6);        // skyMatch
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float raw = saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+    if (raw < 0.99999)
+        return 0.0;                                     // not sky: nothing
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    float4 wp  = ndc.x * gInv0 + ndc.y * gInv1 + 0.99 * gInv2 + gInv3;
+    float3 dir = normalize(wp.xyz / max(wp.w, 1e-6));
+    float  w   = 1.0 - smoothstep(0.0, gF.w, dir.z);
+    return float4(gF.rgb, w * gA.x);
+}
+)HLSL";
+
+    // Our own fog: distance fog, and height fog over it. The distance fog is the game's own, from its
+    // start to its end as the dial moves them, but on an S curve (smoothstep) where the game's is a
+    // straight ramp: a soft start and a soft arrival. It does not care about height, so far mountains
+    // go to the fog colour in one flat layer, as the game draws them; with height fog alone they thinned
+    // out at their height and showed every flat face (2026-09-29). The sky gets none of it, as in the
+    // game, so a ridge keeps its line against the sky. Far mountains the client draws with the sky, in
+    // the sky's depth slice (past the world's, in front of the sky itself), get all of it: they looked
+    // like sky to every pass, and stood out as a second ridge behind the fogged one. Then the height fog: fog at the camera's height is gP.x per yard and
+    // thins by e every 1/gP.y yards up. Along a line of sight of length L and slope dz, the fog met is
+    // x L (1 - e^-k) / k with k = L dz y; toward the sky (no end) it is x / (y dz), and below the horizon
+    // all of it. Past cover of the view distance, geometry fades in full into the fog by the view
+    // distance. Blended by alpha, into the fog's colour.
+    const char* kFogHlsl = R"HLSL(
+sampler2D sDepth : register(s0);
+float4 gInv0 : register(c0);
+float4 gInv1 : register(c1);
+float4 gInv2 : register(c2);
+float4 gInv3 : register(c3);
+float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ), the depth of the sky itself
+float4 gC    : register(c5);        // fog colour, 1 = debug
+float4 gP    : register(c6);        // density, 1 / height, cover start (yards), 1 / (view distance - cover start)
+float4 gD    : register(c7);        // distance fog: start, 1 / (end - start), share (0 = none)
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float  d0  = tex2Dlod(sDepth, float4(uv, 0, 0)).r;
+    float  raw = saturate((d0 - gZ.x) * gZ.y);
+    bool   sky = raw >= 0.99999;
+    // Past the world's depth slice but in front of the sky itself: scenery the client draws with the
+    // sky, far mountains. The game's fog covers it in full, so ours does too.
+    bool   far = sky && d0 < gZ.z;
+    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    float4 wp  = ndc.x * gInv0 + ndc.y * gInv1 + min(raw, 0.99999) * gInv2 + gInv3;
+    float3 P   = wp.xyz / max(wp.w, 1e-6);
+    float  L   = max(length(P), 1e-3);
+    float  dz  = P.z / L;
+    float  tau;
+    if (sky)
+        tau = dz > 0.001 ? gP.x / (gP.y * dz) : 1000.0;
+    else
+    {
+        float k = clamp(L * dz * gP.y, -4.0, 50.0);
+        float g = abs(k) < 1e-3 ? 1.0 : (1.0 - exp(-k)) / k;
+        tau = gP.x * L * g;
+    }
+    float fog = 1.0 - exp(-tau);
+    if (!sky)
+    {
+        float dist = smoothstep(0.0, 1.0, saturate((L - gD.x) * gD.y)) * gD.z;
+        fog = 1.0 - (1.0 - fog) * (1.0 - dist);
+        fog = max(fog, saturate((L - gP.z) * gP.w));
+    }
+    if (far)
+        fog = gD.z > 0.0 ? 1.0 : fog;
+    if (gC.w > 1.5)
+        return far ? float4(1.0, 0.1, 0.1, 1.0) : float4(0.0, 0.0, 0.0, 1.0);   // debug 2: that scenery
+    if (gC.w > 0.5)
+        return float4(fog, fog, fog, 1.0);
+    return float4(gC.rgb, fog);
+}
+)HLSL";
+
     IDirect3DVertexShader9* g_vs = nullptr;
     IDirect3DPixelShader9*  g_ps = nullptr;
+    IDirect3DPixelShader9*  g_psSky = nullptr;
+    IDirect3DPixelShader9*  g_psFog = nullptr;
     bool                    g_shadersTried = false;
     IDirect3DStateBlock9*   g_sb = nullptr;
     bool                    g_failed  = false;
@@ -249,8 +347,21 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                     g_ps = nullptr;
                 code->lpVtbl->Release(code);
             }
+            if (OgBlob* code = Compile(kSkyHlsl, "skymatch_ps", "ps_3_0"))
+            {
+                if (FAILED(dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)), &g_psSky)))
+                    g_psSky = nullptr;
+                code->lpVtbl->Release(code);
+            }
+            if (OgBlob* code = Compile(kFogHlsl, "fog_ps", "ps_3_0"))
+            {
+                if (FAILED(dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)), &g_psFog)))
+                    g_psFog = nullptr;
+                code->lpVtbl->Release(code);
+            }
             if (g_vs && g_ps)
-                Log("sunshadows: shaders compiled");
+                Log("sunshadows: shaders compiled%s%s", g_psSky ? "" : " (not the sky match)",
+                    g_psFog ? "" : " (not the fog)");
         }
         if (!g_vs || !g_ps)
             return false;
@@ -424,7 +535,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[76] = {};
+    float pc[84] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -457,7 +568,14 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[72] = ss.slope;
     pc[73] = ss.sunOffset;
     pc[74] = (ss.slope > 0.0f || ss.normalBias > 0.0f) ? 1.0f : 0.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 19);
+    pc[76] = view.m[0][2]; pc[77] = view.m[1][2]; pc[78] = view.m[2][2]; pc[79] = view.m[3][2];
+    // With our own fog, the fog is drawn after the shade and covers it by itself.
+    float fogStart = 0.0f, fogEnd = 0.0f;
+    if (!OwnFogActive() && WorldFog(fogStart, fogEnd) && fogEnd > fogStart + 1.0f)
+    {
+        pc[80] = fogStart; pc[81] = 1.0f / (fogEnd - fogStart); pc[82] = 1.0f;
+    }
+    d->SetPixelShaderConstantF(dev, 0, pc, 21);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -504,6 +622,8 @@ void SunShadowsReset()
     SafeRelease(g_sb);
     SafeRelease(g_vs);
     SafeRelease(g_ps);
+    SafeRelease(g_psSky);
+    SafeRelease(g_psFog);
     g_shadersTried = false;
     g_failed = false;
 }
@@ -511,4 +631,306 @@ void SunShadowsReset()
 void SunShadowsProbe()
 {
     g_logNext = true;
+}
+
+namespace
+{
+    // What the sky match did last, logged each time it changes: it runs every frame.
+    int g_skyOutcome = -1;
+
+    bool SkyOutcome(int code, const char* what, DWORD client = 0, DWORD shaped = 0)
+    {
+        if (code != g_skyOutcome)
+        {
+            g_skyOutcome = code;
+            if (code == 0)
+                Log("skymatch: drawn, fog 0x%06lX -> 0x%06lX", client & 0xFFFFFF, shaped & 0xFFFFFF);
+            else
+                Log("skymatch: not drawn: %s (fog 0x%06lX -> 0x%06lX)", what, client & 0xFFFFFF,
+                    shaped & 0xFFFFFF);
+        }
+        return code == 0;
+    }
+}
+
+bool SkyMatchDraw(IDirect3DDevice9* dev)
+{
+    const FogSettings& f = g_cfg.fog;
+    DWORD client = 0, shaped = 0;
+    if (f.skyMatch <= 0.0f && !f.skyDebug)
+        return SkyOutcome(1, "skyMatch is 0");
+    if (g_failed)
+        return SkyOutcome(2, "the shaders failed");
+    if (!WorldFogColor(client, shaped))
+        return SkyOutcome(3, "no fog colour from the world yet");
+    if (client == shaped && !f.skyDebug)
+        return SkyOutcome(4, "the fog colour is not changed ([fog] darken, desaturate, tint)", client, shaped);
+
+    // The colour the sky fades into: the fog's, as shaped. Debug: red, in full.
+    float colour[3];
+    for (int i = 0; i < 3; ++i)
+        colour[i] = static_cast<float>((shaped >> (16 - 8 * i)) & 0xFF) / 255.0f;
+    if (f.skyDebug)
+    {
+        colour[0] = 1.0f; colour[1] = 0.1f; colour[2] = 0.1f;
+    }
+    const float amount = f.skyDebug ? 1.0f : f.skyMatch;
+
+    IDirect3DTexture9* depth = DepthWorldTexture();
+    D3DMATRIX view, proj;
+    const bool haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
+    if (!depth || !haveCam)
+        return SkyOutcome(6, !depth ? "no readable depth" : "no camera", client, shaped);
+    D3DMATRIX camVP, inv;
+    Mul(view, proj, camVP);
+    if (!Invert(camVP, inv))
+        return SkyOutcome(7, "the camera does not invert", client, shaped);
+    if (!EnsureResources(dev))
+    {
+        g_failed = true;
+        return SkyOutcome(2, "the shaders failed");
+    }
+    if (!g_psSky)
+        return SkyOutcome(8, "the sky shader did not compile", client, shaped);
+
+    auto* d = dev->lpVtbl;
+    IDirect3DSurface9* target = nullptr;
+    d->GetRenderTarget(dev, 0, &target);
+    if (!target)
+        return false;
+    D3DSURFACE_DESC td = {};
+    target->lpVtbl->GetDesc(target, &td);
+
+    IDirect3DSurface9* oldDS = nullptr;
+    d->GetDepthStencilSurface(dev, &oldDS);
+    g_sb->lpVtbl->Capture(g_sb);
+    DWORD saved[kTouchedCount];
+    for (int i = 0; i < kTouchedCount; ++i)
+        d->GetRenderState(dev, kTouched[i], &saved[i]);
+    IDirect3DBaseTexture9*       oldTex0 = nullptr;
+    IDirect3DVertexShader9*      oldVS   = nullptr;
+    IDirect3DVertexDeclaration9* oldDecl = nullptr;
+    DWORD                        oldFVF  = 0;
+    d->GetTexture(dev, 0, &oldTex0);
+    d->GetVertexShader(dev, &oldVS);
+    d->GetVertexDeclaration(dev, &oldDecl);
+    d->GetFVF(dev, &oldFVF);
+
+    d->SetDepthStencilSurface(dev, nullptr);
+    d->SetRenderState(dev, D3DRS_ZENABLE,           D3DZB_FALSE);
+    d->SetRenderState(dev, D3DRS_ZWRITEENABLE,      FALSE);
+    d->SetRenderState(dev, D3DRS_ALPHATESTENABLE,   FALSE);
+    d->SetRenderState(dev, D3DRS_CULLMODE,          D3DCULL_NONE);
+    d->SetRenderState(dev, D3DRS_FOGENABLE,         FALSE);
+    d->SetRenderState(dev, D3DRS_STENCILENABLE,     FALSE);
+    d->SetRenderState(dev, D3DRS_SCISSORTESTENABLE, FALSE);
+    d->SetRenderState(dev, D3DRS_SRGBWRITEENABLE,   FALSE);
+    d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,  D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
+                                                    D3DCOLORWRITEENABLE_BLUE);
+    d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE,  TRUE);
+    d->SetRenderState(dev, D3DRS_SRCBLEND,          D3DBLEND_SRCALPHA);
+    d->SetRenderState(dev, D3DRS_DESTBLEND,         D3DBLEND_INVSRCALPHA);
+    d->SetRenderState(dev, D3DRS_BLENDOP,           D3DBLENDOP_ADD);
+    d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
+    d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    d->SetSamplerState(dev, 0, D3DSAMP_SRGBTEXTURE, 0);
+    d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    d->SetVertexShader(dev, g_vs);
+    d->SetPixelShader(dev, g_psSky);
+
+    float minZ = 0.0f, maxZ = 1.0f;
+    ShadowWorldDepthRange(minZ, maxZ);
+    float pc[28] = {};
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            pc[r * 4 + c] = inv.m[r][c];
+    pc[16] = minZ; pc[17] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f;
+    pc[20] = colour[0]; pc[21] = colour[1]; pc[22] = colour[2]; pc[23] = f.skyBand;
+    pc[24] = amount;
+    d->SetPixelShaderConstantF(dev, 0, pc, 7);
+    const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
+    d->SetVertexShaderConstantF(dev, 0, half, 1);
+    const ClipVertex q[4] = {
+        { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
+        {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
+        { -1.0f, -1.0f, 0.0f, 0.0f, 1.0f },
+        {  1.0f, -1.0f, 0.0f, 1.0f, 1.0f },
+    };
+    d->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
+    d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+
+    for (int i = 0; i < kTouchedCount; ++i)
+        d->SetRenderState(dev, kTouched[i], saved[i]);
+    d->SetTexture(dev, 0, oldTex0);
+    d->SetVertexShader(dev, oldVS);
+    d->SetFVF(dev, oldFVF);
+    if (oldDecl)
+        d->SetVertexDeclaration(dev, oldDecl);
+    d->SetDepthStencilSurface(dev, oldDS);
+    g_sb->lpVtbl->Apply(g_sb);
+
+    SafeRelease(oldTex0);
+    SafeRelease(oldVS);
+    SafeRelease(oldDecl);
+    SafeRelease(oldDS);
+    target->lpVtbl->Release(target);
+
+    if (g_logNext)
+        Log("skymatch: fog 0x%06lX -> 0x%06lX, the sky faded into it by %.2f, up to %.2f", client & 0xFFFFFF,
+            shaped & 0xFFFFFF, amount, f.skyBand);
+    return SkyOutcome(0, "", client, shaped);
+}
+
+namespace
+{
+    int g_fogOutcome = -1;
+
+    bool FogOutcome(int code, const char* what)
+    {
+        if (code != g_fogOutcome)
+        {
+            g_fogOutcome = code;
+            Log("fog: %s", what);
+        }
+        return code == 0;
+    }
+}
+
+bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart, float distEnd)
+{
+    const FogSettings& f = g_cfg.fog;
+    if (g_failed)
+        return FogOutcome(2, "not drawn: the shaders failed");
+    IDirect3DTexture9* depth = DepthWorldTexture();
+    D3DMATRIX view, proj;
+    const bool haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
+    if (!depth || !haveCam)
+        return FogOutcome(3, !depth ? "not drawn: no readable depth" : "not drawn: no camera");
+    D3DMATRIX camVP, inv;
+    Mul(view, proj, camVP);
+    if (!Invert(camVP, inv))
+        return FogOutcome(4, "not drawn: the camera does not invert");
+    if (!EnsureResources(dev))
+    {
+        g_failed = true;
+        return FogOutcome(2, "not drawn: the shaders failed");
+    }
+    if (!g_psFog)
+        return FogOutcome(5, "not drawn: the fog shader did not compile");
+
+    // The view distance is the projection's far plane: m22 = f / (f - n), m32 = -n f / (f - n).
+    const float m22 = proj.m[2][2], m32 = proj.m[3][2];
+    float farPlane = (fabsf(1.0f - m22) > 1e-6f) ? m32 / (1.0f - m22) : 0.0f;
+    if (!(farPlane > 10.0f && farPlane < 100000.0f))
+        farPlane = 1000.0f;
+    const float coverStart = f.cover * farPlane;
+
+    auto* d = dev->lpVtbl;
+    IDirect3DSurface9* target = nullptr;
+    d->GetRenderTarget(dev, 0, &target);
+    if (!target)
+        return false;
+    D3DSURFACE_DESC td = {};
+    target->lpVtbl->GetDesc(target, &td);
+
+    IDirect3DSurface9* oldDS = nullptr;
+    d->GetDepthStencilSurface(dev, &oldDS);
+    g_sb->lpVtbl->Capture(g_sb);
+    DWORD saved[kTouchedCount];
+    for (int i = 0; i < kTouchedCount; ++i)
+        d->GetRenderState(dev, kTouched[i], &saved[i]);
+    IDirect3DBaseTexture9*       oldTex0 = nullptr;
+    IDirect3DVertexShader9*      oldVS   = nullptr;
+    IDirect3DVertexDeclaration9* oldDecl = nullptr;
+    DWORD                        oldFVF  = 0;
+    d->GetTexture(dev, 0, &oldTex0);
+    d->GetVertexShader(dev, &oldVS);
+    d->GetVertexDeclaration(dev, &oldDecl);
+    d->GetFVF(dev, &oldFVF);
+
+    d->SetDepthStencilSurface(dev, nullptr);
+    d->SetRenderState(dev, D3DRS_ZENABLE,           D3DZB_FALSE);
+    d->SetRenderState(dev, D3DRS_ZWRITEENABLE,      FALSE);
+    d->SetRenderState(dev, D3DRS_ALPHATESTENABLE,   FALSE);
+    d->SetRenderState(dev, D3DRS_CULLMODE,          D3DCULL_NONE);
+    d->SetRenderState(dev, D3DRS_FOGENABLE,         FALSE);
+    d->SetRenderState(dev, D3DRS_STENCILENABLE,     FALSE);
+    d->SetRenderState(dev, D3DRS_SCISSORTESTENABLE, FALSE);
+    d->SetRenderState(dev, D3DRS_SRGBWRITEENABLE,   FALSE);
+    d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,  D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
+                                                    D3DCOLORWRITEENABLE_BLUE);
+    d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE,  f.debug ? FALSE : TRUE);
+    d->SetRenderState(dev, D3DRS_SRCBLEND,          D3DBLEND_SRCALPHA);
+    d->SetRenderState(dev, D3DRS_DESTBLEND,         D3DBLEND_INVSRCALPHA);
+    d->SetRenderState(dev, D3DRS_BLENDOP,           D3DBLENDOP_ADD);
+    d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
+    d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    d->SetSamplerState(dev, 0, D3DSAMP_SRGBTEXTURE, 0);
+    d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    d->SetVertexShader(dev, g_vs);
+    d->SetPixelShader(dev, g_psFog);
+
+    float minZ = 0.0f, maxZ = 1.0f;
+    ShadowWorldDepthRange(minZ, maxZ);
+    float pc[32] = {};
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            pc[r * 4 + c] = inv.m[r][c];
+    pc[16] = minZ; pc[17] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f;
+    pc[20] = ((colour >> 16) & 0xFF) / 255.0f;
+    pc[21] = ((colour >>  8) & 0xFF) / 255.0f;
+    pc[22] = ((colour      ) & 0xFF) / 255.0f;
+    pc[18] = f.skyDepth;
+    pc[23] = static_cast<float>(f.debug);
+    pc[24] = density;
+    pc[25] = 1.0f / f.height;
+    pc[26] = coverStart;
+    pc[27] = farPlane > coverStart + 1.0f ? 1.0f / (farPlane - coverStart) : 1.0f;
+    if (distEnd > distStart + 1.0f && f.distance > 0.0f)
+    {
+        pc[28] = distStart; pc[29] = 1.0f / (distEnd - distStart); pc[30] = f.distance;
+    }
+    d->SetPixelShaderConstantF(dev, 0, pc, 8);
+    const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
+    d->SetVertexShaderConstantF(dev, 0, half, 1);
+    const ClipVertex q[4] = {
+        { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
+        {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
+        { -1.0f, -1.0f, 0.0f, 0.0f, 1.0f },
+        {  1.0f, -1.0f, 0.0f, 1.0f, 1.0f },
+    };
+    d->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
+    d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+
+    for (int i = 0; i < kTouchedCount; ++i)
+        d->SetRenderState(dev, kTouched[i], saved[i]);
+    d->SetTexture(dev, 0, oldTex0);
+    d->SetVertexShader(dev, oldVS);
+    d->SetFVF(dev, oldFVF);
+    if (oldDecl)
+        d->SetVertexDeclaration(dev, oldDecl);
+    d->SetDepthStencilSurface(dev, oldDS);
+    g_sb->lpVtbl->Apply(g_sb);
+
+    SafeRelease(oldTex0);
+    SafeRelease(oldVS);
+    SafeRelease(oldDecl);
+    SafeRelease(oldDS);
+    target->lpVtbl->Release(target);
+
+    if (g_fogOutcome != 0)
+    {
+        char line[160];
+        snprintf(line, sizeof(line), "drawn: colour 0x%06lX, density %.4f a yard, height %.0f yd, distance fog "
+                 "%.0f to %.0f yd, view distance %.0f yd, cover from %.0f yd", colour & 0xFFFFFF, density,
+                 f.height, distStart, distEnd, farPlane, coverStart);
+        return FogOutcome(0, line);
+    }
+    return true;
 }

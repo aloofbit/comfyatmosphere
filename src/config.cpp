@@ -143,6 +143,16 @@ void LoadSettings(const wchar_t* ini)
     s.fog.darken     = Clamp(GetF(kFog, L"darken",     s.fog.darken,     ini), 0.0f, 1.0f);
     s.fog.tint       = GetX(kFog, L"tint",       s.fog.tint,       ini) & 0xFFFFFF;
     s.fog.tintAmount = Clamp(GetF(kFog, L"tintAmount", s.fog.tintAmount, ini), 0.0f, 1.0f);
+    s.fog.mode       = GetI(kFog, L"mode",       s.fog.mode,       ini);
+    s.fog.density    = Clamp(GetF(kFog, L"density",    s.fog.density,    ini), 0.0f, 0.2f);
+    s.fog.height     = Clamp(GetF(kFog, L"height",     s.fog.height,     ini), 1.0f, 2000.0f);
+    s.fog.distance   = Clamp(GetF(kFog, L"distance",   s.fog.distance,   ini), 0.0f, 1.0f);
+    s.fog.cover      = Clamp(GetF(kFog, L"cover",      s.fog.cover,      ini), 0.0f, 1.0f);
+    s.fog.skyDepth   = Clamp(GetF(kFog, L"skyDepth",   s.fog.skyDepth,   ini), 0.9f, 1.0f);
+    s.fog.debug      = GetI(kFog, L"debug",      s.fog.debug,      ini);
+    s.fog.skyMatch   = Clamp(GetF(kFog, L"skyMatch",   s.fog.skyMatch,   ini), 0.0f, 1.0f);
+    s.fog.skyBand    = Clamp(GetF(kFog, L"skyBand",    s.fog.skyBand,    ini), 0.01f, 1.0f);
+    s.fog.skyDebug   = GetB(kFog, L"skyDebug",   s.fog.skyDebug,   ini);
     s.fog.shaderReg  = GetI(kFog, L"shaderReg",  s.fog.shaderReg,  ini);
 
     s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);
@@ -271,6 +281,7 @@ void LoadSettings(const wchar_t* ini)
     s.logEnabled  = GetB(kGeneral, L"log",         s.logEnabled,  ini);
     s.hook        = GetB(kGeneral, L"hook",        s.hook,        ini);
     s.sliders     = GetB(kGeneral, L"sliders",     s.sliders,     ini);
+    s.master      = GetB(kGeneral, L"enabled",     s.master,      ini);
     s.reloadKey   = GetI(kGeneral, L"reloadKey",   s.reloadKey,   ini);
     s.probeKey    = GetI(kGeneral, L"probeKey",    s.probeKey,    ini);
     s.chainWaitMs = GetI(kGeneral, L"chainWaitMs", s.chainWaitMs, ini);

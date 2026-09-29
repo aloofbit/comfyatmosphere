@@ -77,7 +77,8 @@ namespace
 
     enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
                 kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
-                kShadowEvery, kSunShadows, kSunShadowStrength, kKnobs };
+                kShadowEvery, kSunShadows, kSunShadowStrength, kFogHeight, kFogFade, kFogDarkness,
+                kFogGreyness, kMaster, kFogHaze, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -94,6 +95,12 @@ namespace
         "comfyShadowEvery",
         "comfySunShadows",
         "comfySunShadowStrength",
+        "comfyFogHeight",
+        "comfyFogFade",
+        "comfyFogDarkness",
+        "comfyFogGreyness",
+        "comfyAtmosphere",
+        "comfyFogHaze",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -217,6 +224,13 @@ namespace
         case kShadowEvery:    snprintf(out, cap, "%d", s.shadow.mapEvery); break;
         case kSunShadows:     snprintf(out, cap, "%d", s.sunShadows.enabled ? 1 : 0); break;
         case kSunShadowStrength: snprintf(out, cap, "%.0f", s.sunShadows.strength); break;
+        // Yards; the other three in percent.
+        case kFogHeight:      snprintf(out, cap, "%.0f", s.fog.height); break;
+        case kFogFade:        snprintf(out, cap, "%.0f", s.fog.cover * 100.0f); break;
+        case kFogDarkness:    snprintf(out, cap, "%.0f", s.fog.darken * 100.0f); break;
+        case kFogGreyness:    snprintf(out, cap, "%.0f", s.fog.desaturate * 100.0f); break;
+        case kMaster:         snprintf(out, cap, "%d", s.master ? 1 : 0); break;
+        case kFogHaze:        snprintf(out, cap, "%.0f", s.fog.density / 0.0002f); break;   // 100 = 0.02
         }
     }
 
@@ -239,6 +253,12 @@ namespace
         if (c[kShadowEvery].seen)    s.shadow.mapEvery = static_cast<int>(Clamp(c[kShadowEvery].value, 1.0f, 8.0f) + 0.5f);
         if (c[kSunShadows].seen)     s.sunShadows.enabled = c[kSunShadows].value != 0.0f;
         if (c[kSunShadowStrength].seen) s.sunShadows.strength = Clamp(c[kSunShadowStrength].value, 0.0f, 100.0f);
+        if (c[kFogHeight].seen)      s.fog.height      = Clamp(c[kFogHeight].value, 1.0f, 2000.0f);
+        if (c[kFogFade].seen)        s.fog.cover       = Clamp(c[kFogFade].value * 0.01f, 0.0f, 1.0f);
+        if (c[kFogDarkness].seen)    s.fog.darken      = Clamp(c[kFogDarkness].value * 0.01f, 0.0f, 1.0f);
+        if (c[kFogGreyness].seen)    s.fog.desaturate  = Clamp(c[kFogGreyness].value * 0.01f, 0.0f, 1.0f);
+        if (c[kMaster].seen)         s.master          = c[kMaster].value != 0.0f;
+        if (c[kFogHaze].seen)        s.fog.density     = Clamp(c[kFogHaze].value, 0.0f, 100.0f) * 0.0002f;
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);
@@ -271,6 +291,14 @@ namespace
         // Last: the quality level replaces the values it covers, whichever of the ini and the controls
         // set it.
         ApplyVolumeQuality(s);
+
+        // The Atmosphere Effects box: off, every effect is off, whatever its own box says. The depth
+        // buffer and the shadow map go too, since nothing reads them. The fog colour checks it itself.
+        if (!s.master)
+        {
+            s.fog.enabled = s.volume.enabled = s.depth.enabled = s.shadow.enabled = false;
+            s.rays.enabled = s.sunShadows.enabled = s.lamps.enabled = false;
+        }
     }
 
     // False when this is not the WoW.exe the addresses were found in, or [general] sliders = 0.

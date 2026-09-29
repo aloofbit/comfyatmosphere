@@ -26,8 +26,14 @@
 -- still follows comfyfog.ini, and the addon keeps no copy of its own.
 
 COMFYATMOSPHERE_CATEGORY       = "Atmosphere";
+COMFYATMOSPHERE_MASTER         = "Atmosphere Effects";
 COMFYATMOSPHERE_FOG            = "Atmospheric Fog";
 COMFYATMOSPHERE_FOG_THICKNESS  = "Fog Thickness";
+COMFYATMOSPHERE_FOG_HAZE       = "Ground Haze";
+COMFYATMOSPHERE_FOG_HEIGHT     = "Fog Height";
+COMFYATMOSPHERE_FOG_FADE       = "Fog Edge Fade";
+COMFYATMOSPHERE_FOG_DARKNESS   = "Fog Darkness";
+COMFYATMOSPHERE_FOG_GREYNESS   = "Fog Greyness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
@@ -47,17 +53,83 @@ COMFYATMOSPHERE_CLOUDS         = "Clouds";
 local ENTRIES = {
 	-- name is a KEY, not a string: the panel does _G[option.name] to get the label.
 	{
+		-- Every effect at once. The panel can make a control depend on one CVar only, and the others
+		-- depend on their own boxes, so they stay movable while this is off; they do nothing then.
+		name = "COMFYATMOSPHERE_MASTER",
+		desc = "All the effects on this page at once. Off, the game looks as it does without the mod.",
+		type = "checkbutton",
+		cvar = "comfyAtmosphere",
+	},
+	{
 		name = "COMFYATMOSPHERE_FOG",
-		desc = "Thicker fog, with haze close to you. Trees and characters get the same fog as the ground.",
+		desc = "Fog that is thick low down and thins higher up, and hides the edge of the view distance. With Volumetric Light off, the game's own fog is made thicker instead.",
 		type = "checkbutton",
 		cvar = "comfyFog",
 	},
 	{
 		name = "COMFYATMOSPHERE_FOG_THICKNESS",
-		desc = "0 is the game's own fog. 100 is the heaviest.",
+		desc = "How far you see into the fog. 100 is the heaviest.",
 		type = "slider",
 		cvar = "comfyFogThickness",
 		dependency = { "comfyFog", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- The height fog's density: 100 = 0.02 a yard ([fog] density). Needs Volumetric Light on.
+		name = "COMFYATMOSPHERE_FOG_HAZE",
+		desc = "Extra fog low down: in valleys and on the ground near you. 0 is none. Needs Volumetric Light on.",
+		type = "slider",
+		cvar = "comfyFogHaze",
+		dependency = { "comfyFog", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Yards: the fog thins by 2.7 times every this many yards up. Needs Volumetric Light on.
+		name = "COMFYATMOSPHERE_FOG_HEIGHT",
+		desc = "How deep the fog layer is, in yards. Lower keeps the fog near the ground; higher fills the air.",
+		type = "slider",
+		cvar = "comfyFogHeight",
+		dependency = { "comfyFog", "1" },
+		minval = 10,
+		maxval = 150,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage of the view distance: comfyfog.dll divides it by 100 for [fog] cover.
+		name = "COMFYATMOSPHERE_FOG_FADE",
+		desc = "Where things start to fade out before the edge of the view distance, as a percentage of it. Lower starts the fade sooner.",
+		type = "slider",
+		cvar = "comfyFogFade",
+		dependency = { "comfyFog", "1" },
+		minval = 50,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percentages, for [fog] darken and desaturate. They change the game's fog colour too, so no
+		-- dependency.
+		name = "COMFYATMOSPHERE_FOG_DARKNESS",
+		desc = "How much darker than the game's own fog colour the fog is.",
+		type = "slider",
+		cvar = "comfyFogDarkness",
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		name = "COMFYATMOSPHERE_FOG_GREYNESS",
+		desc = "How much of the fog colour is taken out, toward grey.",
+		type = "slider",
+		cvar = "comfyFogGreyness",
 		minval = 0,
 		maxval = 100,
 		step = 5,
@@ -338,7 +410,8 @@ local unitShadowOff = nil;
 
 local function SyncUnitShadow(logout)
 	local off = not logout and GetCVar("comfyVolume") == "1" and HasCVar("comfySunShadows")
-		and GetCVar("comfySunShadows") == "1";
+		and GetCVar("comfySunShadows") == "1"
+		and (not HasCVar("comfyAtmosphere") or GetCVar("comfyAtmosphere") == "1");
 	if off == unitShadowOff then
 		return;
 	end
