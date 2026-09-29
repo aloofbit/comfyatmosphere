@@ -14,7 +14,11 @@
 //      along the sun, does not shade it. That stands in for "no shadow on itself", which would need to
 //      know which object each pixel belongs to: an arm is about 0.2 yards from the body it shades, the
 //      leaves of a canopy are close to each other, and a canopy is yards above the ground.
-//   3. Darken by the share in shade: out = scene x (1 - strength x shaded x (1 - fog)). Shade fades out
+//   3. Darken by the share in shade, and brighten what the sun reaches by [sunshadows] sunlight:
+//      out = scene x (1 - strength x shaded) x (1 + sunlight x lit), both x (1 - fog). The factor can
+//      go above 1, which a shader's output cannot, so it is drawn at half and blended as 2 x modulate
+//      (scene x output + output x scene). Added 2026-09-29: Northshire, a forest, was dark all over.
+//      Before that: out = scene x (1 - strength x shaded x (1 - fog)). Shade fades out
 //      over the last tenth of the far map, where it ends, and with the game's fog at that distance: a
 //      fogged pixel is already the fog colour, and the shade is drawn after it. Without that, a shaded
 //      tree at the fog wall came out darker than the fog and the sky it should fade into, a hard edge
@@ -80,7 +84,7 @@ float4 gSh2  : register(c7);
 float4 gSh3  : register(c8);
 float4 gSun  : register(c9);        // direction to the sun, strength
 float4 gB    : register(c10);       // far map: depth bias (map units), normal offset (yards), one texel (uv), softness
-// c11 is free: the debug view is drawn by the blend state alone.
+float4 gL    : register(c11);       // sunlight (share added where lit), 1 = debug (drawn as it is, not halved)
 float4 gN0   : register(c12);       // rows of the near map's view-projection
 float4 gN1   : register(c13);
 float4 gN2   : register(c14);
@@ -159,7 +163,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 {
     float  raw = Raw(uv);
     if (raw >= 0.99999)
-        return 1.0;                                                        // the sky: nothing to shade
+        return gL.y > 0.5 ? 1.0 : 0.5;                                     // the sky: no change
     float3 P   = PointAt(uv, raw);
     // The facing, for normalBias and slope only: from the neighbours a pixel away, nearer in depth on
     // each axis. The offset along it grows as the sun grazes the surface.
@@ -202,9 +206,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float shade = 1.0 - lit;
     // The game's fog at this depth: a fogged pixel shows the fog colour, not what the shade falls on.
     float vz    = dot(P, gV.xyz) + gV.w;
-    shade *= 1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0);
-    float  f     = 1.0 - gSun.w * shade;
-    f = (f >= 0.0 && f <= 1.0) ? f : 1.0;
+    float clear = 1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0);
+    float  f     = (1.0 - gSun.w * shade * clear) * (1.0 + gL.x * lit * clear);
+    f = (f >= 0.0 && f <= 2.0) ? f : 1.0;
+    f = gL.y > 0.5 ? f : f * 0.5;
     return float4(f, f, f, 1.0);
 }
 )HLSL";
@@ -422,12 +427,23 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     constexpr int kTouchedCount = sizeof(kTouched) / sizeof(kTouched[0]);
 }
 
+namespace
+{
+    float g_share = 0.0f;
+}
+
+float SunShadowsShare()
+{
+    return g_share;
+}
+
 bool SunShadowsDraw(IDirect3DDevice9* dev)
 {
+    g_share = 0.0f;
     const bool logThis = g_logNext;
     g_logNext = false;
     const SunShadowSettings& ss = g_cfg.sunShadows;
-    if (!ss.enabled || g_failed || (ss.strength <= 0.0f && !ss.debug) || !VolumeActive())
+    if (!ss.enabled || g_failed || (ss.strength <= 0.0f && ss.sunlight <= 0.0f && !ss.debug) || !VolumeActive())
         return false;
 
     IDirect3DTexture9* depth  = DepthWorldTexture();
@@ -451,7 +467,9 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     // As the volumetric light: gone as the sun sets, and [night] strength at night.
     const float sunset = (sunDir[2] > 0.0f ? (sunDir[2] < 0.1f ? sunDir[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
     const float strength = ss.debug ? 1.0f : ss.strength * 0.01f * sunset;
-    if (strength <= 0.0f)
+    const float sunlight = ss.debug ? 0.0f : ss.sunlight * sunset;
+    g_share = ss.debug ? 1.0f : sunset;
+    if (strength <= 0.0f && sunlight <= 0.0f)
         return false;
 
     D3DMATRIX camVP, inv;
@@ -507,7 +525,8 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
                                                     D3DCOLORWRITEENABLE_BLUE);
     // scene x shade; debug shows the shade alone, white = lit.
     d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE,  ss.debug ? FALSE : TRUE);
-    d->SetRenderState(dev, D3DRS_SRCBLEND,          D3DBLEND_ZERO);
+    // 2 x modulate: scene x out + out x scene, so an output of 0.5 leaves the scene as it is.
+    d->SetRenderState(dev, D3DRS_SRCBLEND,          D3DBLEND_DESTCOLOR);
     d->SetRenderState(dev, D3DRS_DESTBLEND,         D3DBLEND_SRCCOLOR);
     d->SetRenderState(dev, D3DRS_BLENDOP,           D3DBLENDOP_ADD);
     d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
@@ -555,7 +574,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     // The slack in the depth test: bias texels of the map, plus minGap yards on either map. The map is
     // orthographic, so its depth is yards / span.
     pc[40] = (ss.bias * farTex + ss.minGap) / span; pc[41] = ss.normalBias * farTex; pc[42] = 1.0f / size; pc[43] = ss.softness;
-    pc[44] = static_cast<float>(ss.debug);
+    pc[44] = sunlight; pc[45] = ss.debug ? 1.0f : 0.0f;
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
             pc[48 + r * 4 + c] = nearVP.m[r][c];

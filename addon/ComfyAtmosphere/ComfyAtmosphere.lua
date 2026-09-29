@@ -39,6 +39,7 @@ COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
 COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
+COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
 COMFYATMOSPHERE_SHADOW_SOFTNESS = "Shadow Softness";
 COMFYATMOSPHERE_SHADOW_EVERY   = "Shadow Redraw";
@@ -182,6 +183,18 @@ local ENTRIES = {
 		dependency = { "comfyVolume", "1" },
 		minval = 0,
 		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [sunshadows] sunlight.
+		name = "COMFYATMOSPHERE_SUNLIGHT",
+		desc = "Makes what the sun reaches brighter, by up to this many percent. 0 leaves it as the game draws it.",
+		type = "slider",
+		cvar = "comfySunlight",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 50,
 		step = 5,
 		numberLabels = 1,
 	},

@@ -47,6 +47,7 @@ The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of con
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
 | Sun Shadows, Sun Shadow Strength | `[sunshadows] enabled`, `strength` |
+| Sunlight (%) | `[sunshadows] sunlight` |
 | Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
 | Shadow Softness | `[sunshadows] softness` |
 | Shadow Redraw | `[shadow] mapEvery` |

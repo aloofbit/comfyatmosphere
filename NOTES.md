@@ -608,6 +608,27 @@ The Atmosphere page gained Ground Haze, Fog Height, Fog Edge Fade (`cover`), Fog
 Greyness, and a master box at the top, Atmosphere Effects (`[general] enabled`), that turns every effect
 off at once (and with it the depth buffer and the shadow map).
 
+## The terrain's baked shadow, and Sunlight (2026-09-29)
+
+**Sunlight.** Northshire, a forest, was dark all over under the sun shadows. `[sunshadows] sunlight`
+(the Sunlight control, 0..50%) brightens what the sun reaches. A shader's output stops at 1, so the pass
+is drawn at half and blended as 2 x modulate (`DESTCOLOR`, `SRCCOLOR`): an output of 0.5 changes nothing.
+
+**The baked shadow.** Each terrain chunk carries a 64 x 64 shadow baked offline for one sun direction,
+with the shade of the trees and buildings around it, so it disagreed with the sun shadows. The CVar
+`mapShadows` and the console command `setShadow` flip bit 0x40 of the render flags at `0x00C7B2A4`
+("Terrain shadows enabled/disabled"), and nothing in this client reads that bit (every read of the word
+was checked). F12 now logs each texture stage's size, format and combine, and writes each pixel shader's
+bytecode to `comfyfog_ps_<address>.bin`. The terrain draws: ps_2_0, one to four DXT5 ground layers and a
+64 x 64 A4R4G4B4 blend map on the last stage, whose x, y, z mix the layers and whose w is the shade:
+
+    colour = lerp(layer0, layer1, map.x) ... ; out = colour x (map.w x 0.3 + 0.7) x diffuse + colour.a x map.w x specular
+
+`terrainshade.cpp` hooks `SetPixelShader`, disassembles each new shader once, and swaps one that matches
+that pattern (all four layer counts matched) for a copy with `map.w` replaced by `lerp(1, map.w, keep)`,
+`keep` in c31 (no client pixel shader uses past c9). `keep` is `[sunshadows] baked` (0 by default) while
+the sun shadows draw, back to 1 as they fade at dusk and whenever they are off.
+
 ## Sun rays jumping behind leaves (2026-09-29)
 
 Tilting the camera slowly down from the sun past trees 100 yards away, the sun rays jumped by 50 pixels

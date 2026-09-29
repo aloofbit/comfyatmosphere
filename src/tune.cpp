@@ -49,6 +49,7 @@ namespace
         { "shadow.mapEvery",     "Shadow Redraw" },
         { "sunshadows.enabled",  "Sun Shadows" },
         { "sunshadows.strength", "Sun Shadow Strength" },
+        { "sunshadows.sunlight", "Sunlight" },
         { "rays.enabled",        "Sun Rays" },
         { "rays.strength",       "Sun Rays Strength" },
         { "rays.soften",         "Sun Rays Softness" },

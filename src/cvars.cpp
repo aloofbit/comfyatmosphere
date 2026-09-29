@@ -78,7 +78,7 @@ namespace
     enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
                 kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
                 kShadowEvery, kSunShadows, kSunShadowStrength, kFogHeight, kFogFade, kFogDarkness,
-                kFogGreyness, kMaster, kFogHaze, kKnobs };
+                kFogGreyness, kMaster, kFogHaze, kSunlight, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -101,6 +101,7 @@ namespace
         "comfyFogGreyness",
         "comfyAtmosphere",
         "comfyFogHaze",
+        "comfySunlight",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -231,6 +232,7 @@ namespace
         case kFogGreyness:    snprintf(out, cap, "%.0f", s.fog.desaturate * 100.0f); break;
         case kMaster:         snprintf(out, cap, "%d", s.master ? 1 : 0); break;
         case kFogHaze:        snprintf(out, cap, "%.0f", s.fog.density / 0.0002f); break;   // 100 = 0.02
+        case kSunlight:       snprintf(out, cap, "%.0f", s.sunShadows.sunlight * 100.0f); break;   // percent
         }
     }
 
@@ -259,6 +261,7 @@ namespace
         if (c[kFogGreyness].seen)    s.fog.desaturate  = Clamp(c[kFogGreyness].value * 0.01f, 0.0f, 1.0f);
         if (c[kMaster].seen)         s.master          = c[kMaster].value != 0.0f;
         if (c[kFogHaze].seen)        s.fog.density     = Clamp(c[kFogHaze].value, 0.0f, 100.0f) * 0.0002f;
+        if (c[kSunlight].seen)       s.sunShadows.sunlight = Clamp(c[kSunlight].value * 0.01f, 0.0f, 0.5f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);

@@ -6,6 +6,8 @@
 bool SunShadowsDraw(IDirect3DDevice9* dev);   // before the volumetric light; true if drawn
 void SunShadowsReset();                        // before Reset, and for a new device
 void SunShadowsProbe();                        // log the next draw
+float SunShadowsShare();                       // 0..1: how much the sun shadows drew last frame (the sun's
+                                               // height and [night] strength), 0 when they did not
 
 // The sky near the horizon darkened (or tinted) by as much as [fog] shapes the fog's colour, so fogged
 // ground and trees meet a sky of the same colour. Before the sun shadows; true if drawn.

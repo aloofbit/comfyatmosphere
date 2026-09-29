@@ -13,7 +13,7 @@ struct FogSettings
 
     // The dial. 0 is the client's own fog, untouched; 100 is the heaviest the settings below allow.
     // Everything else in this struct describes the far end of the dial and is scaled by it.
-    float thickness = 60.0f;
+    float thickness = 10.0f;
 
     // Fog already present right at the camera, at 100 (0..0.9). The client's fog is linear from 0, so
     // near things are nearly clear and it only builds with distance; a haze floor fills in the near
@@ -32,14 +32,14 @@ struct FogSettings
     // meets a known amount of it, and the sky near the horizon is the fog colour. Mode 0, or with the
     // volumetric light off, is the game's fog moved by haze and reach as before.
     int   mode      = 1;
-    float density   = 0.005f;   // the height fog: fog per yard at the camera's height (the Ground Haze
+    float density   = 0.001f;   // the height fog: fog per yard at the camera's height (the Ground Haze
                                 // control, 0..0.02). Not scaled by the dial: the dial is the distance
                                 // fog. 0.02 scaled by the dial was tuned before the distance fog existed,
                                 // and with it on top the view distance shrank (2026-09-29)
-    float height    = 40.0f;    // yards: the fog thins by e (2.7 times) every this many yards up
+    float height    = 130.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
     float distance  = 1.0f;     // 0..1: how much of the game's distance fog (its start and end, as the dial
                                 // moves them) is kept, on a soft curve. Far mountains need it
-    float cover     = 0.85f;    // 0..1: past this share of the view distance, things fade in full into
+    float cover     = 0.65f;    // 0..1: past this share of the view distance, things fade in full into
                                 // the fog by the view distance, so nothing stops at a hard edge
     float skyDepth  = 0.99999f; // depth at or past which a pixel is the sky itself. Between the world's
                                 // slice and this: scenery drawn with the sky (far mountains), fogged in full
@@ -48,8 +48,8 @@ struct FogSettings
     // The game's fog colour. Not part of the dial: applied as set, with the fog on or off (Shift+F11
     // turns it off with the rest). Until 2026-09-29 it was scaled by the dial, so these are the old
     // values at the default thickness of 60.
-    float desaturate = 0.2f;         // 0 .. 1, toward grey
-    float darken     = 0.12f;        // 0 .. 1, toward black
+    float desaturate = 0.8f;         // 0 .. 1, toward grey
+    float darken     = 0.75f;        // 0 .. 1, toward black
     DWORD tint       = 0x5A6470;     // RGB the colour is pulled toward, by tintAmount
     float tintAmount = 0.0f;         // 0 .. 1
     // The sky near the horizon gets the same change as the colour, so that seam does not show: it is
@@ -88,7 +88,7 @@ struct ClientSettings
 // height cannot tell night from day. The game clock can.
 struct NightSettings
 {
-    float strength = 100.0f;    // the dial, 0..100: the rays and the light at night, as % of their day strength
+    float strength = 25.0f;     // the dial, 0..100: the rays and the light at night, as % of their day strength
     float dusk     = 20.0f;     // hour the change to night starts
     float dawn     = 5.0f;      // hour the change to day starts
     float fade     = 1.5f;      // hours each change takes
@@ -97,14 +97,14 @@ struct NightSettings
 // A readable depth buffer (depth.cpp), which the volumetric light reads. Off unless enabled.
 struct DepthSettings
 {
-    bool  enabled   = false;
+    bool  enabled   = true;
 };
 
 // A shadow map from the sun (shadow.cpp): the frame's opaque world draws replayed from the sun.
 struct ShadowSettings
 {
-    bool  enabled = false;
-    int   size    = 2048;     // texels per side. 4096 took twice the GPU time and gave the volumetric
+    bool  enabled = true;
+    int   size    = 4096;     // texels per side. 4096 took twice the GPU time and gave the volumetric
                               // light the same look (benchmark, 2026-09-24: 2.35 against 1.66
                               // microseconds a caster); it gives the sun shadows sharper edges. The
                               // Shadow Resolution control sets it: 1024, 2048 or 4096
@@ -119,7 +119,7 @@ struct ShadowSettings
     int   copyMax       = 2048;   // how many such copies to hold at once. 2 and 768 until 2026-09-24;
                                   // since then every streamed chunk needs a copy before it casts, and at
                                   // 2 a frame new ground stayed without shade while you walked
-    int   mapEvery      = 3;      // rebuild the map every N frames, 1..8 (the Shadow Redraw control). The map is anchored in the world and
+    int   mapEvery      = 1;      // rebuild the map every N frames, 1..8 (the Shadow Redraw control). The map is anchored in the world and
                                   // the light is smoothed over time, so 3 takes two thirds off the cost
                                   // of the replay for very little: the shade it holds is two frames old.
     bool  horizon       = true;   // keep the far-horizon draws: distant terrain can shade you too. They
@@ -140,8 +140,8 @@ struct ShadowSettings
 // Volumetric light (volume.cpp): the fog glowing where the sun reaches it. Needs [depth] and [shadow].
 struct VolumeSettings
 {
-    bool  enabled      = false;
-    float strength     = 30.0f;     // the dial, 0..100
+    bool  enabled      = true;
+    float strength     = 20.0f;     // the dial, 0..100
     float maxIntensity = 3.0f;      // gain at 100
     float density      = 0.009f;     // how much the air scatters, per yard
     float maxDistance  = 250.0f;     // yards along each line of sight (the shadow map's reach)
@@ -178,7 +178,7 @@ struct VolumeSettings
 struct SunShadowSettings
 {
     bool  enabled    = true;
-    float strength   = 50.0f;     // the dial, 0..100: how much of the light a shaded surface loses
+    float strength   = 35.0f;     // the dial, 0..100: how much of the light a shaded surface loses
     float bias       = 3.0f;      // texels of slack in the depth test, against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the
                                   // far map, 8 of the near one)
@@ -195,6 +195,11 @@ struct SunShadowSettings
                                   // a model it made patches where the arm shades the body
     float softness   = 1.0f;      // how far apart the nine taps of the soft edge are, in map texels.
                                   // Each tap blends four texels, so 0 is sharp but not stepped
+    float baked      = 0.0f;      // 0..1: how much of the terrain's own baked shadow is kept while these
+                                  // draw (terrainshade.cpp). It points one way at every hour. Back in
+                                  // full as they fade at dusk
+    float sunlight   = 0.2f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
+                                  // Sunlight control, in percent). A forest in shade was dark all over
     int   debug      = 0;         // 1 = the shade alone (white = lit)
 };
 
@@ -238,7 +243,7 @@ struct RaysSettings
     // The dial. 0 = no rays, 100 = maxExposure, on a square curve: exposure = maxExposure x (strength/100)^2.
     // 5.7 keeps the default of 35 at 0.7, the exposure it had when the dial was linear with a maximum of 2.
     // The rest describes the look and is not scaled by it.
-    float strength    = 35.0f;
+    float strength    = 30.0f;
     float maxExposure = 5.7f;
 
     // A pixel casts rays when it is within relThreshold of the brightest pixel in the frame (so the
@@ -264,7 +269,7 @@ struct RaysSettings
     float soften      = 8.0f;       // pixels of the mask (downscale x this on screen): the mask is blurred
                                     // this wide before the rays are drawn, so a gap between leaves a pixel
                                     // wide no longer makes a whole ray blink (2026-09-29). 0 = none
-    float smooth      = 0.7f;       // 0..0.95: how much of the last frame's mask is kept, moved with the sun.
+    float smooth      = 0.4f;       // 0..0.95: how much of the last frame's mask is kept, moved with the sun.
                                     // Leaf edges smaller than a pixel flipped between leaf and sky as the
                                     // camera moved, and the rays jittered (2026-09-29). 0 = none
     DWORD color       = 0xFFE6BE;   // RGB tint of the light
@@ -298,7 +303,7 @@ struct RaysSettings
 
 struct SkySettings
 {
-    bool clouds = true;   // false: the sky's cloud layer is not drawn
+    bool clouds = false;   // false: the sky's cloud layer is not drawn
 };
 
 // The benchmark (bench.cpp): Alt + the probe key runs each feature in turn and logs what it costs.

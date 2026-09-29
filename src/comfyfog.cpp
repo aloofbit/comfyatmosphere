@@ -33,6 +33,7 @@
 #include "shadow.h"
 #include "sun.h"
 #include "sunshadows.h"
+#include "terrainshade.h"
 #include "volume.h"
 
 #include <cmath>
@@ -369,6 +370,7 @@ namespace
     using ResetFn        = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
     using SetRSFn        = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DRENDERSTATETYPE, DWORD);
     using SetVSFn        = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, IDirect3DVertexShader9*);
+    using SetPSFn        = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, IDirect3DPixelShader9*);
     using DrawPrimFn     = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, UINT);
     using DrawIdxPrimFn  = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRIMITIVETYPE, INT, UINT, UINT, UINT, UINT);
     using DrawPrimUPFn   = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, const void*, UINT);
@@ -385,6 +387,7 @@ namespace
     ResetFn         g_oReset         = nullptr;
     SetRSFn         g_oSetRS         = nullptr;
     SetVSFn         g_oSetVS         = nullptr;
+    SetPSFn         g_oSetPS         = nullptr;
     DrawPrimFn      g_oDrawPrim      = nullptr;
     DrawIdxPrimFn   g_oDrawIdxPrim   = nullptr;
     DrawPrimUPFn    g_oDrawPrimUP    = nullptr;
@@ -743,6 +746,7 @@ namespace
             LampsReset();
             LampGlowReset();
             SunShadowsReset();
+            TerrainShadeReset();
             g_fog       = ClientFog();
             g_haveWorldFog = false;
             g_haveWorldFogColor = false;
@@ -914,6 +918,7 @@ namespace
         LampsReset();
         LampGlowReset();
         SunShadowsReset();
+        TerrainShadeReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -1032,6 +1037,19 @@ namespace
             g_lastPersp = persp;
         }
         return g_oSetTransform(dev, st, m);
+    }
+
+    // The terrain's shader, swapped for a copy with less of its baked shadow while the sun shadows draw
+    // (terrainshade.cpp). What is kept follows the sun shadows' share, so it is back in full at dusk.
+    HRESULT STDMETHODCALLTYPE hkSetPixelShader(IDirect3DDevice9* dev, IDirect3DPixelShader9* sh)
+    {
+        if (!g_inPass && sh)
+        {
+            const float share = g_cfg.master ? SunShadowsShare() : 0.0f;
+            const float keep  = 1.0f - (1.0f - g_cfg.sunShadows.baked) * share;
+            sh = TerrainShadeSwap(dev, sh, keep);
+        }
+        return g_oSetPS(dev, sh);
     }
 
     HRESULT STDMETHODCALLTYPE hkSetVertexShader(IDirect3DDevice9* dev, IDirect3DVertexShader9* sh)
@@ -1202,6 +1220,75 @@ namespace
             rt, where);
         if (early && g_probe.draws < 32 && nv && nv <= 8)
             DumpSkyDraw(dev, first, nv, upData);
+        // Each texture stage: size, format, and how it combines. For finding the terrain's baked shadow,
+        // which is a small texture of its own (2026-09-29).
+        {
+            char stages[512] = "";
+            size_t at = 0;
+            DWORD fvf = 0;
+            d->GetFVF(dev, &fvf);
+            for (DWORD st = 0; st < 4; ++st)
+            {
+                IDirect3DBaseTexture9* t = nullptr;
+                d->GetTexture(dev, st, &t);
+                DWORD cop = 0, aop = 0, carg1 = 0, carg2 = 0;
+                d->GetTextureStageState(dev, st, D3DTSS_COLOROP, &cop);
+                d->GetTextureStageState(dev, st, D3DTSS_ALPHAOP, &aop);
+                d->GetTextureStageState(dev, st, D3DTSS_COLORARG1, &carg1);
+                d->GetTextureStageState(dev, st, D3DTSS_COLORARG2, &carg2);
+                unsigned w = 0, h = 0, fmt = 0;
+                if (t && t->lpVtbl->GetType(t) == D3DRTYPE_TEXTURE)
+                {
+                    D3DSURFACE_DESC td = {};
+                    auto* t2 = reinterpret_cast<IDirect3DTexture9*>(t);
+                    if (SUCCEEDED(t2->lpVtbl->GetLevelDesc(t2, 0, &td)))
+                    {
+                        w = td.Width; h = td.Height; fmt = static_cast<unsigned>(td.Format);
+                    }
+                }
+                const int n = snprintf(stages + at, sizeof(stages) - at, " s%lu=%p %ux%u f%u cop%lu(%lu,%lu) aop%lu",
+                                       st, t, w, h, fmt, cop, carg1, carg2, aop);
+                if (n > 0 && at + n < sizeof(stages))
+                    at += n;
+                if (t) t->lpVtbl->Release(t);
+            }
+            Log("        fvf=0x%lX%s", fvf, stages);
+        }
+        // The pixel shader's bytecode, once each, next to the log: comfyfog_ps_<address>.bin.
+        if (ps)
+        {
+            static void* dumped[32] = {};
+            bool seen = false;
+            int  free = -1;
+            for (int i = 0; i < 32; ++i)
+            {
+                seen = seen || dumped[i] == ps;
+                if (!dumped[i] && free < 0)
+                    free = i;
+            }
+            UINT size = 0;
+            if (!seen && free >= 0 && SUCCEEDED(ps->lpVtbl->GetFunction(ps, nullptr, &size)) && size > 0 &&
+                size < 65536)
+            {
+                dumped[free] = ps;
+                std::vector<unsigned char> code(size);
+                if (SUCCEEDED(ps->lpVtbl->GetFunction(ps, code.data(), &size)))
+                {
+                    wchar_t path[MAX_PATH];
+                    wcscpy_s(path, g_logPath);
+                    wchar_t* slash = wcsrchr(path, L'\\');
+                    if (slash)
+                        swprintf(slash + 1, MAX_PATH - (slash + 1 - path), L"comfyfog_ps_%p.bin", ps);
+                    FILE* f = nullptr;
+                    if (!_wfopen_s(&f, path, L"wb") && f)
+                    {
+                        fwrite(code.data(), 1, size, f);
+                        fclose(f);
+                        Log("        ps %p: %u bytes written to comfyfog_ps_%p.bin", ps, size, ps);
+                    }
+                }
+            }
+        }
         if (rt)  rt->lpVtbl->Release(rt);
         if (tex) tex->lpVtbl->Release(tex);
         if (ps)  ps->lpVtbl->Release(ps);
@@ -1465,6 +1552,7 @@ namespace
             HookSlot(reinterpret_cast<void**>(&v->SetRenderTarget),        &hkSetRenderTarget,        reinterpret_cast<void**>(&g_oSetRT))         &&
             HookSlot(reinterpret_cast<void**>(&v->StretchRect),            &hkStretchRect,            reinterpret_cast<void**>(&g_oStretchRect))   &&
             HookSlot(reinterpret_cast<void**>(&v->SetVertexShader),        &hkSetVertexShader,        reinterpret_cast<void**>(&g_oSetVS))         &&
+            HookSlot(reinterpret_cast<void**>(&v->SetPixelShader),         &hkSetPixelShader,         reinterpret_cast<void**>(&g_oSetPS))         &&
             HookSlot(reinterpret_cast<void**>(&v->SetVertexShaderConstantF), &hkSetVertexShaderConstantF, reinterpret_cast<void**>(&g_oSetVSConstF)) &&
             HookSlot(reinterpret_cast<void**>(&v->SetLight),               &hkSetLight,               reinterpret_cast<void**>(&g_oSetLight))      &&
             HookSlot(reinterpret_cast<void**>(&v->LightEnable),            &hkLightEnable,            reinterpret_cast<void**>(&g_oLightEnable))   &&
