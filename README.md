@@ -32,19 +32,24 @@ All settings are in `comfyfog.ini`. **F11 reloads it in game.**
 
 ## In-game controls
 
-The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds these controls to **Video > Shaders** in the
-game's options:
+The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of controls to the game's options:
+**Video > Atmosphere**, below Shaders.
 
-![The comfyatmosphere controls in Video > Shaders: fog, volumetric light with its strength and quality, sun rays, night strength, and clouds.](media/settings-example.png)
+![The comfyatmosphere controls: fog, volumetric light with its strength and quality, sun rays, night strength, and clouds.](media/settings-example.png)
 
 | Control | Setting in `comfyfog.ini` |
 | --- | --- |
 | Atmospheric Fog, Fog Thickness | `[fog] enabled`, `thickness` |
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
+| Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
+| Shadow Softness | `[sunshadows] softness` |
+| Shadow Redraw | `[shadow] mapEvery` |
 | Sun Rays, Sun Rays Strength | `[rays] enabled`, `strength` |
+| Sun Rays Softness, Sun Rays Smoothing | `[rays] soften`, `smooth` (in percent) |
 | Night Strength | `[night] strength` |
 | Clouds | `[sky] clouds` |
+| Debug View | the `debug` values of each effect; 0 leaves them to the ini |
 
 A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
 the values from `comfyfog.ini` back.
@@ -55,9 +60,9 @@ the values from `comfyfog.ini` back.
   both off at night. The change to night starts at 20:00 and the change to day at 05:00. Each takes 1.5
   hours. Set other hours with `[night] dusk`, `dawn` and `fade`. For rays from the larger moon only, set
   `[rays] secondMoon = 0`.
-- **Volumetric Light Quality** at High uses the values in `comfyfog.ini`. Medium and Low replace four of
-  them with cheaper values: a smaller shadow map, fewer samples, a lower resolution for the light, and a
-  shadow map that is drawn less often. If the frame rate drops with the light on, set it lower.
+- **Volumetric Light Quality** at High uses the values in `comfyfog.ini`. Medium and Low replace two of
+  them with cheaper values: fewer samples and a lower resolution for the light. If the frame rate drops
+  with the light on, set it lower, or set Shadow Resolution lower or Shadow Redraw higher.
 - The addon needs `comfyfog.dll`. Without the DLL, it adds no controls.
 - The other settings stay in `comfyfog.ini` only.
 
@@ -110,7 +115,7 @@ Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/rel
 4. Start the game with `VanillaFixes.exe`.
 
 To turn on volumetric light, set `enabled = 1` under `[depth]`, `[shadow]` and `[volume]` in the ini, or tick
-**Volumetric Light** in Video > Shaders.
+**Volumetric Light** in Video > Atmosphere.
 
 ## Build
 

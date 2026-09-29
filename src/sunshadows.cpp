@@ -8,7 +8,10 @@
 //      surface's facing from how that point changes between neighbouring pixels.
 //   2. Move the point a little along its facing ([sunshadows] normalBias) and look it up in the map, nine
 //      taps a texel apart times [sunshadows] softness, so the edge is soft rather than stepped. The offset
-//      keeps a surface from shading itself. Near the player the near map is used ([shadow] nearRange, a
+//      keeps a surface from shading itself. Each tap tests the four texels around its point and blends
+//      the answers by where the point falls between them (2026-09-29). Before, a tap tested one texel,
+//      so nine taps gave ten levels of shade and the edge moved in whole texels: at the far map's quarter
+//      of a yard a texel, shadows had the stepped outline of the map. Near the player the near map is used ([shadow] nearRange, a
 //      texel of 0.03 yards against the far map's 0.24), blended into the far one toward its edge. Bias and
 //      offset are in texels of each map, so the near map gets finer ones.
 //   3. Darken by the share in shade: out = scene x (1 - strength x shaded). A surface that faces away from
@@ -78,20 +81,33 @@ float4 gN1   : register(c13);
 float4 gN2   : register(c14);
 float4 gN3   : register(c15);
 float4 gNB   : register(c16);       // near map: depth bias, normal offset, one texel, 1 if there is one
-float Tap(sampler2D m, float2 uv, float z, float bias)
+float Test(sampler2D m, float2 uv, float z, float bias)
 {
     return (z <= tex2Dlod(m, float4(uv, 0, 0)).r + bias) ? 1.0 : 0.0;
+}
+// One tap: the four texels around uv tested, the answers blended by where uv falls between them.
+float Tap(sampler2D m, float2 uv, float z, float bias, float size, float texel)
+{
+    float2 t = uv * size - 0.5;
+    float2 f = frac(t);
+    float2 b = (t - f + 0.5) * texel;           // the centre of the texel up and to the left
+    float  a = Test(m, b,                       z, bias);
+    float  c = Test(m, b + float2(texel, 0.0),  z, bias);
+    float  d = Test(m, b + float2(0.0, texel),  z, bias);
+    float  e = Test(m, b + float2(texel, texel), z, bias);
+    return lerp(lerp(a, c, f.x), lerp(d, e, f.x), f.y);
 }
 // The share of nine taps, a texel x softness apart, that sees the sun.
 float Lit(sampler2D m, float4 s, float bias, float texel)
 {
     float2 uv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
-    float2 o  = texel * gB.w;
-    float lit = Tap(m, uv, s.z, bias)
-              + Tap(m, uv + float2(-o.x, -o.y), s.z, bias) + Tap(m, uv + float2(0.0, -o.y), s.z, bias)
-              + Tap(m, uv + float2( o.x, -o.y), s.z, bias) + Tap(m, uv + float2(-o.x,  0.0), s.z, bias)
-              + Tap(m, uv + float2( o.x,  0.0), s.z, bias) + Tap(m, uv + float2(-o.x,  o.y), s.z, bias)
-              + Tap(m, uv + float2( 0.0,  o.y), s.z, bias) + Tap(m, uv + float2( o.x,  o.y), s.z, bias);
+    float  n  = 1.0 / texel;
+    float  o  = texel * gB.w;
+    float lit = Tap(m, uv, s.z, bias, n, texel)
+              + Tap(m, uv + float2(-o, -o), s.z, bias, n, texel) + Tap(m, uv + float2(0.0, -o), s.z, bias, n, texel)
+              + Tap(m, uv + float2( o, -o), s.z, bias, n, texel) + Tap(m, uv + float2(-o, 0.0), s.z, bias, n, texel)
+              + Tap(m, uv + float2( o, 0.0), s.z, bias, n, texel) + Tap(m, uv + float2(-o,  o), s.z, bias, n, texel)
+              + Tap(m, uv + float2(0.0,  o), s.z, bias, n, texel) + Tap(m, uv + float2( o,  o), s.z, bias, n, texel);
     return lit / 9.0;
 }
 float4 main(float2 uv : TEXCOORD0) : COLOR
@@ -111,21 +127,28 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     if (gD.x > 1.5)
         return float4(facing.xxx, 1.0);                                    // debug 2: facing the sun
 
-    // The far map, fading out over its last tenth, where it ends.
-    float3 Qf  = P + N * gB.y;
-    float4 sf  = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
-    float2 ef  = abs(sf.xy);
-    float  lit = lerp(1.0, Lit(sShadow, sf, gB.x, gB.z), saturate((1.0 - max(ef.x, ef.y)) * 10.0));
-    // The near map where it reaches, blended in over the band from 80% to 90% of its half-width.
+    // The near map where it reaches, blended into the far one over the band from 80% to 90% of its
+    // half-width. The far map is read only where the near map does not cover all of the shade.
+    float wn = 0.0, litN = 1.0;
     [branch] if (gNB.w > 0.5)
     {
         float3 Qn = P + N * gNB.y;
         float4 sn = Qn.x * gN0 + Qn.y * gN1 + Qn.z * gN2 + gN3;
         float2 en = abs(sn.xy);
-        float  wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
+        wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
         [branch] if (wn > 0.0)
-            lit = lerp(lit, Lit(sNear, sn, gNB.x, gNB.z), wn);
+            litN = Lit(sNear, sn, gNB.x, gNB.z);
     }
+    // The far map, fading out over its last tenth, where it ends.
+    float litF = 1.0;
+    [branch] if (wn < 1.0)
+    {
+        float3 Qf = P + N * gB.y;
+        float4 sf = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
+        float2 ef = abs(sf.xy);
+        litF = lerp(1.0, Lit(sShadow, sf, gB.x, gB.z), saturate((1.0 - max(ef.x, ef.y)) * 10.0));
+    }
+    float lit = lerp(litF, litN, wn);
     // A surface that faces away from the sun cannot see it, so it takes gD.y of the shade with no test:
     // the client lights models almost evenly all round, and a backlit trunk stayed bright in the canopy's
     // shade. Tested there, the back of a walking character read the map at a grazing angle against its

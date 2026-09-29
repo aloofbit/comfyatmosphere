@@ -24,7 +24,7 @@
 // "nothing" and "fog" is noise, which shows how far apart two steps must be to mean something.
 //
 // Stand still for the whole run and do not move the mouse. Face the sun: the rays do not draw when the sun
-// is behind you, and the table says so. F11, a control moved in Video > Shaders, or a device reset stops
+// is behind you, and the table says so. F11, a control moved in Video > Atmosphere, or a device reset stops
 // the run.
 
 #define CINTERFACE

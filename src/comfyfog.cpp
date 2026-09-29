@@ -821,7 +821,7 @@ namespace
         PollKeys(dev);
         if (CVarsPoll())
         {
-            BenchCancel("a control in Video > Shaders moved", false);
+            BenchCancel("a control in Video > Atmosphere moved", false);
             ApplyAll(dev);   // a moved slider shows this frame, not on the next zone change
         }
 

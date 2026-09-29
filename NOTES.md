@@ -176,10 +176,11 @@ after the controls are laid over the ini):
 
 | | Low | Medium | High |
 | --- | --- | --- | --- |
-| `[shadow] size` | 1024 | 1024 | ini (2048) |
 | `[volume] steps` | 32 | 48 | ini (64) |
 | `[volume] downscale` | 3 | 2 | ini (2) |
-| `[shadow] mapEvery` | 4 | 3 | ini (3) |
+
+It also set `[shadow] size` (1024 at Low and Medium) and `[shadow] mapEvery` (4 and 3) until 2026-09-29,
+when those got their own controls, Shadow Resolution and Shadow Redraw.
 
 A slider, not a dropdown: the options window labels a slider's ends Low and High when it has no
 `numberLabels` (OptionsFrame.lua in patch-9.mpq), and a dropdown needs menu code of its own. Not yet
@@ -511,6 +512,19 @@ about 0.12 yards a frame, so the character's own shadow held for two frames and 
 ten texels of the near map, and flickered over the character. Models within 3 yards of the player are
 now always placed again. With that, `[shadow] mapEvery` 3 looks the same as 1 in game.
 
+**Stepped edges, and the resolution control.** Each of the nine taps tested one texel, so the shade had
+ten levels and its edge moved in whole texels: beyond the near map, shadows had the outline of the far
+map's quarter-yard texels. Each tap now tests the four texels around its point and blends the answers by
+where the point falls between them, so the edge moves smoothly inside a texel. The shader reads the near
+map first and the far map only where the near map does not cover all of the shade. `[shadow] size` got
+its own control (Shadow Resolution: 1024, 2048, 4096), and Volumetric Light Quality stopped setting it;
+`[sunshadows] softness` got one too (Shadow Softness), and so did `[shadow] mapEvery` (Shadow Redraw, 1..8).
+
+**A page of its own.** With fifteen controls, the addon moved them from Video > Shaders to a page of its
+own, Video > Atmosphere (2026-09-29). In `GameOptions` an entry with `options` is a page and one without
+is a heading; the list shows 18 rows and the client uses 15. The panel draws the list once as it loads,
+before `VARIABLES_LOADED`, so the addon calls `OptionsFrame_UpdateCategories` after it inserts the page.
+
 The cost of the near map and of the pass has not been measured: the benchmark has a line for the pass
 (`bench: the sun shadows`), and the replay's share is in the shadow map's line.
 
@@ -532,12 +546,12 @@ a tree swaying, opened or closed one, and the radial blur turned each into a who
   (the mask holds only far things, which move with the sun as the camera turns). Not used after a fast
   turn, a pause, or with the sun behind the camera.
 
-Both are sliders in Video > Shaders (Sun Rays Softness, Sun Rays Smoothing; smoothing in percent). The
+Both are sliders in Video > Atmosphere (Sun Rays Softness, Sun Rays Smoothing; smoothing in percent). The
 panel also has a **Debug View** slider: one number per debug view of every effect, listed in its tooltip
 and named in the log as `--- debug view N ---`; 0 leaves the ini's own debug values in charge. The list is
 `kDebugViews` in `cvars.cpp`, and the addon's tooltip must list it in the same order. The panel builds a
 page from a table of tick boxes and sliders, so a dropdown is not possible there. The addon now adds a
-control only if its CVar exists, so an older DLL cannot break the Shaders page.
+control only if its CVar exists, so an older DLL cannot break the page.
 
 ## The framing that matters
 

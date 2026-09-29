@@ -1,17 +1,21 @@
--- Adds the comfyatmosphere controls to Video -> Shaders.
+-- Adds the comfyatmosphere controls to the options window, on a page of their own: Video -> Atmosphere.
 --
 -- This client's options panel is data-driven, as the ComfyGrass addon describes: GameOptions is a global
--- table, and OptionsFrame.lua builds each page from it (both in patch-9.mpq). So each control is one
--- table entry with a cvar. The panel calls SetCVar while a slider moves, and comfyfog.dll reads the CVars
--- a few times a second, so a change shows in the world at once. Cancel puts the old values back the same
--- way.
+-- table, and OptionsFrame.lua builds each page from it (both in patch-9.mpq). An entry with `options` is
+-- a page in the list on the left, and one without is a heading (Video, Sound, Interface). So the page is
+-- one entry, put after Shaders, and each control is one table entry with a cvar. The list shows 18 rows
+-- and the client uses 15, so the page fits without scrolling the list. Until 2026-09-29 the controls
+-- were added to the Shaders page.
+--
+-- The panel calls SetCVar while a slider moves, and comfyfog.dll reads the CVars a few times a second, so
+-- a change shows in the world at once. Cancel puts the old values back the same way.
 --
 -- comfyfog.dll registers the CVars, with the values in comfyfog.ini as their defaults. So the page's
 -- Defaults button puts the ini values back.
 --
 -- Without the DLL the CVars do not exist, and GetCVar raises an error for a CVar that does not exist.
 -- The panel calls GetCVar for every entry on a page, so an entry for a missing CVar would break the
--- whole Shaders page. The controls are added only when the DLL has registered its CVars, and each one
+-- whole page. The controls are added only when the DLL has registered its CVars, and each one
 -- only if its own CVar exists: an older DLL has fewer of them than this addon.
 --
 -- Without the DLL the addon says nothing. A launcher that turns the mod off removes its dlls.txt line
@@ -21,11 +25,15 @@
 -- (measured: a thickness of 85 was written, fog at its default 1 was not). So a setting nobody moved
 -- still follows comfyfog.ini, and the addon keeps no copy of its own.
 
+COMFYATMOSPHERE_CATEGORY       = "Atmosphere";
 COMFYATMOSPHERE_FOG            = "Atmospheric Fog";
 COMFYATMOSPHERE_FOG_THICKNESS  = "Fog Thickness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
+COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
+COMFYATMOSPHERE_SHADOW_SOFTNESS = "Shadow Softness";
+COMFYATMOSPHERE_SHADOW_EVERY   = "Shadow Redraw";
 COMFYATMOSPHERE_RAYS           = "Sun Rays";
 COMFYATMOSPHERE_RAYS_STRENGTH  = "Sun Rays Strength";
 COMFYATMOSPHERE_RAYS_SOFTEN    = "Sun Rays Softness";
@@ -82,6 +90,40 @@ local ENTRIES = {
 		minval = 1,
 		maxval = 3,
 		step = 1,
+	},
+	{
+		-- Three positions: 1024, 2048 and 4096 texels a side. The sun shadows use the volumetric light's
+		-- shadow map, so they need it on.
+		name = "COMFYATMOSPHERE_SHADOW_RESOLUTION",
+		desc = "Higher gives sharper shadows and costs more frame rate. The shadows need Volumetric Light on.",
+		type = "slider",
+		cvar = "comfyShadowResolution",
+		dependency = { "comfyVolume", "1" },
+		minval = 1,
+		maxval = 3,
+		step = 1,
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOW_SOFTNESS",
+		desc = "How soft the edges of shadows are. 0 gives sharp edges.",
+		type = "slider",
+		cvar = "comfyShadowSoftness",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 8,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOW_EVERY",
+		desc = "The shadow map is drawn again every this many frames. 1 is every frame. Higher costs less frame rate, and the shadows of moving things lag further behind.",
+		type = "slider",
+		cvar = "comfyShadowEvery",
+		dependency = { "comfyVolume", "1" },
+		minval = 1,
+		maxval = 8,
+		step = 1,
+		numberLabels = 1,
 	},
 	{
 		name = "COMFYATMOSPHERE_RAYS",
@@ -183,16 +225,23 @@ local function AddControls()
 	end
 
 	for _, category in ipairs(GameOptions) do
+		if category.name == COMFYATMOSPHERE_CATEGORY then
+			return true;    -- already present
+		end
+	end
+
+	for index, category in ipairs(GameOptions) do
 		if category.name == PIXEL_SHADERS and category.options then
-			for _, option in ipairs(category.options) do
-				if option.cvar == "comfyFog" then
-					return true;    -- already present
-				end
-			end
+			local options = {};
 			for _, option in ipairs(ENTRIES) do
 				if HasCVar(option.cvar) then
-					table.insert(category.options, option);
+					table.insert(options, option);
 				end
+			end
+			table.insert(GameOptions, index + 1, { name = COMFYATMOSPHERE_CATEGORY, options = options });
+			-- The panel draws its list of pages once, as it loads, which is before this.
+			if OptionsFrame_UpdateCategories then
+				OptionsFrame_UpdateCategories();
 			end
 			return true;
 		end

@@ -72,8 +72,10 @@ struct DepthSettings
 struct ShadowSettings
 {
     bool  enabled = false;
-    int   size    = 2048;     // texels per side. 4096 took twice the GPU time for the same look
-                              // (benchmark, 2026-09-24: 2.35 against 1.66 microseconds a caster)
+    int   size    = 2048;     // texels per side. 4096 took twice the GPU time and gave the volumetric
+                              // light the same look (benchmark, 2026-09-24: 2.35 against 1.66
+                              // microseconds a caster); it gives the sun shadows sharper edges. The
+                              // Shadow Resolution control sets it: 1024, 2048 or 4096
     float range   = 250.0f;    // yards covered either side of the player
     float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
@@ -85,7 +87,7 @@ struct ShadowSettings
     int   copyMax       = 2048;   // how many such copies to hold at once. 2 and 768 until 2026-09-24;
                                   // since then every streamed chunk needs a copy before it casts, and at
                                   // 2 a frame new ground stayed without shade while you walked
-    int   mapEvery      = 3;      // rebuild the map every N frames. The map is anchored in the world and
+    int   mapEvery      = 3;      // rebuild the map every N frames, 1..8 (the Shadow Redraw control). The map is anchored in the world and
                                   // the light is smoothed over time, so 3 takes two thirds off the cost
                                   // of the replay for very little: the shade it holds is two frames old.
     bool  horizon       = true;   // keep the far-horizon draws: distant terrain can shade you too. They
@@ -128,8 +130,9 @@ struct VolumeSettings
     int   debug        = 0;         // 1 = the glow alone, white; 2..5 = one stage of the march (see ini)
 
     // The Volumetric Light Quality control: 3 (high) uses the values in this file as they are; 2 (medium)
-    // and 1 (low) replace four of them with cheaper fixed values (ApplyVolumeQuality). Added 2026-09-24
-    // because players reported low frame rates with the light on.
+    // and 1 (low) replace two of them with cheaper fixed values (ApplyVolumeQuality). Added 2026-09-24
+    // because players reported low frame rates with the light on. It set the shadow map's size and how
+    // often it is redrawn too, until those got their own controls (2026-09-29).
     int   quality      = 3;
 
     // Fade the light when the sun's disc is behind terrain on screen (cover.cpp). The shadow map holds only
@@ -149,7 +152,8 @@ struct SunShadowSettings
     float normalBias = 1.5f;      // texels each point is moved along its surface before the test
     float backShade  = 0.8f;      // 0..1: the shade a surface facing away from the sun gets. The client
                                   // lights models almost evenly all round, so 0 left backlit trunks bright
-    float softness   = 1.0f;      // how far apart the nine taps of the soft edge are, in map texels
+    float softness   = 1.0f;      // how far apart the nine taps of the soft edge are, in map texels.
+                                  // Each tap blends four texels, so 0 is sharp but not stepped
     int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = how much each surface faces the sun
 };
 
@@ -296,7 +300,6 @@ extern Settings g_cfg;
 
 void LoadSettings(const wchar_t* iniPath);
 
-// [volume] quality below 3: the shadow map size, the march's steps and resolution, and how often the map
-// is redrawn are replaced by cheaper fixed values. After the in-game controls are laid over the ini.
+// [volume] quality below 3: the march's steps and resolution are replaced by cheaper fixed values. After the in-game controls are laid over the ini.
 void ApplyVolumeQuality(Settings& s);
 void ResolveIniPath(HMODULE self, wchar_t* out, size_t count);

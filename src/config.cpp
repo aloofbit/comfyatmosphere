@@ -65,17 +65,13 @@ void ResolveIniPath(HMODULE self, wchar_t* out, size_t count)
 void ApplyVolumeQuality(Settings& s)
 {
     //                           low  medium
-    static const int size[2]     = { 1024, 1024 };
     static const int steps[2]    = {   32,   48 };
     static const int down[2]     = {    3,    2 };
-    static const int every[2]    = {    4,    3 };
     if (s.volume.quality >= 3)
         return;
     const int q = s.volume.quality <= 1 ? 0 : 1;
-    s.shadow.size      = size[q];
     s.volume.steps     = steps[q];
     s.volume.downscale = down[q];
-    s.shadow.mapEvery  = every[q];
 }
 
 void LoadSettings(const wchar_t* ini)

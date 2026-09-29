@@ -1,4 +1,4 @@
-// cvars: the in-game controls. The ComfyAtmosphere addon adds tick boxes and sliders to Video > Shaders,
+// cvars: the in-game controls. The ComfyAtmosphere addon adds tick boxes and sliders to Video > Atmosphere,
 // and each one is a CVar. The client's options panel calls SetCVar as a slider moves, and this file reads
 // the CVars back a few times a second and lays their values over the ini.
 //
@@ -65,7 +65,8 @@ namespace
                                            DWORD arg5, void* cbArg);
 
     enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
-                kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kKnobs };
+                kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
+                kShadowEvery, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -77,6 +78,9 @@ namespace
         "comfyRaysSoften",
         "comfyRaysSmooth",
         "comfyDebugView",
+        "comfyShadowResolution",
+        "comfyShadowSoftness",
+        "comfyShadowEvery",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -191,6 +195,11 @@ namespace
         case kRaysSoften:     snprintf(out, cap, "%.0f", s.rays.soften); break;
         case kRaysSmooth:     snprintf(out, cap, "%.0f", s.rays.smooth * 100.0f); break;   // a percentage
         case kDebugView:      snprintf(out, cap, "0"); break;                                // never from the ini
+        // 1, 2 or 3: 1024, 2048 or 4096 texels a side.
+        case kShadowResolution: snprintf(out, cap, "%d", s.shadow.size <= 1024 ? 1 : s.shadow.size <= 2048 ? 2 : 3);
+                              break;
+        case kShadowSoftness: snprintf(out, cap, "%.0f", s.sunShadows.softness); break;
+        case kShadowEvery:    snprintf(out, cap, "%d", s.shadow.mapEvery); break;
         }
     }
 
@@ -207,6 +216,10 @@ namespace
         if (c[kNightStrength].seen)  s.night.strength  = Clamp(c[kNightStrength].value, 0.0f, 100.0f);
         if (c[kRaysSoften].seen)     s.rays.soften     = Clamp(c[kRaysSoften].value, 0.0f, 16.0f);
         if (c[kRaysSmooth].seen)     s.rays.smooth     = Clamp(c[kRaysSmooth].value * 0.01f, 0.0f, 0.9f);
+        if (c[kShadowResolution].seen)
+            s.shadow.size = 512 << static_cast<int>(Clamp(c[kShadowResolution].value, 1.0f, 3.0f) + 0.5f);
+        if (c[kShadowSoftness].seen) s.sunShadows.softness = Clamp(c[kShadowSoftness].value, 0.0f, 8.0f);
+        if (c[kShadowEvery].seen)    s.shadow.mapEvery = static_cast<int>(Clamp(c[kShadowEvery].value, 1.0f, 8.0f) + 0.5f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);
