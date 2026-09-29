@@ -65,7 +65,7 @@ namespace
                                            DWORD arg5, void* cbArg);
 
     enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
-                kNightStrength, kKnobs };
+                kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -74,7 +74,33 @@ namespace
         "comfyRays", "comfyRaysStrength",
         "comfyVolumeQuality",
         "comfyNightStrength",
+        "comfyRaysSoften",
+        "comfyRaysSmooth",
+        "comfyDebugView",
     };
+
+    // The Debug View slider: one number for every effect's debug view, so a view is one move in the
+    // options window instead of an ini edit and F11. 0 leaves the ini's own debug values alone. The panel
+    // cannot draw a dropdown (it builds a page from a table of tick boxes and sliders), so the names are
+    // in the slider's tooltip and in the log.
+    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays; };
+    const DebugViewInfo kDebugViews[] = {
+        { "off",                                              0, 0, 0, 0 },
+        { "volumetric light: the glow alone",                 1, 0, 0, 0 },
+        { "volumetric light: share of each line in sun",      5, 0, 0, 0 },
+        { "volumetric light: the shadow map",                 6, 0, 0, 0 },
+        { "volumetric light: the depth it reads",             3, 0, 0, 0 },
+        { "sun shadows: the shade alone",                     0, 1, 0, 0 },
+        { "sun shadows: how much each surface faces the sun", 0, 2, 0, 0 },
+        { "lamps: the glow alone",                            0, 0, 1, 0 },
+        { "lamps: the distance read",                         0, 0, 2, 0 },
+        { "lamps: the light on surfaces alone",               0, 0, 3, 0 },
+        { "sun rays: the mask",                               0, 0, 0, 1 },
+        { "sun rays: the rays alone",                         0, 0, 0, 2 },
+        { "sun rays: the sky kept before the clouds",         0, 0, 0, 3 },
+    };
+    constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
+    int g_debugViewLogged = -1;
 
     struct Slot
     {
@@ -162,6 +188,9 @@ namespace
         case kRaysStrength:   snprintf(out, cap, "%.0f", s.rays.strength); break;
         case kVolumeQuality:  snprintf(out, cap, "%d", s.volume.quality); break;
         case kNightStrength:  snprintf(out, cap, "%.0f", s.night.strength); break;
+        case kRaysSoften:     snprintf(out, cap, "%.0f", s.rays.soften); break;
+        case kRaysSmooth:     snprintf(out, cap, "%.0f", s.rays.smooth * 100.0f); break;   // a percentage
+        case kDebugView:      snprintf(out, cap, "0"); break;                                // never from the ini
         }
     }
 
@@ -176,6 +205,25 @@ namespace
         if (c[kRays].seen)           s.rays.enabled    = c[kRays].value != 0.0f;
         if (c[kRaysStrength].seen)   s.rays.strength   = Clamp(c[kRaysStrength].value, 0.0f, 100.0f);
         if (c[kNightStrength].seen)  s.night.strength  = Clamp(c[kNightStrength].value, 0.0f, 100.0f);
+        if (c[kRaysSoften].seen)     s.rays.soften     = Clamp(c[kRaysSoften].value, 0.0f, 16.0f);
+        if (c[kRaysSmooth].seen)     s.rays.smooth     = Clamp(c[kRaysSmooth].value * 0.01f, 0.0f, 0.9f);
+        if (c[kDebugView].seen)
+        {
+            const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);
+            if (v > 0)
+            {
+                const DebugViewInfo& d = kDebugViews[v];
+                s.volume.debug     = d.volume;
+                s.sunShadows.debug = d.sunShadows;
+                s.lamps.debug      = d.lamps;
+                s.rays.debugView   = d.rays;
+            }
+            if (v != g_debugViewLogged)
+            {
+                g_debugViewLogged = v;
+                Log("--- debug view %d: %s ---", v, v > 0 ? kDebugViews[v].name : "off (the ini's debug values apply)");
+            }
+        }
         if (c[kVolumeQuality].seen)  s.volume.quality  = static_cast<int>(Clamp(c[kVolumeQuality].value, 1.0f, 3.0f) + 0.5f);
 
         // One tick box for the light, so it turns on what the light needs. Off, the depth buffer and the

@@ -514,6 +514,31 @@ now always placed again. With that, `[shadow] mapEvery` 3 looks the same as 1 in
 The cost of the near map and of the pass has not been measured: the benchmark has a line for the pass
 (`bench: the sun shadows`), and the replay's share is in the shadow map's line.
 
+## Sun rays jumping behind leaves (2026-09-29)
+
+Tilting the camera slowly down from the sun past trees 100 yards away, the sun rays jumped by 50 pixels
+or more. It took a while to find because two effects are called "rays": the volumetric light was
+suspected first, and a light grid and a four-texel shadow read were built for it and then removed, since
+the volumetric light was not the cause. **Ctrl+F11 (rays off) and Alt+F11 (light off) tell the two apart
+in one test; do that first next time.** Turning the sun-cover test off did not change it either.
+
+The mask view (`[rays] debugView = 1`) showed the cause: the only bright pixels were small gaps of sky
+between the leaves at the top of the screen, a pixel or two wide at that distance. Any camera move, or
+a tree swaying, opened or closed one, and the radial blur turned each into a whole streak.
+
+- `[rays] soften` (8): the mask is blurred, 9-tap Gaussian across and down, before the rays are drawn,
+  so a one-pixel gap adds a faint streak and a real opening still gives a strong beam. This is the fix.
+- `[rays] smooth` (0.7): part of the last frame's mask is kept, moved by the sun's shift on screen
+  (the mask holds only far things, which move with the sun as the camera turns). Not used after a fast
+  turn, a pause, or with the sun behind the camera.
+
+Both are sliders in Video > Shaders (Sun Rays Softness, Sun Rays Smoothing; smoothing in percent). The
+panel also has a **Debug View** slider: one number per debug view of every effect, listed in its tooltip
+and named in the log as `--- debug view N ---`; 0 leaves the ini's own debug values in charge. The list is
+`kDebugViews` in `cvars.cpp`, and the addon's tooltip must list it in the same order. The panel builds a
+page from a table of tick boxes and sliders, so a dropdown is not possible there. The addon now adds a
+control only if its CVar exists, so an older DLL cannot break the Shaders page.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

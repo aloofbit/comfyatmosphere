@@ -216,6 +216,12 @@ struct RaysSettings
                                     // sun on screen, and a simulation showed 1 swings MORE as the camera turns
     float adaptTime   = 0.5f;       // seconds the brightness reference takes to follow the scene
     float decay       = 0.96f;      // per-sample falloff along a ray; lower = shorter, softer shafts
+    float soften      = 8.0f;       // pixels of the mask (downscale x this on screen): the mask is blurred
+                                    // this wide before the rays are drawn, so a gap between leaves a pixel
+                                    // wide no longer makes a whole ray blink (2026-09-29). 0 = none
+    float smooth      = 0.7f;       // 0..0.95: how much of the last frame's mask is kept, moved with the sun.
+                                    // Leaf edges smaller than a pixel flipped between leaf and sky as the
+                                    // camera moved, and the rays jittered (2026-09-29). 0 = none
     DWORD color       = 0xFFE6BE;   // RGB tint of the light
     int   passes      = 3;          // blur passes of 16 samples each, 1..3
     int   downscale   = 2;          // work at 1/N resolution per axis, 1..8

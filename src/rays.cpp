@@ -19,6 +19,18 @@
 //      max-reductions: under a forest canopy with heavy fog nothing reaches a fixed threshold (the fog colour
 //      itself sat at 0.33), yet the sky gaps are still the brightest thing in view and are exactly what
 //      should cast.
+//      The mask is then softened ([rays] soften, 2026-09-29): a Gaussian blur across and down, so the rays
+//      come from how much sky an area shows, not from single pixels. Under a canopy the only bright pixels
+//      were the gaps between leaves, a pixel or two wide at 100 yards; any camera move, or a tree swaying,
+//      opened or closed one, and each became or lost a whole streak: rays jumping 50 pixels. Softened, a
+//      one-pixel gap is spread thin and adds a faint streak; a real opening still gives a strong beam.
+//      The mask is then blended with the last frame's ([rays] smooth, 2026-09-29). Its brightest pixels
+//      are sky between leaves, and at 100 yards a leaf's edge is smaller than a pixel: as the camera
+//      moved by fractions of a pixel the edges flipped between leaf and sky, the threshold made each
+//      flip all or nothing, and the blur carried it down the whole ray, so the rays jittered. The last
+//      frame's mask is first moved by as much as the sun moved on screen: the mask holds only far
+//      things, sky and distant treetops, and those move across the screen with the sun as the camera
+//      turns. No history is used after a fast turn, a pause, or with the sun behind the camera.
 //   3. Radial blur toward the sun, in passes of 16 samples whose step grows by 16x each pass, so three
 //      passes cover the ray length with 4096 effective taps and no banding.
 //   4. Add the result back over the back buffer.
@@ -158,6 +170,35 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 }
 )HLSL";
 
+    // The mask softened: 9 taps along gD (one step), Gaussian weights; run once across and once down.
+    const char* kSoftenHlsl = R"HLSL(
+sampler2D s0 : register(s0);
+float4 gD : register(c0);      // one step, uv
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float4 c = tex2D(s0, uv) * 0.2270;
+    c += (tex2D(s0, uv + gD.xy)       + tex2D(s0, uv - gD.xy))       * 0.1945;
+    c += (tex2D(s0, uv + gD.xy * 2.0) + tex2D(s0, uv - gD.xy * 2.0)) * 0.1216;
+    c += (tex2D(s0, uv + gD.xy * 3.0) + tex2D(s0, uv - gD.xy * 3.0)) * 0.0540;
+    c += (tex2D(s0, uv + gD.xy * 4.0) + tex2D(s0, uv - gD.xy * 4.0)) * 0.0162;
+    return c;
+}
+)HLSL";
+
+    // The mask, blended with the last frame's, moved by the sun's shift on screen.
+    const char* kMaskKeepHlsl = R"HLSL(
+sampler2D s0 : register(s0);   // this frame's mask
+sampler2D s1 : register(s1);   // the kept mask of the last frame
+float4 gT : register(c0);      // the sun's shift on screen since then (uv), share of the last frame kept
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float4 c = tex2D(s0, uv);
+    float2 p = uv - gT.xy;
+    float  k = (p.x >= 0.0 && p.y >= 0.0 && p.x <= 1.0 && p.y <= 1.0) ? gT.z : 0.0;
+    return lerp(c, tex2D(s1, p), k);
+}
+)HLSL";
+
     const char* kCompositeHlsl = R"HLSL(
 sampler2D s0 : register(s0);
 float4 gC : register(c0);     // rgb gain: colour x exposure x fade
@@ -190,6 +231,15 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     bool   g_peakSmoothInit = false;    // first frame after (re)creation takes the peak outright
     double g_peakLastTime   = 0.0;
     bool   g_logPeak = false;           // the probe asked for this frame's brightest value
+
+    // The kept mask, for each sun: two targets, one read while the other is written.
+    Target g_keep[2][2];
+    int    g_keepCur[2]   = {};
+    bool   g_keepValid[2] = {};
+    float  g_keepRaw[2][2] = {};        // where the sun projected when it was kept
+    double g_keepTime[2]  = {};
+    IDirect3DPixelShader9* g_psKeep = nullptr;
+    IDirect3DPixelShader9* g_psSoften = nullptr;
 
     IDirect3DPixelShader9* g_psMask = nullptr;
     IDirect3DPixelShader9* g_psBlur = nullptr;
@@ -224,6 +274,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         g_peakLevels = 0;
         ReleaseTarget(g_peakSmooth);
         g_peakSmoothInit = false;
+        for (int i = 0; i < 2; ++i)
+        {
+            ReleaseTarget(g_keep[i][0]);
+            ReleaseTarget(g_keep[i][1]);
+            g_keepValid[i] = false;
+        }
         SafeRelease(g_sb);
         g_rw = g_rh = 0;
     }
@@ -290,10 +346,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             g_psMax    = MakePixelShader(dev, kMaxHlsl,     "rays_max");
             g_psPeakBlend = MakePixelShader(dev, kPeakBlendHlsl, "rays_peakblend");
             g_psSkyMin = MakePixelShader(dev, kSkyMinHlsl, "rays_skymin");
+            g_psKeep   = MakePixelShader(dev, kMaskKeepHlsl, "rays_maskkeep");
+            g_psSoften = MakePixelShader(dev, kSoftenHlsl, "rays_soften");
             if (g_psMask && g_psBlur && g_psComp)
                 Log("rays: shaders compiled");
         }
-        if (!g_psMask || !g_psBlur || !g_psComp || !g_psMaxLum || !g_psMax || !g_psPeakBlend || !g_psSkyMin)
+        if (!g_psMask || !g_psBlur || !g_psComp || !g_psMaxLum || !g_psMax || !g_psPeakBlend || !g_psSkyMin ||
+            !g_psKeep || !g_psSoften)
             return false;
 
         const UINT ds = static_cast<UINT>(g_cfg.rays.downscale);
@@ -304,7 +363,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
         ReleaseDefaultPool();
         if (!MakeTarget(dev, rw, rh, g_scene) || !MakeTarget(dev, rw, rh, g_ping) || !MakeTarget(dev, rw, rh, g_pong) ||
-            !MakeTarget(dev, rw, rh, g_sky))
+            !MakeTarget(dev, rw, rh, g_sky) || !MakeTarget(dev, rw, rh, g_keep[0][0]) ||
+            !MakeTarget(dev, rw, rh, g_keep[0][1]) || !MakeTarget(dev, rw, rh, g_keep[1][0]) ||
+            !MakeTarget(dev, rw, rh, g_keep[1][1]))
             return false;
 
         // Halve once (2x2 luminance), then quarter (4x4) down to a single texel.
@@ -363,6 +424,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         float parallel;      // 0..1 share of the blur that runs along (awayX, awayY) instead of radially
         bool  onScreen;      // the sun itself is on screen, so whether it is covered can be measured
         int   id;            // 0 the sun (or the moon the light follows), 1 the other moon
+        float rawX, rawY;    // where the sun projects, texture space, not clamped; only if front
+        bool  front;         // the sun is in front of the camera
     };
 
     constexpr float kMaxDistance = 3.0f;   // texture-space units from centre; rays are ~parallel by then
@@ -459,6 +522,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         const float aw = fabsf(clip[3]) > 1e-4f ? fabsf(clip[3]) : 1e-4f;
         const float tnx = clip[0] / aw, tny = clip[1] / aw;
         const float tx = tnx * 0.5f, ty = -tny * 0.5f;          // the same direction in texture space
+        s.front = clip[3] > 0.0f;
+        s.rawX  = 0.5f + tx; s.rawY = 0.5f + ty;
         if (clip[3] > 0.0f)
         {
             s.px = 0.5f + tx; s.py = 0.5f + ty;
@@ -699,6 +764,50 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         Pass(dev, scene->tex, g_ping.surf, g_rw, g_rh, g_psMask, maskC, 2);
         d->SetTexture(dev, 1, nullptr);
         d->SetTexture(dev, 2, nullptr);
+
+        // --- soften the mask ([rays] soften) ---------------------------------------------------------
+        // Across into g_pong, which nothing reads any more for this sun (the sky-only image was in it and
+        // the mask has read it), and down again into g_ping. Each tap is soften / 2 pixels apart, so the
+        // 9 taps reach 2 x soften either side and the Gaussian's width is about soften.
+        if (r.soften > 0.01f)
+        {
+            d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            const float step = r.soften * 0.5f;
+            const float across[4] = { step / g_rw, 0.0f, 0.0f, 0.0f };
+            const float down[4]   = { 0.0f, step / g_rh, 0.0f, 0.0f };
+            Pass(dev, g_ping.tex, g_pong.surf, g_rw, g_rh, g_psSoften, across, 1);
+            Pass(dev, g_pong.tex, g_ping.surf, g_rw, g_rh, g_psSoften, down, 1);
+        }
+
+        // --- keep part of the last frame's mask ([rays] smooth) ---------------------------------------
+        // Written into the other kept target, which is then copied over the mask for the blur to read:
+        // the blur writes both of its targets, and must not write the one kept for the next frame.
+        {
+            const int id = sun.id;
+            const double now = Now();
+            const float sx = sun.rawX - g_keepRaw[id][0], sy = sun.rawY - g_keepRaw[id][1];
+            const bool use = r.smooth > 0.001f && g_keepValid[id] && sun.front && now - g_keepTime[id] < 0.1 &&
+                             sx * sx + sy * sy < 0.05f * 0.05f;
+            const float kc[4] = { use ? sx : 0.0f, use ? sy : 0.0f, use ? r.smooth : 0.0f, 0.0f };
+            const Target& last = g_keep[id][g_keepCur[id]];
+            const Target& next = g_keep[id][1 - g_keepCur[id]];
+            d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(last.tex));
+            d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 1, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+            d->SetSamplerState(dev, 1, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+            d->SetSamplerState(dev, 1, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            d->SetSamplerState(dev, 1, D3DSAMP_SRGBTEXTURE, 0);
+            Pass(dev, g_ping.tex, next.surf, g_rw, g_rh, g_psKeep, kc, 1);
+            d->SetTexture(dev, 1, nullptr);
+            d->StretchRect(dev, next.surf, nullptr, g_ping.surf, nullptr, D3DTEXF_POINT);
+            g_keepCur[id]    = 1 - g_keepCur[id];
+            g_keepValid[id]  = sun.front;
+            g_keepRaw[id][0] = sun.rawX;
+            g_keepRaw[id][1] = sun.rawY;
+            g_keepTime[id]   = now;
+        }
 
         // --- radial blur --------------------------------------------------------------------------
         // Step per sample for pass p is length / 16^(passes - p): the last pass spans the full length

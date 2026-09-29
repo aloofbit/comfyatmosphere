@@ -185,6 +185,8 @@ void LoadSettings(const wchar_t* ini)
     s.rays.viewFalloff  = Clamp(GetF(kRays, L"viewFalloff",  s.rays.viewFalloff,  ini), 0.1f, 8.0f);
     s.rays.parallel     = Clamp(GetF(kRays, L"parallel",     s.rays.parallel,     ini), 0.0f, 1.0f);
     s.rays.adaptTime    = Clamp(GetF(kRays, L"adaptTime",    s.rays.adaptTime,    ini), 0.0f, 10.0f);
+    s.rays.soften       = Clamp(GetF(kRays, L"soften",       s.rays.soften,       ini), 0.0f, 32.0f);
+    s.rays.smooth       = Clamp(GetF(kRays, L"smooth",       s.rays.smooth,       ini), 0.0f, 0.95f);
     s.rays.decay        = Clamp(GetF(kRays, L"decay",        s.rays.decay,        ini), 0.5f, 1.0f);
     s.rays.color        = GetX(kRays, L"color", s.rays.color, ini) & 0xFFFFFF;
     s.rays.passes       = GetI(kRays, L"passes",    s.rays.passes,    ini);
