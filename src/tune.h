@@ -8,3 +8,5 @@
 // when the command changed the settings and LoadSettings has run again, so the controls must be laid
 // over them once more (CVarsAfterLoad).
 std::vector<std::string> TuneRun(const std::string& command, bool& reloaded);
+
+void ProbeArm();   // in comfyfog.cpp: log the next frame, as F12 does

@@ -21,18 +21,23 @@
 //               folds the world matrix into c2..c5 or into the bones (both checked by the probe).
 //   Identity    What is drawn (buffers, shader, index range), and among the instances of that, the nearest
 //               within matchRadius yards. A first version keyed on position to a quarter of a yard, and
-//               trees, whose reference point is a swaying root bone, drifted across those boundaries
-//               and were re-added every few frames (472 new entries a frame, a cache of 2500 duplicates).
-//               Matching by nearness keeps a swaying tree one entry, and lets a walking character's entry
+//               trees drifted across those boundaries and were re-added every few frames (472 new entries
+//               a frame, a cache of 2500 duplicates): a model's reference point is worked out through the
+//               camera, which moves during the frame, so it shifts a little from frame to frame. (Classic
+//               WoW trees do not sway; an older version of this comment said they did.)
+//               Matching by nearness keeps a tree one entry, and lets a walking character's entry
 //               move with it instead of leaving a trail. Each entry matches at most once a frame.
 //   Eviction    An entry is gone if it was NOT drawn this frame although it sits in view and near: a
-//               character that walked off, a mesh that switched level of detail. Out of view it stays,
-//               for up to cacheTime seconds: the tree over your head keeps shading you after you look away
-//               from it. There is deliberately no "too far from the player" rule: a model's reference
-//               point is its first bone, which for some models sits far from the geometry (measured:
-//               trees inside the map reading 85-95 yards away). So a step across that limit dropped a
-//               nearby tree from the map and the air it shaded lit up. Far entries cost a draw that the
-//               map clips; the cap bounds them.
+//               character that walked off, a mesh that switched level of detail. Out of view it stays
+//               while it can still cast into the map: until its reference point is more than [shadow]
+//               range + keepMargin yards from the player, across the ground. Until 2026-09-29 it stayed for
+//               cacheTime seconds instead, and a tree beside or behind you left the map 8 seconds after you
+//               last looked at it, with its shadow on the ground in front of you; turning round brought it
+//               back, so shadows jumped in and out. The margin is wide because a model's reference point is
+//               its first bone, which for some models sits far from the geometry (measured: trees inside the
+//               map reading 85-95 yards away), and a low sun throws long shadows. cacheTime is still there
+//               as an extra limit, 0 (off) by default. Something that moves is gone the moment it is not
+//               drawn. The cap bounds the rest.
 //   Replay      Into a 2048x2048 INTZ depth texture (readable, like depth.cpp's), colour writes off, no
 //               culling (leaves are two-sided), alpha test kept so foliage casts leaf-shaped shadows.
 //               Each entry is put back relative to the current camera: fixed-function under the sun's view
@@ -364,6 +369,7 @@ namespace
         uint64_t           seq;            // writes seen when its geometry was last recorded
         float              pos[3];         // absolute position of its reference point
         double             lastSeen;       // == now once matched this frame
+        double             claimed = -1.0; // == now when a draw this frame stands within kMatchRadius of it
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
     };
 
@@ -375,7 +381,13 @@ namespace
     // Anything that moves faster than kMatchRadius a frame looked like a new object every frame: a bird
     // flying by at 3.5 yards a frame left a new caster in the map each time, a trail of birds that all
     // shaded the air until they aged out. So when nothing is near enough, an instance of the same model
-    // that the client did NOT draw this frame, within this much, is taken to be it, moved.
+    // that the client did NOT draw this frame, within this much, is taken to be it, moved; but only one
+    // the client drew the frame before, whose stored place is still in view. Without those two tests a
+    // forest of the same tree took every tree that left the screen as one that had moved to the tree that
+    // came in: the old tree's shadow went from where it stood, the entry was marked moving and left the
+    // map as soon as it was not drawn, and shadows hopped from tree to tree as the camera turned (525 of
+    // 3,833 entries marked moving, 2026-09-29). Something that moves was drawn a frame ago, near where
+    // it is now, so in view; a tree that just left the screen was not in view.
     constexpr float  kMoveRadius = 60.0f;
 
     // Refreshed / added / evicted this frame, for the probe.
@@ -490,7 +502,9 @@ namespace
         if (g_copyNow - g_copySwept < 1.0)
             return;
         g_copySwept = g_copyNow;
-        const double stale = g_cfg.shadow.cacheTime > 1.0f ? g_cfg.shadow.cacheTime : 1.0;
+        // 8 seconds unless cacheTime sets a limit: with cacheTime 0 (no limit on the cache itself, since
+        // 2026-09-29) the store still frees what no draw has used for a while.
+        const double stale = g_cfg.shadow.cacheTime > 1.0f ? g_cfg.shadow.cacheTime : 8.0;
         for (auto it = g_copies.begin(); it != g_copies.end();)
         {
             if (g_copyNow - it->second.lastUsed > stale)
@@ -695,7 +709,8 @@ namespace
 
     constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
 
-    void Merge(const D3DMATRIX& camVPInv, const float cam[3], const float camModels[3], double now)
+    void Merge(const D3DMATRIX& camVP, const D3DMATRIX& camVPInv, const float cam[3], const float camModels[3],
+               double now)
     {
         float camEnd[3] = { cam[0], cam[1], cam[2] };
         if (g_cfg.trace)
@@ -722,8 +737,16 @@ namespace
         const bool havePlayer = ClientPlayer(player);
         player[2] += 1.0f;
 
-        for (Rec& r : g_frame)
+        // Three passes. First every draw is placed. Then each claims the nearest instance of its model
+        // within kMatchRadius. Only then are they matched, and the moving rule may not take an instance
+        // another draw this frame has claimed. In one pass, a copy of a tree that came into view before the
+        // tree already stored was matched took that tree's entry as "moved" (2026-09-29).
+        struct Placed { bool ok; D3DMATRIX absolute; float pos[3]; };
+        std::vector<Placed> placed(g_frame.size());
+        for (size_t fi = 0; fi < g_frame.size(); ++fi)
         {
+            Rec& r = g_frame[fi];
+            placed[fi].ok = false;
             // The client draws the sky and the far horizon with cameras and depth slices of their own.
             // Taken out of the camera with the WORLD camera, such a draw lands in the wrong place at the
             // wrong scale: in the shadow map, a huge caster near the sun that covered a third of the map
@@ -756,6 +779,7 @@ namespace
 
             Entry e;
             float pos[3];
+            Placed& pl = placed[fi];
             if (r.vs)
             {
                 const float* c = &g_constPool[r.consts];
@@ -809,6 +833,44 @@ namespace
                 e.absolute.m[3][2] += cam[2];
                 pos[0] = e.absolute.m[3][0]; pos[1] = e.absolute.m[3][1]; pos[2] = e.absolute.m[3][2];
             }
+            pl.ok = true;
+            pl.absolute = e.absolute;
+            memcpy(pl.pos, pos, sizeof(pos));
+        }
+
+        // Claims: the nearest unclaimed instance within kMatchRadius, for each draw.
+        for (size_t fi = 0; fi < g_frame.size(); ++fi)
+        {
+            if (!placed[fi].ok)
+                continue;
+            const Rec& r = g_frame[fi];
+            const Key k = { r.vb[0], r.ib, r.vs, r.baseVertex, r.minIndex, r.numVertices, r.startIndex, r.primCount };
+            auto it = g_cache.find(k);
+            if (it == g_cache.end())
+                continue;
+            Entry* nearest = nullptr;
+            float  nd2 = kMatchRadius * kMatchRadius;
+            for (Entry& cand : it->second)
+            {
+                if (cand.claimed == now)
+                    continue;
+                const float dx = cand.pos[0] - placed[fi].pos[0], dy = cand.pos[1] - placed[fi].pos[1],
+                            dz = cand.pos[2] - placed[fi].pos[2];
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 <= nd2) { nd2 = d2; nearest = &cand; }
+            }
+            if (nearest)
+                nearest->claimed = now;
+        }
+
+        for (size_t fi = 0; fi < g_frame.size(); ++fi)
+        {
+            if (!placed[fi].ok)
+                continue;
+            Rec& r = g_frame[fi];
+            Entry e;
+            e.absolute = placed[fi].absolute;
+            float pos[3] = { placed[fi].pos[0], placed[fi].pos[1], placed[fi].pos[2] };
 
             const Key k = { r.vb[0], r.ib, r.vs, r.baseVertex, r.minIndex, r.numVertices, r.startIndex, r.primCount };
             std::vector<Entry>& list = g_cache[k];
@@ -828,11 +890,19 @@ namespace
                 float moveD2 = kMoveRadius * kMoveRadius;
                 for (Entry& cand : list)
                 {
-                    if (cand.lastSeen == now)
-                        continue;
+                    if (cand.lastSeen == now || cand.lastSeen != g_prevMergeNow || cand.claimed == now)
+                        continue;                  // drawn this frame already, not drawn the frame before, or
+                                                   // claimed by a draw standing where it is
                     const float dx = cand.pos[0] - pos[0], dy = cand.pos[1] - pos[1], dz = cand.pos[2] - pos[2];
                     const float d2 = dx * dx + dy * dy + dz * dz;
-                    if (d2 <= moveD2) { moveD2 = d2; best = &cand; moved = true; }
+                    if (d2 > moveD2)
+                        continue;
+                    const float rel[3] = { cand.pos[0] - cam[0], cand.pos[1] - cam[1], cand.pos[2] - cam[2] };
+                    float c[4];
+                    for (int j = 0; j < 4; ++j)
+                        c[j] = rel[0] * camVP.m[0][j] + rel[1] * camVP.m[1][j] + rel[2] * camVP.m[2][j] + camVP.m[3][j];
+                    const bool inView = c[3] > 0.0f && fabsf(c[0]) < c[3] && fabsf(c[1]) < c[3];
+                    if (inView) { moveD2 = d2; best = &cand; moved = true; }
                 }
             }
             if (best)
@@ -982,9 +1052,10 @@ namespace
     }
 
     // Gone if unseen this frame while in view and near; else aged out, or beyond the map's reach.
-    void Evict(const D3DMATRIX& camVP, const float cam[3], double now)
+    void Evict(const D3DMATRIX& camVP, const float cam[3], const float player[3], double now)
     {
         const ShadowSettings& s = g_cfg.shadow;
+        const float keep = s.range + s.keepMargin;
         for (auto kv = g_cache.begin(); kv != g_cache.end(); )
         {
             std::vector<Entry>& list = kv->second;
@@ -1017,11 +1088,17 @@ namespace
                     {
                         gone = true; ++g_nEvictView;
                     }
-                    else if (e.mobile || now - e.lastSeen > s.cacheTime)
+                    else
                     {
                         // Something that moves is gone the moment it stops being drawn: its shade belongs
-                        // where it is now, not where it was.
-                        gone = true; ++g_nEvictAge;
+                        // where it is now, not where it was. Anything else, once it is out of the map's
+                        // reach across the ground, or (if set) unseen longer than cacheTime.
+                        const float dx = e.pos[0] - player[0], dy = e.pos[1] - player[1];
+                        if (e.mobile || dx * dx + dy * dy > keep * keep ||
+                            (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime))
+                        {
+                            gone = true; ++g_nEvictAge;
+                        }
                     }
                 }
                 if (gone)
@@ -1036,25 +1113,31 @@ namespace
             }
             kv = list.empty() ? g_cache.erase(kv) : std::next(kv);
         }
-        // Over the cap: the longest unseen go first. Finding them one at a time meant a pass over the
-        // whole cache for each one, and with dozens going a frame that pass was a stutter of its own.
-        // One pass takes the cut-off, a second drops everything older than it.
+        // Over the cap: the farthest from the player go first, across the ground. It was the longest
+        // unseen until 2026-09-29, which could be a tree right beside you that you had not looked at, and
+        // its shadow went. Finding them one at a time meant a pass over the whole cache for each one, and
+        // with dozens going a frame that pass was a stutter of its own. One pass takes the cut-off, a
+        // second drops everything farther than it. Something drawn this frame never goes.
         if (g_entries > kMaxCache)
         {
-            std::vector<double> ages;
-            ages.reserve(g_entries);
+            auto far2 = [&](const Entry& e) {
+                const float dx = e.pos[0] - player[0], dy = e.pos[1] - player[1];
+                return e.lastSeen == now ? -1.0f : dx * dx + dy * dy;
+            };
+            std::vector<float> dist;
+            dist.reserve(g_entries);
             for (auto& kv : g_cache)
                 for (const Entry& e : kv.second)
-                    ages.push_back(e.lastSeen);
+                    dist.push_back(far2(e));
             const size_t over = g_entries - kMaxCache;
-            std::nth_element(ages.begin(), ages.begin() + over, ages.end());
-            const double cutoff = ages[over];
+            std::nth_element(dist.begin(), dist.begin() + (dist.size() - over), dist.end());
+            const float cutoff = dist[dist.size() - over];
             for (auto kv = g_cache.begin(); kv != g_cache.end() && g_entries > kMaxCache; )
             {
                 std::vector<Entry>& list = kv->second;
                 for (size_t i = 0; i < list.size() && g_entries > kMaxCache; )
                 {
-                    if (list[i].lastSeen < cutoff)
+                    if (far2(list[i]) >= cutoff && list[i].lastSeen != now)
                     {
                         ReleaseRec(list[i].rec);
                         list[i] = std::move(list.back());
@@ -1566,10 +1649,10 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     double tCache = t0;   // where the replay's own timing starts
     if (g_fullFrame)
     {
-        Merge(camVPInv, cam, cam, now);
+        Merge(camVP, camVPInv, cam, cam, now);
         const double tMerged = Now();
         g_samplesLeft = 0;
-        Evict(camVP, cam, now);
+        Evict(camVP, cam, pl, now);
         tCache = Now();
         if (g_timing)
         {
@@ -1899,6 +1982,28 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             static_cast<unsigned>(g_entries), unseen, g_nRefreshed, g_nAdded, g_nEvictView, g_nEvictAge,
             g_nEvictCap, drawn, drawnVS, nearDrawn, 1000.0 * (Now() - t0), sunDir[0], sunDir[1], sunDir[2],
             havePlayer ? "player" : "camera");
+    // What the cache holds, for F12: by kind, leafy (alpha tested), moving, and by distance from the
+    // player across the ground.
+    if (logThis)
+    {
+        unsigned ff = 0, m2 = 0, leafy = 0, moving = 0, band[4] = {};
+        unsigned long long tris = 0;
+        for (const auto& kv : g_cache)
+            for (const Entry& e : kv.second)
+            {
+                (e.rec.vs ? m2 : ff)++;
+                leafy  += e.rec.alphaTest ? 1u : 0u;
+                moving += e.mobile ? 1u : 0u;
+                tris   += e.rec.primCount;
+                const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                const float dd = sqrtf(dx * dx + dy * dy);
+                band[dd < 50.0f ? 0 : dd < 150.0f ? 1 : dd < 250.0f ? 2 : 3]++;
+            }
+        Log("shadow: the cache holds %u fixed-function draws (terrain, buildings) and %u model draws (trees, "
+            "doodads, characters); %u alpha tested (leaves, bushes), %u moving; %llu triangles. From you: %u "
+            "within 50 yd, %u 50-150, %u 150-250, %u past 250", ff, m2, leafy, moving, tris, band[0], band[1],
+            band[2], band[3]);
+    }
     g_replaySeconds = Now() - t0;
     g_replaySkipped = skipped;
 }

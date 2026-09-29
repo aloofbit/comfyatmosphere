@@ -35,6 +35,7 @@ namespace
 
     // Direction TO the sun, world space, unit length.
     float g_sunDir[3]    = { 0.0f, 0.0f, 1.0f };
+    unsigned g_sunFrame  = 0;       // counts frames, so the glide below advances once a frame
     bool  g_haveSun      = false;
     // The sun-shaped quads of this frame's sky, in camera space: one by day, two at night.
     constexpr int kMaxQuads = 4;
@@ -192,16 +193,56 @@ bool SunDirection(float dir[3])
 
     // The sprite is measured afresh every frame and the measurement is noisy: standing still, with the
     // camera still and the time pinned, the direction wandered in the fifth decimal. Everything here is
-    // built around it, so that wander turned the shadow map a little each frame. The direction is taken
-    // only once it has moved 0.05 degrees, which a minute of sun passes easily.
-    static float stable[3] = { 0.0f, 0.0f, 0.0f };
-    static bool  have = false;
+    // built around it, so that wander turned the shadow map a little each frame. Until 2026-09-29 the
+    // direction was taken only once it had moved 0.05 degrees: the map then held still and jumped, and
+    // about every 30 seconds the long shadows of a low sun moved some ten pixels at once. Now it glides
+    // toward the measurement with a time constant of 10 seconds: the noise averages out, the real sun is
+    // followed a hair each frame, and a change of more than 5 degrees (the time set by hand) lands at once.
+    static float  stable[3] = { 0.0f, 0.0f, 0.0f };
+    static bool   have = false;
+    static double last = 0.0;
+    static unsigned frame = ~0u;
+    // Once a frame: the shadow map, the sun shadows, the light and the rays all ask, and must agree.
+    if (have && frame == g_sunFrame)
+    {
+        memcpy(dir, stable, sizeof(stable));
+        return true;
+    }
+    frame = g_sunFrame;
+    static float  raw[3] = { 0.0f, 0.0f, 0.0f };
+    static int    stepLogs = 0;
+    const double  now = Now();
+    // Log the measurement's own jumps, to see whether the sky moves its sun in steps.
+    const float rawDot = raw[0] * g_sunDir[0] + raw[1] * g_sunDir[1] + raw[2] * g_sunDir[2];
+    if (have && rawDot < 0.9999939f && stepLogs < 60)   // > 0.2 degrees in one frame
+    {
+        ++stepLogs;
+        Log("sun: the sky's sun moved %.2f degrees in one frame, at %.1f s", acosf(rawDot > 1.0f ? 1.0f : rawDot) * 57.29578f,
+            now);
+    }
+    memcpy(raw, g_sunDir, sizeof(raw));
     const float dot = stable[0] * g_sunDir[0] + stable[1] * g_sunDir[1] + stable[2] * g_sunDir[2];
-    if (!have || dot < 0.9999996f)
+    if (!have || dot < 0.9962f)
     {
         memcpy(stable, g_sunDir, sizeof(stable));
         have = true;
     }
+    else
+    {
+        const double dt = now - last;
+        const float  k  = static_cast<float>(1.0 - exp(-(dt > 0.0 && dt < 1.0 ? dt : 0.0) / 10.0));
+        float len = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            stable[i] += (g_sunDir[i] - stable[i]) * k;
+            len += stable[i] * stable[i];
+        }
+        len = sqrtf(len);
+        if (len > 1e-6f)
+            for (int i = 0; i < 3; ++i)
+                stable[i] /= len;
+    }
+    last = now;
     memcpy(dir, stable, sizeof(stable));
     return true;
 }
@@ -249,6 +290,7 @@ bool SunSecondDirection(float dir[3])
 
 void SunFrameStart()
 {
+    ++g_sunFrame;
     g_nQuads = 0;
     g_sunViewFresh = false;
 }

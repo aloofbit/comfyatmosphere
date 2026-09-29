@@ -7,6 +7,7 @@
 //   /atmos list                     what /atmos has set
 //   /atmos reset                    drop those, back to comfyfog.ini
 //   /atmos save                     write them into comfyfog.ini, keeping its comments
+//   /atmos probe                    log the next frame, as F12 does
 //
 // The ComfyAtmosphere addon puts the command text in the CVar comfyTune, with a number in front; cvars.cpp
 // reads it and registers the answer as new CVars, which the addon prints (see cvars.cpp).
@@ -314,7 +315,7 @@ namespace
                       "if no other section has it.");
         out.push_back("/atmos <section>.<key>: show one value. /atmos <section>: show a section.");
         out.push_back("/atmos list: the values set this way. /atmos reset: drop them. /atmos save: write "
-                      "them into comfyfog.ini.");
+                      "them into comfyfog.ini. /atmos probe: log a frame, as F12 does.");
         std::vector<std::string> sections;
         for (const ConfigKey& k : ConfigKeys())
         {
@@ -350,6 +351,11 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
                 items.push_back(kv.first + " = " + kv.second);
             Wrap(items, "Set with /atmos: ", out);
         }
+    }
+    else if (w.size() == 1 && Same(w[0], "probe"))
+    {
+        ProbeArm();
+        out.push_back("The next frame is logged to comfyfog.log, as F12 does.");
     }
     else if (w.size() == 1 && Same(w[0], "reset"))
     {

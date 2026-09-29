@@ -629,6 +629,34 @@ that pattern (all four layer counts matched) for a copy with `map.w` replaced by
 `keep` in c31 (no client pixel shader uses past c9). `keep` is `[sunshadows] baked` (0 by default) while
 the sun shadows draw, back to 1 as they fade at dusk and whenever they are off.
 
+## Shadows jumping in and out of the map (2026-09-29)
+
+With the sun shadows on the ground, casters leaving and rejoining the map showed as shadows jumping.
+`/atmos probe` (the same as F12, from chat) now also logs what the cache holds: by kind, alpha tested,
+moving, triangles, and by distance from the player. Four causes, in the order found:
+
+- **Kept by time.** A caster out of view stayed `cacheTime` (8) seconds, so a tree beside or behind you
+  left the map 8 seconds after you looked away, with its shadow in front of you. Now a caster that stays
+  put is kept while its reference point is within `[shadow] range + keepMargin` (100) yards of the player
+  across the ground; `cacheTime` is an extra limit, 0 (off) by default.
+- **Identical trees taken for one that moved.** With no instance of the same model within 3 yards, the
+  cache took one up to 60 yards off that was not drawn this frame to be it, moved (a rule for birds).
+  In a forest of one tree model, a tree leaving the screen was "moved" onto the one coming in: its shadow
+  left where it stood, and the entry, marked moving, left the map once not drawn (525 of 3,833 entries
+  marked moving). Now an instance counts as moved only if it was drawn the frame before and its stored
+  place is still in view, and matching runs in three passes (place every draw, let each claim its own
+  instance within 3 yards, then match), so a draw cannot take an instance another draw stands on.
+  Moving entries fell to 7 to 16, the characters and creatures about.
+- **The cap dropped the longest unseen**, which could be a tree right beside you. It drops the farthest
+  first now, and nothing drawn this frame.
+- **The sun stepped.** The map took the sky's sun direction only once it had moved 0.05 degrees, so
+  about every 30 seconds a low sun's long shadows moved some ten pixels at once. It now glides toward the
+  measurement with a 10 second time constant, once a frame for every pass; a change past 5 degrees lands
+  at once. The sky's own sun does not step: in a session it moved more than 0.2 degrees in a frame once,
+  24.5 degrees as the world loaded.
+
+The cost stands at 5,000 entries (the cap), 2.6 million triangles and about 9.5 ms of CPU a replay.
+
 ## Sun rays jumping behind leaves (2026-09-29)
 
 Tilting the camera slowly down from the sun past trees 100 yards away, the sun rays jumped by 50 pixels
@@ -638,8 +666,8 @@ the volumetric light was not the cause. **Ctrl+F11 (rays off) and Alt+F11 (light
 in one test; do that first next time.** Turning the sun-cover test off did not change it either.
 
 The mask view (`[rays] debugView = 1`) showed the cause: the only bright pixels were small gaps of sky
-between the leaves at the top of the screen, a pixel or two wide at that distance. Any camera move, or
-a tree swaying, opened or closed one, and the radial blur turned each into a whole streak.
+between the leaves at the top of the screen, a pixel or two wide at that distance. Any camera move
+opened or closed one (the trees do not sway), and the radial blur turned each into a whole streak.
 
 - `[rays] soften` (8): the mask is blurred, 9-tap Gaussian across and down, before the rays are drawn,
   so a one-pixel gap adds a faint streak and a real opening still gives a strong beam. This is the fix.

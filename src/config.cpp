@@ -182,6 +182,7 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.mapEvery < 1) s.shadow.mapEvery = 1;
     if (s.shadow.mapEvery > 8) s.shadow.mapEvery = 8;
     s.shadow.snap       = GetB(kShadow, L"snap", s.shadow.snap, ini);
+    s.shadow.keepMargin = Clamp(GetF(kShadow, L"keepMargin", s.shadow.keepMargin, ini), 0.0f, 1000.0f);
     s.shadow.cacheTime  = Clamp(GetF(kShadow, L"cacheTime", s.shadow.cacheTime, ini), 0.0f, 600.0f);
     s.shadow.evictDistance = Clamp(GetF(kShadow, L"evictDistance", s.shadow.evictDistance, ini), 1.0f, 500.0f);
     s.shadow.stillRadius   = Clamp(GetF(kShadow, L"stillRadius", s.shadow.stillRadius, ini), 0.0f, 3.0f);

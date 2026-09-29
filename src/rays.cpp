@@ -21,8 +21,8 @@
 //      should cast.
 //      The mask is then softened ([rays] soften, 2026-09-29): a Gaussian blur across and down, so the rays
 //      come from how much sky an area shows, not from single pixels. Under a canopy the only bright pixels
-//      were the gaps between leaves, a pixel or two wide at 100 yards; any camera move, or a tree swaying,
-//      opened or closed one, and each became or lost a whole streak: rays jumping 50 pixels. Softened, a
+//      were the gaps between leaves, a pixel or two wide at 100 yards; any camera move opened or closed one
+//      (the trees do not sway), and each became or lost a whole streak: rays jumping 50 pixels. Softened, a
 //      one-pixel gap is spread thin and adds a faint streak; a real opening still gives a strong beam.
 //      The mask is then blended with the last frame's ([rays] smooth, 2026-09-29). Its brightest pixels
 //      are sky between leaves, and at 100 yards a leaf's edge is smaller than a pixel: as the camera

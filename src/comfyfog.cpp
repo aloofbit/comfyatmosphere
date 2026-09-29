@@ -1700,6 +1700,12 @@ bool WorldFogColor(DWORD& client, DWORD& shaped)
     return true;
 }
 
+// /atmos probe: the same as F12, which a key sent to the game sometimes misses.
+void ProbeArm()
+{
+    g_probe.armed = true;
+}
+
 bool OwnFogActive()
 {
     return OwnFog();

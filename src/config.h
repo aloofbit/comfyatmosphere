@@ -127,8 +127,10 @@ struct ShadowSettings
                                   // shader models, so those are still left out.
     bool  snap          = false;  // hold the map on whole texels of its own grid: steadier standing
                                   // still, but it steps as you walk, which reads worse
-    float cacheTime     = 8.0f;   // seconds a caster out of view is kept. Every caster held is drawn
-                                  // into the map, and at 15 long play grew the cache to 2,500 entries
+    float keepMargin    = 100.0f; // yards past range a caster out of view is kept, across the ground from
+                                  // the player: while it can still cast into the map (see shadow.cpp)
+    float cacheTime     = 0.0f;   // seconds a caster out of view is kept at most; 0 = no limit. Was 8, and
+                                  // shadows of trees beside you jumped out 8 seconds after you looked away
     float evictDistance = 20.0f;  // yards: a caster in view this near that was not drawn is gone
     float stillRadius   = 0.3f;   // yards: a model seen again this near where it was stored keeps the
                                   // placement it has. Its position is worked out through the camera, which
