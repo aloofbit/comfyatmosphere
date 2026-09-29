@@ -655,7 +655,36 @@ moving, triangles, and by distance from the player. Four causes, in the order fo
   at once. The sky's own sun does not step: in a session it moved more than 0.2 degrees in a frame once,
   24.5 degrees as the world loaded.
 
-The cost stands at 5,000 entries (the cap), 2.6 million triangles and about 9.5 ms of CPU a replay.
+The cost stood at 5,000 entries (the cap), 2.6 million triangles and about 9.5 ms of CPU a replay.
+
+**Making the replay cheaper (2026-09-29).** `/atmos probe` now times each part. One replay was 10.8 ms:
+matching 1.2, eviction 0.4, far map 5.1 (4,484 draws), near map 2.4 (2,003 draws), and 12.4 MB of model
+constants uploaded. Each draw costs about a microsecond whatever its size, so the count matters most.
+
+- Each model uploads only as far as its own uploads reached before it was drawn (`nregsOwn`), not to the
+  highest register ever set (157 to 220): 12.4 MB fell to 4.0 MB, but the far map only to 4.0 ms.
+- The far map is redrawn on every second replay only (`[shadow] farEvery` 2), read in between through
+  the matrix it was drawn with. The near map, where the player and everything close stand, each time.
+- The near map's cull margin is 16 yards, not 40: 2,022 draws fell to 1,246, 2.4 ms to about 1.7.
+- Models under `[shadow] minTriangles` (200) stay out of the far map past 60 yards: at 100 about 1,400
+  of 4,457 draws went and the far map took 3.0 to 3.7 ms; neither 100 nor 200 could be told apart.
+
+A replay now averages about 4.8 ms (matching and eviction 1.5, near 1.7, far 3.3 every other time), from
+10.8. Terrain and buildings are never culled: a chunk's reference point says too little about where
+its ground lies. The probe's own total reads high, since the probe frame also writes the log.
+
+## To do: character shadows under the canopy (noted 2026-09-29)
+
+In Elwynn Forest the tree cover casts shade over nearly all the ground, so a player or an NPC standing
+in it casts no shadow of its own: the ground is already in shade, and shade on shade changes nothing.
+Characters then look like they float. The owner's idea: let character shadows add a little on top, so
+they show even inside the canopy's shade.
+
+A way to do it: characters are the cache's moving entries and the models near the player (`mobile`,
+`kPlayerModels`). Draw those alone into a small map of their own (or a second channel of the near map),
+and in the sun shadows darken by that map in addition to the main one, at its own strength, so a
+character's shadow deepens the canopy's shade instead of disappearing into it. The game's round shadow
+(`shadowLOD`) is the fallback that shows today how much is missing.
 
 ## Sun rays jumping behind leaves (2026-09-29)
 

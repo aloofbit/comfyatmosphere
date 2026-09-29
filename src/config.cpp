@@ -179,6 +179,11 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.copyMax < 0)       s.shadow.copyMax = 0;
     if (s.shadow.copyMax > 4096)    s.shadow.copyMax = 4096;
     s.shadow.mapEvery   = GetI(kShadow, L"mapEvery", s.shadow.mapEvery, ini);
+    s.shadow.farEvery   = GetI(kShadow, L"farEvery", s.shadow.farEvery, ini);
+    s.shadow.minTriangles = GetI(kShadow, L"minTriangles", s.shadow.minTriangles, ini);
+    if (s.shadow.minTriangles < 0) s.shadow.minTriangles = 0;
+    if (s.shadow.farEvery < 1) s.shadow.farEvery = 1;
+    if (s.shadow.farEvery > 8) s.shadow.farEvery = 8;
     if (s.shadow.mapEvery < 1) s.shadow.mapEvery = 1;
     if (s.shadow.mapEvery > 8) s.shadow.mapEvery = 8;
     s.shadow.snap       = GetB(kShadow, L"snap", s.shadow.snap, ini);

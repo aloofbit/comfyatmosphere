@@ -197,6 +197,7 @@ namespace
         D3DMATRIX                    world;       // fixed-function: camera-relative, as drawn
         size_t                       consts;      // shader draws: offset of the snapshot in g_constPool
         UINT                         nregs;       // ...and how many registers it holds
+        UINT                         nregsOwn;    // the registers this draw's own uploads reached (see RecordDraw)
         uint64_t                     seq;         // writes seen when this draw was recorded
         float                        minZ, maxZ;  // the viewport's depth slice, to tell world draws apart
         bool                         hasProj;     // fixed-function: the projection it was drawn with
@@ -1004,6 +1005,8 @@ namespace
                         best->consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + r.nregs * 4);
                 }
                 best->rec.alphaTest = r.alphaTest; best->rec.alphaRef = r.alphaRef; best->rec.alphaFunc = r.alphaFunc;
+                if (r.nregsOwn > best->rec.nregsOwn)
+                    best->rec.nregsOwn = r.nregsOwn;
                 best->seq = r.seq;
                 best->mobile = best->mobile || moved;
                 best->lastSeen = now;
@@ -1292,6 +1295,8 @@ void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size)
 }
 
 UINT g_maxConstReg = 0;   // the highest register the client has ever set: the replay need go no further
+UINT g_maxSinceDraw = 0;  // the highest register uploaded since the last recorded model draw
+UINT g_lastOwn = 34;      // what the last model draw's own uploads reached
 
 void RecordConstants(UINT reg, const float* data, UINT count)
 {
@@ -1303,6 +1308,8 @@ void RecordConstants(UINT reg, const float* data, UINT count)
     memcpy(&g_mirror[reg * 4], data, count * 4 * sizeof(float));
     if (reg + count > g_maxConstReg)
         g_maxConstReg = reg + count;
+    if (reg + count > g_maxSinceDraw)
+        g_maxSinceDraw = reg + count;
 }
 
 void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT baseVertex, UINT minIndex,
@@ -1394,6 +1401,15 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         // Only as far as the highest register the client has set (157 to 220 measured), not all 256:
         // this copy is made for every model draw, every frame. At least c0..c33, which Merge reads.
         r.nregs  = g_maxConstReg < 34 ? 34 : (g_maxConstReg > 256 ? 256 : g_maxConstReg);
+        // What the replay uploads (2026-09-29): a model's bones are uploaded just before it is drawn, so
+        // the uploads since the last model draw reach as far as this one uses. With none (the same model
+        // drawn again), the last one's reach. Uploading up to the highest register ever set (157 to 220)
+        // for every model was 12.4 MB a replay; this is 4.8 MB.
+        r.nregsOwn = g_maxSinceDraw >= 34 ? g_maxSinceDraw : g_lastOwn;
+        if (r.nregsOwn > r.nregs)
+            r.nregsOwn = r.nregs;
+        g_lastOwn = r.nregsOwn;
+        g_maxSinceDraw = 0;
         r.consts = g_constPool.size();
         g_constPool.insert(g_constPool.end(), g_mirror, g_mirror + r.nregs * 4);
     }
@@ -1654,6 +1670,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         g_samplesLeft = 0;
         Evict(camVP, cam, pl, now);
         tCache = Now();
+        if (logThis)
+            Log("shadow: time: matching %.2f ms, eviction %.2f ms", 1000.0 * (tMerged - t0),
+                1000.0 * (tCache - tMerged));
         if (g_timing)
         {
             g_tCache   += tCache - t0;
@@ -1750,8 +1769,24 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         g_replaySeconds = Now() - t0;
         return;
     }
-    g_shadowVP    = sunVP;
-    g_mapAbsToSun = fromAbsToSun;
+    // The far map on every farEvery-th replay only (2026-09-29): it covers 250 yards and its shade barely
+    // changes from one frame to the next, while the near map, where the player and everything close
+    // stand, is redrawn each time. It cost 5 ms of a 10.8 ms replay. In between it is read, like the map
+    // on a frame without a replay, through the matrix it was drawn with, brought to this camera.
+    static unsigned farTick = 0;
+    const unsigned farEvery = s.farEvery > 1 ? static_cast<unsigned>(s.farEvery) : 1u;
+    const bool drawFar = !g_valid || farEvery <= 1 || (farTick++ % farEvery) == 0;
+    if (drawFar)
+    {
+        g_shadowVP    = sunVP;
+        g_mapAbsToSun = fromAbsToSun;
+    }
+    else
+    {
+        D3DMATRIX toAbs;
+        Translation(cam[0], cam[1], cam[2], toAbs);
+        Mul(toAbs, g_mapAbsToSun, g_shadowVP);
+    }
 
     // The near map: the same sun camera, narrower.
     const bool doNear = s.nearRange > 0.0f && g_nearSurf;
@@ -1848,8 +1883,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetStreamSourceFreq(dev, 1, 1);
 
     UINT drawn = 0, drawnVS = 0, unseen = 0, skipped = 0, nearDrawn = 0;
+    double passTime[2] = {};
+    unsigned long long bytesNow[2] = {};
     for (int pass = 0; pass < (doNear ? 2 : 1); ++pass)
     {
+    if (pass == 0 && !drawFar)
+        continue;
+    const double passStart = Now();
     const bool nearPass = pass == 1;
     const float mapRange = nearPass ? s.nearRange : s.range;
     const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : fromAbsToSun;
@@ -1862,7 +1902,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // reference point is well outside the box the map covers cannot mark it, so it is not drawn. The
     // margin is generous because a model's reference point is its first bone, which for some models sits
     // far from the geometry (trees measured at 85 to 95 yards away).
-    const float sideReach = mapRange + 40.0f;    // the map is `range` either side of the player
+    // The near map's margin is 16 yards, not 40 (2026-09-29): 40 around a 32-yard map was a box more than
+    // twice its size, and 2,000 draws; 16 still takes in a big tree's crown beside it.
+    const float sideReach = mapRange + (nearPass ? 16.0f : 40.0f);   // the map is `range` either side
     const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
@@ -1886,6 +1928,14 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                     ++skipped;
                 continue;
             }
+            // Small models far off stay out of the far map ([shadow] minTriangles): a flower or a stone
+            // 60 yards away is a few texels, and each costs a draw (about 1 microsecond) all the same.
+            if (!nearPass && r.primCount < static_cast<UINT>(s.minTriangles) &&
+                dx * dx + dy * dy > 60.0f * 60.0f)
+            {
+                ++skipped;
+                continue;
+            }
         }
         if (r.vs)
         {
@@ -1893,7 +1943,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             Mul(e.absolute, passAbsToSun, m);
             float c[16];
             ToRegisters(m, c);
-            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), static_cast<UINT>(e.consts.size() / 4));
+            const UINT regs = (std::min)(static_cast<UINT>(e.consts.size() / 4), (std::max)(e.rec.nregsOwn, 34u));
+            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), regs);
+            bytesNow[pass] += static_cast<unsigned long long>(regs) * 16;
             d->SetVertexShaderConstantF(dev, 2, c, 4);
             d->SetVertexShader(dev, r.vs);
             ++drawnVS;
@@ -1929,7 +1981,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         else
             ++drawn;
     }
+    passTime[pass] = Now() - passStart;
     }   // the two maps
+    if (logThis)
+        Log("shadow: time: far map %.2f ms%s, near map %.2f ms; model constants uploaded %.1f MB (far) + %.1f MB "
+            "(near)", 1000.0 * passTime[0], drawFar ? "" : " (not redrawn this time)", 1000.0 * passTime[1],
+            bytesNow[0] / 1048576.0, bytesNow[1] / 1048576.0);
     if (doNear)
     {
         g_nearVP       = nearVP;

@@ -119,6 +119,11 @@ struct ShadowSettings
     int   copyMax       = 2048;   // how many such copies to hold at once. 2 and 768 until 2026-09-24;
                                   // since then every streamed chunk needs a copy before it casts, and at
                                   // 2 a frame new ground stayed without shade while you walked
+    int   minTriangles  = 200;    // models with fewer triangles stay out of the far map past 60 yards.
+                                  // At 100, 1,400 of 4,457 far-map draws went, and neither 100 nor
+                                  // 200 could be told apart in game (2026-09-29)
+    int   farEvery      = 2;      // of those rebuilds, the far map is redrawn on every Nth; the near map
+                                  // on each. The far map's shade barely changes, and it was half the cost
     int   mapEvery      = 1;      // rebuild the map every N frames, 1..8 (the Shadow Redraw control). The map is anchored in the world and
                                   // the light is smoothed over time, so 3 takes two thirds off the cost
                                   // of the replay for very little: the shade it holds is two frames old.
