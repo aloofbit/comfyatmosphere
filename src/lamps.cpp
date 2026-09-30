@@ -1325,7 +1325,6 @@ int LampsGather(const float cam[3], LampLight* out, int max)
     {
         static MapLight file[256];
         const int nf = MapLightsNear(cam, reach + 20.0f, file, 256);
-        const float tint[3] = { 1.0f, 0.62f, 0.29f };
         for (int f = 0; f < nf; ++f)
         {
             bool dup = false;
@@ -1343,7 +1342,7 @@ int LampsGather(const float cam[3], LampLight* out, int max)
             if (l.dist > reach + file[f].reach)
                 continue;
             for (int i = 0; i < 3; ++i)
-                l.colour[i] = tint[i] * g_cfg.lamps.spriteGain;
+                l.colour[i] = file[f].colour[i] * g_cfg.lamps.spriteGain;
             l.reach = file[f].reach;
             l.kind  = 1;
             int at = n < max ? n : max;

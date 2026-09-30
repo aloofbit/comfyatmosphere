@@ -752,6 +752,7 @@ namespace
                     w.pos[j] = L.pos[0] * i.p->rot[0][j] + L.pos[1] * i.p->rot[1][j] + L.pos[2] * i.p->rot[2][j] +
                                i.p->pos[j];
                 w.reach = L.reach;
+                memcpy(w.colour, L.colour, sizeof(w.colour));
                 memcpy(w.what, L.what, sizeof(w.what));
                 g_fileLights.push_back(w);
             }

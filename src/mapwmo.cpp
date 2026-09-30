@@ -94,7 +94,7 @@ namespace
 
 namespace
 {
-    constexpr uint32_t kMODN = 0x4D4F444E, kMODS = 0x4D4F4453, kMODD = 0x4D4F4444;
+    constexpr uint32_t kMODN = 0x4D4F444E, kMODS = 0x4D4F4453, kMODD = 0x4D4F4444, kMOLT = 0x4D4F4C54;
 
     // The doodads that give light, by the name of their model, and how far their light reaches. Inside a
     // building the client has no point lights (probe, the Darkshire inn): its candles are particles, and the
@@ -122,6 +122,38 @@ namespace
             if (tag == kMODD) { modd = o + 8; moddSize = size; }
             o += 8 + static_cast<size_t>(size);
         }
+        // The building's own lights (MOLT, 48 bytes: type, use attenuation, colour as BGRA, position,
+        // intensity, 16 bytes unused, attenuation start and end). The client bakes the building's light from
+        // them; a fireplace has one and no doodad named for it (the Goldshire inn: an orange light, 9.2 yards,
+        // 2.8 yards from the owner standing at it, 2026-09-30). They come first, with their own colour and reach.
+        for (size_t o = 0; o + 8 <= d.size();)
+        {
+            const uint32_t tag = U32(d, o), size = U32(d, o + 4);
+            if (o + 8 + static_cast<size_t>(size) > d.size())
+                break;
+            if (tag == kMOLT)
+                for (size_t k = o + 8; k + 48 <= o + 8 + size; k += 48)
+                {
+                    WmoLight L = {};
+                    memcpy(L.pos, &d[k + 8], 12);
+                    const uint32_t c = U32(d, k + 4);
+                    float inten, end;
+                    memcpy(&inten, &d[k + 20], 4);
+                    memcpy(&end, &d[k + 44], 4);
+                    if (!(inten > 0.0f) || !(end > 0.0f) || end > 200.0f)
+                        continue;
+                    inten = (std::min)(inten, 2.0f);
+                    L.colour[0] = ((c >> 16) & 0xFF) / 255.0f * inten;
+                    L.colour[1] = ((c >> 8) & 0xFF) / 255.0f * inten;
+                    L.colour[2] = (c & 0xFF) / 255.0f * inten;
+                    L.reach = (std::max)(end, 5.0f);
+                    L.set = 0;
+                    strncpy_s(L.what, "BUILDING", _TRUNCATE);
+                    out.lights.push_back(L);
+                }
+            o += 8 + static_cast<size_t>(size);
+        }
+        const size_t own = out.lights.size();
         if (!modnSize || !moddSize)
             return;
         std::unordered_map<std::string, std::array<float, 4>> tops;   // a light model's flame, own space, and whether read
@@ -177,6 +209,18 @@ namespace
             WmoLight L = {};
             for (int j = 0; j < 3; ++j)
                 L.pos[j] = pos[j] + r[j];
+            // Not where one of the building's own lights already is: a lantern's own light sits 2 yards
+            // under the top of its model.
+            bool near = false;
+            for (size_t k = 0; k < own && !near; ++k)
+            {
+                const float dx = out.lights[k].pos[0] - L.pos[0], dy = out.lights[k].pos[1] - L.pos[1],
+                            dz = out.lights[k].pos[2] - L.pos[2];
+                near = dx * dx + dy * dy + dz * dz < 2.5f * 2.5f;
+            }
+            if (near)
+                continue;
+            L.colour[0] = 1.0f; L.colour[1] = 0.62f; L.colour[2] = 0.29f;
             L.reach = w->reach * (std::min)((std::max)(scale, 0.5f), 2.0f);
             L.set = 0;
             for (size_t sOff = mods; sOff + 32 <= mods + modsSize; sOff += 32)

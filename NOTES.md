@@ -958,6 +958,13 @@ They go to the lamps as lampposts do (the air and the surfaces near them), not w
 client shows, and indoors the lamps are at full strength by day. Offline: 7 in the Goldshire inn, 588 in
 Stormwind, 18 lanterns in the mine by Northshire. The owner: that lit the candles.
 
+A fireplace has no doodad named for it. The building's own lights do (MOLT, 48 bytes: type, attenuation on,
+colour as BGRA, position, intensity, 16 bytes unused, attenuation start and end), which the client bakes its
+light from: in the Goldshire inn an orange one (FFB370, 9.2 yards) stood 2.8 yards from the owner at the
+fireplace, another at the far end, and eight pale yellow ones (FFFFA0, 7 yards) 2 yards under the lanterns'
+tops. They come first, with their own colour and reach; the doodads by name only where none of them is
+within 2.5 yards.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

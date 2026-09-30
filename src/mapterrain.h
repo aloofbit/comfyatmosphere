@@ -35,6 +35,7 @@ struct MapLight
 {
     float pos[3];
     float reach;
+    float colour[3];
     char  what[12];
 };
 // The lights within radius yards of `at`, up to max; and how many are held.

@@ -10,6 +10,7 @@ struct WmoLight
 {
     float    pos[3];     // the flame: near the top of the model
     float    reach;      // yards
+    float    colour[3];  // 0..1
     uint16_t set;        // the doodad set it belongs to (0 is shown with every placement)
     char     what[12];   // the keyword it was taken by, for the probe
 };
