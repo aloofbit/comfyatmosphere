@@ -59,6 +59,7 @@
 #include <d3d9.h>
 
 #include "client.h"
+#include "mapterrain.h"
 #include "common.h"
 #include "config.h"
 #include "lamps.h"
@@ -1315,6 +1316,49 @@ int LampsGather(const float cam[3], LampLight* out, int max)
             out[at] = l;
             if (n < max)
                 ++n;
+        }
+    }
+    // The lights from the buildings' files ([lamps] files): as lampposts are (kind 1, lighting the surfaces
+    // near them too), and not where a light the client shows is already within 2 yards: a torch the client
+    // lights would be counted twice.
+    if (g_cfg.lamps.files && g_cfg.shadow.mapTerrain)
+    {
+        static MapLight file[256];
+        const int nf = MapLightsNear(cam, reach + 20.0f, file, 256);
+        const float tint[3] = { 1.0f, 0.62f, 0.29f };
+        for (int f = 0; f < nf; ++f)
+        {
+            bool dup = false;
+            for (const Tracked& t : g_tracked)
+            {
+                const float dx = t.abs[0] - file[f].pos[0], dy = t.abs[1] - file[f].pos[1], dz = t.abs[2] - file[f].pos[2];
+                if (dx * dx + dy * dy + dz * dz < 4.0f) { dup = true; break; }
+            }
+            if (dup)
+                continue;
+            LampLight l;
+            for (int i = 0; i < 3; ++i)
+                l.pos[i] = file[f].pos[i] - cam[i];
+            l.dist = Len3(l.pos);
+            if (l.dist > reach + file[f].reach)
+                continue;
+            for (int i = 0; i < 3; ++i)
+                l.colour[i] = tint[i] * g_cfg.lamps.spriteGain;
+            l.reach = file[f].reach;
+            l.kind  = 1;
+            int at = n < max ? n : max;
+            while (at > 0 && out[at - 1].dist > l.dist)
+            {
+                if (at < max)
+                    out[at] = out[at - 1];
+                --at;
+            }
+            if (at < max)
+            {
+                out[at] = l;
+                if (n < max)
+                    ++n;
+            }
         }
     }
     return n;

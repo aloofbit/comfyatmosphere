@@ -30,6 +30,16 @@ unsigned MapFilesVersion();   // changes whenever what the files cover changes
 bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
 // The probe: the doodads from the files within radius yards, with their model, and whether the client drew them.
 void MapLogDoodadsNear(const float from[3], float radius);
+// A light from a building's doodads (a candle, a torch, a fireplace), in the world.
+struct MapLight
+{
+    float pos[3];
+    float reach;
+    char  what[12];
+};
+// The lights within radius yards of `at`, up to max; and how many are held.
+int MapLightsNear(const float at[3], float radius, MapLight* out, int max);
+unsigned MapLightCount();
 // Whether a point is inside one of the indoor groups (rooms, cellars) of a building from the files.
 bool MapIndoors(const float p[3]);
 // The ground's height from the tiles loaded, at a point; false where no tile is held.

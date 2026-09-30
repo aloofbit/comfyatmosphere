@@ -83,6 +83,7 @@ namespace
     struct Placement
     {
         uint32_t    uid = 0;
+        uint16_t    doodadSet = 0;   // which of the building's doodad sets this placement shows
         std::string name;        // upper case: tiles spell the same file alike, but not by rule
         float       rot[3][3] = {};
         float       pos[3] = {};
@@ -150,6 +151,7 @@ namespace
         UINT                    nv = 0, ntri = 0;
         float                   lo[3] = {}, hi[3] = {};   // the root's box, own space: kept when the mesh goes
         std::vector<float>      indoor;                    // its indoor groups' boxes, own space: kept too
+        std::vector<WmoLight>   lights;                    // its lights, own space: kept too
         bool                    used = true;
     };
 
@@ -209,6 +211,7 @@ namespace
             p.lo[0] = kMid - (std::max)(lo[2], hi[2]); p.hi[0] = kMid - (std::min)(lo[2], hi[2]);
             p.lo[1] = kMid - (std::max)(lo[0], hi[0]); p.hi[1] = kMid - (std::min)(lo[0], hi[0]);
             p.lo[2] = (std::min)(lo[1], hi[1]);        p.hi[2] = (std::max)(lo[1], hi[1]);
+            memcpy(&p.doodadSet, &d[o + 58], 2);
             if (!p.name.empty())
                 out.push_back(std::move(p));
         }
@@ -730,6 +733,31 @@ namespace
         }
     }
 
+    // The lights of the buildings held, in the world: rebuilt with the cover.
+    std::vector<MapLight> g_fileLights;
+
+    void RebuildLights()
+    {
+        g_fileLights.clear();
+        for (const Inst& i : g_insts)
+        {
+            if (i.m->state != Model::kReady)
+                continue;
+            for (const WmoLight& L : i.m->lights)
+            {
+                if (L.set != 0 && L.set != i.p->doodadSet)
+                    continue;
+                MapLight w = {};
+                for (int j = 0; j < 3; ++j)
+                    w.pos[j] = L.pos[0] * i.p->rot[0][j] + L.pos[1] * i.p->rot[1][j] + L.pos[2] * i.p->rot[2][j] +
+                               i.p->pos[j];
+                w.reach = L.reach;
+                memcpy(w.what, L.what, sizeof(w.what));
+                g_fileLights.push_back(w);
+            }
+        }
+    }
+
     void RebuildCover()
     {
         g_coverGrid.clear();
@@ -1030,6 +1058,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
             m.state = Model::kReady;
             memcpy(m.lo, m.mesh.lo, 12);
             m.indoor = m.mesh.indoor;
+            m.lights = m.mesh.lights;
             memcpy(m.hi, m.mesh.hi, 12);
             m.mesh  = WmoMesh();   // on the GPU now; read again after a device change
             coverDirty = true;
@@ -1040,9 +1069,25 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
     {
         RebuildCover();
         RebuildDoodadCover();
+        RebuildLights();
         ++g_filesVersion;
     }
 }
+
+int MapLightsNear(const float at[3], float radius, MapLight* out, int max)
+{
+    int n = 0;
+    for (const MapLight& L : g_fileLights)
+    {
+        const float dx = L.pos[0] - at[0], dy = L.pos[1] - at[1], dz = L.pos[2] - at[2];
+        if (dx * dx + dy * dy + dz * dz > radius * radius || n >= max)
+            continue;
+        out[n++] = L;
+    }
+    return n;
+}
+
+unsigned MapLightCount() { return static_cast<unsigned>(g_fileLights.size()); }
 
 bool MapIndoors(const float p[3])
 {
@@ -1444,11 +1489,12 @@ const char* MapTerrainInfo()
                 "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map; "
                 "%.0f ms a model. Doodads: %u (%u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
                 "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
-                "last map %u solid, %u leaf",
+                "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u",
                 g_map.c_str(), MpqArchiveCount(), ready, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
                 static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast,
                 wDone ? g_wmoMs / wDone : 0.0, doodads, missing, dTris, dTiles, settled,
-                g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1]);
+                g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1],
+                static_cast<unsigned>(g_fileLights.size()));
     return g_info;
 }

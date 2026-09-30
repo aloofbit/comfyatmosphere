@@ -299,6 +299,8 @@ struct LampSettings
                                     // The client's light sits inside the torch head or the brazier bowl,
                                     // and at 0 the bowl hid it from below or from the side
     bool  sprites      = true;      // also glow around lampposts, found by their glow sprite
+    bool  files        = true;      // also the candles, torches and fires the buildings' files place
+                                    // (mapwmo.cpp), which the client lights with no light of its own
     float spriteReach  = 16.0f;     // yards a lamppost's light reaches; a torch's is 16.7 (the client's
                                     // lights carry their own). 10 until 2026-09-28
     float spriteGain   = 1.5f;      // a lamppost's brightness: its sprite's colour (0.95 0.60 0.22) x this.

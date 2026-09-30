@@ -947,6 +947,17 @@ groups (MOGP flags 0x2000, the box at +12), kept with the building (`MapIndoors`
 one, the sun shadows (shade, sunlight and both tints) fade to `[sunshadows] indoor` (0) over half a second.
 The volumetric light is left alone, so light through a door or a window still shows.
 
+**Candles from the files.** Inside a building the client has no point lights and its candles are particles
+(the Darkshire inn probe), so the lamps never found them. A building's root file places its own doodads
+(MODN names, MODS sets, MODD: 40 bytes, name offset in the low 24 bits, position, rotation as a quaternion,
+scale). `mapwmo.cpp` takes those whose model is named for a light: chandelier, candelabra (the inns' candles
+are `GENERALCANDELABRA01`, which "candle" does not match), candle, sconce, lantern, lamp, torch, brazier,
+fireplace, campfire, firepit; not firewood. The light sits at the model's box centre, 85% of the way up, and
+reaches 6 to 16 yards by kind, times the scale. Only set 0 and the set the placement names (MODF +58) count.
+They go to the lamps as lampposts do (the air and the surfaces near them), not within 2 yards of a light the
+client shows, and indoors the lamps are at full strength by day. Offline: 7 in the Goldshire inn, 588 in
+Stormwind, 18 lanterns in the mine by Northshire. The owner: that lit the candles.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

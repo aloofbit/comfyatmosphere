@@ -46,6 +46,7 @@
 #include <d3d9.h>
 
 #include "client.h"
+#include "mapterrain.h"
 #include "common.h"
 #include "config.h"
 #include "depth.h"
@@ -283,6 +284,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     {
         float hour = 0.0f;
         if (!ClientHour(hour))
+            return 1.0f;
+        // Inside a building it is dim at any hour: the candles glow in full (2026-09-30).
+        float pl[3];
+        if (ClientPlayer(pl) && MapIndoors(pl))
             return 1.0f;
         const float day = g_cfg.lamps.day * 0.01f;
         return day + (1.0f - day) * NightWeight(hour);

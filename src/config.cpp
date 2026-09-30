@@ -269,6 +269,7 @@ void LoadSettings(const wchar_t* ini)
     s.lamps.softness     = Clamp(GetF(kLamps, L"softness",     s.lamps.softness,     ini), 0.05f, 5.0f);
     s.lamps.through      = Clamp(GetF(kLamps, L"through",      s.lamps.through,      ini), 0.0f, 10.0f);
     s.lamps.sprites      = GetB(kLamps, L"sprites", s.lamps.sprites, ini);
+    s.lamps.files        = GetB(kLamps, L"files", s.lamps.files, ini);
     s.lamps.spriteReach  = Clamp(GetF(kLamps, L"spriteReach",  s.lamps.spriteReach,  ini), 1.0f, 60.0f);
     s.lamps.spriteGain   = Clamp(GetF(kLamps, L"spriteGain",   s.lamps.spriteGain,   ini), 0.0f, 10.0f);
     s.lamps.debug        = GetI(kLamps, L"debug", s.lamps.debug, ini);
