@@ -816,6 +816,27 @@ again, so they are used as stored. `mapm2.cpp` ports the parts of the model brow
   and lower values (1 to 223, a few draws each, nearly all past 60 yards) are doodads fading in or out at
   the edge of the view. The owner saw little difference from 32 to 224, and blobs only near 4.
 
+**The cache keeps what the files do not have (2026-09-30, in progress).** A draw the files cover is
+refused in Merge when it is placed, before any matching or copying: terrain in a loaded tile, a loaded
+building's opaque groups, a doodad (not where a unit stands). Entries kept from before a tile came in are
+evicted once, when what the files cover changes. The replay draws even with the cache empty.
+
+- Doodads are matched by place, and which point is the place depends on the model. With the placement in
+  c2..c5 (a bush), the transform's origin and the first bone's are the placement. With it in the bones
+  (the canopy trees; c2..c5 then holds the projection alone), the origin is the camera and the first
+  bone stood 2 to 25 yards off, a pose of its own. Every bone the draw uploaded itself is asked, to a
+  tenth of a yard. Still open: the cache held about 4,400 entries after that, so most trees are not
+  matched yet.
+- **NPC shadows did not follow their animation.** The still rule keeps a model's pose while it has not
+  moved, which saves copying its bones every frame. For a trees-only cache that was right; with the
+  trees from the files, the models left are characters and creatures, and one animating in place kept
+  the pose it was first seen in. A model where a unit stands is now always refreshed.
+- **A Northshire peasant's shade blinked for one frame each time round his carry-lumber walk.** It did
+  so with the files on and off, and predates them. His model has an alpha-tested part, so it is a leafy
+  one, kept out of the leaves only while its first bone is within half a yard of the unit; the carry
+  animation moved that bone further for a frame, and he cast as leaves, at part shade. A cache entry seen
+  at a unit now stays that unit's (`Entry::unit`): the entry follows him, so one frame cannot flip it.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

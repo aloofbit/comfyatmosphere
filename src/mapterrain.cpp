@@ -489,6 +489,7 @@ namespace
     std::unordered_map<long long, std::vector<float>> g_doodadGrid;   // doodads drawn from the files, 4-yard cells
     unsigned                               g_dDrawnLast[2] = {};    // solid, leaf batches drawn into the last map
     unsigned                               g_texRead = 0, g_texFailed = 0;
+    unsigned                               g_filesVersion = 0;   // bumped whenever what the files cover changes
     double                                 g_dMs = 0.0;
     unsigned                               g_dTiles = 0;
     // lo, hi: the box culled by, once the model is ready: the tile's box and the model's own box turned
@@ -1022,6 +1023,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
     {
         RebuildCover();
         RebuildDoodadCover();
+        ++g_filesVersion;
     }
 }
 
@@ -1052,7 +1054,7 @@ bool MapBuildingCovers(const float pos[3])
     return false;
 }
 
-bool MapDoodadCovers(const float pos[3])
+bool MapDoodadCovers(const float pos[3], float tol)
 {
     if (g_doodadGrid.empty())
         return false;
@@ -1065,11 +1067,13 @@ bool MapDoodadCovers(const float pos[3])
                 continue;
             const std::vector<float>& p = it->second;
             for (size_t i = 0; i + 2 < p.size(); i += 3)
-                if (fabsf(p[i] - pos[0]) < 0.5f && fabsf(p[i + 1] - pos[1]) < 0.5f && fabsf(p[i + 2] - pos[2]) < 0.5f)
+                if (fabsf(p[i] - pos[0]) < tol && fabsf(p[i + 1] - pos[1]) < tol && fabsf(p[i + 2] - pos[2]) < tol)
                     return true;
         }
     return false;
 }
+
+unsigned MapFilesVersion() { return g_filesVersion; }
 
 bool MapDoodadNearest(const float from[3], float pos[3])
 {

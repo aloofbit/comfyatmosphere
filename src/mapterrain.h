@@ -23,8 +23,10 @@ bool MapBuildingNearest(const float from[3], float pos[3], float rot[3][3], char
 // (cut by their textures with this alpha test).
 unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3], bool leaves,
                         DWORD alphaRef, DWORD alphaFunc);
-// Whether a model draw whose absolute transform sits here is a doodad drawn from the files.
-bool MapDoodadCovers(const float pos[3]);
+// Whether a model draw whose absolute transform sits here is a doodad drawn from the files: a doodad's place
+// within tol yards on each axis.
+bool MapDoodadCovers(const float pos[3], float tol = 0.5f);
+unsigned MapFilesVersion();   // changes whenever what the files cover changes
 bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
 const char* MapTerrainInfo();   // for the probe

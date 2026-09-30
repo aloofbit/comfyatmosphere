@@ -406,6 +406,7 @@ namespace
         float              pos[3];         // absolute position of its reference point
         double             lastSeen;       // == now once matched this frame
         double             claimed = -1.0; // == now when a draw this frame stands within kMatchRadius of it
+        bool               unit = false;   // seen where a unit stands: a character's, never leaves (sticky)
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
     };
 
@@ -757,6 +758,79 @@ namespace
     unsigned g_nStill    = 0;                // this frame: models seen again that had not moved (not copied)
 
     int g_unitsSeen = 0;                    // for the probe: units and players known
+
+    // What the files draw (mapterrain.cpp) is not kept here (2026-09-30): a terrain chunk in a loaded tile,
+    // a loaded building's opaque groups, a doodad from a loaded tile. The cache then holds what the files do
+    // not have: characters, creatures, the server's objects, cut-out parts of buildings, and anything past
+    // the tiles loaded. Not a model where a unit stands: a character standing on a doodad's place is still
+    // a character. The units are taken once a full frame, into 2-yard cells.
+    unsigned g_nFilesRefused = 0, g_nFilesEvicted = 0;   // this frame
+    std::unordered_map<long long, std::vector<int>> g_filesUnitCells;
+    float g_filesUnits[512][3];
+
+    void TakeUnits()
+    {
+        g_filesUnitCells.clear();
+        const int n = ClientUnits(g_filesUnits, 512);
+        for (int i = 0; i < n; ++i)
+            g_filesUnitCells[(static_cast<long long>(floorf(g_filesUnits[i][0] * 0.5f)) << 32) ^
+                             (static_cast<long long>(floorf(g_filesUnits[i][1] * 0.5f)) & 0xFFFFFFFFll)].push_back(i);
+    }
+
+    bool UnitAt(const float pos[3])
+    {
+        const long long cx = static_cast<long long>(floorf(pos[0] * 0.5f));
+        const long long cy = static_cast<long long>(floorf(pos[1] * 0.5f));
+        for (long long ox = -1; ox <= 1; ++ox)
+            for (long long oy = -1; oy <= 1; ++oy)
+            {
+                auto it = g_filesUnitCells.find(((cx + ox) << 32) ^ ((cy + oy) & 0xFFFFFFFFll));
+                if (it == g_filesUnitCells.end())
+                    continue;
+                for (int i : it->second)
+                {
+                    const float dx = pos[0] - g_filesUnits[i][0], dy = pos[1] - g_filesUnits[i][1],
+                                dz = pos[2] - g_filesUnits[i][2];
+                    if (dx * dx + dy * dy < 0.25f && dz > -4.0f && dz < 4.0f)
+                        return true;
+                }
+            }
+        return false;
+    }
+
+    // A model's place in the cache is its first bone's origin. Which point is the doodad's own place
+    // depends on where the client put the placement (2026-09-30, measured in Elwynn):
+    //   - in c2..c5 (a bush): the absolute transform's origin is the placement, and so is the first bone's;
+    //   - in the bones (the canopy trees; c2..c5 then holds the projection alone): the transform's origin is
+    //     the camera, and the first bone stood 2 to 25 yards from the placement, a pose of its own. A bone
+    //     with no pose of its own maps the model's origin to the placement exactly, so every bone is asked,
+    //     to a tenth of a yard: a character's hand beside a bush is not a bush. Only the registers the draw
+    //     uploaded itself (nregsOwn): past them the snapshot holds the bones of models drawn before it.
+    // With the first bone alone, 283 draws were refused a frame and 4,765 models kept.
+    bool FromFiles(const Rec& r, const float pos[3], const D3DMATRIX& absolute, const float* consts, UINT nregs)
+    {
+        if (!g_cfg.shadow.mapTerrain)
+            return false;
+        if (r.terrain)   // its place is its corner, the largest x and y: a yard inside finds the tile
+            return MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f);
+        if (!r.vs)       // a building's group is drawn with the placement's matrix
+            return !r.alphaTest && MapBuildingCovers(pos);
+        if (UnitAt(pos))
+            return false;
+        const float origin[3] = { absolute.m[3][0], absolute.m[3][1], absolute.m[3][2] };
+        if (MapDoodadCovers(pos) || MapDoodadCovers(origin))
+            return !UnitAt(origin);
+        for (UINT k = 0; consts && 34 + 3 * k <= nregs && k < 64; ++k)
+        {
+            const float b[3] = { consts[(31 + 3 * k) * 4 + 3], consts[(32 + 3 * k) * 4 + 3], consts[(33 + 3 * k) * 4 + 3] };
+            float w[3];
+            for (int j = 0; j < 3; ++j)
+                w[j] = b[0] * absolute.m[0][j] + b[1] * absolute.m[1][j] + b[2] * absolute.m[2][j] + absolute.m[3][j];
+            if (MapDoodadCovers(w, 0.1f))
+                return true;
+        }
+        return false;
+    }
     constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
 
 
@@ -783,6 +857,8 @@ namespace
         g_nChanged = 0; g_maxDiff = 0.0f; g_diffInfo[0] = 0;
         g_nOffWorld = 0;
         g_frameInfo[0] = 0;
+        g_nFilesRefused = 0;
+        TakeUnits();
         // The player's own models (the character, a mount, a pet) are always placed again: see below.
         float player[3] = {};
         const bool havePlayer = ClientPlayer(player);
@@ -883,6 +959,13 @@ namespace
                 e.absolute.m[3][1] += cam[1];
                 e.absolute.m[3][2] += cam[2];
                 pos[0] = e.absolute.m[3][0]; pos[1] = e.absolute.m[3][1]; pos[2] = e.absolute.m[3][2];
+            }
+            if (FromFiles(r, pos, e.absolute, r.vs ? &g_constPool[r.consts] : nullptr, (std::min)(r.nregs, r.nregsOwn)))
+            {
+                ReleaseRec(r);
+                r = Rec{};
+                ++g_nFilesRefused;
+                continue;
             }
             pl.ok = true;
             pl.absolute = e.absolute;
@@ -1039,8 +1122,11 @@ namespace
                 const float sr = g_cfg.shadow.stillRadius;
                 const float px = pos[0] - player[0], py = pos[1] - player[1], pz = pos[2] - player[2];
                 const bool  playerModel = havePlayer && px * px + py * py + pz * pz < kPlayerModels * kPlayerModels;
+                // Nor for a model where a unit stands (2026-09-30): an NPC animating in place kept the pose it
+                // was first seen in, and its shadow did not follow the animation. With the trees and doodads
+                // from the files, the models left here are mostly characters and creatures.
                 const bool still = r.vs && !moved && !playerModel && sx * sx + sy * sy + sz * sz < sr * sr &&
-                                   !best->consts.empty();
+                                   !best->consts.empty() && !UnitAt(pos) && !UnitAt(&e.absolute.m[3][0]);
                 if (still)
                 {
                     ++g_nStill;
@@ -1109,6 +1195,12 @@ namespace
     {
         const ShadowSettings& s = g_cfg.shadow;
         const float keep = s.range + s.keepMargin;
+        g_nFilesEvicted = 0;
+        // Entries are checked against the files only when what the files cover has changed: new ones are
+        // refused at Merge, so an entry kept is one the files did not cover when it came in.
+        static unsigned filesSeen = ~0u;
+        const bool filesChanged = MapFilesVersion() != filesSeen;
+        filesSeen = MapFilesVersion();
         // Terrain and buildings (fixed-function) are kept out to the map's depth toward the sun: the far
         // horizon's mountains are drawn only while you look at them, and at range + keepMargin they left
         // the map as soon as you looked down, so a ridge's shade came and went as the camera tilted, and
@@ -1153,6 +1245,12 @@ namespace
                             e.rec.numVertices, e.rec.primCount, e.rec.vb[0], e.rec.vbStride[0],
                             e.lastSeen == now ? "drawn this frame" : "not drawn");
                     }
+                }
+                else if (filesChanged &&
+                         FromFiles(e.rec, e.pos, e.absolute, e.consts.empty() ? nullptr : e.consts.data(),
+                                   (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn)))
+                {
+                    gone = true; ++g_nFilesEvicted;   // kept before its tile came in
                 }
                 else if (e.rec.terrain && [&] {
                              const Best& b = best[placeKey(e)];
@@ -1802,10 +1900,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // yards toward the sun, so a ridge that far off can still shade you.
     MapTerrainUpdate(dev, pl, s.mapTerrain ? (std::max)(s.range, s.depth) + 60.0f : 0.0f);
 
-    if (g_cache.empty() || !EnsureResources(dev, static_cast<UINT>(s.size)))
+    // Nothing to draw only if the cache is empty and the files are off: with them on, the cache holds only
+    // what moves, and can be empty on a hill with nobody about.
+    const bool nothing = g_cache.empty() && !s.mapTerrain;
+    if (nothing || !EnsureResources(dev, static_cast<UINT>(s.size)))
     {
         g_replayOutcome = 4;
-        if (!g_cache.empty())
+        if (!nothing)
             g_failed = true;
         return;
     }
@@ -2023,6 +2124,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                       (static_cast<long long>(floorf(units[i][1] * 0.5f)) & 0xFFFFFFFFll)].push_back(i);
         g_unitsSeen = n;
     }
+    // A model seen where a unit stands stays that unit's (2026-09-30). A Northshire peasant carrying lumber
+    // lost his shade for one frame at the same point of his walk each time round: the lumber (or his hair)
+    // is alpha tested, so his model is a leafy one, kept out of the leaves only while its reference point
+    // (the first bone) is within half a yard of the unit. The carry animation moves that bone further for
+    // a frame, and he cast as leaves, at part shade. The entry follows him from frame to frame, so it keeps
+    // the answer.
     auto atUnit = [&](const Entry& e) {
         // A unit within half a yard across the ground and 4 up or down, found through this cell and those
         // around it: a character's reference point is its root bone, at the unit's feet.
@@ -2045,16 +2152,21 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             }
         return false;
     };
+    if (doLeaves)
+        for (auto& kv : g_cache)
+            for (Entry& e : kv.second)
+                if (e.rec.vs && !e.unit && atUnit(e))
+                    e.unit = true;
     auto isLeaf = [&](const Entry& e) {
         // Terrain casts as leaves do ([shadow] terrainLeaves): hills and mountains let part of the sun
         // through, as the owner wanted, where buildings stop it all (2026-09-29).
         if (e.rec.terrain)
             return s.terrainLeaves;
-        if (e.rec.vs && atUnit(e))
+        if (e.rec.vs && e.unit)
             return false;
         return e.rec.alphaTest != 0 || (e.rec.vs && g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs)) != 0);
     };
-    UINT leafDrawn = 0, fromFiles = 0, wmoFromFiles = 0, doodadFromFiles = 0;
+    UINT leafDrawn = 0;
     unsigned farTiles = 0, nearTiles = 0, farWmos = 0, nearWmos = 0, farDoodads = 0, nearDoodads = 0;
     double passTime[4] = {};
     unsigned long long bytesNow[4] = {};
@@ -2113,31 +2225,6 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         // With leaf maps, the leaves go there and everything else to the solid map.
         if (doLeaves && isLeaf(e) != leafPass)
             continue;
-        // A terrain chunk whose tile came from the files is drawn from there, at full detail. Its place
-        // is its corner, the largest x and y it covers, so a point a yard inside finds the tile.
-        if (r.terrain && s.mapTerrain && MapTerrainCovers(e.pos[0] - 1.0f, e.pos[1] - 1.0f))
-        {
-            if (nearPass != drawFar)   // counted in the first pass that runs: the far map is not redrawn every time
-                ++fromFiles;
-            continue;
-        }
-        // A building's group drawn from the files: the client draws each group with the placement's
-        // matrix, so its place is the building's. Its alpha-keyed parts are not in the files' mesh and
-        // stay (alpha tested), as do the buildings of a tile not read.
-        if (!r.vs && !r.terrain && !r.alphaTest && s.mapTerrain && MapBuildingCovers(e.pos))
-        {
-            if (nearPass != drawFar)
-                ++wmoFromFiles;
-            continue;
-        }
-        // A doodad drawn from the files: a model whose place is a doodad's, to half a yard. Not one where a
-        // unit stands, which is a character.
-        if (r.vs && s.mapTerrain && MapDoodadCovers(e.pos) && !atUnit(e))
-        {
-            if (nearPass != drawFar)
-                ++doodadFromFiles;
-            continue;
-        }
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
         // hundred of them rather than thousands, and one chunk covers so much ground that the point we
         // hold for it can sit well outside the map while its geometry crosses the middle: culling those
@@ -2213,10 +2300,10 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     }   // the two maps
     if (logThis)
     {
-        Log("shadow: %s; far map %u tiles, %u buildings and %u doodad draws, near map %u, %u and %u; left out "
-            "for them: %u of the game's terrain draws, %u of its building draws, %u of its doodad draws; leaves "
-            "cut at alpha %d ([shadow] leafAlpha)", MapTerrainInfo(), farTiles, farWmos, farDoodads, nearTiles,
-            nearWmos, nearDoodads, fromFiles, wmoFromFiles, doodadFromFiles, s.leafAlpha);
+        Log("shadow: %s; far map %u tiles, %u buildings and %u doodad draws, near map %u, %u and %u; the "
+            "game's draws the files cover: %u refused this frame, %u kept from before evicted; leaves cut at "
+            "alpha %d ([shadow] leafAlpha)", MapTerrainInfo(), farTiles, farWmos, farDoodads, nearTiles, nearWmos,
+            nearDoodads, g_nFilesRefused, g_nFilesEvicted, s.leafAlpha);
         // The check on the doodads' places: the nearest one from the files against the nearest model draw.
         float dp[3];
         if (MapDoodadNearest(pl, dp))
