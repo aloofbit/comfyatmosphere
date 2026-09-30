@@ -764,7 +764,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             in.depth  = DepthWorldTexture();
             in.sky    = (r.skyOnly && g_skyCaptured) ? g_sky.tex : nullptr;
             in.scene  = g_scene.tex;
-            IDirect3DTexture9* cover = CoverMeasure(dev, sun.id ? kCoverRaysMoon : kCoverRaysSun, in, r.adaptTime);
+            IDirect3DTexture9* cover = CoverMeasure(dev, sun.id ? kCoverRaysMoon : kCoverRaysSun, in, r.coverTime);
             if (!cover)
                 continue;                  // no cover texture: the mask would read nothing and draw black
             d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(cover));

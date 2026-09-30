@@ -1029,6 +1029,30 @@ within `[depth] seeThroughNear` (4 yards) of your character, the see-through han
 the distance; the owner's, zoomed in: 1.2 yards, off, fixed. A stealthed unit that near the camera is outlined
 again while you are zoomed in.
 
+## Ships (2026-09-30)
+
+At Auberdine a ship's shade trailed behind it. The ship is not in the map files: its hull is a building
+drawn fixed-function through the arena (the buffer the client refills), and its sails and fittings are models.
+Four faults, found one after another with the probe:
+
+- **A new copy each frame.** Arena geometry is copied once and found again by its place, to a tenth of a yard
+  (`ArenaKey`). At a new place each frame, every piece of the hull wanted a new copy: past copyPerFrame (16) the
+  rest had no shade that frame (a flicker), and each copy was a new buffer, so the cache saw a new object each
+  frame and kept the old places until staleTime (1,793 entries 50 to 150 yards off: a band of shade along its
+  path). Now a piece with no copy at its place takes the copy with the same counts used in the last quarter of a
+  second, within 3 yards, and moves it (the probe counts these).
+- **The still rule.** A model within stillRadius (0.3 yards) of its place keeps its recorded place and pose.
+  The sails moved less than that a frame, so they were held and jumped, while the hull followed each frame. A
+  model that has once moved past stillRadius (`drifts`) is no longer held.
+- **Left behind out of view.** An entry out of view, or in view past evictDistance, stayed until staleTime once
+  the ship moved on: a dark outline of the ship that went a few seconds later. Anything that has moved since it
+  was first seen goes as soon as it is not drawn. With the world from the files, a fixed-function entry in view
+  and not drawn goes at any distance, and one drawn on fewer than kBrief redraws goes at once, as models do.
+- **The shafts came back slowly** after the ship crossed the sun: the rays and the light fade when the sun is
+  covered and ease back over `[rays] coverTime`, 0.5 seconds until now and 0.15 since.
+
+The probe lists entries kept undrawn out to 150 yards, with whether they have moved. The owner: that fixed it.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

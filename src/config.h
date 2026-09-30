@@ -359,6 +359,9 @@ struct RaysSettings
                                     // 0 is the geometrically right one: parallel shafts in the world run to the
                                     // sun on screen, and a simulation showed 1 swings MORE as the camera turns
     float adaptTime   = 0.5f;       // seconds the brightness reference takes to follow the scene
+    // Seconds the rays and the light take to fade when the sun is covered and come back when it is clear
+    // (cover.cpp). 0.5 until 2026-09-30, and after a ship crossed the sun the shafts came back slowly.
+    float coverTime   = 0.15f;
     float decay       = 0.96f;      // per-sample falloff along a ray; lower = shorter, softer shafts
     float soften      = 1.0f;       // pixels of the mask (downscale x this on screen): the mask is blurred
                                     // this wide before the rays are drawn, so a gap between leaves a pixel

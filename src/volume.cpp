@@ -965,7 +965,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         in.test   = v.occlusion && !v.debug && fabsf(nx) <= 1.0f && fabsf(ny) <= 1.0f;
         in.aspect = wd.Height ? static_cast<float>(wd.Width) / static_cast<float>(wd.Height) : 1.0f;
         in.depth  = depth;
-        cover = CoverMeasure(dev, kCoverVolume, in, 0.5f);
+        cover = CoverMeasure(dev, kCoverVolume, in, g_cfg.rays.coverTime);
     }
 
     // --- composite onto the world -------------------------------------------------------------------

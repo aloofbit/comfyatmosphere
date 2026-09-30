@@ -408,6 +408,7 @@ namespace
         double             claimed = -1.0; // == now when a draw this frame stands within kMatchRadius of it
         bool               unit = false;   // seen where a unit stands: a character's, never leaves (sticky)
         unsigned           drawnFor = 0;   // map redraws it was drawn on (see Evict: kBrief)
+        bool               drifts = false; // has moved past stillRadius once: the still rule no longer holds it
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
     };
 
@@ -540,6 +541,7 @@ namespace
     };
     std::unordered_map<ArenaKey, ArenaCopy, ArenaKeyHash> g_copies;
     unsigned g_copiesTaken = 0;      // this frame
+    unsigned g_copiesMoved = 0;      // copies that followed a moving object, since the last probe
     double   g_copyNow     = 0.0;    // the time at this frame's recording
     double   g_copySwept   = 0.0;    // when the full store was last swept
 
@@ -1132,7 +1134,13 @@ namespace
                 // Nor for a model where a unit stands (2026-09-30): an NPC animating in place kept the pose it
                 // was first seen in, and its shadow did not follow the animation. With the trees and doodads
                 // from the files, the models left here are mostly characters and creatures.
-                const bool still = r.vs && !moved && !playerModel && sx * sx + sy * sy + sz * sz < sr * sr &&
+                // Nor for a model that has once moved past stillRadius (2026-09-30): a ship's sails, drawn as
+                // models, moved under 0.3 yards a frame, were held for a frame or two and then jumped, while its
+                // hull (a building) followed every frame. What stands still never gets that far.
+                const bool within = sx * sx + sy * sy + sz * sz < sr * sr;
+                if (!within)
+                    best->drifts = true;   // fixed-function too: a ship's hull (see Evict)
+                const bool still = r.vs && !moved && !playerModel && within && !best->drifts &&
                                    !best->consts.empty() && !UnitAt(pos) && !UnitAt(&e.absolute.m[3][0]);
                 if (still)
                 {
@@ -1278,7 +1286,12 @@ namespace
                         c[j] = rel[0] * camVP.m[0][j] + rel[1] * camVP.m[1][j] + rel[2] * camVP.m[2][j] + camVP.m[3][j];
                     const float dist2 = rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2];
                     const bool inView = c[3] > 0.0f && fabsf(c[0]) < 0.9f * c[3] && fabsf(c[1]) < 0.9f * c[3];
-                    if (inView && dist2 < s.evictDistance * s.evictDistance)
+                    // With the world from the files, a fixed-function draw left in the cache is something the
+                    // files do not place, which moves: a ship (2026-09-30). In view and not drawn, it has gone,
+                    // at any distance: the ship at Auberdine left a band of shade along its path, 1,793 entries
+                    // 50 to 150 yards off, until staleTime.
+                    const bool movingFixed = s.mapTerrain && !e.rec.vs && !e.rec.terrain;
+                    if (inView && (movingFixed || dist2 < s.evictDistance * s.evictDistance))
                     {
                         gone = true; ++g_nEvictView;
                     }
@@ -1297,7 +1310,12 @@ namespace
                         // entry of its own, drawn once or twice, and left a trail of shade. It is a unit, but its
                         // model flies high over the unit's place, so the unit rule did not take it.
                         constexpr unsigned kBrief = 20;
-                        if (e.mobile || (e.unit && !UnitAt(e.pos)) || (e.rec.vs && e.drawnFor < kBrief) ||
+                        // With the world from the files, fixed-function draws too (2026-09-30): a ship's.
+                        const bool brief = e.drawnFor < kBrief && (e.rec.vs || (s.mapTerrain && !e.rec.terrain));
+                        // Anything that has moved since it was first seen, once it stops being drawn, at any
+                        // distance and in view or not (2026-09-30): a ship's pieces that it left out of view
+                        // stayed as a dark outline of the ship until staleTime.
+                        if (e.mobile || e.drifts || (e.unit && !UnitAt(e.pos)) || brief ||
                             dx * dx + dy * dy > reach * reach ||
                             (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
                             (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime))
@@ -1688,6 +1706,33 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
                 static_cast<int>((r.world.m[3][2] + cam[2]) * 10.0f),
             };
             auto it = g_copies.find(key);
+            // A moving object (2026-09-30): the ship at Auberdine is a building drawn through the arena, at a
+            // new place each frame. Keyed by place, every piece of it wanted a new copy each frame: past
+            // copyPerFrame the rest had no shade that frame (a flicker), and each new copy was a new buffer,
+            // so the cache saw a new object each frame and kept the old places until staleTime (a band of
+            // shade along its path). Its copy is the one with the same counts that was used in the last
+            // quarter of a second and not yet this frame, within 3 yards; it moves to the new place.
+            if (it == g_copies.end())
+            {
+                auto nearest = g_copies.end();
+                long long nearestD2 = 30LL * 30LL + 1;
+                for (auto c = g_copies.begin(); c != g_copies.end(); ++c)
+                {
+                    if (c->first.verts != key.verts || c->first.prims != key.prims ||
+                        !(c->second.lastUsed < g_copyNow && g_copyNow - c->second.lastUsed < 0.25))
+                        continue;
+                    const long long dx = c->first.x - key.x, dy = c->first.y - key.y, dz = c->first.z - key.z;
+                    const long long d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 < nearestD2) { nearestD2 = d2; nearest = c; }
+                }
+                if (nearest != g_copies.end())
+                {
+                    const ArenaCopy moved = nearest->second;
+                    g_copies.erase(nearest);
+                    it = g_copies.emplace(key, moved).first;
+                    ++g_copiesMoved;
+                }
+            }
             if (it == g_copies.end() && g_copiesTaken < static_cast<unsigned>(g_cfg.shadow.copyPerFrame) &&
                 g_copies.size() >= static_cast<size_t>(g_cfg.shadow.copyMax))
                 SweepCopies();
@@ -2373,16 +2418,18 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 {
                     const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
                     const float d = sqrtf(dx * dx + dy * dy);
-                    if (d > 60.0f || now - e.lastSeen < 2.0)
+                    if (d > 150.0f || now - e.lastSeen < 1.0)
                         continue;
                     ++total;
                     if (shown++ < 15)
-                        Log("shadow:   kept undrawn %.0f s: %s, %u triangles%s%s%s, at (%.1f %.1f %.1f), %.0f yd from you",
+                        Log("shadow:   kept undrawn %.1f s: %s, %u triangles%s%s%s%s, drawn on %u redraws, at (%.1f %.1f "
+                            "%.1f), %.0f yd from you",
                             now - e.lastSeen, e.rec.vs ? "model" : e.rec.terrain ? "terrain" : "fixed-function",
                             e.rec.primCount, e.rec.alphaTest ? ", alpha tested" : "", e.unit ? ", at a unit" : "",
-                            e.mobile ? ", moving" : "", e.pos[0], e.pos[1], e.pos[2], d);
+                            e.mobile ? ", moving" : "", e.drifts ? ", has moved" : "", e.drawnFor, e.pos[0],
+                            e.pos[1], e.pos[2], d);
                 }
-            Log("shadow: %u cache entries within 60 yd not drawn for over 2 s", total);
+            Log("shadow: %u cache entries within 150 yd not drawn for over 1 s", total);
         }
         // The check on the doodads' places: the nearest one from the files against the nearest model draw.
         float dp[3];
@@ -2490,6 +2537,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             static_cast<unsigned>(g_entries), unseen, g_nRefreshed, g_nAdded, g_nEvictView, g_nEvictAge,
             g_nEvictCap, drawn, drawnVS, nearDrawn, 1000.0 * (Now() - t0), sunDir[0], sunDir[1], sunDir[2],
             havePlayer ? "player" : "camera");
+    if (logThis)
+    {
+        Log("shadow: copies of streamed geometry: %u held, %u taken this frame, %u moved with a moving object since "
+            "the last probe", static_cast<unsigned>(g_copies.size()), g_copiesTaken, g_copiesMoved);
+        g_copiesMoved = 0;
+    }
     // What the cache holds, for F12: by kind, leafy (alpha tested), moving, and by distance from the
     // player across the ground.
     if (logThis)
