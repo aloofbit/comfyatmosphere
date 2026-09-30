@@ -111,8 +111,8 @@ struct NightSettings
     float fade     = 1.5f;      // hours each change takes
     // Night Darkness (2026-09-30): the world darker at night, by the same clock. Drawn in the lamps' pass
     // (lampglow.cpp), so the ground near a lamp keeps the lamp's light.
-    float darkness = 0.65f;     // 0..0.9: how much darker the world is at full night
-    float tint     = 0.0f;      // 0..1: how far the dark leans toward moonColor
+    float darkness = 0.20f;     // 0..0.9: how much darker the world is at full night
+    float tint     = 0.65f;     // 0..1: how far the dark leans toward moonColor
     DWORD moonColor = 0x9CB8FF; // RGB of the moonlight (its hue only: brightness is kept)
     float sky      = 0.5f;      // 0..1: the share of the darkness the sky gets
     bool  indoors  = false;     // true = darker inside buildings too
@@ -193,10 +193,10 @@ struct ShadowSettings
 struct VolumeSettings
 {
     bool  enabled      = true;
-    float strength     = 25.0f;     // the dial, 0..100
+    float strength     = 45.0f;     // the dial, 0..100
     float maxIntensity = 3.0f;      // gain at 100
-    float density      = 0.017f;     // how much the air scatters, per yard (Light Density, in thousandths)
-    float maxDistance  = 200.0f;     // yards along each line of sight (the shadow map's reach)
+    float density      = 0.012f;     // how much the air scatters, per yard (Light Density, in thousandths)
+    float maxDistance  = 140.0f;     // yards along each line of sight (the shadow map's reach)
     int   steps        = 64;        // samples along each line of sight: more holds up over a long
                                     // maxDistance, where a thin canopy can fall between two samples.
                                     // 96 until 2026-09-24; with the noise turned each frame and the
@@ -282,7 +282,7 @@ struct SunShadowSettings
                                   // full as they fade at dusk
     float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
                                   // everything solid shades the rest, so characters no longer float
-    float sunlight   = 0.40f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
+    float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
                                   // Sunlight control, in percent). A forest in shade was dark all over
     int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = the leaves' shade alone
 };
@@ -294,7 +294,7 @@ struct SunShadowSettings
 struct LampSettings
 {
     bool  enabled      = true;
-    float strength     = 35.0f;     // the dial, 0..100
+    float strength     = 20.0f;     // the dial, 0..100
     float maxIntensity = 10.0f;     // the glow in the air: gain at 100. 4 until 2026-09-28, too faint to see
     float surface      = 7.0f;      // a lamppost's light on the surfaces near it: gain at 100 (0 = none).
                                     // About 1 / the night's own light, so a lamp lights like a torch
@@ -310,7 +310,7 @@ struct LampSettings
                                     // The client's light sits inside the torch head or the brazier bowl,
                                     // and at 0 the bowl hid it from below or from the side
     bool  sprites      = true;      // also glow around lampposts, found by their glow sprite
-    float fogReach     = 2.2f;      // how far into the fog a lamp still glows: the fade (over the far half of
+    float fogReach     = 2.4f;      // how far into the fog a lamp still glows: the fade (over the far half of
                                     // the fog) stretched by this. Lamp Distance, in percent
     bool  files        = true;      // also the candles, torches and fires the buildings' files place
                                     // (mapwmo.cpp), which the client lights with no light of its own
@@ -331,7 +331,7 @@ struct RaysSettings
     // The dial. 0 = no rays, 100 = maxExposure, on a square curve: exposure = maxExposure x (strength/100)^2.
     // 5.7 keeps the default of 35 at 0.7, the exposure it had when the dial was linear with a maximum of 2.
     // The rest describes the look and is not scaled by it.
-    float strength    = 20.0f;
+    float strength    = 40.0f;
     float maxExposure = 5.7f;
 
     // A pixel casts rays when it is within relThreshold of the brightest pixel in the frame (so the

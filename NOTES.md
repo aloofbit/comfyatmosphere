@@ -986,7 +986,7 @@ too, as that pass scales the colour already there. The blend is DESTCOLOR x sour
 source is clamped to 0..1 and a lamp's light may be past 1, so alpha carries the smallest channel of the
 darkness and the colour carries the rest plus the light. The factors go in c4.zw and c5 of that pass: the glow
 shader keeps compiler constants (`def`) in c6 and c7, and c4 and c5 are set back for it. It needs Volumetric
-Light on, for the depth. The owner's setting, 65, is the default.
+Light on, for the depth. The owner's settings, 20 and 65, are the defaults.
 
 ## Every effect gone with the chat hidden (2026-09-30)
 
