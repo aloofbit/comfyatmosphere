@@ -1053,6 +1053,18 @@ Four faults, found one after another with the probe:
 
 The probe lists entries kept undrawn out to 150 yards, with whether they have moved. The owner: that fixed it.
 
+## Animated doodads: the gryphons at a flight master (2026-09-30)
+
+At Lakeshire the gryphons moved in game and their shade did not. They are not creatures but doodads the tile
+places (GRYPHONROOST01), so they were baked from the files in their resting pose and the client's own draws of
+them were refused. `M2Load` now marks a model animated when a bone's translation, rotation or scale track has
+16 keyframes or more (bones are 108 bytes in 1.12: 12 bytes, three 28-byte tracks with the key count at +20,
+the pivot). Offline, of 160 models on two tiles: the gryphon roost (48 of 53 bones, up to 464 keys), birds
+(267), flies, fireflies and a training dummy (20 to 25). Lampposts, street lamps, a chandelier and a stone pyre
+animate only their flame (5 to 9 keys) and stay baked. An animated doodad is not baked; its place goes into
+`dAnim`, so the client's draws of it are kept, and `MapAnimatedDoodadAt` keeps the still rule off it. The
+probe lists them. The owner: nice.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

@@ -113,6 +113,8 @@ namespace
         std::vector<Batch>     dBatches;
         float                  dMinZ = 0.0f, dMaxZ = 0.0f;
         std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
+        std::vector<float>     dAnim;           // the places of the animated ones, left out: the client's
+        std::vector<std::string> dAnimName;     // draws of them cast instead (a gryphon roost)
         std::vector<std::string> dName;         // ...its model and scale, for the probe
         std::vector<float>     dScale;
         std::string            archives;        // the archives that hold the tile, the one read first
@@ -288,6 +290,15 @@ namespace
                 continue;
             }
             const M2Model& md = *it->second;
+            // An animated doodad is left to the client's draws, which show it as it moves: baked here it
+            // cast in its resting pose, and the gryphons at a flight master stood still in their shade
+            // while they moved in game (2026-09-30).
+            if (md.animated)
+            {
+                m.dAnim.insert(m.dAnim.end(), pos, pos + 3);
+                m.dAnimName.push_back(name.substr(name.find_last_of('\\') + 1));
+                continue;
+            }
             float r[3][3], rot[3][3];
             EulerZYX(rotDeg[1] * deg, rotDeg[0] * deg, rotDeg[2] * deg, r);
             const float sc = scale16 / 1024.0f;
@@ -1238,6 +1249,34 @@ void MapLogDoodadsNear(const float from[3], float radius)
     }
     if (!shown)
         Log("shadow: no doodads from the files within %.0f yd", radius);
+    for (const auto& kv : g_tiles)
+    {
+        const Mesh& me = kv.second.mesh;
+        for (size_t i = 0; i + 2 < me.dAnim.size() && i / 3 < me.dAnimName.size(); i += 3)
+        {
+            const float* p = &me.dAnim[i];
+            const float dx = p[0] - from[0], dy = p[1] - from[1];
+            const float d = sqrtf(dx * dx + dy * dy);
+            if (d <= radius)
+                Log("shadow:   animated doodad %s at (%.1f %.1f %.1f), %.0f yd from you: left to the client's draws",
+                    me.dAnimName[i / 3].c_str(), p[0], p[1], p[2], d);
+        }
+    }
+}
+
+bool MapAnimatedDoodadAt(const float pos[3], float tol)
+{
+    for (const auto& kv : g_tiles)
+    {
+        const std::vector<float>& a = kv.second.mesh.dAnim;
+        for (size_t i = 0; i + 2 < a.size(); i += 3)
+        {
+            const float dx = a[i] - pos[0], dy = a[i + 1] - pos[1], dz = a[i + 2] - pos[2];
+            if (dx * dx + dy * dy + dz * dz < tol * tol)
+                return true;
+        }
+    }
+    return false;
 }
 
 bool MapDoodadCovers(const float pos[3], float tol)

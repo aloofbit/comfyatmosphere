@@ -19,6 +19,7 @@ struct M2Model
     std::vector<uint16_t> tris;     // view-local corners
     std::vector<Batch>    batches;
     bool                  alpha = false;   // any batch alpha keyed: the whole model casts as leaves
+    bool                  animated = false;   // a bone with 16 or more keyframes: it moves (a gryphon roost)
 };
 
 // The model named as a tile names it (.mdx or .m2); false if it cannot be read.

@@ -1140,8 +1140,11 @@ namespace
                 const bool within = sx * sx + sy * sy + sz * sz < sr * sr;
                 if (!within)
                     best->drifts = true;   // fixed-function too: a ship's hull (see Evict)
+                // Nor for an animated doodad the files leave to the client's draws (2026-09-30): a gryphon at a
+                // flight master stands still and moves its wings.
                 const bool still = r.vs && !moved && !playerModel && within && !best->drifts &&
-                                   !best->consts.empty() && !UnitAt(pos) && !UnitAt(&e.absolute.m[3][0]);
+                                   !best->consts.empty() && !UnitAt(pos) && !UnitAt(&e.absolute.m[3][0]) &&
+                                   !MapAnimatedDoodadAt(pos, 2.0f) && !MapAnimatedDoodadAt(&e.absolute.m[3][0], 2.0f);
                 if (still)
                 {
                     ++g_nStill;

@@ -54,6 +54,18 @@ bool M2Load(const std::string& name, M2Model& out)
     const uint32_t version = U32(d, 4);
     if (version != 256 && version != 257)
         return false;
+    // Animated (2026-09-30): any bone whose translation, rotation or scale track has 16 keyframes or more.
+    // Bones are 108 bytes in this version: key bone, flags, parent and submesh (12), then the three tracks of
+    // 28 bytes (the key count at +20), then the pivot. Offline, of 160 models on two tiles: the gryphon roost
+    // (48 of 53 bones, up to 464 keys), birds (267), flies, fireflies and a training dummy (20 to 25). Lamps,
+    // lampposts, a chandelier and a stone pyre animate only their flame (5 to 9 keys) and stay as they are.
+    {
+        const uint32_t nBones = U32(d, 0x34), ofsBones = U32(d, 0x38);
+        for (uint32_t i = 0; i < nBones && !out.animated && ofsBones + (i + 1) * 108ull <= d.size(); ++i)
+            for (int t = 0; t < 3; ++t)
+                if (U32(d, ofsBones + i * 108ull + 12 + t * 28 + 20) >= 16)
+                    out.animated = true;
+    }
     const uint32_t nVert = U32(d, 0x44), ofsVert = U32(d, 0x48);
     const uint32_t nViews = U32(d, 0x4C), ofsViews = U32(d, 0x50);
     const uint32_t nTex = U32(d, 0x5C), ofsTex = U32(d, 0x60);

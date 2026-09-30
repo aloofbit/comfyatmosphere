@@ -26,6 +26,7 @@ unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const
 // Whether a model draw whose absolute transform sits here is a doodad drawn from the files: a doodad's place
 // within tol yards on each axis.
 bool MapDoodadCovers(const float pos[3], float tol = 0.5f);
+bool MapAnimatedDoodadAt(const float pos[3], float tol);   // an animated doodad the files place there, left out
 unsigned MapFilesVersion();   // changes whenever what the files cover changes
 bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
 // The probe: the doodads from the files within radius yards, with their model, and whether the client drew them.
