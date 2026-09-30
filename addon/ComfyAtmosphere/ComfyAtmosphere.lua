@@ -45,6 +45,7 @@ COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
 COMFYATMOSPHERE_VOLUME_DENSITY = "Light Density";
 COMFYATMOSPHERE_VOLUME_DISTANCE = "Light Distance";
 COMFYATMOSPHERE_VOLUME_DIRECTION = "Light Toward the Sun";
+COMFYATMOSPHERE_LAMP_GLOW      = "Lamp Glow";
 COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
@@ -268,6 +269,18 @@ local ENTRIES = {
 		dependency = { "comfyVolume", "1" },
 		minval = 0,
 		maxval = 500,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- [lamps] strength: the glow around lamps, candles and torches and their light on the walls near them.
+		name = "COMFYATMOSPHERE_LAMP_GLOW",
+		desc = "How strongly lamps, candles and torches glow and light the walls and ground near them.",
+		type = "slider",
+		cvar = "comfyLampGlow",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 100,
 		step = 5,
 		numberLabels = 1,
 	},

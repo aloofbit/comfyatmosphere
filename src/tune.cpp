@@ -63,6 +63,7 @@ namespace
         { "fog.reach",           "Fog Distance" },
         { "fog.haze",            "Fog Near You" },
         { "fog.distance",        "Distance Fog Amount" },
+        { "lamps.strength",      "Lamp Glow" },
         { "sunshadows.strength", "Sun Shadow Strength" },
         { "sunshadows.sunlight", "Sunlight" },
         { "rays.enabled",        "Sun Rays" },
