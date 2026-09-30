@@ -4,9 +4,9 @@
 >
 > [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
 
-Atmosphere for the World of Warcraft 1.12 client: thicker fog, sun rays, and volumetric light through the trees. It is
-one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names come from the first version, which only
-did fog.
+Atmosphere for the World of Warcraft 1.12 client: sun shadows, volumetric light through the trees, sun rays,
+glowing lamps and darker nights. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
+come from the first version, which only did fog.
 
 Looking for fog on 3.3.5a? [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light
 shafts for the Ascension (CoA) 3.3.5a client.
@@ -22,40 +22,51 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 
 | | What it does | Default |
 | --- | --- | --- |
-| **Fog** | One `thickness` dial from 0 to 100: haze near the camera, increasing gently with distance. Trees and characters get the same fog as the terrain. | on |
-| **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. Lit clouds do not cast rays. The rays fade when a mountain or a wall covers the sun. Cheap. | on |
-| **Volumetric light** | Fog is lit where sunlight reaches it and dark where leaves and walls shade it. It stays fixed in the world when the camera moves. Needs `[depth]` and `[shadow]`. | off |
-| **Night strength** | Sun rays and volumetric light at night, as a percentage of their day strength. Night comes from the game clock. At night the volumetric light follows the larger of the two moons, and both moons cast rays. | 100 |
-| **Clouds** | `[sky] clouds = 0` hides the cloud layer. | shown |
+| **Volumetric light** | The air is lit where sunlight reaches it and dark where leaves and walls shade it. It stays fixed in the world when the camera moves. | on |
+| **Sun shadows** | Terrain, buildings, trees, players and creatures cast shadows from the sun. Shade takes the sky's cool colour and sunlit ground a warm one. The shadows of the world are drawn from the game's map files, so they are there before you walk past. Needs the volumetric light. | on |
+| **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. The rays come from the sun only, and fade when a mountain or a wall covers it. Cheap. | on |
+| **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files. Needs the volumetric light. | on |
+| **Night** | Nights are darker. Lamps still light the ground near them, and buildings stay as the game lights them. Night comes from the game clock. The rays and the light at night follow the moons. | on |
+| **Fog** | Our own fog: thick low down and thinning upward, lit toward the sun. The game's own fog is used unless you turn this on. | off |
+| **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
 
 All settings are in `comfyfog.ini`. **F11 reloads it in game.**
 
 ## In-game controls
 
 The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of controls to the game's options:
-**Video > Atmosphere**, below Shaders.
+**Video > Atmosphere**, below Shaders. **`/atmos options`** opens the same controls in a small window of their
+own. Use the window on a client whose options window has no page for them.
 
 ![The comfyatmosphere controls: fog, volumetric light with its strength and quality, sun rays, night strength, and clouds.](media/settings-example.png)
 
 | Control | Setting in `comfyfog.ini` |
 | --- | --- |
 | Atmosphere Effects | `[general] enabled`: every effect at once |
-| Atmospheric Fog, Fog Thickness | `[fog] enabled`, `thickness` |
-| Ground Haze | `[fog] density` (100 = 0.02 a yard) |
-| Fog Height (yards), Fog Edge Fade (%) | `[fog] height`, `cover` |
-| Fog Darkness, Fog Greyness (%) | `[fog] darken`, `desaturate` |
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
-| Sun Shadows, Sun Shadow Strength | `[sunshadows] enabled`, `strength` |
-| Sunlight (%) | `[sunshadows] sunlight` |
+| Light Density (thousandths), Light Distance (yards), Light Toward the Sun (thousandths) | `[volume] density`, `maxDistance`, `anisotropy` |
+| Lamp Glow, Lamp Distance (%) | `[lamps] strength`, `fogReach` |
+| Sun Shadows | `[sunshadows] enabled` |
+| World / Object Shadows, Player / Creature Shadows | `[sunshadows] world`, `units` |
+| Lock Shadow Angle, Shadow Angle (degrees) | `[sunshadows] lock`, `lockTilt` |
+| Sun Shadow Strength | `[sunshadows] strength` |
+| Sunlight, Shade Colour, Sunlight Warmth (%) | `[sunshadows] sunlight`, `shadeTint`, `sunTint` |
 | Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
 | Shadow Softness | `[sunshadows] softness` |
 | Shadow Redraw | `[shadow] mapEvery` |
 | Sun Rays, Sun Rays Strength | `[rays] enabled`, `strength` |
 | Sun Rays Softness, Sun Rays Smoothing | `[rays] soften`, `smooth` (in percent) |
 | Night Strength | `[night] strength` |
+| Night Darkness, Moonlight Colour (%) | `[night] darkness`, `tint` |
 | Clouds | `[sky] clouds` |
 | Debug View | the `debug` values of each effect; 0 leaves them to the ini |
+| Atmospheric Fog, Fog Thickness | `[fog] enabled`, `thickness` |
+| Fog Distance, Fog Near You, Distance Fog Amount (%) | `[fog] reach`, `haze`, `distance` |
+| Ground Haze | `[fog] density` (100 = 0.02 a yard) |
+| Fog Height (yards), Fog Edge Fade (%) | `[fog] height`, `cover` |
+| Fog Darkness, Fog Greyness (%) | `[fog] darken`, `desaturate` |
+| Fog Sun Glow, Fog Sun Brightness (%) | `[fog] sunGlow`, `sunBright` |
 
 A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
 the values from `comfyfog.ini` back.
@@ -65,6 +76,8 @@ the values from `comfyfog.ini` back.
 - **Sun Shadows** use the volumetric light's shadow map, so they need Volumetric Light on. While both are
   on, the game's round shadow under each character is off (the CVar `shadowLOD`). At logout it is set
   back, so it returns if the mod is removed.
+- **Night Darkness** makes the world darker at night, and **Moonlight Colour** makes the night bluer. They
+  need Volumetric Light on. Inside buildings they do nothing.
 - **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns
   both off at night. The change to night starts at 20:00 and the change to day at 05:00. Each takes 1.5
   hours. Set other hours with `[night] dusk`, `dawn` and `fade`. For rays from the larger moon only, set
@@ -75,7 +88,8 @@ the values from `comfyfog.ini` back.
 - The addon needs `comfyfog.dll`. Without the DLL, it adds no controls.
 - The other settings stay in `comfyfog.ini`. Set them in game with `/atmos` (below).
 
-The addon needs the Turtle WoW options window, which builds its pages from a table the addon can add to.
+The Atmosphere page needs the Turtle WoW options window, which builds its pages from a table the addon can
+add to. On another client, use `/atmos options`.
 
 ### /atmos
 
@@ -84,6 +98,7 @@ The addon needs the Turtle WoW options window, which builds its pages from a tab
 | Command | |
 | --- | --- |
 | `/atmos` | The commands and the sections |
+| `/atmos options` | Open or close the settings window |
 | `/atmos <section>` | Every value in a section |
 | `/atmos <section>.<key>` | One value, and where it came from |
 | `/atmos <section>.<key> <value>` | Set it. The key alone will do when no other section has it |
@@ -140,8 +155,6 @@ Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/rel
 3. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
 4. Start the game with `VanillaFixes.exe`.
 
-To turn on volumetric light, set `enabled = 1` under `[depth]`, `[shadow]` and `[volume]` in the ini, or tick
-**Volumetric Light** in Video > Atmosphere.
 
 ## Build
 
@@ -157,10 +170,11 @@ cmake --build build --config Release
 ## Caveats
 
 - **Made for one client build.** The volumetric light uses camera and player addresses from one `WoW.exe`,
-  and Night Strength uses the address of the game clock. Another build moves them. The ini exposes them.
-- **Volumetric light** draws the world's solid geometry again from the sun, every third frame by default. It
-  is the most expensive feature. If the frame rate drops, lower **Volumetric Light Quality** or turn the light
-  off with Alt+F11. To see what it costs, run the benchmark (Alt+F12).
+  Night Strength uses the address of the game clock, and the shadows use the address of the map name.
+  Another build moves them. The ini exposes them.
+- **Volumetric light** draws the world again from the sun for the shadows. It is the most expensive feature.
+  If the frame rate drops, lower **Volumetric Light Quality** or **Shadow Resolution**, raise **Shadow
+  Redraw**, or turn the light off with Alt+F11. To see what it costs, run the benchmark (Alt+F12).
 
 [NOTES.md](NOTES.md) explains how it works, what was measured in the client, and what did not work.
 
