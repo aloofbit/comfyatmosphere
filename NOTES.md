@@ -1019,6 +1019,16 @@ max(range, depth) + 60 are read for their ground alone (no doodads, no buildings
 would be a lot to hold in a 32-bit client; one is read again in full when it comes within that reach. The
 probe's map line counts them. The owner: this is looking good now.
 
+## Your own face through the back of your head (2026-09-30)
+
+Zoomed in, the client fades your own character, and draws it as it draws a stealthed unit: a depth-only pass,
+then the colour pass blended. `[depth] seeThrough` skips the first and turns depth writes off in the second,
+so the inside of the head (the eyes, the face) drew through the back of it. Telling your own model from a
+stealthed one in the draw hook would take its bones, so the rule is by distance instead: while the camera is
+within `[depth] seeThroughNear` (4 yards) of your character, the see-through handling is off. The probe logs
+the distance; the owner's, zoomed in: 1.2 yards, off, fixed. A stealthed unit that near the camera is outlined
+again while you are zoomed in.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

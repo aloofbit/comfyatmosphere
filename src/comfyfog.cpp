@@ -533,6 +533,8 @@ namespace
     float g_fogGround = 0.0f, g_fogCamZ = 0.0f, g_fogDensity = 0.0f;   // FogDensityAtCamera's last, for the probe
     unsigned g_seeThroughDraws = 0, g_seeThroughLast = 0;   // IsSeeThroughModel's draws this frame, and last frame
     unsigned g_depthOnlySkipped = 0, g_depthOnlyLast = 0;   // IsDepthOnlyModel's, the same way
+    bool     g_ownFaded = false;   // the camera within [depth] seeThroughNear of your character (hkBeginScene)
+    float    g_ownDist  = 1e9f;    // ... how far, in yards
     bool  g_fogGrounded = false;
 
     // The order of the world's draws, for one frame after each probe (2026-09-30): can our fog go in before
@@ -1007,6 +1009,13 @@ namespace
         CheckDevice(dev);
         if (!g_inPass)
         {
+            // [depth] seeThroughNear: the camera this near your character means the client may be fading it.
+            float cam[3], pl[3];
+            g_ownDist = ClientCamera(cam) && ClientPlayer(pl)
+                ? sqrtf((cam[0] - pl[0]) * (cam[0] - pl[0]) + (cam[1] - pl[1]) * (cam[1] - pl[1]) +
+                        (cam[2] - pl[2]) * (cam[2] - pl[2]))
+                : 1e9f;
+            g_ownFaded = g_ownDist < g_cfg.depth.seeThroughNear;
             DepthBeginScene(dev);
             if (!g_worldEnded)
             {
@@ -1142,8 +1151,9 @@ namespace
             else
                 Log("night: no game clock at [client] clockAddr, so the rays and the light keep their day strength");
             Log("depth: last frame, %u see-through model draws had their depth writes turned off and %u depth-only "
-                "model passes were skipped ([depth] seeThrough %d)", g_seeThroughLast, g_depthOnlyLast,
-                g_cfg.depth.seeThrough ? 1 : 0);
+                "model passes were skipped ([depth] seeThrough %d); the camera %.1f yd from you, so %s",
+                g_seeThroughLast, g_depthOnlyLast, g_cfg.depth.seeThrough ? 1 : 0, g_ownDist,
+                g_ownFaded ? "off (your character may be faded)" : "on");
             if (g_fogGrounded)
                 Log("fog: the ground around you at %.1f, the camera at %.1f: ground haze %.5f a yard there, %.5f at "
                     "the camera ([fog] ground, height %.0f)", g_fogGround, g_fogCamZ, g_cfg.fog.density, g_fogDensity,
@@ -1798,7 +1808,8 @@ namespace
     // from the solid pass. The grass is blended with depth writes too, but fixed-function: not taken.
     bool IsSeeThroughModel(IDirect3DDevice9* dev)
     {
-        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded || !VolumeActive())
+        if (!g_cfg.depth.seeThrough || g_ownFaded || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
+            !VolumeActive())
             return false;
         DWORD zwrite = 0, blend = 0, src = 0, dst = 0;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
@@ -1820,7 +1831,8 @@ namespace
     // (IsSeeThroughModel), then doubles up a little where a leg crosses the body.
     bool IsDepthOnlyModel(IDirect3DDevice9* dev)
     {
-        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded || !VolumeActive())
+        if (!g_cfg.depth.seeThrough || g_ownFaded || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
+            !VolumeActive())
             return false;
         DWORD cw = 0xF, zwrite = 0;
         dev->lpVtbl->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &cw);

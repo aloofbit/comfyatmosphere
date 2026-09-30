@@ -126,6 +126,10 @@ struct DepthSettings
     // so the sun shadows and the volumetric light, which read depth, shaded and lit its outline and gave it
     // away. comfyfog.cpp, IsSeeThroughModel.
     bool  seeThrough = true;
+    // Not while the camera is this near your own character (2026-09-30). Zoomed in, the client fades your
+    // character and draws it as it draws a stealthed unit, a depth pass and then a see-through one; without
+    // the depth pass the inside of the head showed through the back of it (the eyes, from behind).
+    float seeThroughNear = 4.0f;
 };
 
 // A shadow map from the sun (shadow.cpp): the frame's opaque world draws replayed from the sun.

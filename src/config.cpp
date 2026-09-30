@@ -175,6 +175,7 @@ void LoadSettings(const wchar_t* ini)
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
     s.depth.seeThrough  = GetB(kDepth, L"seeThrough", s.depth.seeThrough, ini);
+    s.depth.seeThroughNear = Clamp(GetF(kDepth, L"seeThroughNear", s.depth.seeThroughNear, ini), 0.0f, 50.0f);
     s.shadow.enabled    = GetB(kShadow, L"enabled", s.shadow.enabled, ini);
     s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
