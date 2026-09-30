@@ -16,16 +16,16 @@ struct FogSettings
 
     // The dial. 0 is the client's own fog, untouched; 100 is the heaviest the settings below allow.
     // Everything else in this struct describes the far end of the dial and is scaled by it.
-    float thickness = 10.0f;
+    float thickness = 25.0f;
 
     // Fog already present right at the camera, at 100 (0..0.9). The client's fog is linear from 0, so
     // near things are nearly clear and it only builds with distance; a haze floor fills in the near
     // field. Done with a negative FOGSTART, which every fog path (grass shader included) handles.
-    float haze      = 0.35f;
+    float haze      = 0.55f;
 
     // Where fog becomes total at 100, as a fraction of the client's own fog end. Kept well out, so the
     // climb after the haze floor is gentle rather than a wall. Interpolated geometrically in the dial.
-    float reach     = 0.60f;
+    float reach     = 1.40f;
 
     // Our own fog (mode 1, 2026-09-29): drawn over the picture from the depth, while the volumetric light
     // runs (it needs the depth), with the game's fog moved out of the way. The game's fog is linear from
@@ -35,20 +35,20 @@ struct FogSettings
     // meets a known amount of it, and the sky near the horizon is the fog colour. Mode 0, or with the
     // volumetric light off, is the game's fog moved by haze and reach as before.
     int   mode      = 1;
-    float density   = 0.001f;   // the height fog: fog per yard at the camera's height (the Ground Haze
+    float density   = 0.002f;   // the height fog: fog per yard at the camera's height (the Ground Haze
                                 // control, 0..0.02). Not scaled by the dial: the dial is the distance
                                 // fog. 0.02 scaled by the dial was tuned before the distance fog existed,
                                 // and with it on top the view distance shrank (2026-09-29)
-    float height    = 130.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
+    float height    = 110.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
     // The height fog anchored to the ground (2026-09-30): density is the fog at the average ground height
     // within groundRadius yards (from the map files), not at the camera. At the camera it was: standing on
     // the cliff over Stormwind harbour, the sea 50 yards below had e^(50/15) = 28 times the fog, and the
     // harbour was one flat haze. Needs [shadow] mapTerrain; without a tile, the camera as before.
     bool  ground    = true;
     float groundRadius = 150.0f;
-    float distance  = 1.0f;     // 0..1: how much of the game's distance fog (its start and end, as the dial
+    float distance  = 0.30f;     // 0..1: how much of the game's distance fog (its start and end, as the dial
                                 // moves them) is kept, on a soft curve. Far mountains need it
-    float cover     = 0.65f;    // 0..1: past this share of the view distance, things fade in full into
+    float cover     = 0.55f;    // 0..1: past this share of the view distance, things fade in full into
                                 // the fog by the view distance, so nothing stops at a hard edge
     float skyDepth  = 0.99999f; // depth at or past which a pixel is the sky itself. Between the world's
                                 // slice and this: scenery drawn with the sky (far mountains), fogged in full
@@ -57,16 +57,16 @@ struct FogSettings
     // The game's fog colour. Not part of the dial: applied as set, with the fog on or off (Shift+F11
     // turns it off with the rest). Until 2026-09-29 it was scaled by the dial, so these are the old
     // values at the default thickness of 60.
-    float desaturate = 0.0f;         // 0 .. 1, toward grey. Applied to the game's fog too: 0 leaves it as it is
-    float darken     = 0.0f;         // 0 .. 1, toward black
+    float desaturate = 0.30f;         // 0 .. 1, toward grey. Applied to the game's fog too: 0 leaves it as it is
+    float darken     = 0.15f;         // 0 .. 1, toward black
     DWORD tint       = 0x5A6470;     // RGB the colour is pulled toward, by tintAmount
     float tintAmount = 0.0f;         // 0 .. 1
     // Our fog lit by the sun (2026-09-30): warm looking toward it, cool looking away, as haze is. The
     // colours are scaled to a brightness of 1, so they tint and do not darken. Fades at night.
-    float sunGlow    = 0.35f;        // 0..1, how much of the tint
+    float sunGlow    = 0.95f;        // 0..1, how much of the tint
     DWORD glowColor  = 0xFFD6A0;     // toward the sun
     DWORD awayColor  = 0xA0BCFF;     // away from it
-    float sunBright  = 0.25f;        // the fog brighter by up to this share looking into the sun
+    float sunBright  = 0.40f;        // the fog brighter by up to this share looking into the sun
     // The sky near the horizon gets the same change as the colour, so that seam does not show: it is
     // what shows between trees past the view distance, and a darker fog alone left it bright
     // (2026-09-29). Needs the depth buffer (Volumetric Light on).
@@ -182,10 +182,10 @@ struct ShadowSettings
 struct VolumeSettings
 {
     bool  enabled      = true;
-    float strength     = 20.0f;     // the dial, 0..100
+    float strength     = 25.0f;     // the dial, 0..100
     float maxIntensity = 3.0f;      // gain at 100
-    float density      = 0.015f;     // how much the air scatters, per yard (Light Density, in thousandths)
-    float maxDistance  = 250.0f;     // yards along each line of sight (the shadow map's reach)
+    float density      = 0.017f;     // how much the air scatters, per yard (Light Density, in thousandths)
+    float maxDistance  = 200.0f;     // yards along each line of sight (the shadow map's reach)
     int   steps        = 64;        // samples along each line of sight: more holds up over a long
                                     // maxDistance, where a thin canopy can fall between two samples.
                                     // 96 until 2026-09-24; with the noise turned each frame and the
@@ -195,7 +195,7 @@ struct VolumeSettings
                                     // walked. The last frame is moved with the camera before it is
                                     // blended in, so a turn does not smear. 0 also stops the noise
                                     // pattern from changing each frame.
-    float anisotropy   = 0.025f;    // 0 = glows the same from every side, toward 1 = only toward the sun (Light Toward the Sun, thousandths)
+    float anisotropy   = 0.070f;    // 0 = glows the same from every side, toward 1 = only toward the sun (Light Toward the Sun, thousandths)
     float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
     float leafShade    = 1.0f;      // how much of the sun leaves stop in the air (the ground: [sunshadows]
                                     // leafShade). 1: shafts come through the gaps between the leaves only
@@ -241,10 +241,10 @@ struct SunShadowSettings
     // Coloured light (2026-09-30): shade takes the sky's cool colour, sunlight a warm one, where both only
     // darkened and brightened in grey. Scaled to a brightness of 1: they tint, not darken.
     DWORD shadeColor = 0x7C94C8;
-    float shadeTint  = 0.5f;      // 0..1
+    float shadeTint  = 0.70f;      // 0..1
     DWORD sunColor   = 0xFFE4C0;
-    float sunTint    = 0.5f;      // 0..1
-    float strength   = 35.0f;     // the dial, 0..100: how much of the light a shaded surface loses
+    float sunTint    = 0.80f;      // 0..1
+    float strength   = 30.0f;     // the dial, 0..100: how much of the light a shaded surface loses
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the
@@ -267,7 +267,7 @@ struct SunShadowSettings
                                   // full as they fade at dusk
     float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
                                   // everything solid shades the rest, so characters no longer float
-    float sunlight   = 0.2f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
+    float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
                                   // Sunlight control, in percent). A forest in shade was dark all over
     int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = the leaves' shade alone
 };
@@ -312,7 +312,7 @@ struct RaysSettings
     // The dial. 0 = no rays, 100 = maxExposure, on a square curve: exposure = maxExposure x (strength/100)^2.
     // 5.7 keeps the default of 35 at 0.7, the exposure it had when the dial was linear with a maximum of 2.
     // The rest describes the look and is not scaled by it.
-    float strength    = 30.0f;
+    float strength    = 20.0f;
     float maxExposure = 5.7f;
 
     // A pixel casts rays when it is within relThreshold of the brightest pixel in the frame (so the
@@ -337,10 +337,10 @@ struct RaysSettings
                                     // sun on screen, and a simulation showed 1 swings MORE as the camera turns
     float adaptTime   = 0.5f;       // seconds the brightness reference takes to follow the scene
     float decay       = 0.96f;      // per-sample falloff along a ray; lower = shorter, softer shafts
-    float soften      = 8.0f;       // pixels of the mask (downscale x this on screen): the mask is blurred
+    float soften      = 1.0f;       // pixels of the mask (downscale x this on screen): the mask is blurred
                                     // this wide before the rays are drawn, so a gap between leaves a pixel
                                     // wide no longer makes a whole ray blink (2026-09-29). 0 = none
-    float smooth      = 0.4f;       // 0..0.95: how much of the last frame's mask is kept, moved with the sun.
+    float smooth      = 0.0f;       // 0..0.95: how much of the last frame's mask is kept, moved with the sun.
                                     // Leaf edges smaller than a pixel flipped between leaf and sky as the
                                     // camera moved, and the rays jittered (2026-09-29). 0 = none
     DWORD color       = 0xFFE6BE;   // RGB tint of the light
