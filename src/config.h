@@ -144,6 +144,10 @@ struct ShadowSettings
                                   // still, but it steps as you walk, which reads worse
     float keepMargin    = 100.0f; // yards past range a caster out of view is kept, across the ground from
                                   // the player: while it can still cast into the map (see shadow.cpp)
+    float staleTime     = 20.0f;  // with mapTerrain: seconds a cache entry not drawn is kept at most; 0 = no
+                                  // limit. The world comes from the files then, and what the cache holds
+                                  // (characters, creatures, the server's objects) has no need to outlast its
+                                  // draws: a leaf-edged shade stayed on open ground at Gavin's Naze (2026-09-30)
     float cacheTime     = 0.0f;   // seconds a caster out of view is kept at most; 0 = no limit. Was 8, and
                                   // shadows of trees beside you jumped out 8 seconds after you looked away
     float evictDistance = 20.0f;  // yards: a caster in view this near that was not drawn is gone
@@ -160,7 +164,7 @@ struct VolumeSettings
     bool  enabled      = true;
     float strength     = 20.0f;     // the dial, 0..100
     float maxIntensity = 3.0f;      // gain at 100
-    float density      = 0.009f;     // how much the air scatters, per yard
+    float density      = 0.015f;     // how much the air scatters, per yard (Light Density, in thousandths)
     float maxDistance  = 250.0f;     // yards along each line of sight (the shadow map's reach)
     int   steps        = 64;        // samples along each line of sight: more holds up over a long
                                     // maxDistance, where a thin canopy can fall between two samples.
@@ -171,8 +175,10 @@ struct VolumeSettings
                                     // walked. The last frame is moved with the camera before it is
                                     // blended in, so a turn does not smear. 0 also stops the noise
                                     // pattern from changing each frame.
-    float anisotropy   = 0.15f;     // 0 = glows the same from every side, toward 1 = only toward the sun
+    float anisotropy   = 0.025f;    // 0 = glows the same from every side, toward 1 = only toward the sun (Light Toward the Sun, thousandths)
     float bias         = 0.5f;      // yards: shadow-test slack, against speckle on lit surfaces
+    float leafShade    = 1.0f;      // how much of the sun leaves stop in the air (the ground: [sunshadows]
+                                    // leafShade). 1: shafts come through the gaps between the leaves only
     DWORD color        = 0xFFE6BE;  // RGB of the light (default: warm late-morning)
     int   downscale    = 2;         // work at 1/N resolution per axis
     bool  blur         = true;
@@ -195,6 +201,23 @@ struct VolumeSettings
 struct SunShadowSettings
 {
     bool  enabled    = true;
+    // What casts (2026-09-30): the world (terrain, buildings, trees, doodads) and the units (players,
+    // creatures). Off, the world is left out of the near maps and the sun shadows stop reading the far map,
+    // which the volumetric light keeps, and the terrain's own baked shadow comes back; units off leaves
+    // them out of every map, and the addon gives back the game's round shadow.
+    bool  world      = true;
+    bool  units      = true;
+    // The shadows at a set tilt from straight down (2026-09-30), whatever the time of day, as the client's
+    // own baked shadows are. The azimuth stays the sun's (45 degrees in this client, all day). The rays and
+    // the volumetric light's glow keep the real sun.
+    bool  lock       = false;
+    float lockTilt   = 15.0f;     // degrees from straight down
+    // Slack in the far map's test that grows with distance (2026-09-30). The terrain casts from the files at
+    // full detail, and the client draws the ground past about 100 yards coarser, cutting across the dips: a
+    // coarse surface under the true one was in the fine terrain's shade, and soft blobs lay on distant slopes
+    // until you came closer and the client drew the fine mesh.
+    float lodBias    = 2.0f;      // yards of slack for every 100 yards past lodStart
+    float lodStart   = 80.0f;     // yards from the camera where it starts
     float strength   = 35.0f;     // the dial, 0..100: how much of the light a shaded surface loses
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
@@ -279,7 +302,9 @@ struct RaysSettings
                                     // weight (1 - d/radius)^falloff
     float length      = 0.85f;      // ray length, as a fraction of the way from each pixel to the sun
     float maxLength   = 0.6f;       // but never more than this many screen heights (a far sun)
-    float maxAngle    = 140.0f;     // degrees between view and sun at which rays are gone
+    float maxAngle    = 60.0f;      // degrees between view and sun at which rays are gone. 140 streamed rays in
+                                    // from the top of the screen with the sun out of view, fed by whatever sky
+                                    // was there: the view brightened and darkened as the camera tilted (2026-09-30)
     float viewFalloff = 1.0f;       // shape of the fade from looking at the sun to maxAngle; higher = faster
     float parallel    = 0.0f;       // 0 = rays fan out from the sun, 1 = parallel shafts falling away from it.
                                     // 0 is the geometrically right one: parallel shafts in the world run to the
@@ -306,6 +331,8 @@ struct RaysSettings
     // relThreshold has to be lower for the sky to cast. debugView 3 shows it. On by default since
     // 2026-09-24: with it off, lit clouds near the sun cast and glowed.
     bool  skyOnly     = true;
+    int   mask        = 1;        // 1 = a pixel casts where it shows sky (the depth buffer); 0 = by brightness,
+                                  // relative to the brightest pixel in view (changed as the camera tilted)
 
     // At night the sky has two moons. The volumetric light follows one (sun.cpp, PickQuad); with this
     // on, the other casts rays as well. Each moon costs one mask, blur and composite.

@@ -28,5 +28,7 @@ unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const
 bool MapDoodadCovers(const float pos[3], float tol = 0.5f);
 unsigned MapFilesVersion();   // changes whenever what the files cover changes
 bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
+// The probe: the doodads from the files within radius yards, with their model, and whether the client drew them.
+void MapLogDoodadsNear(const float from[3], float radius);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
 const char* MapTerrainInfo();   // for the probe

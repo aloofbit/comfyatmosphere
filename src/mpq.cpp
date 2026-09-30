@@ -544,4 +544,17 @@ bool MpqRead(const char* name, std::vector<uint8_t>& out)
     return false;
 }
 
+std::string MpqHolders(const char* name)
+{
+    std::string s;
+    for (const auto& a : g_archives)
+        if (a->Find(name) >= 0)
+        {
+            if (!s.empty())
+                s += ", ";
+            s += a->name;
+        }
+    return s;
+}
+
 unsigned MpqArchiveCount() { return g_count; }

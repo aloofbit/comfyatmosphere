@@ -195,6 +195,7 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.snap       = GetB(kShadow, L"snap", s.shadow.snap, ini);
     s.shadow.keepMargin = Clamp(GetF(kShadow, L"keepMargin", s.shadow.keepMargin, ini), 0.0f, 1000.0f);
     s.shadow.cacheTime  = Clamp(GetF(kShadow, L"cacheTime", s.shadow.cacheTime, ini), 0.0f, 600.0f);
+    s.shadow.staleTime  = Clamp(GetF(kShadow, L"staleTime", s.shadow.staleTime, ini), 0.0f, 600.0f);
     s.shadow.evictDistance = Clamp(GetF(kShadow, L"evictDistance", s.shadow.evictDistance, ini), 1.0f, 500.0f);
     s.shadow.stillRadius   = Clamp(GetF(kShadow, L"stillRadius", s.shadow.stillRadius, ini), 0.0f, 3.0f);
     s.volume.enabled      = GetB(kVolume, L"enabled", s.volume.enabled, ini);
@@ -208,6 +209,7 @@ void LoadSettings(const wchar_t* ini)
     s.volume.maxDistance  = Clamp(GetF(kVolume, L"maxDistance",  s.volume.maxDistance,  ini), 1.0f, 1000.0f);
     s.volume.anisotropy   = Clamp(GetF(kVolume, L"anisotropy",   s.volume.anisotropy,   ini), 0.0f, 0.95f);
     s.volume.bias         = Clamp(GetF(kVolume, L"bias",         s.volume.bias,         ini), 0.0f, 20.0f);
+    s.volume.leafShade    = Clamp(GetF(kVolume, L"leafShade",    s.volume.leafShade,    ini), 0.0f, 1.0f);
     s.volume.color        = GetX(kVolume, L"color", s.volume.color, ini) & 0xFFFFFF;
     s.volume.downscale    = GetI(kVolume, L"downscale", s.volume.downscale, ini);
     s.volume.blur         = GetB(kVolume, L"blur",  s.volume.blur,  ini);
@@ -222,6 +224,12 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.size > 4096) s.shadow.size = 4096;
 
     s.sunShadows.enabled    = GetB(kSunShadows, L"enabled", s.sunShadows.enabled, ini);
+    s.sunShadows.world      = GetB(kSunShadows, L"world", s.sunShadows.world, ini);
+    s.sunShadows.units      = GetB(kSunShadows, L"units", s.sunShadows.units, ini);
+    s.sunShadows.lock       = GetB(kSunShadows, L"lock", s.sunShadows.lock, ini);
+    s.sunShadows.lockTilt   = Clamp(GetF(kSunShadows, L"lockTilt", s.sunShadows.lockTilt, ini), 0.0f, 80.0f);
+    s.sunShadows.lodBias    = Clamp(GetF(kSunShadows, L"lodBias", s.sunShadows.lodBias, ini), 0.0f, 20.0f);
+    s.sunShadows.lodStart   = Clamp(GetF(kSunShadows, L"lodStart", s.sunShadows.lodStart, ini), 0.0f, 1000.0f);
     s.sunShadows.strength   = Clamp(GetF(kSunShadows, L"strength",   s.sunShadows.strength,   ini), 0.0f, 100.0f);
     s.sunShadows.bias       = Clamp(GetF(kSunShadows, L"bias",       s.sunShadows.bias,       ini), 0.0f, 20.0f);
     s.sunShadows.normalBias = Clamp(GetF(kSunShadows, L"normalBias", s.sunShadows.normalBias, ini), 0.0f, 20.0f);
@@ -274,6 +282,7 @@ void LoadSettings(const wchar_t* ini)
     s.rays.debugView    = GetI(kRays, L"debugView", s.rays.debugView, ini);
     s.rays.placement    = GetI(kRays, L"placement", s.rays.placement, ini);
     s.rays.skyOnly      = GetB(kRays, L"skyOnly",   s.rays.skyOnly,   ini);
+    s.rays.mask         = static_cast<int>(Clamp(GetF(kRays, L"mask", static_cast<float>(s.rays.mask), ini), 0.0f, 1.0f));
     s.rays.secondMoon   = GetB(kRays, L"secondMoon", s.rays.secondMoon, ini);
     s.rays.occlusion       = GetB(kRays, L"occlusion", s.rays.occlusion, ini);
     s.rays.occlusionRadius = Clamp(GetF(kRays, L"occlusionRadius", s.rays.occlusionRadius, ini), 0.01f, 0.5f);

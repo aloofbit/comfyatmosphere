@@ -77,6 +77,23 @@ namespace
         g_nQuads = 0;
         if (!g_haveView || n == 0)
             return;
+        // By day (the game clock), two quads are the moons, not the sun (2026-09-30). The sky still draws
+        // them by day; logged at 10:00: two quads at 31.8 degrees, 95 apart, on some frames and the sun alone
+        // at 56.6 on others, by where the camera looked. The light followed the moon on those frames, and
+        // the rays came from it and from "the second moon" too, so they jumped as the camera tilted. Such a
+        // frame is left out: the sun carries on from its own quad.
+        float hour = 0.0f;
+        if (n >= 2 && ClientHour(hour) && NightWeight(hour) < 0.5f)
+        {
+            g_haveSecond = false;
+            if (n != g_loggedQuads && g_quadLogs < 100)
+            {
+                ++g_quadLogs;
+                g_loggedQuads = n;
+                Log("sun: %d sun-shaped quads in the sky by day: the moons, left out", n);
+            }
+            return;
+        }
         int pick = -1, highest = -1;
         float highZ = -2.0f, el[kMaxQuads] = {}, az[kMaxQuads] = {}, dirs[kMaxQuads][3] = {};
         bool ok[kMaxQuads] = {};
@@ -271,6 +288,24 @@ float NightScale()
     if (night >= 1.0f || !ClientHour(hour))
         return 1.0f;
     return 1.0f + (night - 1.0f) * NightWeight(hour);
+}
+
+// The shadows' sun: the sun, or with [sunshadows] lock the sun's azimuth at lockTilt degrees from straight
+// down. With the sun overhead, whose azimuth says nothing, the client's 45 degrees.
+bool ShadowSunDirection(float dir[3])
+{
+    if (!SunDirection(dir))
+        return false;
+    const SunShadowSettings& ss = g_cfg.sunShadows;
+    if (!ss.lock)
+        return true;
+    const float h = sqrtf(dir[0] * dir[0] + dir[1] * dir[1]);
+    const float ax = h > 1e-4f ? dir[0] / h : 0.70710678f, ay = h > 1e-4f ? dir[1] / h : 0.70710678f;
+    const float tilt = ss.lockTilt * 0.01745329f;
+    dir[0] = sinf(tilt) * ax;
+    dir[1] = sinf(tilt) * ay;
+    dir[2] = cosf(tilt);
+    return true;
 }
 
 bool SunSecondDirection(float dir[3])

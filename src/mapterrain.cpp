@@ -110,6 +110,9 @@ namespace
         std::vector<Batch>     dBatches;
         float                  dMinZ = 0.0f, dMaxZ = 0.0f;
         std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
+        std::vector<std::string> dName;         // ...its model and scale, for the probe
+        std::vector<float>     dScale;
+        std::string            archives;        // the archives that hold the tile, the one read first
         unsigned               doodads = 0, doodadsMissing = 0;
         double                 dMs = 0.0;
     };
@@ -313,6 +316,8 @@ namespace
                     idx.push_back(base + md.tris[k]);
             }
             m.dPos.insert(m.dPos.end(), pos, pos + 3);
+            m.dName.push_back(name.substr(name.find_last_of('\\') + 1));
+            m.dScale.push_back(sc);
             ++m.doodads;
         }
         for (auto& g : groups)
@@ -462,6 +467,7 @@ namespace
                 char name[160];
                 _snprintf_s(name, sizeof(name), _TRUNCATE, "World\\Maps\\%s\\%s_%d_%d.adt", job.name.c_str(),
                             job.name.c_str(), job.a, job.b);
+                m.archives = MpqHolders(name);
                 if (MpqRead(name, file))
                 {
                     m.found = Build(file, m);
@@ -1054,6 +1060,44 @@ bool MapBuildingCovers(const float pos[3])
     return false;
 }
 
+// The doodads the client has drawn, as far as MapDoodadCovers matched them: a quarter-yard key of the place.
+std::unordered_set<long long> g_doodadsSeen;
+
+long long SeenKey(const float* p)
+{
+    return (static_cast<long long>(floorf(p[0] * 4.0f)) << 42) ^ (static_cast<long long>(floorf(p[1] * 4.0f)) << 21) ^
+           static_cast<long long>(floorf(p[2] * 4.0f));
+}
+
+void MapLogDoodadsNear(const float from[3], float radius)
+{
+    unsigned shown = 0;
+    for (const auto& kv : g_tiles)
+    {
+        const Mesh& me = kv.second.mesh;
+        bool tileShown = false;
+        for (size_t i = 0; i + 2 < me.dPos.size() && i / 3 < me.dName.size() && shown < 30; i += 3)
+        {
+            const float* p = &me.dPos[i];
+            const float dx = p[0] - from[0], dy = p[1] - from[1];
+            const float d = sqrtf(dx * dx + dy * dy);
+            if (d > radius)
+                continue;
+            if (!tileShown)
+            {
+                tileShown = true;
+                Log("shadow: tile %d_%d, read from the first of: %s", me.a, me.b, me.archives.c_str());
+            }
+            ++shown;
+            Log("shadow:   doodad %s, scale %.2f, at (%.1f %.1f %.1f), %.0f yd from you, %.1f yd up from you; the "
+                "client has drawn it: %s", me.dName[i / 3].c_str(), me.dScale[i / 3], p[0], p[1], p[2], d,
+                p[2] - from[2], g_doodadsSeen.count(SeenKey(p)) ? "yes" : "not seen");
+        }
+    }
+    if (!shown)
+        Log("shadow: no doodads from the files within %.0f yd", radius);
+}
+
 bool MapDoodadCovers(const float pos[3], float tol)
 {
     if (g_doodadGrid.empty())
@@ -1068,7 +1112,10 @@ bool MapDoodadCovers(const float pos[3], float tol)
             const std::vector<float>& p = it->second;
             for (size_t i = 0; i + 2 < p.size(); i += 3)
                 if (fabsf(p[i] - pos[0]) < tol && fabsf(p[i + 1] - pos[1]) < tol && fabsf(p[i + 2] - pos[2]) < tol)
+                {
+                    g_doodadsSeen.insert(SeenKey(&p[i]));
                     return true;
+                }
         }
     return false;
 }

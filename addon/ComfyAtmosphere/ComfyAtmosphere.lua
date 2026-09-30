@@ -37,8 +37,15 @@ COMFYATMOSPHERE_FOG_GREYNESS   = "Fog Greyness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
+COMFYATMOSPHERE_VOLUME_DENSITY = "Light Density";
+COMFYATMOSPHERE_VOLUME_DISTANCE = "Light Distance";
+COMFYATMOSPHERE_VOLUME_DIRECTION = "Light Toward the Sun";
 COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
+COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
+COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
+COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
+COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
 COMFYATMOSPHERE_SHADOW_SOFTNESS = "Shadow Softness";
@@ -167,6 +174,42 @@ local ENTRIES = {
 		step = 1,
 	},
 	{
+		-- Thousandths: comfyfog.dll divides by 1000 for [volume] density (15 is 0.015).
+		name = "COMFYATMOSPHERE_VOLUME_DENSITY",
+		desc = "How thick the air is. Higher gives brighter shafts through the trees.",
+		type = "slider",
+		cvar = "comfyVolumeDensity",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 40,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- Yards, [volume] maxDistance. Shorter samples the air more finely: sharper shafts close by.
+		name = "COMFYATMOSPHERE_VOLUME_DISTANCE",
+		desc = "How far away, in yards, the light still glows. Shorter makes the shafts near you sharper.",
+		type = "slider",
+		cvar = "comfyVolumeDistance",
+		dependency = { "comfyVolume", "1" },
+		minval = 50,
+		maxval = 250,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Thousandths: comfyfog.dll divides by 1000 for [volume] anisotropy (25 is 0.025).
+		name = "COMFYATMOSPHERE_VOLUME_DIRECTION",
+		desc = "0 glows the same from every side. Higher glows more when you look toward the sun.",
+		type = "slider",
+		cvar = "comfyVolumeDirection",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 500,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- The sun shadows use the volumetric light's shadow map, so they need it on. While both are on,
 		-- the round shadow the game draws under each character is turned off (SyncUnitShadow below).
 		name = "COMFYATMOSPHERE_SUN_SHADOWS",
@@ -174,6 +217,39 @@ local ENTRIES = {
 		type = "checkbutton",
 		cvar = "comfySunShadows",
 		dependency = { "comfyVolume", "1" },
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOWS_WORLD",
+		desc = "Terrain, buildings, trees and doodads cast shadows. Off, the ground keeps the game's own shadows.",
+		type = "checkbutton",
+		cvar = "comfySunShadowsWorld",
+		dependency = { "comfySunShadows", "1" },
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOWS_UNITS",
+		desc = "Players and creatures cast shadows. Off, they get the game's round shadow instead.",
+		type = "checkbutton",
+		cvar = "comfySunShadowsUnits",
+		dependency = { "comfySunShadows", "1" },
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOW_LOCK",
+		desc = "Shadows keep one angle all day, as the game's own shadows do, instead of following the sun.",
+		type = "checkbutton",
+		cvar = "comfyShadowLock",
+		dependency = { "comfySunShadows", "1" },
+	},
+	{
+		-- Degrees from straight down, [sunshadows] lockTilt.
+		name = "COMFYATMOSPHERE_SHADOW_TILT",
+		desc = "With Lock Shadow Angle: how far from straight down the light comes, in degrees. Lower gives shorter shadows.",
+		type = "slider",
+		cvar = "comfyShadowTilt",
+		dependency = { "comfyShadowLock", "1" },
+		minval = 0,
+		maxval = 60,
+		step = 5,
+		numberLabels = 1,
 	},
 	{
 		name = "COMFYATMOSPHERE_SUN_SHADOW_STRENGTH",
@@ -424,6 +500,7 @@ local unitShadowOff = nil;
 local function SyncUnitShadow(logout)
 	local off = not logout and GetCVar("comfyVolume") == "1" and HasCVar("comfySunShadows")
 		and GetCVar("comfySunShadows") == "1"
+		and (not HasCVar("comfySunShadowsUnits") or GetCVar("comfySunShadowsUnits") == "1")
 		and (not HasCVar("comfyAtmosphere") or GetCVar("comfyAtmosphere") == "1");
 	if off == unitShadowOff then
 		return;

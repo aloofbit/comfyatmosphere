@@ -31,6 +31,12 @@
 //      frame's mask is first moved by as much as the sun moved on screen: the mask holds only far
 //      things, sky and distant treetops, and those move across the screen with the sun as the camera
 //      turns. No history is used after a fast turn, a pause, or with the sun behind the camera.
+//      [rays] mask = 1 (2026-09-30, the default) replaces "bright" with "sky": a pixel casts where the
+//      depth buffer holds nothing (0.99 and up, the test cover.cpp uses), four taps inside each mask pixel so
+//      a leaf gap part of a pixel wide casts in part, times the sky's own colour over the absolute
+//      [rays] threshold. By brightness relative to the brightest pixel, the whole screen brightened and
+//      darkened as the camera tilted (more or less sky in view moved the reference), and the rays
+//      re-formed with every move. Needs [depth]; without it, or with mask = 0, brightness as above.
 //   3. Radial blur toward the sun, in passes of 16 samples whose step grows by 16x each pass, so three
 //      passes cover the ray length with 4096 effective taps and no banding.
 //   4. Add the result back over the back buffer.
@@ -84,6 +90,29 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float  peak = tex2D(s1, float2(0.5, 0.5)).r;
     float  thr  = max(gSun.w, peak * gP.z);
     float  m    = saturate((l - thr) / max(peak - thr, 0.02));
+    float2 d = uv - gSun.xy;
+    d.x *= gP.y;
+    float  f = pow(saturate(1.0 - length(d) * gSun.z), gP.w);
+    return float4(c * (m * f * tex2D(s2, float2(0.5, 0.5)).r), 1.0);
+}
+)HLSL";
+
+    // The mask by depth: where the frame shows sky. s3 is the world's depth at full resolution; gD.xy is a
+    // quarter of a mask texel, so the four taps sit inside the pixel.
+    const char* kMaskDepthHlsl = R"HLSL(
+sampler2D s0 : register(s0);   // the scene (or the sky before the clouds), downsampled
+sampler2D s2 : register(s2);   // 1x1: how much of this sun is in view (cover.cpp)
+sampler2D s3 : register(s3);   // the world's depth (INTZ), full resolution
+float4 gSun : register(c0);   // entry point uv.xy, 1/radius, absolute threshold floor
+float4 gP   : register(c1);   // unused, aspect (w/h), unused, falloff exponent
+float4 gD   : register(c2);   // a quarter of a mask texel, uv
+float4 main(float2 uv : TEXCOORD0) : COLOR
+{
+    float sky = step(0.99, tex2D(s3, uv + float2(-gD.x, -gD.y)).r) + step(0.99, tex2D(s3, uv + float2(gD.x, -gD.y)).r)
+              + step(0.99, tex2D(s3, uv + float2(-gD.x,  gD.y)).r) + step(0.99, tex2D(s3, uv + float2(gD.x,  gD.y)).r);
+    float3 c = tex2D(s0, uv).rgb;
+    float  l = dot(c, float3(0.299, 0.587, 0.114));
+    float  m = sky * 0.25 * saturate((l - gSun.w) / max(1.0 - gSun.w, 0.02));
     float2 d = uv - gSun.xy;
     d.x *= gP.y;
     float  f = pow(saturate(1.0 - length(d) * gSun.z), gP.w);
@@ -242,6 +271,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     IDirect3DPixelShader9* g_psSoften = nullptr;
 
     IDirect3DPixelShader9* g_psMask = nullptr;
+    IDirect3DPixelShader9* g_psMaskDepth = nullptr;   // [rays] mask = 1
     IDirect3DPixelShader9* g_psBlur = nullptr;
     IDirect3DPixelShader9* g_psComp = nullptr;
     bool                   g_shadersTried = false;
@@ -340,6 +370,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         {
             g_shadersTried = true;
             g_psMask = MakePixelShader(dev, kMaskHlsl,      "rays_mask");
+            g_psMaskDepth = MakePixelShader(dev, kMaskDepthHlsl, "rays_mask_depth");
             g_psBlur = MakePixelShader(dev, kBlurHlsl,      "rays_blur");
             g_psComp = MakePixelShader(dev, kCompositeHlsl, "rays_composite");
             g_psMaxLum = MakePixelShader(dev, kMaxLumHlsl,  "rays_maxlum");
@@ -757,13 +788,26 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         d->SetSamplerState(dev, 1, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, 1, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
         d->SetSamplerState(dev, 1, D3DSAMP_SRGBTEXTURE, 0);
-        const float maskC[8] = {
+        const float maskC[12] = {
             sun.ex, sun.ey, 1.0f / (r.radius > 0.05f ? r.radius : 0.05f), r.threshold,
             0.0f, static_cast<float>(bbW) / static_cast<float>(bbH), r.relThreshold, r.falloff,
+            0.25f / g_rw, 0.25f / g_rh, 0.0f, 0.0f,
         };
-        Pass(dev, scene->tex, g_ping.surf, g_rw, g_rh, g_psMask, maskC, 2);
+        IDirect3DTexture9* depth = r.mask == 1 && g_psMaskDepth ? DepthWorldTexture() : nullptr;
+        if (depth)
+        {
+            d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
+            d->SetSamplerState(dev, 3, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 3, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 3, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, 3, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, 3, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            d->SetSamplerState(dev, 3, D3DSAMP_SRGBTEXTURE, 0);
+        }
+        Pass(dev, scene->tex, g_ping.surf, g_rw, g_rh, depth ? g_psMaskDepth : g_psMask, maskC, depth ? 3 : 2);
         d->SetTexture(dev, 1, nullptr);
         d->SetTexture(dev, 2, nullptr);
+        d->SetTexture(dev, 3, nullptr);
 
         // --- soften the mask ([rays] soften) ---------------------------------------------------------
         // Across into g_pong, which nothing reads any more for this sun (the sky-only image was in it and

@@ -96,7 +96,8 @@ float4 gG    : register(c17);       // the largest slope in each map's units: fa
 float4 gT    : register(c18);       // slope (share used), sunOffset (yards), 1 if the facing is needed
 float4 gV    : register(c19);       // the view matrix's third column: camera-relative world -> view depth
 float4 gFog  : register(c20);       // the world's fog start, 1 / (end - start), 1 if there is fog
-float4 gCh   : register(c21);       // leafShade, 1 if near leaf map, 1 if far leaf map
+float4 gCh   : register(c21);       // leafShade, 1 if near leaf map, 1 if far leaf map, 1 = read the far map
+float4 gLod  : register(c22);       // far map: extra bias (map units) per yard past .y yards from the camera
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -215,16 +216,19 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     }
     // The far map, fading out over its last tenth, where it ends.
     float litF = 1.0, leafF = 1.0;
-    [branch] if (wn < 1.0)
+    [branch] if (wn < 1.0 && gCh.w > 0.5)
     {
         float3 Qf = P + N * (gB.y * graze) + gSun.xyz * gT.y;
         float4 sf = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
         float2 ef = abs(sf.xy);
         float  fade = saturate((1.0 - max(ef.x, ef.y)) * 10.0);
         float2 g = Slope(N, gSh0, gSh1, gSh2, gG.x) * gT.x;
-        litF = lerp(1.0, Lit(sShadow, sf, g, gB.x, gB.z), fade);
+        // More slack with distance ([sunshadows] lodBias): the ground the client draws far off is coarser
+        // than the terrain in the map.
+        float  bF = gB.x + gLod.x * max(length(P) - gLod.y, 0.0);
+        litF = lerp(1.0, Lit(sShadow, sf, g, bF, gB.z), fade);
         [branch] if (gCh.z > 0.5)
-            leafF = lerp(1.0, Lit5(sFarL, sf, g, gB.x, gB.z), fade);
+            leafF = lerp(1.0, Lit5(sFarL, sf, g, bF, gB.z), fade);
     }
     // Solid things stop the sun; leaves stop leafShade of it.
     float leaf  = 1.0 - lerp(leafF, leafN, wn);
@@ -484,7 +488,9 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     float sunDir[3], cam[3], player[3];
     D3DMATRIX view, proj, shadowVP;
     const bool haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
-    if (!depth || !shadow || !ShadowMatrix(shadowVP) || !SunDirection(sunDir) || !haveCam || !ClientCamera(cam) ||
+    float realSun[3];   // the dusk fade follows the real sun; the geometry, the shadows' own ([sunshadows] lock)
+    if (!depth || !shadow || !ShadowMatrix(shadowVP) || !SunDirection(realSun) || !ShadowSunDirection(sunDir) ||
+        !haveCam || !ClientCamera(cam) ||
         !ClientPlayer(player))
     {
         if (logThis)
@@ -494,10 +500,11 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     }
 
     // As the volumetric light: gone as the sun sets, and [night] strength at night.
-    const float sunset = (sunDir[2] > 0.0f ? (sunDir[2] < 0.1f ? sunDir[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
+    const float sunset = (realSun[2] > 0.0f ? (realSun[2] < 0.1f ? realSun[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
     const float strength = ss.debug ? 1.0f : ss.strength * 0.01f * sunset;
     const float sunlight = ss.debug ? 0.0f : ss.sunlight * sunset;
-    g_share = ss.debug ? 1.0f : sunset;
+    // World shadows off: the terrain's baked shadow is kept, the ground's only shade then.
+    g_share = ss.debug ? 1.0f : ss.world ? sunset : 0.0f;
     if (strength <= 0.0f && sunlight <= 0.0f)
         return false;
 
@@ -585,7 +592,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[88] = {};
+    float pc[92] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -637,7 +644,12 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[84] = ss.leafShade;
     pc[85] = nearLeaf ? 1.0f : 0.0f;
     pc[86] = farLeaf ? 1.0f : 0.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 22);
+    // World shadows off: the far map holds the world for the volumetric light, and the sun shadows leave
+    // it; past the near map nothing is shaded.
+    pc[87] = ss.world ? 1.0f : 0.0f;
+    pc[88] = ss.lodBias * 0.01f / span;
+    pc[89] = ss.lodStart;
+    d->SetPixelShaderConstantF(dev, 0, pc, 23);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);

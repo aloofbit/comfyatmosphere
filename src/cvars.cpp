@@ -78,7 +78,8 @@ namespace
     enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
                 kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
                 kShadowEvery, kSunShadows, kSunShadowStrength, kFogHeight, kFogFade, kFogDarkness,
-                kFogGreyness, kMaster, kFogHaze, kSunlight, kKnobs };
+                kFogGreyness, kMaster, kFogHaze, kSunlight, kVolumeDensity, kVolumeDistance, kVolumeDirection,
+                kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -102,6 +103,13 @@ namespace
         "comfyAtmosphere",
         "comfyFogHaze",
         "comfySunlight",
+        "comfyVolumeDensity",
+        "comfyVolumeDistance",
+        "comfyVolumeDirection",
+        "comfySunShadowsWorld",
+        "comfySunShadowsUnits",
+        "comfyShadowLock",
+        "comfyShadowTilt",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -233,6 +241,14 @@ namespace
         case kMaster:         snprintf(out, cap, "%d", s.master ? 1 : 0); break;
         case kFogHaze:        snprintf(out, cap, "%.0f", s.fog.density / 0.0002f); break;   // 100 = 0.02
         case kSunlight:       snprintf(out, cap, "%.0f", s.sunShadows.sunlight * 100.0f); break;   // percent
+        // Thousandths: density 0.015 is 15, anisotropy 0.025 is 25. Distance in yards.
+        case kVolumeDensity:  snprintf(out, cap, "%.0f", s.volume.density * 1000.0f); break;
+        case kVolumeDistance: snprintf(out, cap, "%.0f", s.volume.maxDistance); break;
+        case kVolumeDirection: snprintf(out, cap, "%.0f", s.volume.anisotropy * 1000.0f); break;
+        case kShadowsWorld:   snprintf(out, cap, "%d", s.sunShadows.world ? 1 : 0); break;
+        case kShadowsUnits:   snprintf(out, cap, "%d", s.sunShadows.units ? 1 : 0); break;
+        case kShadowsLock:    snprintf(out, cap, "%d", s.sunShadows.lock ? 1 : 0); break;
+        case kShadowsTilt:    snprintf(out, cap, "%.0f", s.sunShadows.lockTilt); break;
         }
     }
 
@@ -262,6 +278,13 @@ namespace
         if (c[kMaster].seen)         s.master          = c[kMaster].value != 0.0f;
         if (c[kFogHaze].seen)        s.fog.density     = Clamp(c[kFogHaze].value, 0.0f, 100.0f) * 0.0002f;
         if (c[kSunlight].seen)       s.sunShadows.sunlight = Clamp(c[kSunlight].value * 0.01f, 0.0f, 0.5f);
+        if (c[kVolumeDensity].seen)  s.volume.density  = Clamp(c[kVolumeDensity].value * 0.001f, 0.0f, 0.05f);
+        if (c[kVolumeDistance].seen) s.volume.maxDistance = Clamp(c[kVolumeDistance].value, 20.0f, 1000.0f);
+        if (c[kVolumeDirection].seen) s.volume.anisotropy = Clamp(c[kVolumeDirection].value * 0.001f, 0.0f, 0.95f);
+        if (c[kShadowsWorld].seen)   s.sunShadows.world = c[kShadowsWorld].value != 0.0f;
+        if (c[kShadowsUnits].seen)   s.sunShadows.units = c[kShadowsUnits].value != 0.0f;
+        if (c[kShadowsLock].seen)    s.sunShadows.lock  = c[kShadowsLock].value != 0.0f;
+        if (c[kShadowsTilt].seen)    s.sunShadows.lockTilt = Clamp(c[kShadowsTilt].value, 0.0f, 80.0f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);

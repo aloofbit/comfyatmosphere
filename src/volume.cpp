@@ -121,7 +121,9 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         float3 s   = lerp(s0, s1, (i + jit) * gL.y);
         float2 suv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
         float  hit = (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
-        // Leaves stop leafShade of the sun (2026-09-29), as on the ground.
+        // Leaves stop [volume] leafShade of the sun: all of it by default (2026-09-30), so the shafts under a
+        // canopy come through its gaps. At the ground's 0.6, 40% came through every leaf and the air under the
+        // canopy was lit almost evenly.
         [branch] if (gL.w > 0.0)
             hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
         // The map ends at a hard line, and a caster crossing it used to gain or lose its shade in one
@@ -772,7 +774,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // that pass it stays put: noise that changes every frame and is never averaged shimmers.
     const bool temporal = v.smooth > 0.001f && v.debug < 2;
     const float turn = temporal ? static_cast<float>(fmod(g_frameNo * 0.6180339887, 1.0)) : 0.0f;
-    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = turn; pc[47] = leaves ? g_cfg.sunShadows.leafShade : 0.0f;
+    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = turn; pc[47] = leaves ? g_cfg.volume.leafShade : 0.0f;
     d->SetPixelShaderConstantF(dev, 0, pc, 12);
     const ClipVertex q[4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },

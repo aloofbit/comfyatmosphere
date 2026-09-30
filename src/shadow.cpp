@@ -813,6 +813,12 @@ namespace
             return false;
         if (r.terrain)   // its place is its corner, the largest x and y: a yard inside finds the tile
             return MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f);
+        // The far horizon: the client draws the distant ground again, coarse, in the sky's depth slice, and
+        // [shadow] horizon keeps those draws, which are not drawn with the terrain's shader. Where a tile from
+        // the files covers the ground, the coarse copy floated over every dip once you came close, and cast a
+        // soft blob with nothing above it (2026-09-30, Gavin's Naze, gone after a restart).
+        if (!r.vs && (r.minZ != g_worldMinZ || r.maxZ != g_worldMaxZ))
+            return MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f) || MapTerrainCovers(pos[0], pos[1]);
         if (!r.vs)       // a building's group is drawn with the placement's matrix
             return !r.alphaTest && MapBuildingCovers(pos);
         if (UnitAt(pos))
@@ -1284,7 +1290,8 @@ namespace
                         const float dx = e.pos[0] - player[0], dy = e.pos[1] - player[1];
                         const float reach = e.rec.vs ? keep : keepFixed;
                         if (e.mobile || (e.unit && !UnitAt(e.pos)) || dx * dx + dy * dy > reach * reach ||
-                            (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime))
+                            (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
+                            (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime))
                         {
                             gone = true; ++g_nEvictAge;
                         }
@@ -1846,7 +1853,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     D3DMATRIX view, proj;
     const bool worldCam = g_haveWorldCam;
     if (worldCam) { view = g_worldView; proj = g_worldProj; }
-    if (!SunDirection(sunDir) || !(worldCam || SunCamera(view, proj)) || !ClientCamera(cam))
+    if (!ShadowSunDirection(sunDir) || !(worldCam || SunCamera(view, proj)) || !ClientCamera(cam))
     {
         if (logThis) Log("shadow: nothing replayed (no sun, camera matrices or camera position)");
         g_replayOutcome = 2;
@@ -2198,21 +2205,25 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // twice its size, and 2,000 draws; 16 still takes in a big tree's crown beside it.
     const float sideReach = mapRange + (nearPass ? s.nearMargin : 40.0f);   // the map is `range` either side
     const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
+    // [sunshadows] world and units (2026-09-30): the near maps are the sun shadows' alone, so the world is
+    // left out of them when its shadows are off; units are left out of every map when theirs are.
+    const bool worldHere = !nearPass || g_cfg.sunShadows.world;
+    const bool unitsHere = g_cfg.sunShadows.units;
     // The ground from the files goes where the client's terrain would: the leaf map with terrainLeaves.
-    if (s.mapTerrain && (doLeaves ? leafPass == s.terrainLeaves : !leafPass))
+    if (worldHere && s.mapTerrain && (doLeaves ? leafPass == s.terrainLeaves : !leafPass))
     {
         const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam);
         if (nearPass) nearTiles = n; else farTiles = n;
     }
     // The buildings from the files: solid.
-    if (s.mapTerrain && !leafPass)
+    if (worldHere && s.mapTerrain && !leafPass)
     {
         const unsigned n = MapBuildingsDraw(dev, passAbsToSun, cam);
         if (nearPass) nearWmos = n; else farWmos = n;
     }
     // The doodads from the files: the solid models here, the trees and bushes with the leaves (or here as
     // well, without leaf maps).
-    if (s.mapTerrain)
+    if (worldHere && s.mapTerrain)
     {
         unsigned n = 0;
         if (!leafPass)
@@ -2229,6 +2240,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             ++unseen;
         // With leaf maps, the leaves go there and everything else to the solid map.
         if (doLeaves && isLeaf(e) != leafPass)
+            continue;
+        if (e.unit ? !unitsHere : !worldHere)
             continue;
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
         // hundred of them rather than thousands, and one chunk covers so much ground that the point we
@@ -2323,6 +2336,27 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                     }
             Log("shadow: the cache keeps %u models: %u at units, %u others (%u alpha tested)", models, atUnits,
                 models - atUnits, alpha);
+        }
+        MapLogDoodadsNear(pl, 40.0f);
+        // The cache's entries within 60 yards the client has not drawn for over 2 seconds: kept shade
+        // with nothing to show for it, the first thing to look at when a shadow has no caster.
+        {
+            unsigned shown = 0, total = 0;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                {
+                    const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                    const float d = sqrtf(dx * dx + dy * dy);
+                    if (d > 60.0f || now - e.lastSeen < 2.0)
+                        continue;
+                    ++total;
+                    if (shown++ < 15)
+                        Log("shadow:   kept undrawn %.0f s: %s, %u triangles%s%s%s, at (%.1f %.1f %.1f), %.0f yd from you",
+                            now - e.lastSeen, e.rec.vs ? "model" : e.rec.terrain ? "terrain" : "fixed-function",
+                            e.rec.primCount, e.rec.alphaTest ? ", alpha tested" : "", e.unit ? ", at a unit" : "",
+                            e.mobile ? ", moving" : "", e.pos[0], e.pos[1], e.pos[2], d);
+                }
+            Log("shadow: %u cache entries within 60 yd not drawn for over 2 s", total);
         }
         // The check on the doodads' places: the nearest one from the files against the nearest model draw.
         float dp[3];

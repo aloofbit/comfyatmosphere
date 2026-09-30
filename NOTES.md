@@ -845,6 +845,54 @@ evicted once, when what the files cover changes. The replay draws even with the 
   animation moved that bone further for a frame, and he cast as leaves, at part shade. A cache entry seen
   at a unit now stays that unit's (`Entry::unit`): the entry follows him, so one frame cannot flip it.
 
+## Rays, the sun, and shadows with no caster (2026-09-30)
+
+**Where the rays come from.** Two parts, and they were mixed up in the telling. The rays fan out from one
+point: the sun's direction, projected on screen. The direction comes from the sun sprite the client draws in
+the sky (`sun.cpp`), the same one the shadow map and the volumetric light use. Which pixels feed them is the
+mask, within `[rays] radius` of that point.
+
+- **The origin jumped to a moon.** With comfytime setting the clock to 10:00, the sky still drew the two moons
+  on some frames and the sun alone on others, by where the camera looked: two quads at 31.8 degrees, 95 apart,
+  against one at 56.6. The light and the rays followed the larger moon on those frames, and the second moon
+  cast rays too. By day (the clock, `NightWeight` under 0.5) a frame with two or more quads is left out.
+  Measured after it: the sun from the sky followed the time smoothly, 2.5 degrees every 15 minutes (59.0 at
+  14:39 to 38.8 at 16:39, azimuth 45 all day), which is the data for working the sun out from the clock alone.
+- **The mask.** It was brightness against the brightest pixel in view, so tilting the camera changed the
+  reference and every ray. `[rays] mask = 1` (the default) casts where the depth buffer shows sky (0.99 and
+  up, four taps inside each mask pixel), times the sky's colour over the absolute `threshold`.
+- **The haze over the ridge.** `[rays] maxAngle` was 140 so that rays streamed in from above with the sun out
+  of view. Those were fed by whatever sky sat at the top of the screen, and grew and shrank as the camera
+  tilted: the view brightened and darkened. It is 60 now; the shafts from a sun out of view are the volumetric
+  light's, from the shadow map. Ctrl+F11 (rays off) was the test that found it.
+
+**The volumetric light under a canopy.** Its leaves stopped 0.6 of the sun, the ground's value, so 40% came
+through every leaf and the air was lit almost evenly. `[volume] leafShade` is its own now, 1: the light comes
+through the gaps. Density 0.015 and anisotropy 0.025 are the owner's, with sliders for them and for
+maxDistance (Light Density and Light Toward the Sun in thousandths, Light Distance in yards).
+
+**The shadow controls.** World / Object Shadows and Player / Creature Shadows (`[sunshadows] world`,
+`units`). The far map is the volumetric light's as well, so world off leaves the world out of the near maps
+only, and the sun shadows stop reading the far map; the terrain's baked shadow comes back. Units off leaves
+units out of every map, and the addon gives back `shadowLOD`. Lock Shadow Angle (`lock`, `lockTilt` 15):
+the shadow map's sun at a set tilt from straight down, the sun's azimuth kept (`ShadowSunDirection`); the
+rays, the light's glow and the dusk fade keep the real sun.
+
+**Shadows with no caster.**
+
+- A leaf-edged blob on open ground at Gavin's Naze stayed with `mapTerrain 0` and went with a restart: a cache
+  entry. The owner's guess was the terrain. The client draws the distant ground a second time, coarse, in
+  the sky's depth slice, and `[shadow] horizon` keeps those draws, which are not drawn with the terrain's
+  shader and so were never refused. Near, the coarse copy floated over the dips. A draw in that slice inside
+  a loaded tile is refused now. As a net, `[shadow] staleTime` (20 s, with the files on) drops an entry the
+  client has not drawn for that long; the probe lists the entries within 60 yards not drawn for 2 seconds,
+  and the doodads from the files within 40 with their model, the tile's archives and whether the client drew
+  them.
+- Blobs on distant slopes that held until you came close: the reverse. The terrain casts at full detail and
+  the client draws the ground past about 100 yards coarser, under the true surface in places, which the fine
+  terrain shaded. The far map's test takes more slack with distance: `[sunshadows] lodBias` 2 yards for every
+  100 past `lodStart` (80). The owner: better.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
