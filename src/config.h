@@ -115,6 +115,10 @@ struct NightSettings
 struct DepthSettings
 {
     bool  enabled   = true;
+    // A see-through model writes no depth (2026-09-30). A stealthed lion is drawn blended but writing depth,
+    // so the sun shadows and the volumetric light, which read depth, shaded and lit its outline and gave it
+    // away. comfyfog.cpp, IsSeeThroughModel.
+    bool  seeThrough = true;
 };
 
 // A shadow map from the sun (shadow.cpp): the frame's opaque world draws replayed from the sun.

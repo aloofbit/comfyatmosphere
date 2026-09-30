@@ -931,6 +931,15 @@ through became an entry of its own, drawn once or twice and then kept as a still
 It is a unit, but its model flies high over the unit's place. A model drawn on fewer than 20 redraws goes the
 moment it is not drawn (`Entry::drawnFor`), and `[shadow] staleTime` is 8 seconds.
 
+**Stealthed units.** A stealthed lion was shaded and lit by the sun shadows and the volumetric light, which gave
+its outline away. The probe (`order: model draw` lines: the frame's last 30 model draws with their colour and
+depth state) showed each lion drawn in two passes: 4 draws into depth alone (colour writes 0x0, depth writes
+on, less-or-equal), then the same 4 blended in colour with depth writes on. Turning depth writes off in the
+colour pass alone changed nothing: the depth pass had written it. With `[depth] seeThrough` (and the effects
+on), a model's depth-only pass is not drawn and its blended colour pass writes no depth, so the passes see
+the ground behind it and the shadow cache never records it. Measured: 12 of each skipped a frame with three
+lions in view. The unit's own parts now show through each other a little, where a leg crosses the body.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

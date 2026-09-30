@@ -525,6 +525,8 @@ namespace
     bool               g_worldEnded = false;    // the world finished drawing this frame
     std::unordered_set<void*> g_waterPs;        // the client's water pixel shaders (IsWaterDraw)
     float g_fogGround = 0.0f, g_fogCamZ = 0.0f, g_fogDensity = 0.0f;   // FogDensityAtCamera's last, for the probe
+    unsigned g_seeThroughDraws = 0, g_seeThroughLast = 0;   // IsSeeThroughModel's draws this frame, and last frame
+    unsigned g_depthOnlySkipped = 0, g_depthOnlyLast = 0;   // IsDepthOnlyModel's, the same way
     bool  g_fogGrounded = false;
 
     // The order of the world's draws, for one frame after each probe (2026-09-30): can our fog go in before
@@ -536,8 +538,9 @@ namespace
     char        g_orderLast = 0;
     unsigned    g_orderRun = 0, g_orderIndex = 0, g_orderFirstB = 0, g_orderOAfterB = 0;
     std::string g_orderAfter;   // the first depth-writing draws after the first blended one
-    std::string g_orderBlended; // every blended draw without depth writes: to tell the water (2026-09-30)
+    std::string g_orderBlended; // every blended draw, with or without depth writes: the water, a stealthed unit
     unsigned    g_orderBCount = 0;
+    std::vector<std::string> g_orderModels;   // the last model draws of the frame, with colour and depth state
 
     void OrderFlush()
     {
@@ -564,7 +567,26 @@ namespace
         if (k == 'B' && !g_orderFirstB)
             g_orderFirstB = g_orderIndex;
         // The blended draws that write no depth, each: the water is among them, and the fog cannot see it.
-        if (k == 'B' && ++g_orderBCount <= 40)
+        // Every model draw, last 30 kept: a stealthed unit is drawn in two passes (2026-09-30).
+        if (g_vshader)
+        {
+            DWORD cw = 0, zf = 0, ze = 0, src = 0, dst = 0;
+            dev->lpVtbl->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &cw);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_ZFUNC, &zf);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_ZENABLE, &ze);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+            IDirect3DBaseTexture9* tex = nullptr;
+            dev->lpVtbl->GetTexture(dev, 0, &tex);
+            char t[200];
+            snprintf(t, sizeof(t), "[#%u %c %up %uv tex %p colour 0x%X ztest %u func %u zwrite %u blend %u %u/%u%s]",
+                     g_orderIndex, k, pc, nv, tex, cw, ze, zf, zwrite, blend, src, dst, atest ? " atest" : "");
+            if (tex) tex->lpVtbl->Release(tex);
+            g_orderModels.push_back(t);
+            if (g_orderModels.size() > 30)
+                g_orderModels.erase(g_orderModels.begin());
+        }
+        if ((k == 'B' || k == 'W') && !g_vshader && ++g_orderBCount <= 20)
         {
             DWORD src = 0, dst = 0, fvf = 0, fog = 0;
             dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
@@ -575,9 +597,10 @@ namespace
             dev->lpVtbl->GetTexture(dev, 0, &tex);
             IDirect3DPixelShader9* ps = nullptr;
             dev->lpVtbl->GetPixelShader(dev, &ps);
-            char t[200];
-            snprintf(t, sizeof(t), " [#%u %s %up %uv%s ps %p tex %p fvf 0x%X blend %u/%u%s world (%.0f %.0f %.0f)]",
-                     g_orderIndex, call, pc, nv, g_vshader ? " vs" : " ff", ps, tex, fvf, src, dst, fog ? " fog" : "",
+            char t[260];
+            snprintf(t, sizeof(t), " [#%u %c %s %up %uv%s ps %p tex %p fvf 0x%X blend %u/%u%s%s world (%.0f %.0f %.0f)]",
+                     g_orderIndex, k, call, pc, nv, g_vshader ? " vs" : " ff", ps, tex, fvf, src, dst, fog ? " fog" : "",
+                     atest ? " atest" : "",
                      g_world.m[3][0], g_world.m[3][1], g_world.m[3][2]);
             g_orderBlended += t;
             if (tex) tex->lpVtbl->Release(tex);
@@ -614,6 +637,10 @@ namespace
             return;
         g_worldEnded = true;
         g_inPass = true;
+        g_seeThroughLast = g_seeThroughDraws;
+        g_seeThroughDraws = 0;
+        g_depthOnlyLast = g_depthOnlySkipped;
+        g_depthOnlySkipped = 0;
         if (g_orderRec)
         {
             OrderFlush();
@@ -623,7 +650,10 @@ namespace
             if (!g_orderAfter.empty())
                 Log("order: the first depth-writing draws after it:%s", g_orderAfter.c_str());
             if (!g_orderBlended.empty())
-                Log("order: %u blended draws without depth writes:%s", g_orderBCount, g_orderBlended.c_str());
+                Log("order: %u blended fixed-function draws (B no depth writes, W with):%s", g_orderBCount,
+                    g_orderBlended.c_str());
+            for (const std::string& m : g_orderModels)
+                Log("order: model draw %s", m.c_str());
             g_orderRec = false;
         }
         if (g_orderArm)
@@ -633,6 +663,7 @@ namespace
             g_orderRuns.clear();
             g_orderAfter.clear();
             g_orderBlended.clear();
+            g_orderModels.clear();
             g_orderBCount = 0;
             g_orderLast = 0;
             g_orderRun = g_orderIndex = g_orderFirstB = g_orderOAfterB = 0;
@@ -1058,6 +1089,9 @@ namespace
                     g_cfg.night.strength);
             else
                 Log("night: no game clock at [client] clockAddr, so the rays and the light keep their day strength");
+            Log("depth: last frame, %u see-through model draws had their depth writes turned off and %u depth-only "
+                "model passes were skipped ([depth] seeThrough %d)", g_seeThroughLast, g_depthOnlyLast,
+                g_cfg.depth.seeThrough ? 1 : 0);
             if (g_fogGrounded)
                 Log("fog: the ground around you at %.1f, the camera at %.1f: ground haze %.5f a yard there, %.5f at "
                     "the camera ([fog] ground, height %.0f)", g_fogGround, g_fogCamZ, g_cfg.fog.density, g_fogDensity,
@@ -1671,9 +1705,54 @@ namespace
         return g_waterPs.count(ps) != 0;
     }
 
+    // A see-through model ([depth] seeThrough, 2026-09-30): a model (vertex shader) drawn alpha blended with
+    // depth writes on. Measured on a stealthed lion: its batches (874, 338, 24 and 14 triangles, one texture)
+    // were the only blended model draws writing depth in the frame, and absent with it off screen. Written,
+    // its depth made the sun shadows and the light outline it. Depth writes go off for the draw: the passes
+    // then see the ground behind it. A model drawn solid and then blended over itself already has its depth
+    // from the solid pass. The grass is blended with depth writes too, but fixed-function: not taken.
+    bool IsSeeThroughModel(IDirect3DDevice9* dev)
+    {
+        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded || !VolumeActive())
+            return false;
+        DWORD zwrite = 0, blend = 0, src = 0, dst = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        if (!zwrite)
+            return false;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        if (!blend)
+            return false;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
+        dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+        return src == D3DBLEND_SRCALPHA && dst == D3DBLEND_INVSRCALPHA;
+    }
+
+    // The first of a see-through model's two passes ([depth] seeThrough, 2026-09-30): the client draws a
+    // stealthed unit into depth alone (colour writes 0, depth writes on), then its colour blended over that,
+    // so its own parts do not show through each other. Measured on the stealthed lions: each was that pair,
+    // 4 draws and 4. The depth pass is what our passes saw, so it is not drawn: the shadows and the light see
+    // the ground behind, and the shadow cache never records it. The colour pass, its depth writes off
+    // (IsSeeThroughModel), then doubles up a little where a leg crosses the body.
+    bool IsDepthOnlyModel(IDirect3DDevice9* dev)
+    {
+        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded || !VolumeActive())
+            return false;
+        DWORD cw = 0xF, zwrite = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &cw);
+        if (cw != 0)
+            return false;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        return zwrite != 0;
+    }
+
     HRESULT STDMETHODCALLTYPE hkDrawIndexedPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi,
                                                      UINT mvi, UINT nv, UINT si, UINT pc)
     {
+        if (IsDepthOnlyModel(dev))
+        {
+            ++g_depthOnlySkipped;
+            return S_OK;
+        }
         NoteSkySun(dev, prim, pc, nv);
         const bool cloud = IsCloudDraw(dev, prim, nv);
         if (cloud)
@@ -1695,6 +1774,14 @@ namespace
         NoteLampDraw(dev, true, static_cast<UINT>(bvi) + mvi, nv);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
+        if (IsSeeThroughModel(dev))
+        {
+            ++g_seeThroughDraws;
+            dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
+            const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+            dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
+            return hr;
+        }
         if (IsWaterDraw(dev, nv))
         {
             dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
