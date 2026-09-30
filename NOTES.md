@@ -825,8 +825,16 @@ evicted once, when what the files cover changes. The replay draws even with the 
   c2..c5 (a bush), the transform's origin and the first bone's are the placement. With it in the bones
   (the canopy trees; c2..c5 then holds the projection alone), the origin is the camera and the first
   bone stood 2 to 25 yards off, a pose of its own. Every bone the draw uploaded itself is asked, to a
-  tenth of a yard. Still open: the cache held about 4,400 entries after that, so most trees are not
-  matched yet.
+  tenth of a yard.
+- Measured in Elwynn, before and after: the cache from about 5,000 entries (4,500 models) to 1,611 (1,426
+  models, 817 of them at units: a few draws each); matching 0.7-1.2 ms to 0.5, eviction 0.4-0.5 to 0.2,
+  the near map 2.8-3.8 + 1.4-1.9 ms to 0.4 + 0.1. Left among the others: an animated doodad 300 yards
+  off (a mill wheel or the like: every bone moves, so none lands on its placement), held once for each
+  of its levels of detail (1,188 to 1,452 triangles in steps of 66), the furniture inside buildings, and
+  the server's objects.
+- **Stray wolf shadows.** A wolf that moved a little each frame was matched as the same entry, never
+  marked as moving, and kept like a tree when it went out of view. An entry seen at a unit (`unit`, now
+  set in Merge too) is kept undrawn only while a unit stands at its place.
 - **NPC shadows did not follow their animation.** The still rule keeps a model's pose while it has not
   moved, which saves copying its bones every frame. For a trees-only cache that was right; with the
   trees from the files, the models left are characters and creatures, and one animating in place kept

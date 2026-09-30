@@ -1145,6 +1145,7 @@ namespace
                     best->rec.nregsOwn = r.nregsOwn;
                 best->seq = r.seq;
                 best->mobile = best->mobile || moved;
+                best->unit = best->unit || (r.vs && UnitAt(pos));
                 best->lastSeen = now;
                 ReleaseRec(r);
                 ++g_nRefreshed;
@@ -1160,6 +1161,7 @@ namespace
                 if (g_cfg.trace && r.vs && r.numVertices > 4000)
                     ++g_bigNew;
                 e.mobile = false;
+                e.unit = r.vs && UnitAt(pos);
                 e.seq = r.seq;
                 e.lastSeen = now;
                 list.push_back(std::move(e));
@@ -1274,11 +1276,14 @@ namespace
                     else
                     {
                         // Something that moves is gone the moment it stops being drawn: its shade belongs
-                        // where it is now, not where it was. Anything else, once it is out of the map's
-                        // reach across the ground, or (if set) unseen longer than cacheTime.
+                        // where it is now, not where it was. A unit's model, once no unit stands at its place
+                        // (2026-09-30: a wolf that walked a little each frame was matched as the same entry,
+                        // never marked as moving, and left its shade behind when it went out of view). Anything
+                        // else, once it is out of the map's reach across the ground, or (if set) unseen longer
+                        // than cacheTime.
                         const float dx = e.pos[0] - player[0], dy = e.pos[1] - player[1];
                         const float reach = e.rec.vs ? keep : keepFixed;
-                        if (e.mobile || dx * dx + dy * dy > reach * reach ||
+                        if (e.mobile || (e.unit && !UnitAt(e.pos)) || dx * dx + dy * dy > reach * reach ||
                             (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime))
                         {
                             gone = true; ++g_nEvictAge;
@@ -2304,6 +2309,21 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             "game's draws the files cover: %u refused this frame, %u kept from before evicted; leaves cut at "
             "alpha %d ([shadow] leafAlpha)", MapTerrainInfo(), farTiles, farWmos, farDoodads, nearTiles, nearWmos,
             nearDoodads, g_nFilesRefused, g_nFilesEvicted, s.leafAlpha);
+        // The models the cache keeps: those at units (characters, creatures) and the others (the server's
+        // objects, animated doodads, the furniture inside buildings, anything past the tiles loaded).
+        {
+            unsigned models = 0, atUnits = 0, alpha = 0;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                    if (e.rec.vs)
+                    {
+                        ++models;
+                        if (e.unit) ++atUnits;
+                        else if (e.rec.alphaTest) ++alpha;
+                    }
+            Log("shadow: the cache keeps %u models: %u at units, %u others (%u alpha tested)", models, atUnits,
+                models - atUnits, alpha);
+        }
         // The check on the doodads' places: the nearest one from the files against the nearest model draw.
         float dp[3];
         if (MapDoodadNearest(pl, dp))
