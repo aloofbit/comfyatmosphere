@@ -32,13 +32,21 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 
 All settings are in `comfyfog.ini`. **F11 reloads it in game.**
 
+[![Lamps along a Duskwood road at night, the effects off and then on. Click for the full video.](media/lamps-night.gif)](media/lamps-night.mp4)
+
+*Lamps and night in Duskwood: the effects off, then on.*
+
+[![A harbour walkway with lanterns and sun shadows. Click for the full video.](media/harbour-shadows.gif)](media/harbour-shadows.mp4)
+
+*Sun shadows and lanterns on a harbour walkway.*
+
 ## In-game controls
 
 The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of controls to the game's options:
 **Video > Atmosphere**, below Shaders. **`/atmos options`** opens the same controls in a small window of their
 own. Use the window on a client whose options window has no page for them.
 
-![The comfyatmosphere controls: fog, volumetric light with its strength and quality, sun rays, night strength, and clouds.](media/settings-example.png)
+![The comfyatmosphere controls in the /atmos options window: volumetric light, its strength, quality, density, distance and direction, lamp glow and lamp distance.](media/settings-example.png)
 
 | Control | Setting in `comfyfog.ini` |
 | --- | --- |
