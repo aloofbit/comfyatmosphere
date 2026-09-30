@@ -1,6 +1,6 @@
 ## Interface: 11200
 ## Title: comfyatmosphere
-## Notes: Adds fog, volumetric light, sun ray and cloud controls to Video > Shaders. Needs comfyfog.dll.
+## Notes: Fog, volumetric light, sun ray and shadow controls on Video > Atmosphere, and in /atmos options. Needs comfyfog.dll.
 ## Author: comfy-wow
 
 ComfyAtmosphere.lua

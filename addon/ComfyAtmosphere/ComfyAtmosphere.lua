@@ -545,7 +545,230 @@ local function AddControls()
 	return false;
 end
 
--- /atmos: read and set any comfyfog.ini value (tune.cpp in comfyfog.dll). The command goes to the DLL in
+-- The settings window, /atmos options (2026-09-30). The same controls as the Atmosphere page, from the same
+-- ENTRIES, in a window of our own: a client with the old options panel (stock 1.12 and most servers other
+-- than Turtle) has no page for them. It uses only what stock 1.12 has: the UIPanelScrollFrameTemplate,
+-- UICheckButtonTemplate, OptionsSliderTemplate and UIPanelButtonTemplate templates, and Lua 5.0.
+--
+-- A control sets its CVar as it moves, as the page does, and comfyfog.dll reads it at once. There is no
+-- Cancel: close the window to keep the values. A control whose `dependency` is not met is greyed and does
+-- not move, and is indented under the control it depends on.
+local WINDOW_VALUE_TEXT = {
+	comfyVolumeQuality = { "Low", "Medium", "High" },
+	comfyShadowResolution = { "1024", "2048", "4096" },
+};
+local WINDOW_WIDTH = 266;
+local WINDOW_HEIGHT = 500;
+local CONTENT_WIDTH = 200;
+local INDENT = 16;
+
+local window = nil;
+local windowControls = {};
+local windowRefreshing = false;
+
+local function WindowLabel(option)
+	return getglobal(option.name) or option.name;
+end
+
+local function WindowSliderText(control)
+	local value = tonumber(GetCVar(control.option.cvar)) or control.option.minval;
+	local names = WINDOW_VALUE_TEXT[control.option.cvar];
+	local shown = names and names[value - control.option.minval + 1] or tostring(value);
+	getglobal(control.frame:GetName() .. "Text"):SetText(WindowLabel(control.option) .. ": " .. shown);
+end
+
+local function WindowRefresh()
+	if not window then
+		return;
+	end
+	windowRefreshing = true;
+	for _, control in ipairs(windowControls) do
+		local option = control.option;
+		local enabled = not option.dependency or GetCVar(option.dependency[1]) == option.dependency[2];
+		if option.type == "checkbutton" then
+			control.frame:SetChecked(GetCVar(option.cvar) == "1");
+			local text = getglobal(control.frame:GetName() .. "Text");
+			if enabled then
+				control.frame:Enable();
+				text:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
+			else
+				control.frame:Disable();
+				text:SetTextColor(GRAY_FONT_COLOR.r, GRAY_FONT_COLOR.g, GRAY_FONT_COLOR.b);
+			end
+		else
+			control.frame:SetValue(tonumber(GetCVar(option.cvar)) or option.minval);
+			WindowSliderText(control);
+			control.frame:EnableMouse(enabled);
+			control.frame:SetAlpha(enabled and 1 or 0.4);
+		end
+	end
+	windowRefreshing = false;
+end
+
+local function WindowTooltip()
+	local option = this.comfyOption;
+	GameTooltip:SetOwner(this, "ANCHOR_RIGHT");
+	GameTooltip:SetText(WindowLabel(option), 1, 1, 1);
+	if option.desc then
+		GameTooltip:AddLine(option.desc, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1);
+	end
+	if option.warning then
+		GameTooltip:AddLine(option.warning, RED_FONT_COLOR.r, RED_FONT_COLOR.g, RED_FONT_COLOR.b, 1);
+	end
+	GameTooltip:Show();
+end
+
+local function WindowTooltipHide()
+	GameTooltip:Hide();
+end
+
+local function WindowBuild()
+	window = CreateFrame("Frame", "ComfyAtmosphereWindow", UIParent);
+	window:SetWidth(WINDOW_WIDTH);
+	window:SetHeight(WINDOW_HEIGHT);
+	window:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
+	window:SetFrameStrata("DIALOG");
+	window:SetBackdrop({
+		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+		tile = true, tileSize = 32, edgeSize = 32,
+		insets = { left = 11, right = 12, top = 12, bottom = 11 },
+	});
+	window:EnableMouse(true);
+	window:SetMovable(true);
+	window:RegisterForDrag("LeftButton");
+	window:SetScript("OnDragStart", function() this:StartMoving(); end);
+	window:SetScript("OnDragStop", function() this:StopMovingOrSizing(); end);
+	window:SetScript("OnShow", WindowRefresh);
+	table.insert(UISpecialFrames, "ComfyAtmosphereWindow");    -- Escape closes it
+
+	local header = window:CreateTexture(nil, "ARTWORK");
+	header:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header");
+	header:SetWidth(256);
+	header:SetHeight(64);
+	header:SetPoint("TOP", window, "TOP", 0, 12);
+	local title = window:CreateFontString(nil, "ARTWORK", "GameFontNormal");
+	title:SetPoint("TOP", header, "TOP", 0, -14);
+	title:SetText(COMFYATMOSPHERE_CATEGORY);
+
+	local close = CreateFrame("Button", "ComfyAtmosphereWindowClose", window, "UIPanelCloseButton");
+	close:SetPoint("TOPRIGHT", window, "TOPRIGHT", -3, -3);
+
+	local scroll = CreateFrame("ScrollFrame", "ComfyAtmosphereWindowScroll", window, "UIPanelScrollFrameTemplate");
+	scroll:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -30);
+	scroll:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -40, 44);
+	scroll:EnableMouseWheel(true);
+	scroll:SetScript("OnMouseWheel", function()
+		local bar = getglobal(this:GetName() .. "ScrollBar");
+		bar:SetValue(bar:GetValue() - arg1 * 40);
+	end);
+	local content = CreateFrame("Frame", "ComfyAtmosphereWindowContent", scroll);
+	content:SetWidth(CONTENT_WIDTH);
+
+	-- How deep under other controls each CVar sits, for the indent.
+	local depth = {};
+	local y = -4;
+	for i, entry in ipairs(ENTRIES) do
+		local option = entry;
+		if HasCVar(option.cvar) then
+			local level = option.dependency and depth[option.dependency[1]] and depth[option.dependency[1]] + 1 or 0;
+			depth[option.cvar] = level;
+			local x = level * INDENT;
+			local name = "ComfyAtmosphereWindowControl" .. i;
+			local control = { option = option };
+			if option.type == "checkbutton" then
+				if level == 0 and y < -4 then
+					y = y - 10;    -- a gap before each group
+				end
+				local box = CreateFrame("CheckButton", name, content, "UICheckButtonTemplate");
+				box:SetWidth(26);
+				box:SetHeight(26);
+				box:SetPoint("TOPLEFT", content, "TOPLEFT", x, y);
+				getglobal(name .. "Text"):SetText(WindowLabel(option));
+				box:SetScript("OnClick", function()
+					SetCVar(this.comfyOption.cvar, this:GetChecked() and "1" or "0");
+					WindowRefresh();
+				end);
+				control.frame = box;
+				y = y - 26;
+			else
+				local slider = CreateFrame("Slider", name, content, "OptionsSliderTemplate");
+				slider:SetWidth(CONTENT_WIDTH - x - 16);
+				slider:SetHeight(17);
+				slider:SetPoint("TOPLEFT", content, "TOPLEFT", x + 8, y - 16);
+				slider:SetMinMaxValues(option.minval, option.maxval);
+				slider:SetValueStep(option.step);
+				local names = WINDOW_VALUE_TEXT[option.cvar];
+				getglobal(name .. "Low"):SetText(names and names[1] or tostring(option.minval));
+				getglobal(name .. "High"):SetText(names and names[table.getn(names)] or tostring(option.maxval));
+				slider:SetScript("OnValueChanged", function()
+					if windowRefreshing then
+						return;
+					end
+					local o = this.comfyOption;
+					local value = o.minval + math.floor((this:GetValue() - o.minval) / o.step + 0.5) * o.step;
+					SetCVar(o.cvar, tostring(value));
+					WindowSliderText(this.comfyControl);
+				end);
+				slider.comfyControl = control;
+				control.frame = slider;
+				y = y - 50;
+			end
+			control.frame.comfyOption = option;
+			control.frame:SetScript("OnEnter", WindowTooltip);
+			control.frame:SetScript("OnLeave", WindowTooltipHide);
+			table.insert(windowControls, control);
+		end
+	end
+	content:SetHeight(-y + 8);
+	scroll:SetScrollChild(content);
+	scroll:UpdateScrollChildRect();
+
+	-- The values comfyfog.dll registered the CVars with, which are comfyfog.ini's. GetCVarDefault is
+	-- not in every 1.12 client, so the button is only there where it is.
+	if GetCVarDefault then
+		local defaults = CreateFrame("Button", "ComfyAtmosphereWindowDefaults", window, "UIPanelButtonTemplate");
+		defaults:SetWidth(88);
+		defaults:SetHeight(22);
+		defaults:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 18, 16);
+		defaults:SetText(DEFAULTS or "Defaults");
+		defaults:SetScript("OnClick", function()
+			for _, control in ipairs(windowControls) do
+				local ok, value = pcall(GetCVarDefault, control.option.cvar);
+				if ok and value then
+					SetCVar(control.option.cvar, value);
+				end
+			end
+			WindowRefresh();
+		end);
+	end
+	local done = CreateFrame("Button", "ComfyAtmosphereWindowDone", window, "UIPanelButtonTemplate");
+	done:SetWidth(88);
+	done:SetHeight(22);
+	done:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 16);
+	done:SetText(CLOSE or "Close");
+	done:SetScript("OnClick", function() window:Hide(); end);
+
+	window:Hide();
+end
+
+local function WindowToggle()
+	if not DllLoaded() then
+		DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: comfyfog.dll is not loaded, so there are no settings to show.");
+		return;
+	end
+	if not window then
+		WindowBuild();
+	end
+	if window:IsShown() then
+		window:Hide();
+	else
+		window:Show();
+	end
+end
+
+-- /atmos: read and set any comfyfog.ini value (tune.cpp in comfyfog.dll). /atmos options is the window
+-- above and stays in the addon. The command goes to the DLL in
 -- the CVar comfyTune as "<number> <text>"; the DLL answers by registering comfyTuneReply<number>, the
 -- count of lines, and comfyTuneReply<number>_1 and on, the lines. CVars stay registered until the
 -- client closes, /reload included, so each command takes the next number that has no answer yet.
@@ -584,6 +807,14 @@ end);
 
 SLASH_COMFYATMOS1 = "/atmos";
 SlashCmdList["COMFYATMOS"] = function(msg)
+	local command = string.lower((string.gsub(msg or "", "^%s*(.-)%s*$", "%1")));
+	if command == "options" then
+		WindowToggle();
+		return;
+	end
+	if command == "" then
+		Say("/atmos options: the settings window.");
+	end
 	if not HasCVar("comfyTune") then
 		Say("this comfyfog.dll has no /atmos. It needs the version from 2026-09-29 or later.");
 		return;
@@ -648,8 +879,8 @@ frame:SetScript("OnEvent", function()
 	end
 	if not AddControls() then
 		DEFAULT_CHAT_FRAME:AddMessage(
-			"|cff88cc88comfyatmosphere|r: this client's options panel is not the data-driven one, "
-			.. "so no controls were added. Use the F11 keys and comfyfog.ini instead.");
+			"|cff88cc88comfyatmosphere|r: this client's options panel has no page for the settings. "
+			.. "Type /atmos options to open them.");
 	end
 	syncFrame:Show();
 end);
