@@ -37,8 +37,9 @@ void LampsSetLight(DWORD index, const D3DLIGHT9* light, bool inWorld);   // a cl
 void LampsLightEnable(DWORD index, BOOL on);                    // a client LightEnable
 void LampsDraw(IDirect3DDevice9* dev, const LampDraw& d);       // a client draw in the world phase
 void LampsWorldEnded();                                  // the world is drawn: this frame's sightings go in
-// The lights to draw this frame, nearest first, up to max. cam is the camera's world position.
-int  LampsGather(const float cam[3], LampLight* out, int max);
+// The lights to draw this frame, nearest first, up to max. cam is the camera's world position, fwd the way it
+// looks (unit length): past kAlways yards only lights in front of it count.
+int  LampsGather(const float cam[3], const float fwd[3], LampLight* out, int max);
 unsigned LampsTracked();                                 // how many lights are held, for the probe
 void LampsFrameEnd();                                    // at Present: count the frame, report at the end
 void LampsReset();                                       // before Reset or a new device

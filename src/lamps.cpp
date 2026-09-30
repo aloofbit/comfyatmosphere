@@ -1273,14 +1273,24 @@ void LampsWorldEnded()
         Merge();
 }
 
-int LampsGather(const float cam[3], LampLight* out, int max)
+// The slots go to what can be seen (2026-09-30): in Darkshire 6 of the 16 went to client lights 60 yards over
+// the street and more to lights behind the camera, and a lamppost 96 yards ahead got the last one. A light
+// within kAlways yards always counts, its glow fills the air round you; past that, only one in front of the
+// camera (within about 70 degrees of where it looks).
+constexpr float kAlways = 25.0f;
+static bool Wanted(const float rel[3], float dist, const float fwd[3])
+{
+    return dist < kAlways || rel[0] * fwd[0] + rel[1] * fwd[1] + rel[2] * fwd[2] > 0.35f * dist;
+}
+
+int LampsGather(const float cam[3], const float fwd[3], LampLight* out, int max)
 {
     if (!g_tracking || max <= 0)
         return 0;
     Merge();
     const double now   = Now();
     const double keep  = g_cfg.lamps.keep;
-    const float  reach = g_cfg.lamps.maxDistance;
+    const float  reach = g_cfg.lamps.maxDistance * (std::max)(1.0f, g_cfg.lamps.fogReach);   // Lamp Distance stretches it
     int n = 0;
     for (const Tracked& t : g_tracked)
     {
@@ -1290,7 +1300,7 @@ int LampsGather(const float cam[3], LampLight* out, int max)
         for (int i = 0; i < 3; ++i)
             l.pos[i] = t.abs[i] - cam[i];
         l.dist = Len3(l.pos);
-        if (l.dist > reach + t.reach)
+        if (l.dist > reach + t.reach || !Wanted(l.pos, l.dist, fwd))
             continue;
         const double age    = now - t.born - (t.kind == 1 ? kSpriteDelay : 0.0);
         const double unseen = t.unseen;
@@ -1339,7 +1349,7 @@ int LampsGather(const float cam[3], LampLight* out, int max)
             for (int i = 0; i < 3; ++i)
                 l.pos[i] = file[f].pos[i] - cam[i];
             l.dist = Len3(l.pos);
-            if (l.dist > reach + file[f].reach)
+            if (l.dist > reach + file[f].reach || !Wanted(l.pos, l.dist, fwd))
                 continue;
             for (int i = 0; i < 3; ++i)
                 l.colour[i] = file[f].colour[i] * g_cfg.lamps.spriteGain;

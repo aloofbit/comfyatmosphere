@@ -46,6 +46,7 @@ COMFYATMOSPHERE_VOLUME_DENSITY = "Light Density";
 COMFYATMOSPHERE_VOLUME_DISTANCE = "Light Distance";
 COMFYATMOSPHERE_VOLUME_DIRECTION = "Light Toward the Sun";
 COMFYATMOSPHERE_LAMP_GLOW      = "Lamp Glow";
+COMFYATMOSPHERE_LAMP_DISTANCE  = "Lamp Distance";
 COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
@@ -282,6 +283,18 @@ local ENTRIES = {
 		minval = 0,
 		maxval = 100,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [lamps] fogReach. 100 fades a lamp's glow as the game fades its lamp sprites in the fog.
+		name = "COMFYATMOSPHERE_LAMP_DISTANCE",
+		desc = "How far away lamps still glow. At 100 they fade into the fog as the game's own lamp glows do.",
+		type = "slider",
+		cvar = "comfyLampDistance",
+		dependency = { "comfyVolume", "1" },
+		minval = 50,
+		maxval = 400,
+		step = 10,
 		numberLabels = 1,
 	},
 	{

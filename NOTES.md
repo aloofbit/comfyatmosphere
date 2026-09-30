@@ -965,6 +965,14 @@ fireplace, another at the far end, and eight pale yellow ones (FFFFA0, 7 yards) 
 tops. They come first, with their own colour and reach; the doodads by name only where none of them is
 within 2.5 yards.
 
+**A far lamp that did not glow (Darkshire and Duskwood's road).** Two causes. The glow fades over the far
+half of the game's fog, as the game fades its lamp sprites, and Duskwood's fog is short: a lamppost 96 yards
+off was left at 8%. And the 16 slots went nearest first: 6 to client lights 60 to 67 yards over the street
+(the unexplained row) and more to lights behind the camera, and the far lamppost took the last one. Now a light
+within 25 yards always counts and past that only one within about 70 degrees of where the camera looks
+(`LampsGather` takes the view's direction), and `[lamps] fogReach` (Lamp Distance, percent) stretches the fade
+and the 120-yard cut-off.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

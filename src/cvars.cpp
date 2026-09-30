@@ -80,7 +80,7 @@ namespace
                 kShadowEvery, kSunShadows, kSunShadowStrength, kFogHeight, kFogFade, kFogDarkness,
                 kFogGreyness, kMaster, kFogHaze, kSunlight, kVolumeDensity, kVolumeDistance, kVolumeDirection,
                 kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt, kShadeTint, kSunTint, kFogSunGlow,
-                kFogSunBright, kFogReach, kFogNear, kFogFar, kLampGlow, kKnobs };
+                kFogSunBright, kFogReach, kFogNear, kFogFar, kLampGlow, kLampDistance, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -119,6 +119,7 @@ namespace
         "comfyFogNear",
         "comfyFogFar",
         "comfyLampGlow",
+        "comfyLampDistance",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -267,6 +268,7 @@ namespace
         case kFogNear:        snprintf(out, cap, "%.0f", s.fog.haze * 100.0f); break;
         case kFogFar:         snprintf(out, cap, "%.0f", s.fog.distance * 100.0f); break;
         case kLampGlow:       snprintf(out, cap, "%.0f", s.lamps.strength); break;
+        case kLampDistance:   snprintf(out, cap, "%.0f", s.lamps.fogReach * 100.0f); break;
         }
     }
 
@@ -311,6 +313,7 @@ namespace
         if (c[kFogNear].seen)        s.fog.haze      = Clamp(c[kFogNear].value * 0.01f, 0.0f, 0.9f);
         if (c[kFogFar].seen)         s.fog.distance  = Clamp(c[kFogFar].value * 0.01f, 0.0f, 1.0f);
         if (c[kLampGlow].seen)       s.lamps.strength = Clamp(c[kLampGlow].value, 0.0f, 100.0f);
+        if (c[kLampDistance].seen)   s.lamps.fogReach = Clamp(c[kLampDistance].value * 0.01f, 0.5f, 4.0f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);

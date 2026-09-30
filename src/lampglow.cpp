@@ -321,7 +321,14 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
     }
 
     LampLight lights[kMaxLights];
-    const int found = LampsGather(cam, lights, l.maxLights < kMaxLights ? l.maxLights : kMaxLights);
+    // The way the camera looks: the view's third column (the view is a turn alone here).
+    float fwd[3] = { view.m[0][2], view.m[1][2], view.m[2][2] };
+    {
+        const float len = sqrtf(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+        for (float& f : fwd)
+            f = len > 1e-4f ? f / len : 0.0f;
+    }
+    const int found = LampsGather(cam, fwd, lights, l.maxLights < kMaxLights ? l.maxLights : kMaxLights);
 
     const float scale = DayScale();
     // debug shows the same glow, over black, so its shape can be seen as it is drawn.
@@ -344,7 +351,10 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
         float v = 1.0f;
         if (haveFog)
         {
-            v = (fogEnd - L.dist) / (0.5f * fogEnd);
+            // Faded over the far half of the fog, stretched by [lamps] fogReach (Lamp Distance): in Duskwood's
+            // short fog a lamppost 96 yards off was left at 8% and looked unlit (2026-09-30).
+            const float end = fogEnd * l.fogReach;
+            v = (end - L.dist) / (0.5f * end);
             v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
         }
         vis[i] = v;
