@@ -240,6 +240,10 @@ struct SunShadowSettings
     float lodStart   = 80.0f;     // yards from the camera where it starts
     // Coloured light (2026-09-30): shade takes the sky's cool colour, sunlight a warm one, where both only
     // darkened and brightened in grey. Scaled to a brightness of 1: they tint, not darken.
+    // Indoors (2026-09-30): the buildings come whole from the files, roof and all, so a room was in full
+    // shade on top of the game's own dim indoor light, and the inn was very dark. With the player in one of a
+    // building's indoor groups, the sun shadows are kept at this share (0: none), faded over half a second.
+    float indoor     = 0.0f;
     DWORD shadeColor = 0x7C94C8;
     float shadeTint  = 0.70f;      // 0..1
     DWORD sunColor   = 0xFFE4C0;

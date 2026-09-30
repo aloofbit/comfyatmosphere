@@ -43,6 +43,7 @@
 #include <d3d9.h>
 
 #include "client.h"
+#include "mapterrain.h"
 #include "common.h"
 #include "config.h"
 #include "depth.h"
@@ -527,8 +528,21 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
 
     // As the volumetric light: gone as the sun sets, and [night] strength at night.
     const float sunset = (realSun[2] > 0.0f ? (realSun[2] < 0.1f ? realSun[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
-    const float strength = ss.debug ? 1.0f : ss.strength * 0.01f * sunset;
-    const float sunlight = ss.debug ? 0.0f : ss.sunlight * sunset;
+    // Indoors ([sunshadows] indoor): faded to that share over half a second while the player is in one of a
+    // building's indoor groups.
+    static float  inside = 0.0f;
+    static double insideAt = 0.0;
+    {
+        float pl[3];
+        const bool in = ClientPlayer(pl) && MapIndoors(pl);
+        const double now = Now();
+        const float step = insideAt > 0.0 ? static_cast<float>((std::min)(now - insideAt, 0.5) / 0.5) : 1.0f;
+        insideAt = now;
+        inside += ((in ? 1.0f : 0.0f) - inside) * step;
+    }
+    const float keep     = 1.0f - inside * (1.0f - ss.indoor);
+    const float strength = ss.debug ? 1.0f : ss.strength * 0.01f * sunset * keep;
+    const float sunlight = ss.debug ? 0.0f : ss.sunlight * sunset * keep;
     // World shadows off: the terrain's baked shadow is kept, the ground's only shade then.
     g_share = ss.debug ? 1.0f : ss.world ? sunset : 0.0f;
     if (strength <= 0.0f && sunlight <= 0.0f)
@@ -675,8 +689,8 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[87] = ss.world ? 1.0f : 0.0f;
     pc[88] = ss.lodBias * 0.01f / span;
     pc[89] = ss.lodStart;
-    UnitColour(ss.shadeColor, &pc[92]); pc[95] = ss.shadeTint;
-    UnitColour(ss.sunColor, &pc[96]);   pc[99] = ss.sunTint;
+    UnitColour(ss.shadeColor, &pc[92]); pc[95] = ss.debug ? 0.0f : ss.shadeTint * keep;
+    UnitColour(ss.sunColor, &pc[96]);   pc[99] = ss.debug ? 0.0f : ss.sunTint * keep;
     d->SetPixelShaderConstantF(dev, 0, pc, 25);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };

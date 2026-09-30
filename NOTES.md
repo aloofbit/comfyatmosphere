@@ -940,6 +940,13 @@ on), a model's depth-only pass is not drawn and its blended colour pass writes n
 the ground behind it and the shadow cache never records it. Measured: 12 of each skipped a frame with three
 lions in view. The unit's own parts now show through each other a little, where a leg crosses the body.
 
+**Indoors.** An inn was very dark. With the buildings whole from the files, roof and outer walls included, a room
+is in full sun shade on top of the game's own dim indoor light and the blue shade tint; before, the cache held
+only what the client drew, and from inside it draws the interior alone. Each group file marks its indoor
+groups (MOGP flags 0x2000, the box at +12), kept with the building (`MapIndoors`). While the player stands in
+one, the sun shadows (shade, sunlight and both tints) fade to `[sunshadows] indoor` (0) over half a second.
+The volumetric light is left alone, so light through a door or a window still shows.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

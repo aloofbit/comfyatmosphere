@@ -149,6 +149,7 @@ namespace
         IDirect3DIndexBuffer9*  ib = nullptr;
         UINT                    nv = 0, ntri = 0;
         float                   lo[3] = {}, hi[3] = {};   // the root's box, own space: kept when the mesh goes
+        std::vector<float>      indoor;                    // its indoor groups' boxes, own space: kept too
         bool                    used = true;
     };
 
@@ -1028,6 +1029,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         {
             m.state = Model::kReady;
             memcpy(m.lo, m.mesh.lo, 12);
+            m.indoor = m.mesh.indoor;
             memcpy(m.hi, m.mesh.hi, 12);
             m.mesh  = WmoMesh();   // on the GPU now; read again after a device change
             coverDirty = true;
@@ -1040,6 +1042,28 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         RebuildDoodadCover();
         ++g_filesVersion;
     }
+}
+
+bool MapIndoors(const float p[3])
+{
+    for (const Inst& i : g_insts)
+    {
+        if (i.m->state != Model::kReady || i.m->indoor.empty())
+            continue;
+        if (p[0] < i.lo[0] || p[0] > i.hi[0] || p[1] < i.lo[1] || p[1] > i.hi[1] || p[2] < i.lo[2] || p[2] > i.hi[2])
+            continue;
+        // Into the building's own space: world = own * rot + pos, and rot is a turn, so own = (world - pos) rot^T.
+        const float d[3] = { p[0] - i.p->pos[0], p[1] - i.p->pos[1], p[2] - i.p->pos[2] };
+        float q[3];
+        for (int j = 0; j < 3; ++j)
+            q[j] = d[0] * i.p->rot[j][0] + d[1] * i.p->rot[j][1] + d[2] * i.p->rot[j][2];
+        const std::vector<float>& b = i.m->indoor;
+        for (size_t k = 0; k + 5 < b.size(); k += 6)
+            if (q[0] >= b[k] && q[0] <= b[k + 3] && q[1] >= b[k + 1] && q[1] <= b[k + 4] && q[2] >= b[k + 2] &&
+                q[2] <= b[k + 5])
+                return true;
+    }
+    return false;
 }
 
 bool MapGroundHeight(float x, float y, float& z)

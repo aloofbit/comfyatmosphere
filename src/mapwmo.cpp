@@ -37,6 +37,13 @@ namespace
                 continue;
             }
             const size_t end = o + 8 + size;
+            // The group's header: flags at +8, its box at +12. 0x2000: an indoor group (a room, a cellar).
+            if (o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x2000))
+            {
+                float box[6];
+                memcpy(box, &d[o + 8 + 12], 24);
+                out.indoor.insert(out.indoor.end(), box, box + 6);
+            }
             const uint8_t*  mopy = nullptr; size_t nTri = 0;
             const uint8_t*  movi = nullptr; size_t nIdx = 0;
             const uint8_t*  movt = nullptr; size_t nVert = 0;
