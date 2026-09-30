@@ -173,6 +173,19 @@ IDirect3DPixelShader9* TerrainShadeSwap(IDirect3DDevice9* dev, IDirect3DPixelSha
     return copy;
 }
 
+bool TerrainShadeIsTerrain(IDirect3DPixelShader9* ps)
+{
+    if (!ps)
+        return false;
+    for (int i = 1; i < 5; ++i)
+        if (g_copy[i] == ps)
+            return true;
+    for (int i = 0; i < g_seenCount; ++i)
+        if (g_seen[i].ps == ps)
+            return g_seen[i].layers > 0;
+    return false;
+}
+
 void TerrainShadeReset()
 {
     for (int i = 0; i < 5; ++i)

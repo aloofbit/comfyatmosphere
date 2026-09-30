@@ -67,7 +67,8 @@ O main(float3 pos : POSITION, float2 uv : TEXCOORD0)
 
     const char* kMarchPsHlsl = R"HLSL(
 sampler2D sDepth  : register(s0);   // the scene's depth (INTZ)
-sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far
+sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the solid things
+sampler2D sLeaf   : register(s2);   // the leaves' map, the same camera
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -79,7 +80,7 @@ float4 gSh3  : register(c7);
 float4 gSun  : register(c8);        // direction to the sun, phase anisotropy g
 float4 gP    : register(c9);        // debug stage, max distance, density, shadow bias
 float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
-float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset
+float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset, leafShade (0 = no leaf map)
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
@@ -120,6 +121,9 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         float3 s   = lerp(s0, s1, (i + jit) * gL.y);
         float2 suv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
         float  hit = (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
+        // Leaves stop leafShade of the sun (2026-09-29), as on the ground.
+        [branch] if (gL.w > 0.0)
+            hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
         // The map ends at a hard line, and a caster crossing it used to gain or lose its shade in one
         // frame: flashes in the distance as you walked. Shadowing fades out over the last tenth of the
         // map instead, so a caster dissolves in and out.
@@ -722,7 +726,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetRenderState(dev, D3DRS_SCISSORTESTENABLE, FALSE);
     d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,  0xF);
     d->SetRenderState(dev, D3DRS_SRGBWRITEENABLE,   FALSE);
-    for (DWORD s = 0; s < 2; ++s)
+    for (DWORD s = 0; s < 3; ++s)
     {
         d->SetSamplerState(dev, s, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, s, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -735,11 +739,16 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 1, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
+    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
+    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
+    d->SetSamplerState(dev, 2, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
+    IDirect3DTexture9* leaves = ShadowFarLeaves();
 
     // --- march --------------------------------------------------------------------------------------
     d->SetRenderTarget(dev, 0, g_a.surf);
     d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
     d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(shadow));
+    d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(leaves ? leaves : shadow));
     d->SetVertexShader(dev, g_vsMarch);
     d->SetPixelShader(dev, g_psMarch);
     const float half[4] = { -1.0f / g_a.w, 1.0f / g_a.h, 0.0f, 0.0f };
@@ -763,7 +772,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // that pass it stays put: noise that changes every frame and is never averaged shimmers.
     const bool temporal = v.smooth > 0.001f && v.debug < 2;
     const float turn = temporal ? static_cast<float>(fmod(g_frameNo * 0.6180339887, 1.0)) : 0.0f;
-    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = turn; pc[47] = 0.0f;
+    pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = turn; pc[47] = leaves ? g_cfg.sunShadows.leafShade : 0.0f;
     d->SetPixelShaderConstantF(dev, 0, pc, 12);
     const ClipVertex q[4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
@@ -792,6 +801,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         d->SetPixelShaderConstantF(dev, 9, &pc[36], 1);
     }
     d->SetTexture(dev, 1, nullptr);
+    d->SetTexture(dev, 2, nullptr);
     d->SetVertexShader(dev, nullptr);
     if (g_trace > 0)
     {

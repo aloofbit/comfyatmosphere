@@ -83,6 +83,55 @@ bool ClientPlayer(float pos[3])
         return false;
     }
 
+// Every unit (creature, NPC) and player out of the object manager: the same walk, keeping each object of
+// type 3 (unit) or 4 (player), its type at +0x14; units keep their position where the player does.
+int ClientUnits(float (*out)[3], int max)
+    {
+        const ClientSettings& b = g_cfg.client;
+        if (!b.objMgrAddr || !b.playerPosOff || max <= 0)
+            return 0;
+        DWORD mgr = 0;
+        if (!SafeCopy(static_cast<uintptr_t>(b.objMgrAddr + Slide()), &mgr, 4) || !mgr)
+            return 0;
+        DWORD link = 0, obj = 0;
+        if (!SafeCopy(mgr + 0xA4, &link, 4) || !SafeCopy(mgr + 0xAC, &obj, 4))
+            return 0;
+        int n = 0;
+        for (int i = 0; i < 16384 && obj && !(obj & 1) && n < max; ++i)
+        {
+            DWORD type = 0;
+            if (!SafeCopy(obj + 0x14, &type, 4))
+                break;
+            if ((type == 3 || type == 4) && SafeCopy(obj + b.playerPosOff, out[n], 12) && SaneWorld(out[n]))
+                ++n;
+            DWORD next = 0;
+            if (!SafeCopy(obj + link + 4, &next, 4))
+                break;
+            obj = next;
+        }
+        return n;
+    }
+
+// The current map's folder name under World\Maps: the buffer the client formats its tile names with
+// ("%s\%s_%d_%d.adt" at 0x0086C368, called with it as the second %s). Letters, digits and underscores.
+bool ClientMapName(char* out, int size)
+    {
+        const ClientSettings& b = g_cfg.client;
+        char buf[64] = {};
+        if (!b.mapNameAddr || size < 2 || !SafeCopy(static_cast<uintptr_t>(b.mapNameAddr + Slide()), buf, sizeof(buf) - 1))
+            return false;
+        int n = 0;
+        for (; buf[n]; ++n)
+        {
+            const char c = buf[n];
+            if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') || n >= size - 1)
+                return false;
+            out[n] = c;
+        }
+        out[n] = 0;
+        return n > 0;
+    }
+
 // The game clock: the time of day as a fraction of the day, a float that carries the seconds. comfytime
 // found it by measurement against the minimap clock (its timeofday.cpp) and writes it to set the time,
 // so this reads the time comfytime shows as well.

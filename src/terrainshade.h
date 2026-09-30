@@ -7,3 +7,4 @@
 // the baked shadow, or ps itself when ps is not a terrain shader or keep is 1.
 IDirect3DPixelShader9* TerrainShadeSwap(IDirect3DDevice9* dev, IDirect3DPixelShader9* ps, float keep);
 void TerrainShadeReset();   // before Reset, and for a new device
+bool TerrainShadeIsTerrain(IDirect3DPixelShader9* ps);   // the client's terrain shader, or our copy of one

@@ -673,7 +673,7 @@ A replay now averages about 4.8 ms (matching and eviction 1.5, near 1.7, far 3.3
 10.8. Terrain and buildings are never culled: a chunk's reference point says too little about where
 its ground lies. The probe's own total reads high, since the probe frame also writes the log.
 
-## To do: character shadows under the canopy (noted 2026-09-29)
+## To do: character shadows under the canopy (noted 2026-09-29; done the same day by the leaf maps below)
 
 In Elwynn Forest the tree cover casts shade over nearly all the ground, so a player or an NPC standing
 in it casts no shadow of its own: the ground is already in shade, and shade on shade changes nothing.
@@ -710,6 +710,67 @@ and named in the log as `--- debug view N ---`; 0 leaves the ini's own debug val
 `kDebugViews` in `cvars.cpp`, and the addon's tooltip must list it in the same order. The panel builds a
 page from a table of tick boxes and sliders, so a dropdown is not possible there. The addon now adds a
 control only if its CVar exists, so an older DLL cannot break the page.
+
+## Leaf maps, the depth slice, and the ground from the map files (2026-09-29)
+
+**Leaf maps.** Under the Elwynn canopy the ground was in full shade, so a character's shadow on it changed
+nothing. The owner chose part shade for leaves (option B). The far and the near map each come as two:
+solid and leaves. Shade = max(solid shade, `[sunshadows] leafShade` (0.6) x leaf shade), so anything solid
+under the leaves still shades the ground. What goes to the leaves:
+
+- every alpha-tested draw;
+- a whole model with any alpha-tested part, its trunk included. The set of such models (by vertex buffer
+  and shader) is sticky: a trunk drawn in a frame without its crown stays a leaf. By draw alone, a trunk
+  was solid and threw a dark bar through the canopy's part shade;
+- never a model within half a yard of a unit or a player (the object manager's walk, `ClientUnits`),
+  whose hair or cloak may be alpha tested;
+- terrain, with `[shadow] terrainLeaves` (1): hills and mountains cast part shade, as the owner wanted.
+
+Four ways of telling characters from doodads were tried first (many bones, near the player, bones
+moving, a unit standing there) and each let something through: a model that changed sides flickered as
+you passed it. The leaf maps use a lighter 5-tap filter (`Lit5`), since a full one ran out of temporary
+registers in ps_3_0.
+
+**The view darkened with the camera's tilt.** The world's depth slice is taken by vote over the frame's
+draws (the world 0..0.94, the sky and far scenery 0.94..1). Looking toward the sun, or tilting the camera,
+the vote went to the far slice, and the replay drew with the wrong camera. The world slice is now the one
+that starts at 0, taken with a single vote, and it sticks once known.
+
+**Stripes on flat ground.** Flat ground changes depth, as the sun sees it, by 1 / tan(sun height) texels
+for each texel across the map, and the soft filter reaches softness + 1.5 texels. With a low sun that
+passed the 3 texels of `[sunshadows] bias`, and the ground shaded itself in stripes. The bias now follows
+the sun's height: max(bias, (softness + 1.5) / tan(height) x 1.2), at most 20 texels.
+
+**Mountains left the map when you looked down.** Terrain and buildings (fixed-function draws) are now kept
+out to `[shadow] depth` from the player, not range + keepMargin. They are a few hundred draws.
+
+**Mountain ridges drawn two and three times.** The client draws a terrain chunk with three meshes by
+distance: 145 vertices and 256 triangles near, 72 to 76 triangles in between, 41 vertices and 64
+triangles past about 250 yards. Each version was a cache entry of its own. Now one version is kept for
+each chunk (its corner, to a yard): the most triangles, then the one seen last. The probe logs the terrain
+entries by place; "held once" for all of them is the check.
+
+**The ground from the map files.** With one version a chunk, a mountain seen only from afar cast from the
+64-triangle mesh: a plain triangle where the ridge should be. `mapterrain.cpp` reads the tiles
+(`World\Maps\<map>\<map>_<a>_<b>.adt`) out of the client's archives (`mpq.cpp`) and draws every
+chunk at full detail. Where a tile is loaded, the client's own terrain draws are left out of the map.
+Past the loaded tiles, and on a map without tiles, they still cast.
+
+- The map's name is at 0x00C961A0 (`[client] mapNameAddr`): the buffer the client formats its tile names
+  with, found through the string "%s\%s_%d_%d.adt" (0x0086C368) and the code at 0x006C2720 that uses it.
+- a = floor(32 - y / 533.33), b = floor(32 - x / 533.33). A chunk's MCNK header holds its corner (the
+  largest x and y) and a base height; MCVT holds 9 x 9 outer and 8 x 8 inner heights, rows along -x.
+  Checked on the Northshire tile: neighbouring chunks meet with no gap (the other axis order is out by 18
+  yards on average), and the height under a logged player position is 81.51 against the player's 81.5.
+  MCVT's offset in the header points at its chunk header: the heights start 8 bytes further.
+- Holes (cave mouths, cellars): a 4 x 4 mask over the 8 x 8 cells, bit (row / 2) x 4 + column / 2.
+- Every .adt in these archives is zlib (sector mask 0x02), and none is encrypted, so `mpq.cpp` carries
+  a small inflate and nothing else. The winning archive: numbered patches over patch.MPQ over
+  terrain.MPQ; no lettered patch holds a tile. An offline test read all 1,899 tiles of Azeroth and
+  Kalimdor, byte for byte the same as `tools/model-browser`, at 25 ms a tile.
+- The tiles within max(range, depth) + 60 yards load on a thread of their own, nearest first, and go to
+  the GPU as one managed vertex and index buffer each (0.8 MB), two a frame at most. In the game: 14
+  tiles, 36 ms each, and the mountain's shadow followed its ridge.
 
 ## The framing that matters
 

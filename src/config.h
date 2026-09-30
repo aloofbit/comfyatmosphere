@@ -81,6 +81,7 @@ struct ClientSettings
     DWORD objMgrAddr   = 0x00B41414;
     DWORD playerPosOff = 0x9B8;
     DWORD clockAddr    = 0x00CE9B64;  // float, the time of day as a fraction of the day (found by comfytime)
+    DWORD mapNameAddr  = 0x00C961A0;  // the current map's folder name, for mapterrain.cpp
 };
 
 // Sun rays and volumetric light at night (sun.cpp, NightScale). The client draws its night sky light with
@@ -109,7 +110,7 @@ struct ShadowSettings
                               // microseconds a caster); it gives the sun shadows sharper edges. The
                               // Shadow Resolution control sets it: 1024, 2048 or 4096
     float range   = 250.0f;    // yards covered either side of the player
-    float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
+    float nearRange = 64.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
     float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
     int   copyPerFrame  = 16;     // arena chunks copied into our own buffers per frame. The client
@@ -119,6 +120,12 @@ struct ShadowSettings
     int   copyMax       = 2048;   // how many such copies to hold at once. 2 and 768 until 2026-09-24;
                                   // since then every streamed chunk needs a copy before it casts, and at
                                   // 2 a frame new ground stayed without shade while you walked
+    float nearMargin    = 16.0f;  // yards past the near map a model's reference point may be and still be
+                                  // drawn into it (the far map: 40)
+    bool  terrainLeaves = true;   // terrain (hills, mountains) casts part shade, as leaves do
+    bool  mapTerrain    = true;   // the ground from the map files, at full detail (mapterrain.cpp)
+    bool  leaves        = true;   // the leaves (alpha-tested draws) in maps of their own, so they can let
+                                  // part of the sun through ([sunshadows] leafShade; see shadow.cpp)
     int   minTriangles  = 200;    // models with fewer triangles stay out of the far map past 60 yards.
                                   // At 100, 1,400 of 4,457 far-map draws went, and neither 100 nor
                                   // 200 could be told apart in game (2026-09-29)
@@ -186,7 +193,8 @@ struct SunShadowSettings
 {
     bool  enabled    = true;
     float strength   = 35.0f;     // the dial, 0..100: how much of the light a shaded surface loses
-    float bias       = 3.0f;      // texels of slack in the depth test, against a surface shading itself
+    float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
+                                  // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the
                                   // far map, 8 of the near one)
     float minGap     = 0.0f;      // yards: a blocker nearer than this along the sun does not shade. Stands
@@ -205,9 +213,11 @@ struct SunShadowSettings
     float baked      = 0.0f;      // 0..1: how much of the terrain's own baked shadow is kept while these
                                   // draw (terrainshade.cpp). It points one way at every hour. Back in
                                   // full as they fade at dusk
+    float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
+                                  // everything solid shades the rest, so characters no longer float
     float sunlight   = 0.2f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
                                   // Sunlight control, in percent). A forest in shade was dark all over
-    int   debug      = 0;         // 1 = the shade alone (white = lit)
+    int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = the leaves' shade alone
 };
 
 // Lamps, lanterns and torches (lamps.cpp finds them, lampglow.cpp draws): the fog glowing around them, and

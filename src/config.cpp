@@ -163,6 +163,7 @@ void LoadSettings(const wchar_t* ini)
     s.client.objMgrAddr   = GetX(kClient, L"objMgrAddr",   s.client.objMgrAddr,   ini);
     s.client.playerPosOff = GetX(kClient, L"playerPosOff", s.client.playerPosOff, ini);
     s.client.clockAddr    = GetX(kClient, L"clockAddr",    s.client.clockAddr,    ini);
+    s.client.mapNameAddr  = GetX(kClient, L"mapNameAddr",  s.client.mapNameAddr,  ini);
 
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
@@ -181,6 +182,10 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.mapEvery   = GetI(kShadow, L"mapEvery", s.shadow.mapEvery, ini);
     s.shadow.farEvery   = GetI(kShadow, L"farEvery", s.shadow.farEvery, ini);
     s.shadow.minTriangles = GetI(kShadow, L"minTriangles", s.shadow.minTriangles, ini);
+    s.shadow.nearMargin = Clamp(GetF(kShadow, L"nearMargin", s.shadow.nearMargin, ini), 0.0f, 200.0f);
+    s.shadow.leaves     = GetB(kShadow, L"leaves", s.shadow.leaves, ini);
+    s.shadow.terrainLeaves = GetB(kShadow, L"terrainLeaves", s.shadow.terrainLeaves, ini);
+    s.shadow.mapTerrain    = GetB(kShadow, L"mapTerrain", s.shadow.mapTerrain, ini);
     if (s.shadow.minTriangles < 0) s.shadow.minTriangles = 0;
     if (s.shadow.farEvery < 1) s.shadow.farEvery = 1;
     if (s.shadow.farEvery > 8) s.shadow.farEvery = 8;
@@ -223,6 +228,7 @@ void LoadSettings(const wchar_t* ini)
     s.sunShadows.minGap     = Clamp(GetF(kSunShadows, L"minGap",     s.sunShadows.minGap,     ini), 0.0f, 20.0f);
     s.sunShadows.sunOffset  = Clamp(GetF(kSunShadows, L"sunOffset",  s.sunShadows.sunOffset,  ini), 0.0f, 2.0f);
     s.sunShadows.baked      = Clamp(GetF(kSunShadows, L"baked",      s.sunShadows.baked,      ini), 0.0f, 1.0f);
+    s.sunShadows.leafShade  = Clamp(GetF(kSunShadows, L"leafShade",  s.sunShadows.leafShade,  ini), 0.0f, 1.0f);
     s.sunShadows.sunlight   = Clamp(GetF(kSunShadows, L"sunlight",   s.sunShadows.sunlight,   ini), 0.0f, 0.5f);
     s.sunShadows.softness   = Clamp(GetF(kSunShadows, L"softness",   s.sunShadows.softness,   ini), 0.0f, 8.0f);
     s.sunShadows.debug      = GetI(kSunShadows, L"debug", s.sunShadows.debug, ini);

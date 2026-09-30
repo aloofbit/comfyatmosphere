@@ -13,6 +13,8 @@ IDirect3DTexture9* ShadowTexture();                                     // the s
 bool ShadowMatrix(D3DMATRIX& camRelToShadowClip);                       // camera-relative world -> shadow clip
 // The near map ([shadow] nearRange either side of the player), for the sun shadows; false if there is none.
 bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
+IDirect3DTexture9* ShadowNearLeaves();   // the near map's leaves (alpha-tested draws), same camera; or null
+IDirect3DTexture9* ShadowFarLeaves();    // the far map's leaves, same camera as the far map; or null
 // This frame's replay, for the volume trace: how it ended (0 = drawn) and how many entries it drew.
 // counts: refreshed, added, evicted in view, aged out, over the cap. newInfo: the first new entries.
 void ShadowWorldCameraPlanes(float& nearZ, float& farZ);   // the camera the replay is using

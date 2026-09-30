@@ -43,10 +43,19 @@
 //               Each entry is put back relative to the current camera: fixed-function under the sun's view
 //               and projection, shader draws with c2..c5 = A * T(-camera) * sunViewProj.
 //
+// Leaf maps (added 2026-09-29): the far and the near map each come as two, the solid things (terrain,
+// buildings, trunks, characters, doodads) and the leaves (the alpha-tested draws: leaves, bushes, the
+// grass-like doodads). Leaves let part of the sun through ([sunshadows] leafShade): under a forest canopy
+// the ground was in full shade, and a character's shadow on it changed nothing, so characters looked
+// afloat. With leaves at part shade, anything solid under them shades the rest. Nothing is decided by
+// guesswork: alpha test is a property of the draw. Four ways of telling characters from doodads were
+// tried first the same day (many bones, near the player, bones moving, a unit standing there), and each
+// let something through; a model that changed sides flickered as you passed it.
+//
 // The near map (added 2026-09-29, for the sun shadows on the world): the same cache replayed a second time
 // into a second map of the same size that covers only [shadow] nearRange yards either side of the player,
 // with the same depth toward the sun, so a tall tree further off still shades the near ground. At the
-// default 32 a texel is 0.03 yards against the far map's 0.24, which was too coarse for a trunk, a post or
+// default 64 on a 4096 map a texel is 0.03 yards against the far map's 0.12, which was too coarse for a trunk, a post or
 // a character. Models whose reference point is well outside the small box are not drawn into it. The
 // volumetric light reads the far map only.
 //
@@ -65,6 +74,8 @@
 #include "config.h"
 #include "sun.h"
 #include "shadow.h"
+#include "terrainshade.h"
+#include "mapterrain.h"
 
 #include <algorithm>
 #include <cmath>
@@ -201,6 +212,7 @@ namespace
         uint64_t                     seq;         // writes seen when this draw was recorded
         float                        minZ, maxZ;  // the viewport's depth slice, to tell world draws apart
         bool                         hasProj;     // fixed-function: the projection it was drawn with
+        bool                         terrain;     // drawn with the terrain's pixel shader
         float                        proj00, proj22, proj32;
     };
 
@@ -282,11 +294,34 @@ namespace
     {
         if (g_sliceCount)
         {
-            const Slice* best = &g_slices[0];
-            for (int i = 1; i < g_sliceCount; ++i)
-                if (g_slices[i].votes > best->votes) best = &g_slices[i];
-            g_worldMinZ = best->minZ;
-            g_worldMaxZ = best->maxZ;
+            // The world's slice starts at 0; the sky and the far scenery come after it (0.94..1 here).
+            // By votes alone, looking level toward the sun, the far terrain drawn in the sky's slice
+            // outnumbered the world's draws: every world pixel was then rebuilt at the near plane, and the
+            // sun shadows turned the whole view to shade (2026-09-29). So the slice from 0 is the world's
+            // when it has a few draws; the most votes only when none starts there.
+            // Even one draw will do: tilting the camera up to the sky left fewer than 8 world draws at
+            // times, the sky's slice won again, and the view went dark. With no slice from 0 at all this
+            // frame, the world's slice stays what it was; the most votes decide only before any is known.
+            static bool known = false;
+            const Slice* best = nullptr;
+            for (int i = 0; i < g_sliceCount; ++i)
+                if (g_slices[i].minZ == 0.0f && g_slices[i].votes >= 1)
+                {
+                    best = &g_slices[i];
+                    break;
+                }
+            if (!best && !known)
+            {
+                best = &g_slices[0];
+                for (int i = 1; i < g_sliceCount; ++i)
+                    if (g_slices[i].votes > best->votes) best = &g_slices[i];
+            }
+            if (best)
+            {
+                g_worldMinZ = best->minZ;
+                g_worldMaxZ = best->maxZ;
+                known = known || best->minZ == 0.0f;
+            }
             if (log)
                 for (int i = 0; i < g_sliceCount; ++i)
                     Log("shadow: depth slice %.4f..%.4f used by %u draws%s", g_slices[i].minZ, g_slices[i].maxZ,
@@ -394,8 +429,21 @@ namespace
     // Refreshed / added / evicted this frame, for the probe.
     UINT g_nRefreshed = 0, g_nAdded = 0, g_nEvictView = 0, g_nEvictAge = 0, g_nEvictCap = 0;
 
+    // The models known to have an alpha-tested part (a tree, a bush), by vertex buffer and shader: once
+    // seen, for good, until the cache is cleared. Built afresh each replay it lost trees as you played:
+    // a tree's leaf entries left the cache before its trunk, or a leaf batch was drawn once without the
+    // alpha test, and the trunk went back to the solid map (2026-09-29).
+    std::unordered_set<unsigned long long> g_leafModels;
+
+    unsigned long long ModelKey(const void* vb, const void* vs)
+    {
+        return (static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(vb)) << 32) ^
+               static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(vs));
+    }
+
     void ClearCache()
     {
+        g_leafModels.clear();
         for (auto& kv : g_cache)
             for (Entry& e : kv.second)
                 ReleaseRec(e.rec);
@@ -708,7 +756,9 @@ namespace
     unsigned g_nProjOnly = 0;                // this frame: model records with a projection alone in c2..c5
     unsigned g_nStill    = 0;                // this frame: models seen again that had not moved (not copied)
 
+    int g_unitsSeen = 0;                    // for the probe: units and players known
     constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
+
 
     void Merge(const D3DMATRIX& camVP, const D3DMATRIX& camVPInv, const float cam[3], const float camModels[3],
                double now)
@@ -1059,6 +1109,31 @@ namespace
     {
         const ShadowSettings& s = g_cfg.shadow;
         const float keep = s.range + s.keepMargin;
+        // Terrain and buildings (fixed-function) are kept out to the map's depth toward the sun: the far
+        // horizon's mountains are drawn only while you look at them, and at range + keepMargin they left
+        // the map as soon as you looked down, so a ridge's shade came and went as the camera tilted, and
+        // the view darkened and lightened with it (2026-09-29). They are a few hundred draws.
+        const float keepFixed = (std::max)(keep, s.depth);
+
+        // One version of each terrain chunk, the most detailed seen. The client draws a chunk with a
+        // coarser mesh further off (145 vertices and 256 triangles near, 41 and 64 past about 250 yards),
+        // and each version was an entry of its own that nothing removed: tilting the camera toward a
+        // mountain added version after version, and its shadow showed several ridges (2026-09-29). A
+        // chunk's place is its corner, to a yard. Of equal versions, the one seen last stays.
+        struct Best { UINT prims; double seen; };
+        std::unordered_map<long long, Best> best;
+        auto placeKey = [](const Entry& e) {
+            return (static_cast<long long>(floorf(e.pos[0])) << 42) ^ (static_cast<long long>(floorf(e.pos[1])) << 21) ^
+                   static_cast<long long>(floorf(e.pos[2]));
+        };
+        for (const auto& kv : g_cache)
+            for (const Entry& e : kv.second)
+                if (e.rec.terrain)
+                {
+                    Best& b = best[placeKey(e)];
+                    if (e.rec.primCount > b.prims || (e.rec.primCount == b.prims && e.lastSeen > b.seen))
+                        b = { e.rec.primCount, e.lastSeen };
+                }
         for (auto kv = g_cache.begin(); kv != g_cache.end(); )
         {
             std::vector<Entry>& list = kv->second;
@@ -1079,6 +1154,13 @@ namespace
                             e.lastSeen == now ? "drawn this frame" : "not drawn");
                     }
                 }
+                else if (e.rec.terrain && [&] {
+                             const Best& b = best[placeKey(e)];
+                             return e.rec.primCount < b.prims || (e.rec.primCount == b.prims && e.lastSeen < b.seen);
+                         }())
+                {
+                    gone = true; ++g_nEvictView;   // a finer or later version of the same chunk is held
+                }
                 else if (e.lastSeen < now)
                 {
                     const float rel[3] = { e.pos[0] - cam[0], e.pos[1] - cam[1], e.pos[2] - cam[2] };
@@ -1097,7 +1179,8 @@ namespace
                         // where it is now, not where it was. Anything else, once it is out of the map's
                         // reach across the ground, or (if set) unseen longer than cacheTime.
                         const float dx = e.pos[0] - player[0], dy = e.pos[1] - player[1];
-                        if (e.mobile || dx * dx + dy * dy > keep * keep ||
+                        const float reach = e.rec.vs ? keep : keepFixed;
+                        if (e.mobile || dx * dx + dy * dy > reach * reach ||
                             (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime))
                         {
                             gone = true; ++g_nEvictAge;
@@ -1172,6 +1255,11 @@ namespace
     IDirect3DTexture9*    g_nearTex   = nullptr;   // the near map: [shadow] nearRange either side
     IDirect3DSurface9*    g_nearSurf  = nullptr;
     bool                  g_nearValid = false;
+    IDirect3DTexture9*    g_nearLeafTex  = nullptr;   // the near map's leaves (alpha-tested draws)
+    IDirect3DSurface9*    g_nearLeafSurf = nullptr;
+    IDirect3DTexture9*    g_farLeafTex   = nullptr;   // the far map's leaves
+    IDirect3DSurface9*    g_farLeafSurf  = nullptr;
+    bool                  g_nearLeafValid = false, g_farLeafValid = false;
     D3DMATRIX             g_nearVP    = {};        // camera-relative world -> near map clip, for the reader
     D3DMATRIX             g_nearAbsToSun = {};     // absolute world -> near map clip, as it was last drawn
 
@@ -1180,6 +1268,11 @@ namespace
         SafeRelease(g_nearSurf);
         SafeRelease(g_nearTex);
         g_nearValid = false;
+        SafeRelease(g_nearLeafSurf);
+        SafeRelease(g_nearLeafTex);
+        SafeRelease(g_farLeafSurf);
+        SafeRelease(g_farLeafTex);
+        g_nearLeafValid = g_farLeafValid = false;
         SafeRelease(g_depthSurf);
         SafeRelease(g_depthTex);
         SafeRelease(g_colour);
@@ -1191,7 +1284,9 @@ namespace
     bool EnsureResources(IDirect3DDevice9* dev, UINT size)
     {
         const bool wantNear = g_cfg.shadow.nearRange > 0.0f;
-        if (g_size == size && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr))
+        const bool wantLeaves = g_cfg.shadow.leaves;
+        if (g_size == size && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr) &&
+            wantLeaves == (g_farLeafSurf != nullptr) && (wantLeaves && wantNear) == (g_nearLeafSurf != nullptr))
             return true;
         ReleaseResources();
         auto* d = dev->lpVtbl;
@@ -1205,6 +1300,18 @@ namespace
             hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_nearTex, nullptr);
             if (SUCCEEDED(hr))
                 hr = g_nearTex->lpVtbl->GetSurfaceLevel(g_nearTex, 0, &g_nearSurf);
+            if (SUCCEEDED(hr) && wantLeaves)
+            {
+                hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_nearLeafTex, nullptr);
+                if (SUCCEEDED(hr))
+                    hr = g_nearLeafTex->lpVtbl->GetSurfaceLevel(g_nearLeafTex, 0, &g_nearLeafSurf);
+            }
+        }
+        if (SUCCEEDED(hr) && wantLeaves)
+        {
+            hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_farLeafTex, nullptr);
+            if (SUCCEEDED(hr))
+                hr = g_farLeafTex->lpVtbl->GetSurfaceLevel(g_farLeafTex, 0, &g_farLeafSurf);
         }
         if (FAILED(hr))
         {
@@ -1231,7 +1338,8 @@ namespace
             return false;
         }
         g_size = size;
-        Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)", size, size, g_nearSurf ? "s, far and near," : "",
+        Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)", size, size,
+            g_nearLeafSurf ? "s, far and near, each solid and leaves," : g_nearSurf ? "s, far and near," : "",
             colourKind);
         return true;
     }
@@ -1392,6 +1500,12 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
     if (indexed)
         d->GetIndices(dev, &r.ib);
     d->GetTexture(dev, 0, &r.tex0);
+    {
+        IDirect3DPixelShader9* ps = nullptr;
+        d->GetPixelShader(dev, &ps);
+        r.terrain = TerrainShadeIsTerrain(ps);
+        SafeRelease(ps);
+    }
     d->GetRenderState(dev, D3DRS_ALPHATESTENABLE, &r.alphaTest);
     d->GetRenderState(dev, D3DRS_ALPHAREF, &r.alphaRef);
     d->GetRenderState(dev, D3DRS_ALPHAFUNC, &r.alphaFunc);
@@ -1684,6 +1798,10 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         }
     }
 
+    // The ground from the map files (mapterrain.cpp): the tiles the far map can reach. Its box runs `depth`
+    // yards toward the sun, so a ridge that far off can still shade you.
+    MapTerrainUpdate(dev, pl, s.mapTerrain ? (std::max)(s.range, s.depth) + 60.0f : 0.0f);
+
     if (g_cache.empty() || !EnsureResources(dev, static_cast<UINT>(s.size)))
     {
         g_replayOutcome = 4;
@@ -1883,17 +2001,74 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetStreamSourceFreq(dev, 1, 1);
 
     UINT drawn = 0, drawnVS = 0, unseen = 0, skipped = 0, nearDrawn = 0;
-    double passTime[2] = {};
-    unsigned long long bytesNow[2] = {};
-    for (int pass = 0; pass < (doNear ? 2 : 1); ++pass)
+    // Four passes: far solid, far leaves, near solid, near leaves. What goes to the leaves: any model
+    // with an alpha-tested part, whole (a tree with its trunk, a bush), and any other alpha-tested draw;
+    // but never a model standing where a unit or a player does, whose hair or cloak may be alpha tested
+    // too. A model's parts share its vertex buffer, and so do all its copies. By draw alone, a trunk was
+    // solid and threw a dark bar through the canopy's part shade (2026-09-29).
+    const bool doLeaves = s.leaves && g_farLeafSurf && (!doNear || g_nearLeafSurf);
+
+    static std::unordered_map<long long, std::vector<int>> unitCells;   // 2-yard cells: the units in each
+    static float units[512][3];
+    unitCells.clear();
+    if (doLeaves)
     {
-    if (pass == 0 && !drawFar)
+        for (const auto& kv : g_cache)
+            for (const Entry& e : kv.second)
+                if (e.rec.vs && e.rec.alphaTest)
+                    g_leafModels.insert(ModelKey(e.rec.vb[0], e.rec.vs));
+        const int n = ClientUnits(units, 512);
+        for (int i = 0; i < n; ++i)
+            unitCells[(static_cast<long long>(floorf(units[i][0] * 0.5f)) << 32) ^
+                      (static_cast<long long>(floorf(units[i][1] * 0.5f)) & 0xFFFFFFFFll)].push_back(i);
+        g_unitsSeen = n;
+    }
+    auto atUnit = [&](const Entry& e) {
+        // A unit within half a yard across the ground and 4 up or down, found through this cell and those
+        // around it: a character's reference point is its root bone, at the unit's feet.
+        if (unitCells.empty())
+            return false;
+        const long long cx = static_cast<long long>(floorf(e.pos[0] * 0.5f));
+        const long long cy = static_cast<long long>(floorf(e.pos[1] * 0.5f));
+        for (long long ox = -1; ox <= 1; ++ox)
+            for (long long oy = -1; oy <= 1; ++oy)
+            {
+                auto it = unitCells.find(((cx + ox) << 32) ^ ((cy + oy) & 0xFFFFFFFFll));
+                if (it == unitCells.end())
+                    continue;
+                for (int i : it->second)
+                {
+                    const float dx = e.pos[0] - units[i][0], dy = e.pos[1] - units[i][1], dz = e.pos[2] - units[i][2];
+                    if (dx * dx + dy * dy < 0.25f && dz > -4.0f && dz < 4.0f)
+                        return true;
+                }
+            }
+        return false;
+    };
+    auto isLeaf = [&](const Entry& e) {
+        // Terrain casts as leaves do ([shadow] terrainLeaves): hills and mountains let part of the sun
+        // through, as the owner wanted, where buildings stop it all (2026-09-29).
+        if (e.rec.terrain)
+            return s.terrainLeaves;
+        if (e.rec.vs && atUnit(e))
+            return false;
+        return e.rec.alphaTest != 0 || (e.rec.vs && g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs)) != 0);
+    };
+    UINT leafDrawn = 0, fromFiles = 0;
+    unsigned farTiles = 0, nearTiles = 0;
+    double passTime[4] = {};
+    unsigned long long bytesNow[4] = {};
+    for (int pass = 0; pass < 4; ++pass)
+    {
+    const bool nearPass = pass >= 2;
+    const bool leafPass = (pass & 1) != 0;
+    if ((!nearPass && !drawFar) || (nearPass && !doNear) || (leafPass && !doLeaves))
         continue;
     const double passStart = Now();
-    const bool nearPass = pass == 1;
     const float mapRange = nearPass ? s.nearRange : s.range;
     const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : fromAbsToSun;
-    d->SetDepthStencilSurface(dev, nearPass ? g_nearSurf : g_depthSurf);
+    d->SetDepthStencilSurface(dev, nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
+                                            : (leafPass ? g_farLeafSurf : g_depthSurf));
     d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
     d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : &sunProj);
 
@@ -1904,14 +2079,31 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // far from the geometry (trees measured at 85 to 95 yards away).
     // The near map's margin is 16 yards, not 40 (2026-09-29): 40 around a 32-yard map was a box more than
     // twice its size, and 2,000 draws; 16 still takes in a big tree's crown beside it.
-    const float sideReach = mapRange + (nearPass ? 16.0f : 40.0f);   // the map is `range` either side
+    const float sideReach = mapRange + (nearPass ? s.nearMargin : 40.0f);   // the map is `range` either side
     const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
+    // The ground from the files goes where the client's terrain would: the leaf map with terrainLeaves.
+    if (s.mapTerrain && (doLeaves ? leafPass == s.terrainLeaves : !leafPass))
+    {
+        const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam);
+        if (nearPass) nearTiles = n; else farTiles = n;
+    }
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
         const Rec&   r = e.rec;
         if (e.lastSeen < now && !nearPass)
             ++unseen;
+        // With leaf maps, the leaves go there and everything else to the solid map.
+        if (doLeaves && isLeaf(e) != leafPass)
+            continue;
+        // A terrain chunk whose tile came from the files is drawn from there, at full detail. Its place
+        // is its corner, the largest x and y it covers, so a point a yard inside finds the tile.
+        if (r.terrain && s.mapTerrain && MapTerrainCovers(e.pos[0] - 1.0f, e.pos[1] - 1.0f))
+        {
+            if (nearPass != drawFar)   // counted in the first pass that runs: the far map is not redrawn every time
+                ++fromFiles;
+            continue;
+        }
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
         // hundred of them rather than thousands, and one chunk covers so much ground that the point we
         // hold for it can sit well outside the map while its geometry crosses the middle: culling those
@@ -1976,7 +2168,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             d->DrawPrimitive(dev, r.prim, r.baseVertex, r.primCount);
         if (r.vb[1])
             d->SetStreamSource(dev, 1, nullptr, 0, 0);
-        if (nearPass)
+        if (leafPass)
+            ++leafDrawn;
+        else if (nearPass)
             ++nearDrawn;
         else
             ++drawn;
@@ -1984,9 +2178,16 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     passTime[pass] = Now() - passStart;
     }   // the two maps
     if (logThis)
-        Log("shadow: time: far map %.2f ms%s, near map %.2f ms; model constants uploaded %.1f MB (far) + %.1f MB "
-            "(near)", 1000.0 * passTime[0], drawFar ? "" : " (not redrawn this time)", 1000.0 * passTime[1],
-            bytesNow[0] / 1048576.0, bytesNow[1] / 1048576.0);
+        Log("shadow: %s; far map %u tiles, near map %u; %u of the game's terrain draws left out for them",
+            MapTerrainInfo(), farTiles, nearTiles, fromFiles);
+    if (logThis)
+        Log("shadow: time: far map %.2f + %.2f ms (solid + leaves)%s, near map %.2f + %.2f ms; %u leaf draws; "
+            "model constants uploaded %.1f MB (far) + %.1f MB (near)", 1000.0 * passTime[0], 1000.0 * passTime[1],
+            drawFar ? "" : " (not redrawn this time)", 1000.0 * passTime[2], 1000.0 * passTime[3], leafDrawn,
+            (bytesNow[0] + bytesNow[1]) / 1048576.0, (bytesNow[2] + bytesNow[3]) / 1048576.0);
+    if (drawFar)
+        g_farLeafValid = doLeaves;
+    g_nearLeafValid = doLeaves && doNear;
     if (doNear)
     {
         g_nearVP       = nearVP;
@@ -2056,10 +2257,31 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 const float dd = sqrtf(dx * dx + dy * dy);
                 band[dd < 50.0f ? 0 : dd < 150.0f ? 1 : dd < 250.0f ? 2 : 3]++;
             }
+        // Terrain entries that share a place (to a yard): more than one at a place is the same ground held
+        // twice, as a level-of-detail version or a copy.
+        {
+            std::unordered_map<long long, unsigned> at;
+            unsigned terrainN = 0;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                    if (e.rec.terrain)
+                    {
+                        ++terrainN;
+                        const long long k = (static_cast<long long>(floorf(e.pos[0])) << 42) ^
+                                            (static_cast<long long>(floorf(e.pos[1])) << 21) ^
+                                            static_cast<long long>(floorf(e.pos[2]));
+                        ++at[k];
+                    }
+            unsigned one = 0, two = 0, more = 0;
+            for (const auto& kv : at)
+                (kv.second == 1 ? one : kv.second == 2 ? two : more)++;
+            Log("shadow: %u terrain entries at %u places: %u held once, %u twice, %u three times or more",
+                terrainN, static_cast<unsigned>(at.size()), one, two, more);
+        }
         Log("shadow: the cache holds %u fixed-function draws (terrain, buildings) and %u model draws (trees, "
             "doodads, characters); %u alpha tested (leaves, bushes), %u moving; %llu triangles. From you: %u "
-            "within 50 yd, %u 50-150, %u 150-250, %u past 250", ff, m2, leafy, moving, tris, band[0], band[1],
-            band[2], band[3]);
+            "within 50 yd, %u 50-150, %u 150-250, %u past 250; %d units and players known", ff, m2, leafy, moving,
+            tris, band[0], band[1], band[2], band[3], g_unitsSeen);
     }
     g_replaySeconds = Now() - t0;
     g_replaySkipped = skipped;
@@ -2090,6 +2312,16 @@ void ShadowWorldDepthRange(float& minZ, float& maxZ)
 {
     minZ = g_worldMinZ;
     maxZ = g_worldMaxZ;
+}
+
+IDirect3DTexture9* ShadowNearLeaves()
+{
+    return (g_cfg.shadow.enabled && g_valid && g_nearValid && g_nearLeafValid) ? g_nearLeafTex : nullptr;
+}
+
+IDirect3DTexture9* ShadowFarLeaves()
+{
+    return (g_cfg.shadow.enabled && g_valid && g_farLeafValid) ? g_farLeafTex : nullptr;
 }
 
 bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range)

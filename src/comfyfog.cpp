@@ -34,6 +34,7 @@
 #include "sun.h"
 #include "sunshadows.h"
 #include "terrainshade.h"
+#include "mapterrain.h"
 #include "volume.h"
 
 #include <cmath>
@@ -585,8 +586,11 @@ namespace
             if (!OwnFog())
                 SkyMatchDraw(dev);   // the sky near the horizon, to the fog's colour; before the shade
             const bool shaded = SunShadowsDraw(dev);
+            // A sun shadow debug view is shown alone: fog, light and lamps drawn over it made every
+            // object a grey shape by its depth, which read as part of the view.
+            const bool shadowDebug = shaded && g_cfg.sunShadows.debug != 0;
             // Our fog over the shaded world, before the light in the air.
-            if (OwnFog())
+            if (OwnFog() && !shadowDebug)
             {
                 DWORD client = 0, shaped = 0;
                 if (!WorldFogColor(client, shaped))
@@ -599,11 +603,11 @@ namespace
             }
             BenchSectionEnd(dev, kBenchSunShadows, shaded);
             BenchSectionBegin(dev, kBenchVolume);
-            const bool drawn = VolumeDraw(dev);
+            const bool drawn = !shadowDebug && VolumeDraw(dev);
             BenchSectionEnd(dev, kBenchVolume, drawn);
             // The fog around lamps, which reads the same depth and camera, and draws at night too.
             BenchSectionBegin(dev, kBenchLamps);
-            const bool lamps = LampGlowDraw(dev);
+            const bool lamps = !shadowDebug && LampGlowDraw(dev);
             BenchSectionEnd(dev, kBenchLamps, lamps);
         }
         BenchSectionBegin(dev, kBenchRays);
@@ -747,6 +751,7 @@ namespace
             LampGlowReset();
             SunShadowsReset();
             TerrainShadeReset();
+            MapTerrainRelease();
             g_fog       = ClientFog();
             g_haveWorldFog = false;
             g_haveWorldFogColor = false;
