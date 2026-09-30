@@ -973,6 +973,21 @@ within 25 yards always counts and past that only one within about 70 degrees of 
 (`LampsGather` takes the view's direction), and `[lamps] fogReach` (Lamp Distance, percent) stretches the fade
 and the 120-yard cut-off.
 
+## Night Darkness and Moonlight Colour (2026-09-30)
+
+The owner asked for darker nights. `[night] darkness` scales the world by 1 - darkness at full night, by the
+same clock as Night Strength (`NightWeight`: dusk, dawn, fade), and `[night] tint` leans it toward
+`moonColor` (its hue only). The sky gets `[night] sky` of it (0.5), so the moons and stars stay. Inside a
+building it is off unless `[night] indoors`, eased over about half a second as you walk in or out.
+
+It is drawn in the lamps' surface pass (lampglow.cpp), not a pass of its own, so a lamp keeps lighting the
+ground near it: out = scene x (darkness + lamp light). A pass before the lamps' would have darkened their light
+too, as that pass scales the colour already there. The blend is DESTCOLOR x source + dest x source alpha: the
+source is clamped to 0..1 and a lamp's light may be past 1, so alpha carries the smallest channel of the
+darkness and the colour carries the rest plus the light. The factors go in c4.zw and c5 of that pass: the glow
+shader keeps compiler constants (`def`) in c6 and c7, and c4 and c5 are set back for it. It needs Volumetric
+Light on, for the depth. The owner's setting, 65, is the default.
+
 ## Every effect gone with the chat hidden (2026-09-30)
 
 The owner's `tchat` button (ClearChat's `/togglechat`, which moves the chat frames under a hidden parent)

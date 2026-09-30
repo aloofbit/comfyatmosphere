@@ -311,6 +311,11 @@ void LoadSettings(const wchar_t* ini)
     s.night.dusk     = Clamp(GetF(kNight, L"dusk",     s.night.dusk,     ini), 0.0f, 24.0f);
     s.night.dawn     = Clamp(GetF(kNight, L"dawn",     s.night.dawn,     ini), 0.0f, 24.0f);
     s.night.fade     = Clamp(GetF(kNight, L"fade",     s.night.fade,     ini), 0.0f, 6.0f);
+    s.night.darkness = Clamp(GetF(kNight, L"darkness", s.night.darkness, ini), 0.0f, 0.9f);
+    s.night.tint     = Clamp(GetF(kNight, L"tint",     s.night.tint,     ini), 0.0f, 1.0f);
+    s.night.moonColor = GetX(kNight, L"moonColor", s.night.moonColor, ini) & 0xFFFFFF;
+    s.night.sky      = Clamp(GetF(kNight, L"sky",      s.night.sky,      ini), 0.0f, 1.0f);
+    s.night.indoors  = GetB(kNight, L"indoors", s.night.indoors, ini);
 
     s.bench.settle  = Clamp(GetF(kBench, L"settle",  s.bench.settle,  ini), 0.5f, 30.0f);
     s.bench.measure = Clamp(GetF(kBench, L"measure", s.bench.measure, ini), 1.0f, 60.0f);

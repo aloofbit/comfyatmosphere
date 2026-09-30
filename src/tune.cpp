@@ -72,6 +72,8 @@ namespace
         { "rays.soften",         "Sun Rays Softness" },
         { "rays.smooth",         "Sun Rays Smoothing" },
         { "night.strength",      "Night Strength" },
+        { "night.darkness",      "Night Darkness" },
+        { "night.tint",          "Moonlight Colour" },
         { "sky.clouds",          "Clouds" },
     };
 

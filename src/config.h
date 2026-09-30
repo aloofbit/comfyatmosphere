@@ -16,7 +16,7 @@ struct FogSettings
 
     // The dial. 0 is the client's own fog, untouched; 100 is the heaviest the settings below allow.
     // Everything else in this struct describes the far end of the dial and is scaled by it.
-    float thickness = 25.0f;
+    float thickness = 65.0f;
 
     // Fog already present right at the camera, at 100 (0..0.9). The client's fog is linear from 0, so
     // near things are nearly clear and it only builds with distance; a haze floor fills in the near
@@ -35,11 +35,11 @@ struct FogSettings
     // meets a known amount of it, and the sky near the horizon is the fog colour. Mode 0, or with the
     // volumetric light off, is the game's fog moved by haze and reach as before.
     int   mode      = 1;
-    float density   = 0.002f;   // the height fog: fog per yard at the camera's height (the Ground Haze
+    float density   = 0.013f;   // the height fog: fog per yard at the camera's height (the Ground Haze
                                 // control, 0..0.02). Not scaled by the dial: the dial is the distance
                                 // fog. 0.02 scaled by the dial was tuned before the distance fog existed,
                                 // and with it on top the view distance shrank (2026-09-29)
-    float height    = 110.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
+    float height    = 115.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
     // The height fog anchored to the ground (2026-09-30): density is the fog at the average ground height
     // within groundRadius yards (from the map files), not at the camera. At the camera it was: standing on
     // the cliff over Stormwind harbour, the sea 50 yards below had e^(50/15) = 28 times the fog, and the
@@ -109,6 +109,13 @@ struct NightSettings
     float dusk     = 20.0f;     // hour the change to night starts
     float dawn     = 5.0f;      // hour the change to day starts
     float fade     = 1.5f;      // hours each change takes
+    // Night Darkness (2026-09-30): the world darker at night, by the same clock. Drawn in the lamps' pass
+    // (lampglow.cpp), so the ground near a lamp keeps the lamp's light.
+    float darkness = 0.65f;     // 0..0.9: how much darker the world is at full night
+    float tint     = 0.0f;      // 0..1: how far the dark leans toward moonColor
+    DWORD moonColor = 0x9CB8FF; // RGB of the moonlight (its hue only: brightness is kept)
+    float sky      = 0.5f;      // 0..1: the share of the darkness the sky gets
+    bool  indoors  = false;     // true = darker inside buildings too
 };
 
 // A readable depth buffer (depth.cpp), which the volumetric light reads. Off unless enabled.
@@ -245,10 +252,10 @@ struct SunShadowSettings
     // building's indoor groups, the sun shadows are kept at this share (0: none), faded over half a second.
     float indoor     = 0.0f;
     DWORD shadeColor = 0x7C94C8;
-    float shadeTint  = 0.70f;      // 0..1
+    float shadeTint  = 0.65f;      // 0..1
     DWORD sunColor   = 0xFFE4C0;
-    float sunTint    = 0.80f;      // 0..1
-    float strength   = 30.0f;     // the dial, 0..100: how much of the light a shaded surface loses
+    float sunTint    = 0.95f;      // 0..1
+    float strength   = 20.0f;     // the dial, 0..100: how much of the light a shaded surface loses
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the
@@ -271,7 +278,7 @@ struct SunShadowSettings
                                   // full as they fade at dusk
     float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
                                   // everything solid shades the rest, so characters no longer float
-    float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
+    float sunlight   = 0.40f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
                                   // Sunlight control, in percent). A forest in shade was dark all over
     int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = the leaves' shade alone
 };
@@ -283,7 +290,7 @@ struct SunShadowSettings
 struct LampSettings
 {
     bool  enabled      = true;
-    float strength     = 40.0f;     // the dial, 0..100
+    float strength     = 35.0f;     // the dial, 0..100
     float maxIntensity = 10.0f;     // the glow in the air: gain at 100. 4 until 2026-09-28, too faint to see
     float surface      = 7.0f;      // a lamppost's light on the surfaces near it: gain at 100 (0 = none).
                                     // About 1 / the night's own light, so a lamp lights like a torch
@@ -299,7 +306,7 @@ struct LampSettings
                                     // The client's light sits inside the torch head or the brazier bowl,
                                     // and at 0 the bowl hid it from below or from the side
     bool  sprites      = true;      // also glow around lampposts, found by their glow sprite
-    float fogReach     = 1.0f;      // how far into the fog a lamp still glows: the fade (over the far half of
+    float fogReach     = 2.2f;      // how far into the fog a lamp still glows: the fade (over the far half of
                                     // the fog) stretched by this. Lamp Distance, in percent
     bool  files        = true;      // also the candles, torches and fires the buildings' files place
                                     // (mapwmo.cpp), which the client lights with no light of its own

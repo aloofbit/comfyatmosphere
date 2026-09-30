@@ -80,7 +80,8 @@ namespace
                 kShadowEvery, kSunShadows, kSunShadowStrength, kFogHeight, kFogFade, kFogDarkness,
                 kFogGreyness, kMaster, kFogHaze, kSunlight, kVolumeDensity, kVolumeDistance, kVolumeDirection,
                 kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt, kShadeTint, kSunTint, kFogSunGlow,
-                kFogSunBright, kFogReach, kFogNear, kFogFar, kLampGlow, kLampDistance, kKnobs };
+                kFogSunBright, kFogReach, kFogNear, kFogFar, kLampGlow, kLampDistance, kNightDarkness,
+                kMoonlight, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyFog", "comfyFogThickness",
@@ -120,6 +121,8 @@ namespace
         "comfyFogFar",
         "comfyLampGlow",
         "comfyLampDistance",
+        "comfyNightDarkness",
+        "comfyMoonlight",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -269,6 +272,8 @@ namespace
         case kFogFar:         snprintf(out, cap, "%.0f", s.fog.distance * 100.0f); break;
         case kLampGlow:       snprintf(out, cap, "%.0f", s.lamps.strength); break;
         case kLampDistance:   snprintf(out, cap, "%.0f", s.lamps.fogReach * 100.0f); break;
+        case kNightDarkness:  snprintf(out, cap, "%.0f", s.night.darkness * 100.0f); break;
+        case kMoonlight:      snprintf(out, cap, "%.0f", s.night.tint * 100.0f); break;
         }
     }
 
@@ -314,6 +319,8 @@ namespace
         if (c[kFogFar].seen)         s.fog.distance  = Clamp(c[kFogFar].value * 0.01f, 0.0f, 1.0f);
         if (c[kLampGlow].seen)       s.lamps.strength = Clamp(c[kLampGlow].value, 0.0f, 100.0f);
         if (c[kLampDistance].seen)   s.lamps.fogReach = Clamp(c[kLampDistance].value * 0.01f, 0.5f, 4.0f);
+        if (c[kNightDarkness].seen)  s.night.darkness = Clamp(c[kNightDarkness].value * 0.01f, 0.0f, 0.9f);
+        if (c[kMoonlight].seen)      s.night.tint     = Clamp(c[kMoonlight].value * 0.01f, 0.0f, 1.0f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);

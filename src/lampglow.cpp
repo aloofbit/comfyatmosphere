@@ -120,14 +120,18 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 }
 )HLSL";
 
-    // The light on surfaces: blended as scene x (1 + this).
+    // The light on surfaces, and the night's darkness: blended as scene x (rgb + a), where rgb + a is the
+    // darkness factor plus the light. The factor is split so a (one number) carries its smallest channel and
+    // rgb the rest: the blend's source is clamped to 0..1, and a lamp's light may take it past 1.
     const char* kSurfPsHlsl = R"HLSL(
 sampler2D sDepth : register(s0);    // the scene's depth (INTZ)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
 float4 gInv3 : register(c3);
-float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ)
+float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ), the night's factor on the
+float4 gN    : register(c5);        // world (gZ.zw, gN.x) and on the sky (gN.yzw). Not c6 and up: the glow
+                                    // shader keeps its own constants there
 float4 gPos[16] : register(c8);     // each light: camera-relative position, 1 / reach^2
 float4 gCol[16] : register(c24);    // each light: colour x gain x fade
 float4 main(float2 uv : TEXCOORD0) : COLOR
@@ -142,8 +146,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float3 N  = cross(ddy(P), ddx(P));
     N = N / max(length(N), 1e-8);
     N = dot(N, P) > 0.0 ? -N : N;
+    float3 dark = float3(gZ.zw, gN.x);
+    float3 sky  = gN.yzw;
+    float  da   = min(min(min(dark.r, dark.g), dark.b), 1.0);
+    float  sa   = min(min(min(sky.r, sky.g), sky.b), 1.0);
     if (raw >= 0.99999)
-        return 0.0;                                                        // the sky: nothing to light
+        return float4(sky - sa, sa);                                       // the sky: nothing to light
     float3 sum = 0.0;
     [unroll] for (int i = 0; i < 16; ++i)                                  // no break: see the glow shader
     {
@@ -159,7 +167,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         }
     }
     sum = (sum >= 0.0 && sum < 16.0) ? sum : 0.0;
-    return float4(sum, 0.0);
+    return float4(sum + dark - da, da);
 }
 )HLSL";
 
@@ -292,12 +300,53 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         const float day = g_cfg.lamps.day * 0.01f;
         return day + (1.0f - day) * NightWeight(hour);
     }
+
+    // The night's factor on the world (world[3]) and on the sky (sky[3]), each channel 0..~1.4. False when
+    // it is 1 everywhere: by day, with [night] darkness and tint at 0, or inside a building. Walking in or
+    // out eases over about half a second, so the change does not jump.
+    bool NightDark(float world[3], float sky[3])
+    {
+        const NightSettings& n = g_cfg.night;
+        float hour = 0.0f;
+        const float w = (n.darkness > 0.0f || n.tint > 0.0f) && ClientHour(hour) ? NightWeight(hour) : 0.0f;
+        static float  inside = 0.0f;
+        static double last = 0.0;
+        const double now = Now();
+        float pl[3];
+        const float target = !n.indoors && ClientPlayer(pl) && MapIndoors(pl) ? 1.0f : 0.0f;
+        const float step = last > 0.0 ? static_cast<float>(1.0 - exp(-(now - last) / 0.15)) : 1.0f;
+        inside += (target - inside) * (step < 0.0f ? 0.0f : (step > 1.0f ? 1.0f : step));
+        last = now;
+        const float k = w * (1.0f - inside);
+        if (k <= 1e-3f)
+            return false;
+        // The moonlight's hue, at the brightness of white.
+        float moon[3] = { ((n.moonColor >> 16) & 0xFF) / 255.0f, ((n.moonColor >> 8) & 0xFF) / 255.0f,
+                          (n.moonColor & 0xFF) / 255.0f };
+        const float lum = 0.2126f * moon[0] + 0.7152f * moon[1] + 0.0722f * moon[2];
+        for (float& c : moon)
+            c = lum > 1e-3f ? c / lum : 1.0f;
+        for (int c = 0; c < 3; ++c)
+        {
+            const float hue = 1.0f + (moon[c] - 1.0f) * n.tint * k;
+            world[c] = (1.0f - n.darkness * k) * hue;
+            sky[c]   = (1.0f - n.darkness * n.sky * k) * (1.0f + (moon[c] - 1.0f) * n.tint * n.sky * k);
+        }
+        return true;
+    }
+}
+
+// The lamps' own part: the glow and their light on surfaces.
+static bool LampsOn()
+{
+    const LampSettings& l = g_cfg.lamps;
+    return l.enabled && (l.strength > 0.0f || l.debug);
 }
 
 bool LampGlowActive()
 {
-    const LampSettings& l = g_cfg.lamps;
-    return l.enabled && !g_failed && (l.strength > 0.0f || l.debug) && VolumeActive();
+    const NightSettings& n = g_cfg.night;
+    return !g_failed && (LampsOn() || n.darkness > 0.0f || n.tint > 0.0f) && VolumeActive();
 }
 
 bool LampGlowDraw(IDirect3DDevice9* dev)
@@ -328,7 +377,12 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
         for (float& f : fwd)
             f = len > 1e-4f ? f / len : 0.0f;
     }
-    const int found = LampsGather(cam, fwd, lights, l.maxLights < kMaxLights ? l.maxLights : kMaxLights);
+    const int found = LampsOn() ? LampsGather(cam, fwd, lights, l.maxLights < kMaxLights ? l.maxLights : kMaxLights)
+                                : 0;
+    // The night's darkness, drawn in the pass that lights surfaces. Not in a debug view: those show one part
+    // alone, over black.
+    float darkWorld[3] = { 1.0f, 1.0f, 1.0f }, darkSky[3] = { 1.0f, 1.0f, 1.0f };
+    const bool dark = !l.debug && NightDark(darkWorld, darkSky);
 
     const float scale = DayScale();
     // debug shows the same glow, over black, so its shape can be seen as it is drawn.
@@ -371,6 +425,9 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
     }
     if (logThis)
     {
+        if (dark)
+            Log("lampglow: night darkness: the world x (%.2f %.2f %.2f), the sky x (%.2f %.2f %.2f)", darkWorld[0],
+                darkWorld[1], darkWorld[2], darkSky[0], darkSky[1], darkSky[2]);
         Log("lampglow: %u lights held, %d gathered, %d drawn; gain %.2f, on surfaces %.2f (by day x %.2f), "
             "density %.3f, fog %s%.0f..%.0f", LampsTracked(), found, n, gain, sgain, scale, l.density,
             haveFog ? "" : "(none) ", fogStart, fogEnd);
@@ -380,7 +437,7 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
                 lights[i].pos[1], lights[i].pos[2], lights[i].colour[0], lights[i].colour[1], lights[i].colour[2],
                 lights[i].reach, vis[i]);
     }
-    if (!n && !l.debug)
+    if (!n && !l.debug && !dark)
         return false;
 
     D3DMATRIX camVP, inv;
@@ -467,20 +524,25 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
     };
     d->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
 
-    // The surfaces first, as scene x (1 + light); then the glow in the air, added. debug 1 shows the glow
-    // alone and debug 3 the light on surfaces alone, each over black.
-    if (l.surface > 0.0f && (l.debug == 0 || l.debug == 3))
+    // The surfaces first, as scene x (darkness + light); then the glow in the air, added. debug 1 shows the
+    // glow alone and debug 3 the light on surfaces alone, each over black.
+    if (((l.surface > 0.0f && n) || dark) && (l.debug == 0 || l.debug == 3))
     {
+        // c4 and c5 carry the darkness in this pass, and are put back for the glow's.
+        const float dk[8] = { pc[16], pc[17], darkWorld[0], darkWorld[1], darkWorld[2], darkSky[0], darkSky[1],
+                              darkSky[2] };
+        d->SetPixelShaderConstantF(dev, 4, dk, 2);
         d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, l.debug ? FALSE : TRUE);
         d->SetRenderState(dev, D3DRS_SRCBLEND,         D3DBLEND_DESTCOLOR);
-        d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_ONE);
+        d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_SRCALPHA);
         d->SetPixelShader(dev, g_psSurf);
         d->SetPixelShaderConstantF(dev, 24, scol, kMaxLights);
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
     }
     d->SetPixelShader(dev, g_ps);
+    d->SetPixelShaderConstantF(dev, 4, pc + 16, 2);
     d->SetPixelShaderConstantF(dev, 24, col, kMaxLights);
-    if (l.debug != 3)
+    if (l.debug != 3 && (n || l.debug))
     {
         d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, l.debug ? FALSE : TRUE);
         d->SetRenderState(dev, D3DRS_SRCBLEND,         D3DBLEND_ONE);

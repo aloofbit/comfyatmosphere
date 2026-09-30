@@ -65,6 +65,8 @@ COMFYATMOSPHERE_RAYS_SOFTEN    = "Sun Rays Softness";
 COMFYATMOSPHERE_RAYS_SMOOTH    = "Sun Rays Smoothing";
 COMFYATMOSPHERE_DEBUG_VIEW     = "Debug View";
 COMFYATMOSPHERE_NIGHT_STRENGTH = "Night Strength";
+COMFYATMOSPHERE_NIGHT_DARKNESS = "Night Darkness";
+COMFYATMOSPHERE_MOONLIGHT      = "Moonlight Colour";
 COMFYATMOSPHERE_CLOUDS         = "Clouds";
 
 local ENTRIES = {
@@ -336,6 +338,31 @@ local ENTRIES = {
 		desc = "Sun rays and volumetric light at night. 100 is as strong as by day. 0 is off.",
 		type = "slider",
 		cvar = "comfyNightStrength",
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: comfyfog.dll divides by 100 for [night] darkness. It is drawn with the lamps, from the
+		-- volumetric light's depth.
+		name = "COMFYATMOSPHERE_NIGHT_DARKNESS",
+		desc = "How much darker the world is at night. Lamps still light the ground near them. Not inside buildings. Needs Volumetric Light on.",
+		type = "slider",
+		cvar = "comfyNightDarkness",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 90,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [night] tint, toward [night] moonColor.
+		name = "COMFYATMOSPHERE_MOONLIGHT",
+		desc = "How blue the night is, as moonlight. 0 only darkens.",
+		type = "slider",
+		cvar = "comfyMoonlight",
+		dependency = { "comfyVolume", "1" },
 		minval = 0,
 		maxval = 100,
 		step = 5,
