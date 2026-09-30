@@ -1917,9 +1917,11 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         }
     }
 
-    // The ground from the map files (mapterrain.cpp): the tiles the far map can reach. Its box runs `depth`
-    // yards toward the sun, so a ridge that far off can still shade you.
-    MapTerrainUpdate(dev, pl, s.mapTerrain ? (std::max)(s.range, s.depth) + 60.0f : 0.0f);
+    // The ground from the map files (mapterrain.cpp): the tiles the far map can reach. Its box runs
+    // ShadowMapDepth() yards toward the sun, so a ridge that far off can still shade you.
+    const float mapDepth = ShadowMapDepth();
+    MapTerrainUpdate(dev, pl, s.mapTerrain ? (std::max)(s.range, mapDepth) + 60.0f : 0.0f,
+                     (std::max)(s.range, s.depth) + 60.0f);   // past this, the ground alone
 
     // Nothing to draw only if the cache is empty and the files are off: with them on, the cache holds only
     // what moves, and can be empty on a hill with nobody about.
@@ -1977,16 +1979,26 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                     g_driftN[1] ? g_driftSum[1][1] / g_driftN[1] : 0.0, g_driftN[1], g_bigNear, g_bigNearShift,
                     g_bigMoved, g_bigMoveJump, g_bigNew, g_nProjOnly);
     }
-    const float eye[3] = { centre[0] + sunDir[0] * s.depth, centre[1] + sunDir[1] * s.depth,
-                           centre[2] + sunDir[2] * s.depth };
+    const float eye[3] = { centre[0] + sunDir[0] * mapDepth, centre[1] + sunDir[1] * mapDepth,
+                           centre[2] + sunDir[2] * mapDepth };
     const float up[3]  = { 0.0f, 0.0f, 1.0f };
     const float upX[3] = { 1.0f, 0.0f, 0.0f };
     D3DMATRIX sunView, sunProj, sunVP, fromAbs, fromAbsToSun;
     LookAtLH(eye, centre, fabsf(sunDir[2]) > 0.99f ? upX : up, sunView);
-    OrthoLH(s.range * 2.0f, s.range * 2.0f, 1.0f, s.depth * 2.0f, sunProj);
+    OrthoLH(s.range * 2.0f, s.range * 2.0f, 1.0f, mapDepth * 2.0f, sunProj);
     Mul(sunView, sunProj, sunVP);
     Translation(-cam[0], -cam[1], -cam[2], fromAbs);
     Mul(fromAbs, sunVP, fromAbsToSun);   // absolute world -> sun clip, for the shader entries
+    // Buildings and models from the files are culled to `depth` along the sun, as before horizonDepth: only
+    // the ground reaches further. The same box, cut to `depth` either side of the centre.
+    const float cutNear = (std::max)(mapDepth - s.depth, 1.0f), cutFar = mapDepth + s.depth;
+    D3DMATRIX cutProj, cutAbsToSun;
+    OrthoLH(s.range * 2.0f, s.range * 2.0f, cutNear, cutFar, cutProj);
+    {
+        D3DMATRIX v;
+        Mul(sunView, cutProj, v);
+        Mul(fromAbs, v, cutAbsToSun);
+    }
 
     // The map need not be redrawn every frame. What it holds is then a frame or two old, which the light's
     // own smoothing covers. The cache is brought up to date on the same frames only (g_fullFrame).
@@ -2030,12 +2042,16 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
 
     // The near map: the same sun camera, narrower.
     const bool doNear = s.nearRange > 0.0f && g_nearSurf;
-    D3DMATRIX nearProj, nearVP, nearAbsToSun;
+    D3DMATRIX nearProj, nearVP, nearAbsToSun, nearCutAbsToSun;
     if (doNear)
     {
-        OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, 1.0f, s.depth * 2.0f, nearProj);
+        OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, 1.0f, mapDepth * 2.0f, nearProj);
         Mul(sunView, nearProj, nearVP);
         Mul(fromAbs, nearVP, nearAbsToSun);
+        D3DMATRIX p, v;
+        OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, cutNear, cutFar, p);
+        Mul(sunView, p, v);
+        Mul(fromAbs, v, nearCutAbsToSun);
     }
 
     auto* d = dev->lpVtbl;
@@ -2200,6 +2216,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const double passStart = Now();
     const float mapRange = nearPass ? s.nearRange : s.range;
     const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : fromAbsToSun;
+    const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : cutAbsToSun;
     d->SetDepthStencilSurface(dev, nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
                                             : (leafPass ? g_farLeafSurf : g_depthSurf));
     d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
@@ -2227,7 +2244,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // The buildings from the files: solid.
     if (worldHere && s.mapTerrain && !leafPass)
     {
-        const unsigned n = MapBuildingsDraw(dev, passAbsToSun, cam);
+        const unsigned n = MapBuildingsDraw(dev, passCut, cam);
         if (nearPass) nearWmos = n; else farWmos = n;
     }
     // The doodads from the files: the solid models here, the trees and bushes with the leaves (or here as
@@ -2236,9 +2253,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     {
         unsigned n = 0;
         if (!leafPass)
-            n += MapDoodadsDraw(dev, passAbsToSun, cam, false, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
+            n += MapDoodadsDraw(dev, passCut, cam, false, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
         if (leafPass || !doLeaves)
-            n += MapDoodadsDraw(dev, passAbsToSun, cam, true, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
+            n += MapDoodadsDraw(dev, passCut, cam, true, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
         if (nearPass) nearDoodads += n; else farDoodads += n;
     }
     for (auto& kv : g_cache)
@@ -2530,6 +2547,12 @@ void ShadowFrameEnd()
     ReleaseFrame();
     g_sliceCount = 0;
     g_camCount   = 0;
+}
+
+float ShadowMapDepth()
+{
+    const ShadowSettings& s = g_cfg.shadow;
+    return s.mapTerrain ? (std::max)(s.depth, s.horizonDepth) : s.depth;
 }
 
 bool ShadowWorldCamera(D3DMATRIX& view, D3DMATRIX& proj)

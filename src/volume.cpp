@@ -755,7 +755,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetPixelShader(dev, g_psMarch);
     const float half[4] = { -1.0f / g_a.w, 1.0f / g_a.h, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
-    const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
+    const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float pc[48];
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)

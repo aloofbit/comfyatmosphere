@@ -95,6 +95,7 @@ namespace
         int                    a = 0, b = 0;
         unsigned               gen = 0;
         bool                   found = false;   // the file exists and was read
+        bool                   groundOnly = false;   // read for its ground alone: no doodads, no buildings
         std::vector<float>     v;               // x y z, x and y relative to the tile's corner
         std::vector<float>     grid;            // 129 x 129 outer heights, rows along -x (NaN: no chunk)
         std::vector<uint16_t>  idx;
@@ -122,6 +123,7 @@ namespace
     struct Tile
     {
         bool                    pending = true;
+        bool                    upgrading = false;   // held for its ground, being read again in full
         Mesh                    mesh;
         IDirect3DVertexBuffer9* vb = nullptr;
         IDirect3DIndexBuffer9*  ib = nullptr;
@@ -418,7 +420,7 @@ namespace
     // --- the loader thread ---------------------------------------------------------------------------
 
     enum JobKind { kJobTile, kJobBuilding, kJobTexture };
-    struct Job { JobKind kind; std::string name; int a, b; unsigned gen; };   // name: the map, the WMO, the BLP
+    struct Job { JobKind kind; std::string name; int a, b; unsigned gen; bool groundOnly = false; };   // name: the map, the WMO, the BLP
     struct Loaded { std::string name; unsigned gen; bool ok; WmoMesh mesh; double ms; };
     struct LoadedTex { std::string name; unsigned gen; bool ok; BlpData data; };
 
@@ -475,6 +477,7 @@ namespace
             m.a = job.a;
             m.b = job.b;
             m.gen = job.gen;
+            m.groundOnly = job.groundOnly;
             if (open)
             {
                 char name[160];
@@ -484,7 +487,9 @@ namespace
                 if (MpqRead(name, file))
                 {
                     m.found = Build(file, m);
-                    if (m.found)
+                    if (m.groundOnly)
+                        m.wmos.clear();
+                    else if (m.found)
                         Doodads(file, m, job.gen);
                 }
                 if (!m.found)
@@ -787,7 +792,7 @@ namespace
     }
 }
 
-void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
+void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach, float fullReach)
 {
     if (reach <= 0.0f)
     {
@@ -837,12 +842,13 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
             if (m.gen != g_gen)
                 continue;
             auto it = g_tiles.find(Key(m.a, m.b));
-            if (it == g_tiles.end() || !it->second.pending)
+            if (it == g_tiles.end() || !(it->second.pending || (it->second.upgrading && !m.groundOnly)))
                 continue;
             (m.found ? g_loadedTotal : g_missingTotal)++;
             g_loadMs += m.ms;
             it->second.mesh = std::move(m);
             it->second.pending = false;
+            it->second.upgrading = false;
             g_instDirty = true;
         }
         while (!g_doneWmo.empty())
@@ -881,7 +887,10 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         }
     }
 
-    // Ask for the tiles in reach, nearest first; drop those well out of it.
+    // Ask for the tiles in reach, nearest first; drop those well out of it. Past fullReach a tile is read
+    // for its ground alone (2026-09-30): only the ground casts that far toward the sun ([shadow] horizonDepth),
+    // and 40 or 50 tiles with their doodads and buildings would be a lot to hold in a 32-bit client. One held
+    // for its ground is read again in full once it comes within fullReach.
     const float x = player[0], y = player[1];
     const int a0 = static_cast<int>(floorf(32.0f - (y + reach) / kTile)), a1 = static_cast<int>(floorf(32.0f - (y - reach) / kTile));
     const int b0 = static_cast<int>(floorf(32.0f - (x + reach) / kTile)), b1 = static_cast<int>(floorf(32.0f - (x - reach) / kTile));
@@ -890,7 +899,12 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         for (int b = (std::max)(b0, 0); b <= (std::min)(b1, 63); ++b)
         {
             const float dist = Distance(x, y, a, b);
-            if (dist <= reach && !g_tiles.count(Key(a, b)))
+            if (dist > reach)
+                continue;
+            auto it = g_tiles.find(Key(a, b));
+            if (it == g_tiles.end())
+                ask.push_back({ dist, Key(a, b) });
+            else if (dist <= fullReach && !it->second.pending && !it->second.upgrading && it->second.mesh.groundOnly)
                 ask.push_back({ dist, Key(a, b) });
         }
     if (!ask.empty())
@@ -899,8 +913,15 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         std::lock_guard<std::mutex> lock(g_mx);
         for (const auto& q : ask)
         {
-            g_tiles[q.second];   // pending
-            g_jobs.push_back({ kJobTile, g_map, q.second >> 8, q.second & 0xFF, g_gen });
+            auto it = g_tiles.find(q.second);
+            if (it == g_tiles.end())
+                g_tiles[q.second];   // pending
+            else
+                it->second.upgrading = true;
+            Job job = { kJobTile, g_map, q.second >> 8, q.second & 0xFF, g_gen };
+            job.groundOnly = q.first > fullReach;
+            // The nearest first: a tile in full before the ground of one further off.
+            g_jobs.push_back(job);
         }
         g_cv.notify_one();
     }
@@ -1462,9 +1483,12 @@ void MapTerrainRelease()
 
 const char* MapTerrainInfo()
 {
-    unsigned ready = 0, pending = 0, empty = 0;
+    unsigned ready = 0, pending = 0, empty = 0, ground = 0;
     for (const auto& kv : g_tiles)
+    {
         (kv.second.pending ? pending : kv.second.vb ? ready : empty)++;
+        ground += !kv.second.pending && kv.second.mesh.groundOnly;
+    }
     unsigned mReady = 0, mLoading = 0, mFailed = 0, instReady = 0;
     for (const auto& kv : g_models)
         (kv.second.state == Model::kReady ? mReady : kv.second.state == Model::kFailed ? mFailed : mLoading)++;
@@ -1485,13 +1509,13 @@ const char* MapTerrainInfo()
         (kv.second.state == Tex::kReady ? tReady : kv.second.state == Tex::kFailed ? tFailed : tLoading)++;
     const unsigned done = g_loadedTotal + g_missingTotal, wDone = g_wmoRead + g_wmoFailed;
     _snprintf_s(g_info, sizeof(g_info), _TRUNCATE,
-                "map terrain: map \"%s\", %u archives; tiles in reach: %u ready, %u loading, %u without ground; "
+                "map terrain: map \"%s\", %u archives; tiles in reach: %u ready (%u of them the ground alone), %u loading, %u without ground; "
                 "%u drawn into the last map; since the start %u read, %u not found, %.0f ms a tile. Buildings: %u "
                 "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map; "
                 "%.0f ms a model. Doodads: %u (%u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
                 "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
                 "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u",
-                g_map.c_str(), MpqArchiveCount(), ready, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
+                g_map.c_str(), MpqArchiveCount(), ready, ground, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
                 static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast,
                 wDone ? g_wmoMs / wDone : 0.0, doodads, missing, dTris, dTiles, settled,

@@ -629,7 +629,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
 
-    const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
+    const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
     float pc[100] = {};

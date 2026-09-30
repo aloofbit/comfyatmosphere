@@ -6,7 +6,7 @@
 
 // Once per map redraw, on the render thread: ask for the tiles within `reach` yards of `player` (across
 // the ground), take in those the loader has finished, and drop those left far behind.
-void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach);
+void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach, float fullReach);
 // Whether the ground at this point comes from the files: the client's own draw of it is then not needed.
 bool MapTerrainCovers(float x, float y);
 // Draw every tile that can reach the map into the bound depth target. absToClip: absolute world -> the

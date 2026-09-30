@@ -1003,6 +1003,22 @@ afterwards. A probe logs the client's viewport there (`VIEWPORT`), how many fram
 the passes before the UI, at Present or not at all (`passes:`), and every unblended or pixel-shaded draw after
 them (`LATE`).
 
+## A ridge that did not block the light (2026-09-30)
+
+In Lakeshire at 18:19 the sun (21.6 degrees up) sat on a ridge, and the light's shafts did not follow the ridge:
+Debug View 2 showed a smooth, lower shape in its place. Measured offline from the map files, along the sun's
+bearing from the owner's place: the ground rises to 21.5 degrees at 735 yards, 290 yards above the camera.
+Along the sun that point is about 790 yards off, and the map's box ran `[shadow] depth` (700) toward the sun,
+so the ridge's top was clipped and only its lower slopes cast.
+
+`[shadow] horizonDepth` (1500) is how far toward the sun the ground from the map files reaches now
+(`ShadowMapDepth`, which the sun shadows and the light also use for the map's z range, 3000 yards: 0.2 mm a
+step in 24 bits). Buildings and doodads from the files are culled to `depth` along the sun as before, through a
+second matrix with the same box cut to `depth` either side, so their cost does not grow. Tiles past
+max(range, depth) + 60 are read for their ground alone (no doodads, no buildings), since 40 or 50 full tiles
+would be a lot to hold in a 32-bit client; one is read again in full when it comes within that reach. The
+probe's map line counts them. The owner: this is looking good now.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

@@ -40,7 +40,8 @@ unsigned ShadowOffWorld();   // records dropped this frame: not drawn with the w
 const char* ShadowChanges(unsigned& changed);   // refreshed entries whose inputs changed, and the biggest
 const char* ShadowInherited();   // the geometry states the client left at this frame's replay
 void ShadowLastReplay(int& outcome, unsigned& drawn, unsigned& entries, unsigned counts[5], const char*& newInfo);
-bool ShadowWorldCamera(D3DMATRIX& view, D3DMATRIX& proj);               // the camera the world's depth was drawn with
+bool ShadowWorldCamera(D3DMATRIX& view, D3DMATRIX& proj);
+float ShadowMapDepth();   // yards the shadow map runs toward the sun and away from it: its z range is twice this               // the camera the world's depth was drawn with
 void ShadowWorldDepthRange(float& minZ, float& maxZ);                   // ...and the viewport depth range it used
 void ShadowReset();                                                     // before Reset
 void ShadowProbe();                                                     // log the next replay

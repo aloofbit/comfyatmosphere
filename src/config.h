@@ -140,6 +140,10 @@ struct ShadowSettings
     float nearRange = 64.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
     float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
+    // The ground from the map files reaches further toward the sun than the rest (2026-09-30): in Lakeshire the
+    // ridge the sun set behind was 790 yards off along the sun, past `depth`, and only its lower slopes were in
+    // the map. With mapTerrain the map's box runs this far; buildings and models stay within `depth`.
+    float horizonDepth = 1500.0f;
     int   copyPerFrame  = 16;     // arena chunks copied into our own buffers per frame. The client
                                   // streams terrain through a buffer it re-fills, so a cached pointer
                                   // into it is worthless; a copy of our own is not. Reading the client's

@@ -180,6 +180,7 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
     s.shadow.nearRange  = Clamp(GetF(kShadow, L"nearRange", s.shadow.nearRange, ini), 0.0f, 200.0f);
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
+    s.shadow.horizonDepth = Clamp(GetF(kShadow, L"horizonDepth", s.shadow.horizonDepth, ini), 0.0f, 5000.0f);
     s.shadow.horizon    = GetB(kShadow, L"horizon", s.shadow.horizon, ini);
     s.shadow.copyPerFrame = GetI(kShadow, L"copyPerFrame", s.shadow.copyPerFrame, ini);
     s.shadow.copyMax      = GetI(kShadow, L"copyMax", s.shadow.copyMax, ini);
