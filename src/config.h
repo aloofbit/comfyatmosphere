@@ -124,6 +124,9 @@ struct ShadowSettings
                                   // drawn into it (the far map: 40)
     bool  terrainLeaves = true;   // terrain (hills, mountains) casts part shade, as leaves do
     bool  mapTerrain    = true;   // the ground from the map files, at full detail (mapterrain.cpp)
+    int   leafAlpha     = 224;    // the alpha test that cuts the leaves of the doodads from the files, 1..255.
+                                  // 224 is the client's own for every Elwynn tree; it goes lower only on
+                                  // doodads fading in or out at the edge of the view (probe, 2026-09-30)
     bool  leaves        = true;   // the leaves (alpha-tested draws) in maps of their own, so they can let
                                   // part of the sun through ([sunshadows] leafShade; see shadow.cpp)
     int   minTriangles  = 200;    // models with fewer triangles stay out of the far map past 60 yards.

@@ -19,5 +19,12 @@ unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, con
 bool MapBuildingCovers(const float pos[3]);
 // The building from the files nearest to `from`, for the probe: its place, its turn (row vectors) and name.
 bool MapBuildingNearest(const float from[3], float pos[3], float rot[3][3], char* name, int size);
+// The doodads (trees, bushes, fences, rocks) the tiles place: the solid models, or the models with leaves
+// (cut by their textures with this alpha test).
+unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3], bool leaves,
+                        DWORD alphaRef, DWORD alphaFunc);
+// Whether a model draw whose absolute transform sits here is a doodad drawn from the files.
+bool MapDoodadCovers(const float pos[3]);
+bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
 const char* MapTerrainInfo();   // for the probe

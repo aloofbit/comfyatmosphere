@@ -794,6 +794,28 @@ MWID into MWMO, a unique id, position, rotation in degrees, a box). `mapwmo.cpp`
   0.9 s), 112 of the client's building draws left out, and the near map 1.7 ms to 1.2. The owner: the
   building shadows are much more stable.
 
+**The doodads from the map files (2026-09-30).** Trees, bushes, fences, rocks: each tile places them in
+MDDF (36 bytes: the name's index through MMID into MMDX, a unique id, position, rotation, scale over
+1024), with the building's maths times the scale. The vmap extractor turns an M2's vertices and back
+again, so they are used as stored. `mapm2.cpp` ports the parts of the model browser's `m2.js` and
+`blp.js` the map needs.
+
+- A doodad is built into the tile that holds its position, since one near an edge is listed by both.
+- Each tile's doodads are built on the loader thread, in world space, into two buffers: solid models,
+  and models with an alpha-keyed part (the whole model, trunk included, as the leaf maps want), grouped
+  by texture. A tile is a handful of draws, where the cache made one for each model. Around Northshire:
+  9,200 doodads from 383 models, 1.5 million triangles, 43.5 MB, 245 ms to build 14 tiles; 101 leaf
+  textures, 96 of them DXT (handed to the GPU as they are).
+- A tree casts only once its leaf texture is on the GPU: an uncut leaf card would be a solid square. A
+  tile's doodads replace the client's own draws once they and all their textures are settled. The client
+  draws a doodad with its placement as the model's transform: the probe put the nearest one 0.00 yards
+  from the file's place.
+- The leaf cut is `[shadow] leafAlpha` (224). It was first taken from the last leafy model the client
+  drew, and the canopy's shade swapped between dappled and solid blobs from frame to frame: the value
+  read 224 on one probe and 4 on the next. Counted by model, the client draws every Elwynn tree at 224,
+  and lower values (1 to 223, a few draws each, nearly all past 60 yards) are doodads fading in or out at
+  the edge of the view. The owner saw little difference from 32 to 224, and blobs only near 4.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

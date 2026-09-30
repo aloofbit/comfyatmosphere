@@ -2054,8 +2054,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             return false;
         return e.rec.alphaTest != 0 || (e.rec.vs && g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs)) != 0);
     };
-    UINT leafDrawn = 0, fromFiles = 0, wmoFromFiles = 0;
-    unsigned farTiles = 0, nearTiles = 0, farWmos = 0, nearWmos = 0;
+    UINT leafDrawn = 0, fromFiles = 0, wmoFromFiles = 0, doodadFromFiles = 0;
+    unsigned farTiles = 0, nearTiles = 0, farWmos = 0, nearWmos = 0, farDoodads = 0, nearDoodads = 0;
     double passTime[4] = {};
     unsigned long long bytesNow[4] = {};
     for (int pass = 0; pass < 4; ++pass)
@@ -2093,6 +2093,17 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         const unsigned n = MapBuildingsDraw(dev, passAbsToSun, cam);
         if (nearPass) nearWmos = n; else farWmos = n;
     }
+    // The doodads from the files: the solid models here, the trees and bushes with the leaves (or here as
+    // well, without leaf maps).
+    if (s.mapTerrain)
+    {
+        unsigned n = 0;
+        if (!leafPass)
+            n += MapDoodadsDraw(dev, passAbsToSun, cam, false, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
+        if (leafPass || !doLeaves)
+            n += MapDoodadsDraw(dev, passAbsToSun, cam, true, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
+        if (nearPass) nearDoodads += n; else farDoodads += n;
+    }
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
@@ -2117,6 +2128,14 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         {
             if (nearPass != drawFar)
                 ++wmoFromFiles;
+            continue;
+        }
+        // A doodad drawn from the files: a model whose place is a doodad's, to half a yard. Not one where a
+        // unit stands, which is a character.
+        if (r.vs && s.mapTerrain && MapDoodadCovers(e.pos) && !atUnit(e))
+        {
+            if (nearPass != drawFar)
+                ++doodadFromFiles;
             continue;
         }
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
@@ -2194,9 +2213,28 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     }   // the two maps
     if (logThis)
     {
-        Log("shadow: %s; far map %u tiles and %u buildings, near map %u and %u; left out for them: %u of the "
-            "game's terrain draws, %u of its building draws", MapTerrainInfo(), farTiles, farWmos, nearTiles,
-            nearWmos, fromFiles, wmoFromFiles);
+        Log("shadow: %s; far map %u tiles, %u buildings and %u doodad draws, near map %u, %u and %u; left out "
+            "for them: %u of the game's terrain draws, %u of its building draws, %u of its doodad draws; leaves "
+            "cut at alpha %d ([shadow] leafAlpha)", MapTerrainInfo(), farTiles, farWmos, farDoodads, nearTiles,
+            nearWmos, nearDoodads, fromFiles, wmoFromFiles, doodadFromFiles, s.leafAlpha);
+        // The check on the doodads' places: the nearest one from the files against the nearest model draw.
+        float dp[3];
+        if (MapDoodadNearest(pl, dp))
+        {
+            const Entry* hit = nullptr;
+            float nd = 1e30f;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                    if (e.rec.vs)
+                    {
+                        const float dx = e.pos[0] - dp[0], dy = e.pos[1] - dp[1], dz = e.pos[2] - dp[2];
+                        if (dx * dx + dy * dy + dz * dz < nd) { nd = dx * dx + dy * dy + dz * dz; hit = &e; }
+                    }
+            if (hit)
+                Log("shadow: doodad from the files at (%.2f %.2f %.2f); the game's nearest model draw at (%.2f "
+                    "%.2f %.2f), %.2f yd off, %u triangles%s", dp[0], dp[1], dp[2], hit->pos[0], hit->pos[1],
+                    hit->pos[2], sqrtf(nd), hit->rec.primCount, hit->rec.alphaTest ? ", alpha tested" : "");
+        }
         // The check on the placement maths: the nearest building from the files against the client's own
         // draw nearest to it (fixed-function, not terrain), their places and turns side by side.
         float bp[3], br[3][3];

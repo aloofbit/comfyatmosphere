@@ -27,6 +27,14 @@
 //              world = (17066.67 - p.z, 17066.67 - p.x, p.y), turned by Rz(r.y) Ry(r.x) Rx(r.z) and then a
 //              half turn about the vertical. mapwmo.cpp reads the building; the client's own draw of it
 //              (fixed-function, its place the placement's) is then left out, except its alpha-keyed parts.
+//   Doodads    (added 2026-09-30) Trees, bushes, fences and rocks: MDDF, 36 bytes each (the name's index
+//              through MMID into MMDX, a unique id, position, rotation, scale as a number over 1024), placed
+//              with the same maths as a building, times the scale. mapm2.cpp reads the models. A doodad is
+//              built into the tile that holds its position, so one on a tile's edge is built once. Each
+//              tile's doodads are built on the loader thread into two buffers, world space: the solid
+//              models, and the models with an alpha-keyed part (trees, bushes: leaves, the trunk with
+//              them), grouped by texture, so a tile is a handful of draws where the cache made one for
+//              each model. Around Northshire: 9,180 doodads from 383 models, 1.6 million triangles.
 //   Loading    On a thread of its own, nearest tile first, so no frame waits on a file: about 2 MB of
 //              zlib a tile. The terrain meshes stay in memory while their tile is in reach (0.8 MB each);
 //              a building's mesh goes once it is on the GPU. Each goes to the GPU as one vertex and one
@@ -41,6 +49,7 @@
 #include "client.h"
 #include "common.h"
 #include "mapterrain.h"
+#include "mapm2.h"
 #include "mapwmo.h"
 #include "mpq.h"
 
@@ -50,6 +59,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -89,6 +99,19 @@ namespace
         float                  minZ = 0.0f, maxZ = 0.0f;
         std::vector<Placement> wmos;
         double                 ms = 0.0;        // time to read and build
+
+        // The doodads, world space relative to the tile's corner. Leaf batches: a texture to cut the
+        // shape by, or none (a tree's trunk, which casts with its leaves).
+        struct Batch { std::string tex; uint32_t start, count; };
+        std::vector<float>     dSolid;          // x y z
+        std::vector<uint32_t>  dSolidIdx;
+        std::vector<float>     dLeaf;           // x y z u v
+        std::vector<uint32_t>  dLeafIdx;
+        std::vector<Batch>     dBatches;
+        float                  dMinZ = 0.0f, dMaxZ = 0.0f;
+        std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
+        unsigned               doodads = 0, doodadsMissing = 0;
+        double                 dMs = 0.0;
     };
 
     struct Tile
@@ -97,6 +120,20 @@ namespace
         Mesh                    mesh;
         IDirect3DVertexBuffer9* vb = nullptr;
         IDirect3DIndexBuffer9*  ib = nullptr;
+        IDirect3DVertexBuffer9* dSolidVb = nullptr;   // the doodads
+        IDirect3DIndexBuffer9*  dSolidIb = nullptr;
+        IDirect3DVertexBuffer9* dLeafVb = nullptr;
+        IDirect3DIndexBuffer9*  dLeafIb = nullptr;
+        bool                    dOnGpu = false;
+    };
+
+    // A leaf texture, shared by every tile that cuts leaves with it.
+    struct Tex
+    {
+        enum State { kWant, kAsked, kLoaded, kReady, kFailed } state = kWant;
+        BlpData             data;
+        IDirect3DTexture9*  tex = nullptr;
+        bool                used = true;
     };
 
     // A building's model, shared by every placement of it.
@@ -170,6 +207,120 @@ namespace
             if (!p.name.empty())
                 out.push_back(std::move(p));
         }
+    }
+
+    // --- doodads, on the loader thread ---
+
+    std::unordered_map<std::string, std::shared_ptr<M2Model>> g_m2;   // loader thread only
+    unsigned g_m2Gen = 0;
+
+    // The tile's MDDF into its two doodad buffers.
+    void Doodads(const std::vector<uint8_t>& d, Mesh& m, unsigned gen)
+    {
+        if (gen != g_m2Gen)
+        {
+            g_m2.clear();   // another map
+            g_m2Gen = gen;
+        }
+        size_t mmdx = 0, mmdxSize = 0, mmid = 0, mmidSize = 0, mddf = 0, mddfSize = 0;
+        for (size_t o = 0; o + 8 <= d.size();)
+        {
+            const uint32_t tag = U32(d, o), size = U32(d, o + 4);
+            if (o + 8 + static_cast<size_t>(size) > d.size())
+                break;
+            if (tag == 0x4D4D4458) { mmdx = o + 8; mmdxSize = size; }   // "MMDX"
+            if (tag == 0x4D4D4944) { mmid = o + 8; mmidSize = size; }   // "MMID"
+            if (tag == 0x4D444446) { mddf = o + 8; mddfSize = size; }   // "MDDF"
+            o += 8 + static_cast<size_t>(size);
+        }
+        if (!mmdxSize || !mmidSize || !mddfSize)
+            return;
+        const double t0 = Now();
+        const float x1 = CornerX(m.b), y1 = CornerY(m.a);
+        const float deg = 3.14159265f / 180.0f;
+        std::unordered_map<std::string, std::vector<uint32_t>> groups;   // leaf indices by texture
+        m.dMinZ = 1e9f;
+        m.dMaxZ = -1e9f;
+        for (size_t o = mddf; o + 36 <= mddf + mddfSize; o += 36)
+        {
+            const uint32_t nameId = U32(d, o);
+            if (static_cast<size_t>(nameId) * 4 + 4 > mmidSize)
+                continue;
+            const uint32_t nameOff = U32(d, mmid + nameId * 4);
+            if (nameOff >= mmdxSize)
+                continue;
+            float raw[3], rotDeg[3];
+            memcpy(raw, &d[o + 8], 12);
+            memcpy(rotDeg, &d[o + 20], 12);
+            uint16_t scale16;
+            memcpy(&scale16, &d[o + 32], 2);
+            const float pos[3] = { kMid - raw[2], kMid - raw[0], raw[1] };
+            // Built by the tile that holds it: a doodad near an edge is listed by both tiles.
+            if (!(pos[0] <= x1 && pos[0] > x1 - kTile && pos[1] <= y1 && pos[1] > y1 - kTile))
+                continue;
+            std::string name;
+            for (size_t k = mmdx + nameOff; k < mmdx + mmdxSize && d[k]; ++k)
+                name += static_cast<char>(d[k] >= 'a' && d[k] <= 'z' ? d[k] - 32 : d[k]);
+            const size_t dot = name.find_last_of('.');
+            if (dot != std::string::npos)
+                name.erase(dot);   // X.MDX and X.M2 are one model
+            auto it = g_m2.find(name);
+            if (it == g_m2.end())
+            {
+                auto model = std::make_shared<M2Model>();
+                if (!M2Load(name + ".m2", *model))
+                    model.reset();
+                it = g_m2.emplace(name, model).first;
+            }
+            if (!it->second)
+            {
+                ++m.doodadsMissing;
+                continue;
+            }
+            const M2Model& md = *it->second;
+            float r[3][3], rot[3][3];
+            EulerZYX(rotDeg[1] * deg, rotDeg[0] * deg, rotDeg[2] * deg, r);
+            const float sc = scale16 / 1024.0f;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    rot[i][j] = (j < 2 ? -1.0f : 1.0f) * r[j][i] * sc;
+            const size_t nv = md.pos.size() / 3;
+            std::vector<float>& vout = md.alpha ? m.dLeaf : m.dSolid;
+            const uint32_t base = static_cast<uint32_t>(vout.size() / (md.alpha ? 5 : 3));
+            for (size_t i = 0; i < nv; ++i)
+            {
+                const float* p = &md.pos[i * 3];
+                float w[3];
+                for (int j = 0; j < 3; ++j)
+                    w[j] = p[0] * rot[0][j] + p[1] * rot[1][j] + p[2] * rot[2][j] + pos[j];
+                vout.push_back(w[0] - x1);
+                vout.push_back(w[1] - y1);
+                vout.push_back(w[2]);
+                if (md.alpha)
+                {
+                    vout.push_back(md.uv[i * 2]);
+                    vout.push_back(md.uv[i * 2 + 1]);
+                }
+                m.dMinZ = (std::min)(m.dMinZ, w[2]);
+                m.dMaxZ = (std::max)(m.dMaxZ, w[2]);
+            }
+            for (const M2Model::Batch& b : md.batches)
+            {
+                if (b.blend > 1)
+                    continue;   // blended: the client's draw of it casts nothing either
+                std::vector<uint32_t>& idx = md.alpha ? groups[b.blend == 1 ? b.tex : std::string()] : m.dSolidIdx;
+                for (uint32_t k = b.start; k < b.start + b.count; ++k)
+                    idx.push_back(base + md.tris[k]);
+            }
+            m.dPos.insert(m.dPos.end(), pos, pos + 3);
+            ++m.doodads;
+        }
+        for (auto& g : groups)
+        {
+            m.dBatches.push_back({ g.first, static_cast<uint32_t>(m.dLeafIdx.size()), static_cast<uint32_t>(g.second.size()) });
+            m.dLeafIdx.insert(m.dLeafIdx.end(), g.second.begin(), g.second.end());
+        }
+        m.dMs = 1000.0 * (Now() - t0);
     }
 
     // One tile's file into a mesh. False if the file is not a tile this reader understands.
@@ -248,14 +399,17 @@ namespace
 
     // --- the loader thread ---------------------------------------------------------------------------
 
-    struct Job { bool building; std::string name; int a, b; unsigned gen; };   // name: the map, or the WMO
+    enum JobKind { kJobTile, kJobBuilding, kJobTexture };
+    struct Job { JobKind kind; std::string name; int a, b; unsigned gen; };   // name: the map, the WMO, the BLP
     struct Loaded { std::string name; unsigned gen; bool ok; WmoMesh mesh; double ms; };
+    struct LoadedTex { std::string name; unsigned gen; bool ok; BlpData data; };
 
     std::mutex              g_mx;
     std::condition_variable g_cv;
     std::deque<Job>         g_jobs;
     std::deque<Mesh>        g_done;
     std::deque<Loaded>      g_doneWmo;
+    std::deque<LoadedTex>   g_doneTex;
     bool                    g_started = false;
     unsigned                g_gen = 1;   // bumped at a map change: older results are thrown away
 
@@ -278,7 +432,17 @@ namespace
                 tried = true;
             }
             const double t0 = Now();
-            if (job.building)
+            if (job.kind == kJobTexture)
+            {
+                LoadedTex t;
+                t.name = job.name;
+                t.gen = job.gen;
+                t.ok = open && BlpLoad(job.name, t.data);
+                std::lock_guard<std::mutex> lock(g_mx);
+                g_doneTex.push_back(std::move(t));
+                continue;
+            }
+            if (job.kind == kJobBuilding)
             {
                 Loaded w;
                 w.name = job.name;
@@ -299,7 +463,11 @@ namespace
                 _snprintf_s(name, sizeof(name), _TRUNCATE, "World\\Maps\\%s\\%s_%d_%d.adt", job.name.c_str(),
                             job.name.c_str(), job.a, job.b);
                 if (MpqRead(name, file))
+                {
                     m.found = Build(file, m);
+                    if (m.found)
+                        Doodads(file, m, job.gen);
+                }
                 if (!m.found)
                 {
                     m.v.clear();
@@ -317,6 +485,12 @@ namespace
 
     std::unordered_map<int, Tile>          g_tiles;
     std::unordered_map<std::string, Model> g_models;
+    std::unordered_map<std::string, Tex>   g_texs;
+    std::unordered_map<long long, std::vector<float>> g_doodadGrid;   // doodads drawn from the files, 4-yard cells
+    unsigned                               g_dDrawnLast[2] = {};    // solid, leaf batches drawn into the last map
+    unsigned                               g_texRead = 0, g_texFailed = 0;
+    double                                 g_dMs = 0.0;
+    unsigned                               g_dTiles = 0;
     // lo, hi: the box culled by, once the model is ready: the tile's box and the model's own box turned
     // into place, together. The tile's box takes in the furniture and the props (measured: the abbey's is 3
     // yards bigger, Stormwind's 196); the model's own can be the bigger where a patch changed the building.
@@ -329,7 +503,7 @@ namespace
     unsigned                      g_drawnLast = 0, g_loadedTotal = 0, g_missingTotal = 0;
     unsigned                      g_wmoDrawnLast = 0, g_wmoRead = 0, g_wmoFailed = 0;
     double                        g_loadMs = 0.0, g_wmoMs = 0.0;
-    char                          g_info[600] = {};
+    char                          g_info[1000] = {};
 
     int Key(int a, int b) { return (a << 8) | (b & 0xFF); }
     long long CellKey(long long cx, long long cy) { return (cx << 32) ^ (cy & 0xFFFFFFFFll); }
@@ -338,6 +512,18 @@ namespace
     {
         SafeRelease(t.vb);
         SafeRelease(t.ib);
+        SafeRelease(t.dSolidVb);
+        SafeRelease(t.dSolidIb);
+        SafeRelease(t.dLeafVb);
+        SafeRelease(t.dLeafIb);
+        t.dOnGpu = false;
+    }
+
+    void DropGpu(Tex& t)
+    {
+        SafeRelease(t.tex);
+        if (t.state == Tex::kReady)
+            t.state = Tex::kWant;
     }
 
     void DropGpu(Model& m)
@@ -356,8 +542,12 @@ namespace
         for (auto& kv : g_models)
             DropGpu(kv.second);
         g_models.clear();
+        for (auto& kv : g_texs)
+            DropGpu(kv.second);
+        g_texs.clear();
         g_insts.clear();
         g_coverGrid.clear();
+        g_doodadGrid.clear();
         g_instDirty = true;
         std::lock_guard<std::mutex> lock(g_mx);
         g_jobs.clear();
@@ -366,12 +556,12 @@ namespace
 
     template <typename VB, typename IB>
     bool Upload(IDirect3DDevice9* dev, const std::vector<float>& v, const void* idx, UINT idxBytes, D3DFORMAT fmt,
-                VB*& vb, IB*& ib)
+                VB*& vb, IB*& ib, DWORD fvf = D3DFVF_XYZ)
     {
         auto* d = dev->lpVtbl;
         const UINT vBytes = static_cast<UINT>(v.size() * sizeof(float));
         void* p = nullptr;
-        if (FAILED(d->CreateVertexBuffer(dev, vBytes, D3DUSAGE_WRITEONLY, D3DFVF_XYZ, D3DPOOL_MANAGED, &vb, nullptr)) ||
+        if (FAILED(d->CreateVertexBuffer(dev, vBytes, D3DUSAGE_WRITEONLY, fvf, D3DPOOL_MANAGED, &vb, nullptr)) ||
             FAILED(vb->lpVtbl->Lock(vb, 0, 0, &p, 0)))
         {
             SafeRelease(vb);
@@ -406,6 +596,65 @@ namespace
         m.nv   = static_cast<UINT>(nv);
         m.ntri = static_cast<UINT>(m.mesh.idx.size() / 3);
         return ok;
+    }
+
+    bool UploadTex(IDirect3DDevice9* dev, Tex& t)
+    {
+        static const D3DFORMAT kFormats[4] = { D3DFMT_DXT1, D3DFMT_DXT3, D3DFMT_DXT5, D3DFMT_A8R8G8B8 };
+        const BlpData& b = t.data;
+        if (FAILED(dev->lpVtbl->CreateTexture(dev, b.width, b.height, static_cast<UINT>(b.levels.size()), 0,
+                                              kFormats[b.format], D3DPOOL_MANAGED, &t.tex, nullptr)))
+            return false;
+        for (UINT i = 0; i < b.levels.size(); ++i)
+        {
+            const UINT w = (std::max)(1u, b.width >> i), h = (std::max)(1u, b.height >> i);
+            const UINT rows = b.format == 3 ? h : (std::max)(1u, (h + 3) / 4);
+            const UINT rowBytes = b.format == 3 ? w * 4 : (std::max)(1u, (w + 3) / 4) * (b.format == 0 ? 8 : 16);
+            D3DLOCKED_RECT lr;
+            if (FAILED(t.tex->lpVtbl->LockRect(t.tex, i, &lr, nullptr, 0)))
+            {
+                SafeRelease(t.tex);
+                return false;
+            }
+            for (UINT r = 0; r < rows; ++r)
+                memcpy(static_cast<uint8_t*>(lr.pBits) + r * lr.Pitch, &b.levels[i][r * rowBytes], rowBytes);
+            t.tex->lpVtbl->UnlockRect(t.tex, i);
+        }
+        return true;
+    }
+
+    // A tile's doodads stand in for the client's own draws once they are on the GPU and every texture they
+    // cut leaves with is either there or known to be missing.
+    bool DoodadsSettled(const Tile& t)
+    {
+        if (!t.dOnGpu)
+            return false;
+        for (const Mesh::Batch& b : t.mesh.dBatches)
+        {
+            if (b.tex.empty())
+                continue;
+            auto it = g_texs.find(b.tex);
+            if (it == g_texs.end() || (it->second.state != Tex::kReady && it->second.state != Tex::kFailed))
+                return false;
+        }
+        return true;
+    }
+
+    void RebuildDoodadCover()
+    {
+        g_doodadGrid.clear();
+        for (const auto& kv : g_tiles)
+        {
+            if (!DoodadsSettled(kv.second))
+                continue;
+            const std::vector<float>& p = kv.second.mesh.dPos;
+            for (size_t i = 0; i + 2 < p.size(); i += 3)
+            {
+                std::vector<float>& cell = g_doodadGrid[CellKey(static_cast<long long>(floorf(p[i] * 0.25f)),
+                                                                static_cast<long long>(floorf(p[i + 1] * 0.25f)))];
+                cell.insert(cell.end(), &p[i], &p[i] + 3);
+            }
+        }
     }
 
     // Across the ground from (x, y) to tile (a, b)'s square.
@@ -496,7 +745,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
 {
     if (reach <= 0.0f)
     {
-        if (!g_tiles.empty() || !g_models.empty())
+        if (!g_tiles.empty() || !g_models.empty() || !g_texs.empty())
             DropAll();
         g_map.clear();
         return;
@@ -506,6 +755,8 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         for (auto& kv : g_tiles)
             DropGpu(kv.second);
         for (auto& kv : g_models)
+            DropGpu(kv.second);
+        for (auto& kv : g_texs)
             DropGpu(kv.second);
         g_dev = dev;
         g_instDirty = true;
@@ -564,6 +815,24 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
             it->second.mesh  = std::move(w.mesh);
             it->second.state = w.ok ? Model::kLoaded : Model::kFailed;
         }
+        while (!g_doneTex.empty())
+        {
+            LoadedTex t = std::move(g_doneTex.front());
+            g_doneTex.pop_front();
+            if (t.gen != g_gen)
+                continue;
+            auto it = g_texs.find(t.name);
+            if (it == g_texs.end() || it->second.state != Tex::kAsked)
+                continue;
+            (t.ok ? g_texRead : g_texFailed)++;
+            if (!t.ok)
+            {
+                Log("map terrain: could not read the texture %s", t.name.c_str());
+                coverDirty = true;   // settled: its leaves are left out, and so are the client's
+            }
+            it->second.data  = std::move(t.data);
+            it->second.state = t.ok ? Tex::kLoaded : Tex::kFailed;
+        }
     }
 
     // Ask for the tiles in reach, nearest first; drop those well out of it.
@@ -585,7 +854,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         for (const auto& q : ask)
         {
             g_tiles[q.second];   // pending
-            g_jobs.push_back({ false, g_map, q.second >> 8, q.second & 0xFF, g_gen });
+            g_jobs.push_back({ kJobTile, g_map, q.second >> 8, q.second & 0xFF, g_gen });
         }
         g_cv.notify_one();
     }
@@ -607,6 +876,39 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         RebuildInstances();
         g_instDirty = false;
         coverDirty = true;
+        // The leaf textures the tiles held use; the others go.
+        for (auto& kv : g_texs)
+            kv.second.used = false;
+        std::vector<std::string> ask;
+        for (const auto& kv : g_tiles)
+            for (const Mesh::Batch& b : kv.second.mesh.dBatches)
+                if (!b.tex.empty())
+                {
+                    Tex& t = g_texs[b.tex];
+                    t.used = true;
+                    if (t.state == Tex::kWant)
+                    {
+                        t.state = Tex::kAsked;
+                        ask.push_back(b.tex);
+                    }
+                }
+        for (auto it = g_texs.begin(); it != g_texs.end();)
+        {
+            if (!it->second.used)
+            {
+                DropGpu(it->second);
+                it = g_texs.erase(it);
+            }
+            else
+                ++it;
+        }
+        if (!ask.empty())
+        {
+            std::lock_guard<std::mutex> lock(g_mx);
+            for (const std::string& n : ask)
+                g_jobs.push_back({ kJobTexture, n, 0, 0, g_gen });
+            g_cv.notify_one();
+        }
     }
     {
         std::vector<std::pair<float, const Inst*>> want;
@@ -628,7 +930,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
                 if (w.second->m->state != Model::kWant)
                     continue;   // two placements of one model
                 w.second->m->state = Model::kAsked;
-                g_jobs.push_back({ true, w.second->p->name, 0, 0, g_gen });
+                g_jobs.push_back({ kJobBuilding, w.second->p->name, 0, 0, g_gen });
             }
             g_cv.notify_one();
         }
@@ -648,6 +950,53 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
             continue;
         }
         ++uploads;
+    }
+    // A tile's doodads, one tile a frame: up to 10 MB.
+    for (auto& kv : g_tiles)
+    {
+        Tile& t = kv.second;
+        if (t.pending || t.dOnGpu || (t.mesh.dSolidIdx.empty() && t.mesh.dLeafIdx.empty()))
+            continue;
+        bool ok = true;
+        if (!t.mesh.dSolidIdx.empty())
+            ok = Upload(dev, t.mesh.dSolid, t.mesh.dSolidIdx.data(), static_cast<UINT>(t.mesh.dSolidIdx.size() * 4),
+                        D3DFMT_INDEX32, t.dSolidVb, t.dSolidIb);
+        if (ok && !t.mesh.dLeafIdx.empty())
+            ok = Upload(dev, t.mesh.dLeaf, t.mesh.dLeafIdx.data(), static_cast<UINT>(t.mesh.dLeafIdx.size() * 4),
+                        D3DFMT_INDEX32, t.dLeafVb, t.dLeafIb, D3DFVF_XYZ | D3DFVF_TEX1);
+        if (!ok)
+        {
+            Log("map terrain: could not make the doodad buffers for tile %d_%d", t.mesh.a, t.mesh.b);
+            DropGpu(t);
+            t.mesh.dSolidIdx.clear();
+            t.mesh.dLeafIdx.clear();
+            t.mesh.dPos.clear();   // the client's own draws cast there instead
+            continue;
+        }
+        t.dOnGpu = true;
+        ++g_dTiles;
+        g_dMs += t.mesh.dMs;
+        coverDirty = true;
+        break;
+    }
+    // Up to eight leaf textures a frame: most are 64 to 256 texels, DXT.
+    int texUploads = 0;
+    for (auto& kv : g_texs)
+    {
+        Tex& t = kv.second;
+        if (t.state != Tex::kLoaded || texUploads >= 8)
+            continue;
+        if (UploadTex(dev, t))
+            t.state = Tex::kReady;
+        else
+        {
+            Log("map terrain: could not make the texture %s (%ux%u, format %d)", kv.first.c_str(), t.data.width,
+                t.data.height, t.data.format);
+            t.state = Tex::kFailed;
+        }
+        t.data = BlpData();
+        ++texUploads;
+        coverDirty = true;
     }
     for (auto& kv : g_models)
     {
@@ -670,7 +1019,10 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         break;
     }
     if (coverDirty)
+    {
         RebuildCover();
+        RebuildDoodadCover();
+    }
 }
 
 bool MapTerrainCovers(float x, float y)
@@ -698,6 +1050,129 @@ bool MapBuildingCovers(const float pos[3])
                     return true;
         }
     return false;
+}
+
+bool MapDoodadCovers(const float pos[3])
+{
+    if (g_doodadGrid.empty())
+        return false;
+    const long long cx = static_cast<long long>(floorf(pos[0] * 0.25f)), cy = static_cast<long long>(floorf(pos[1] * 0.25f));
+    for (long long ox = -1; ox <= 1; ++ox)
+        for (long long oy = -1; oy <= 1; ++oy)
+        {
+            auto it = g_doodadGrid.find(CellKey(cx + ox, cy + oy));
+            if (it == g_doodadGrid.end())
+                continue;
+            const std::vector<float>& p = it->second;
+            for (size_t i = 0; i + 2 < p.size(); i += 3)
+                if (fabsf(p[i] - pos[0]) < 0.5f && fabsf(p[i + 1] - pos[1]) < 0.5f && fabsf(p[i + 2] - pos[2]) < 0.5f)
+                    return true;
+        }
+    return false;
+}
+
+bool MapDoodadNearest(const float from[3], float pos[3])
+{
+    float bestD = 1e30f;
+    bool found = false;
+    for (const auto& kv : g_doodadGrid)
+        for (size_t i = 0; i + 2 < kv.second.size(); i += 3)
+        {
+            const float* p = &kv.second[i];
+            const float dx = p[0] - from[0], dy = p[1] - from[1];
+            if (dx * dx + dy * dy < bestD)
+            {
+                bestD = dx * dx + dy * dy;
+                memcpy(pos, p, 12);
+                found = true;
+            }
+        }
+    return found;
+}
+
+unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float cam[3], bool leaves, DWORD alphaRef,
+                        DWORD alphaFunc)
+{
+    auto* d = dev->lpVtbl;
+    unsigned drawn = 0;
+    bool set = false;
+    // The sampler states the leaves need, put back afterwards: the cache's own draws after these in the
+    // same pass inherit whatever is left.
+    static const D3DSAMPLERSTATETYPE kSamp[] = { D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MINFILTER,
+                                                 D3DSAMP_MAGFILTER, D3DSAMP_MIPFILTER };
+    DWORD saved[5] = {};
+    for (auto& kv : g_tiles)
+    {
+        const Tile& t = kv.second;
+        if (!t.dOnGpu || (leaves ? !t.dLeafVb : !t.dSolidVb))
+            continue;
+        const float x1 = CornerX(t.mesh.b), y1 = CornerY(t.mesh.a);
+        const float lo[3] = { x1 - kTile - 60.0f, y1 - kTile - 60.0f, t.mesh.dMinZ },
+                    hi[3] = { x1 + 60.0f, y1 + 60.0f, t.mesh.dMaxZ };   // a tree reaches past its tile's edge
+        if (Outside(m, lo, hi))
+            continue;
+        if (!set)
+        {
+            d->SetVertexShader(dev, nullptr);
+            d->SetFVF(dev, leaves ? (D3DFVF_XYZ | D3DFVF_TEX1) : D3DFVF_XYZ);
+            d->SetTexture(dev, 0, nullptr);
+            d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, FALSE);
+            if (leaves)
+            {
+                for (int i = 0; i < 5; ++i)
+                    d->GetSamplerState(dev, 0, kSamp[i], &saved[i]);
+                d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+                d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+                d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+                d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+                d->SetSamplerState(dev, 0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+                d->SetRenderState(dev, D3DRS_ALPHAREF, alphaRef);
+                d->SetRenderState(dev, D3DRS_ALPHAFUNC, alphaFunc);
+            }
+            set = true;
+        }
+        D3DMATRIX w = {};
+        w.m[0][0] = w.m[1][1] = w.m[2][2] = w.m[3][3] = 1.0f;
+        w.m[3][0] = x1 - cam[0];
+        w.m[3][1] = y1 - cam[1];
+        w.m[3][2] = -cam[2];
+        d->SetTransform(dev, D3DTS_WORLD, &w);
+        if (!leaves)
+        {
+            d->SetStreamSource(dev, 0, t.dSolidVb, 0, 12);
+            d->SetIndices(dev, t.dSolidIb);
+            d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(t.mesh.dSolid.size() / 3), 0,
+                                    static_cast<UINT>(t.mesh.dSolidIdx.size() / 3));
+            ++drawn;
+            continue;
+        }
+        d->SetStreamSource(dev, 0, t.dLeafVb, 0, 20);
+        d->SetIndices(dev, t.dLeafIb);
+        const UINT nv = static_cast<UINT>(t.mesh.dLeaf.size() / 5);
+        for (const Mesh::Batch& b : t.mesh.dBatches)
+        {
+            IDirect3DTexture9* tex = nullptr;
+            if (!b.tex.empty())
+            {
+                auto it = g_texs.find(b.tex);
+                if (it == g_texs.end() || !it->second.tex)
+                    continue;   // not loaded yet, or missing: an uncut leaf card would be a solid square
+                tex = it->second.tex;
+            }
+            d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(tex));
+            d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, tex ? TRUE : FALSE);
+            d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, nv, b.start, b.count / 3);
+            ++drawn;
+        }
+    }
+    if (set && leaves)
+    {
+        for (int i = 0; i < 5; ++i)
+            d->SetSamplerState(dev, 0, kSamp[i], saved[i]);
+        d->SetTexture(dev, 0, nullptr);
+    }
+    g_dDrawnLast[leaves ? 1 : 0] = drawn;
+    return drawn;
 }
 
 bool MapBuildingNearest(const float from[3], float pos[3], float rot[3][3], char* name, int size)
@@ -806,7 +1281,10 @@ void MapTerrainRelease()
         DropGpu(kv.second);
     for (auto& kv : g_models)
         DropGpu(kv.second);
+    for (auto& kv : g_texs)
+        DropGpu(kv.second);
     g_coverGrid.clear();
+    g_doodadGrid.clear();
     g_dev = nullptr;
 }
 
@@ -820,15 +1298,31 @@ const char* MapTerrainInfo()
         (kv.second.state == Model::kReady ? mReady : kv.second.state == Model::kFailed ? mFailed : mLoading)++;
     for (const Inst& i : g_insts)
         instReady += i.m->state == Model::kReady;
+    unsigned doodads = 0, missing = 0, dTiles = 0, settled = 0, tReady = 0, tFailed = 0, tLoading = 0;
+    unsigned long long dTris = 0;
+    for (const auto& kv : g_tiles)
+    {
+        const Mesh& me = kv.second.mesh;
+        doodads += me.doodads;
+        missing += me.doodadsMissing;
+        dTris += (me.dSolidIdx.size() + me.dLeafIdx.size()) / 3;
+        dTiles += kv.second.dOnGpu;
+        settled += DoodadsSettled(kv.second);
+    }
+    for (const auto& kv : g_texs)
+        (kv.second.state == Tex::kReady ? tReady : kv.second.state == Tex::kFailed ? tFailed : tLoading)++;
     const unsigned done = g_loadedTotal + g_missingTotal, wDone = g_wmoRead + g_wmoFailed;
     _snprintf_s(g_info, sizeof(g_info), _TRUNCATE,
                 "map terrain: map \"%s\", %u archives; tiles in reach: %u ready, %u loading, %u without ground; "
                 "%u drawn into the last map; since the start %u read, %u not found, %.0f ms a tile. Buildings: %u "
                 "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map; "
-                "%.0f ms a model",
+                "%.0f ms a model. Doodads: %u (%u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
+                "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
+                "last map %u solid, %u leaf",
                 g_map.c_str(), MpqArchiveCount(), ready, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
                 static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast,
-                wDone ? g_wmoMs / wDone : 0.0);
+                wDone ? g_wmoMs / wDone : 0.0, doodads, missing, dTris, dTiles, settled,
+                g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1]);
     return g_info;
 }
