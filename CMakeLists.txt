@@ -31,6 +31,7 @@ add_library(comfyfog SHARED
     src/terrainshade.cpp
     src/mpq.cpp
     src/mapterrain.cpp
+    src/mapwmo.cpp
 )
 
 # comfyfog.dll, loaded by VanillaFixes from dlls.txt, same as comfygrass. It exports nothing.

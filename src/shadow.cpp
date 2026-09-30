@@ -2054,8 +2054,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             return false;
         return e.rec.alphaTest != 0 || (e.rec.vs && g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs)) != 0);
     };
-    UINT leafDrawn = 0, fromFiles = 0;
-    unsigned farTiles = 0, nearTiles = 0;
+    UINT leafDrawn = 0, fromFiles = 0, wmoFromFiles = 0;
+    unsigned farTiles = 0, nearTiles = 0, farWmos = 0, nearWmos = 0;
     double passTime[4] = {};
     unsigned long long bytesNow[4] = {};
     for (int pass = 0; pass < 4; ++pass)
@@ -2087,6 +2087,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam);
         if (nearPass) nearTiles = n; else farTiles = n;
     }
+    // The buildings from the files: solid.
+    if (s.mapTerrain && !leafPass)
+    {
+        const unsigned n = MapBuildingsDraw(dev, passAbsToSun, cam);
+        if (nearPass) nearWmos = n; else farWmos = n;
+    }
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
@@ -2102,6 +2108,15 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         {
             if (nearPass != drawFar)   // counted in the first pass that runs: the far map is not redrawn every time
                 ++fromFiles;
+            continue;
+        }
+        // A building's group drawn from the files: the client draws each group with the placement's
+        // matrix, so its place is the building's. Its alpha-keyed parts are not in the files' mesh and
+        // stay (alpha tested), as do the buildings of a tile not read.
+        if (!r.vs && !r.terrain && !r.alphaTest && s.mapTerrain && MapBuildingCovers(e.pos))
+        {
+            if (nearPass != drawFar)
+                ++wmoFromFiles;
             continue;
         }
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
@@ -2178,8 +2193,38 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     passTime[pass] = Now() - passStart;
     }   // the two maps
     if (logThis)
-        Log("shadow: %s; far map %u tiles, near map %u; %u of the game's terrain draws left out for them",
-            MapTerrainInfo(), farTiles, nearTiles, fromFiles);
+    {
+        Log("shadow: %s; far map %u tiles and %u buildings, near map %u and %u; left out for them: %u of the "
+            "game's terrain draws, %u of its building draws", MapTerrainInfo(), farTiles, farWmos, nearTiles,
+            nearWmos, fromFiles, wmoFromFiles);
+        // The check on the placement maths: the nearest building from the files against the client's own
+        // draw nearest to it (fixed-function, not terrain), their places and turns side by side.
+        float bp[3], br[3][3];
+        char bn[160];
+        if (MapBuildingNearest(pl, bp, br, bn, sizeof(bn)))
+        {
+            const Entry* hit = nullptr;
+            float nd = 1e30f;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                    if (!e.rec.vs && !e.rec.terrain)
+                    {
+                        const float dx = e.pos[0] - bp[0], dy = e.pos[1] - bp[1], dz = e.pos[2] - bp[2];
+                        if (dx * dx + dy * dy + dz * dz < nd) { nd = dx * dx + dy * dy + dz * dz; hit = &e; }
+                    }
+            Log("shadow: building %s from the files at (%.2f %.2f %.2f), rows (%.3f %.3f %.3f) (%.3f %.3f %.3f) "
+                "(%.3f %.3f %.3f)", bn, bp[0], bp[1], bp[2], br[0][0], br[0][1], br[0][2], br[1][0], br[1][1],
+                br[1][2], br[2][0], br[2][1], br[2][2]);
+            if (hit)
+            {
+                const D3DMATRIX& a = hit->absolute;
+                Log("shadow: the game's nearest building draw at (%.2f %.2f %.2f), %.2f yd off, rows (%.3f %.3f "
+                    "%.3f) (%.3f %.3f %.3f) (%.3f %.3f %.3f), %u triangles", hit->pos[0], hit->pos[1],
+                    hit->pos[2], sqrtf(nd), a.m[0][0], a.m[0][1], a.m[0][2], a.m[1][0], a.m[1][1], a.m[1][2],
+                    a.m[2][0], a.m[2][1], a.m[2][2], hit->rec.primCount);
+            }
+        }
+    }
     if (logThis)
         Log("shadow: time: far map %.2f + %.2f ms (solid + leaves)%s, near map %.2f + %.2f ms; %u leaf draws; "
             "model constants uploaded %.1f MB (far) + %.1f MB (near)", 1000.0 * passTime[0], 1000.0 * passTime[1],

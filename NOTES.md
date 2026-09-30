@@ -772,6 +772,28 @@ Past the loaded tiles, and on a map without tiles, they still cast.
   the GPU as one managed vertex and index buffer each (0.8 MB), two a frame at most. In the game: 14
   tiles, 36 ms each, and the mountain's shadow followed its ridge.
 
+**The buildings from the map files (2026-09-30).** The first step of building the map from the files
+rather than from what was drawn. Each tile places its WMOs in MODF (64 bytes: the name's index through
+MWID into MWMO, a unique id, position, rotation in degrees, a box). `mapwmo.cpp` reads the root file
+(MOHD: group count and box; MOMT: materials, the blend mode at +8) and each group file
+(`<root>_000.wmo` on: MOPY, MOVI, MOVT inside MOGP, after its 0x44-byte header).
+
+- Kept: opaque triangles. Material 0xFF only collides and is never drawn. Alpha-keyed materials (blend
+  mode 1: grates, vines) are left to the client's own draw, which keeps their cut-out shape; blended
+  ones (glass) cast nothing.
+- The placement is the core's vmap maths: world = (17066.67 - p.z, 17066.67 - p.x, p.y), turned by
+  Rz(r.y) Ry(r.x) Rx(r.z) and a half turn about the vertical. Checked offline: the root's box turned
+  into place matches the tile's box to 0.00 yards for buildings at -35, 8.5 and 69.5 degrees. The tile's
+  box is bigger for buildings with furniture (it takes in the doodads: the abbey's by 3 yards,
+  Stormwind's by 196), so a building is culled by both boxes together. In the game, the probe put the
+  abbey from the files and the client's own draw of it at the same place, 0.00 yards apart, with the
+  same rotation.
+- The client draws each group with the placement's matrix, so a fixed-function draw placed within half
+  a yard of a loaded building is that building, and is left out (not the alpha-tested ones). Near the
+  abbey: 53 buildings from 30 files, 57 ms a file on the loader thread (Stormwind: 700,000 triangles,
+  0.9 s), 112 of the client's building draws left out, and the near map 1.7 ms to 1.2. The owner: the
+  building shadows are much more stable.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

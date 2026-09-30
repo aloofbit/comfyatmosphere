@@ -1,4 +1,5 @@
-// mapterrain: the ground read from the client's map files, for the shadow map. See mapterrain.cpp.
+// mapterrain: the ground and the buildings read from the client's map files, for the shadow map. See
+// mapterrain.cpp.
 #pragma once
 
 #include <d3d9.h>
@@ -11,5 +12,12 @@ bool MapTerrainCovers(float x, float y);
 // Draw every tile that can reach the map into the bound depth target. absToClip: absolute world -> the
 // map's clip space; cam: the camera, which the world matrix is relative to. Returns the tiles drawn.
 unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3]);
+// The buildings (WMOs) the tiles place, the same way; their opaque parts only.
+unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3]);
+// Whether a fixed-function draw placed here (its world matrix's translation) is a building drawn from the
+// files: the client's own draw of it is then not needed.
+bool MapBuildingCovers(const float pos[3]);
+// The building from the files nearest to `from`, for the probe: its place, its turn (row vectors) and name.
+bool MapBuildingNearest(const float from[3], float pos[3], float rot[3][3], char* name, int size);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
 const char* MapTerrainInfo();   // for the probe
