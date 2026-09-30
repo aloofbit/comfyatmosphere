@@ -11,7 +11,9 @@ float SunShadowsShare();                       // 0..1: how much the sun shadows
 
 // The sky near the horizon darkened (or tinted) by as much as [fog] shapes the fog's colour, so fogged
 // ground and trees meet a sky of the same colour. Before the sun shadows; true if drawn.
-bool SkyMatchDraw(IDirect3DDevice9* dev);
+// part: 0 the whole frame by depth; 1 the sky alone, every pixel taken as sky (drawn when the client has
+// drawn its sky and nothing else yet), with this frame's camera given; 2 everything but the sky (part 1 done).
+bool SkyMatchDraw(IDirect3DDevice9* dev, int part = 0, const D3DMATRIX* view = nullptr, const D3DMATRIX* proj = nullptr);
 
 // In comfyfog.cpp: the fog colour the world last set (not black), as the client gave it and as [fog]
 // darken, desaturate and tint shape it.
@@ -21,4 +23,5 @@ bool OwnFogActive();                       // our own fog draws this frame, and 
 
 // Our own fog, over the picture (see sunshadows.cpp): colour as 0xRRGGBB, the height fog's density per
 // yard, and the distance fog's start and end in yards (the game's, as the dial moves them; 0 = none).
-bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart, float distEnd);
+bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart, float distEnd, int part = 0,
+             const D3DMATRIX* view = nullptr, const D3DMATRIX* proj = nullptr);

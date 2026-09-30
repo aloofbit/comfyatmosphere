@@ -256,12 +256,12 @@ float4 gInv0 : register(c0);
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
 float4 gInv3 : register(c3);
-float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ)
+float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ), 1 = every pixel is sky (drawn before the world)
 float4 gF    : register(c5);        // the fog's shaped colour, band
 float4 gA    : register(c6);        // skyMatch
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
-    float raw = saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+    float raw = gZ.z > 0.5 ? 1.0 : saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
     if (raw < 0.99999)
         return 0.0;                                     // not sky: nothing
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -290,18 +290,22 @@ float4 gInv0 : register(c0);
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
 float4 gInv3 : register(c3);
-float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ), the depth of the sky itself
+float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ), the depth of the sky itself, part (see FogDraw)
 float4 gC    : register(c5);        // fog colour, 1 = debug
 float4 gP    : register(c6);        // density, 1 / height, cover start (yards), 1 / (view distance - cover start)
 float4 gD    : register(c7);        // distance fog: start, 1 / (end - start), share (0 = none)
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
-    float  d0  = tex2Dlod(sDepth, float4(uv, 0, 0)).r;
+    // Part 1: drawn before the world, when every pixel is sky.
+    float  d0  = (gZ.w > 0.5 && gZ.w < 1.5) ? 1.0 : tex2Dlod(sDepth, float4(uv, 0, 0)).r;
     float  raw = saturate((d0 - gZ.x) * gZ.y);
     bool   sky = raw >= 0.99999;
     // Past the world's depth slice but in front of the sky itself: scenery the client draws with the
     // sky, far mountains. The game's fog covers it in full, so ours does too.
     bool   far = sky && d0 < gZ.z;
+    // Part 2: the sky had its fog before the world was drawn.
+    if (gZ.w > 1.5 && sky && !far)
+        return float4(0.0, 0.0, 0.0, 0.0);
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp  = ndc.x * gInv0 + ndc.y * gInv1 + min(raw, 0.99999) * gInv2 + gInv3;
     float3 P   = wp.xyz / max(wp.w, 1e-6);
@@ -729,7 +733,7 @@ namespace
     }
 }
 
-bool SkyMatchDraw(IDirect3DDevice9* dev)
+bool SkyMatchDraw(IDirect3DDevice9* dev, int part, const D3DMATRIX* viewIn, const D3DMATRIX* projIn)
 {
     const FogSettings& f = g_cfg.fog;
     DWORD client = 0, shaped = 0;
@@ -752,10 +756,14 @@ bool SkyMatchDraw(IDirect3DDevice9* dev)
     }
     const float amount = f.skyDebug ? 1.0f : f.skyMatch;
 
-    IDirect3DTexture9* depth = DepthWorldTexture();
+    if (part == 2)
+        return true;   // the sky was matched before the world, and the sky is all it touches
+    IDirect3DTexture9* depth = part == 1 ? nullptr : DepthWorldTexture();
     D3DMATRIX view, proj;
-    const bool haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
-    if (!depth || !haveCam)
+    bool haveCam = false;
+    if (viewIn && projIn) { view = *viewIn; proj = *projIn; haveCam = true; }
+    else haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
+    if ((!depth && part != 1) || !haveCam)
         return SkyOutcome(6, !depth ? "no readable depth" : "no camera", client, shaped);
     D3DMATRIX camVP, inv;
     Mul(view, proj, camVP);
@@ -824,6 +832,7 @@ bool SkyMatchDraw(IDirect3DDevice9* dev)
         for (int c = 0; c < 4; ++c)
             pc[r * 4 + c] = inv.m[r][c];
     pc[16] = minZ; pc[17] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f;
+    pc[18] = part == 1 ? 1.0f : 0.0f;
     pc[20] = colour[0]; pc[21] = colour[1]; pc[22] = colour[2]; pc[23] = f.skyBand;
     pc[24] = amount;
     d->SetPixelShaderConstantF(dev, 0, pc, 7);
@@ -875,15 +884,24 @@ namespace
     }
 }
 
-bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart, float distEnd)
+// The sky's part and the rest are drawn apart (2026-09-30). Grass and flowers are drawn blended, but they
+// write depth over the whole of each card, the see-through parts too, so a pass that finds the sky by depth
+// after the world skipped those pixels, and the game's own sky showed through around every blade on a
+// skyline: pale halos. The sky is now fogged when the client has drawn it and nothing else (part 1, every
+// pixel taken as sky, the frame's own camera given), and the world after it (part 2), so the grass blends
+// over our sky as it does over the game's.
+bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart, float distEnd, int part,
+             const D3DMATRIX* viewIn, const D3DMATRIX* projIn)
 {
     const FogSettings& f = g_cfg.fog;
     if (g_failed)
         return FogOutcome(2, "not drawn: the shaders failed");
-    IDirect3DTexture9* depth = DepthWorldTexture();
+    IDirect3DTexture9* depth = part == 1 ? nullptr : DepthWorldTexture();
     D3DMATRIX view, proj;
-    const bool haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
-    if (!depth || !haveCam)
+    bool haveCam = false;
+    if (viewIn && projIn) { view = *viewIn; proj = *projIn; haveCam = true; }
+    else haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
+    if ((!depth && part != 1) || !haveCam)
         return FogOutcome(3, !depth ? "not drawn: no readable depth" : "not drawn: no camera");
     D3DMATRIX camVP, inv;
     Mul(view, proj, camVP);
@@ -963,6 +981,7 @@ bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart
     pc[21] = ((colour >>  8) & 0xFF) / 255.0f;
     pc[22] = ((colour      ) & 0xFF) / 255.0f;
     pc[18] = f.skyDepth;
+    pc[19] = static_cast<float>(part);
     pc[23] = static_cast<float>(f.debug);
     pc[24] = density;
     pc[25] = 1.0f / f.height;

@@ -522,6 +522,59 @@ namespace
     }
 
     bool               g_worldEnded = false;    // the world finished drawing this frame
+
+    // The order of the world's draws, for one frame after each probe (2026-09-30): can our fog go in before
+    // the blended draws? Grass drawn blended leaves the sky's depth behind it, and the fog painted full
+    // horizon fog over every blade on the skyline. Runs of: O depth-writing, B blended without depth writes,
+    // W blended with depth writes, N neither.
+    bool        g_orderArm = false, g_orderRec = false;
+    std::string g_orderRuns;
+    char        g_orderLast = 0;
+    unsigned    g_orderRun = 0, g_orderIndex = 0, g_orderFirstB = 0, g_orderOAfterB = 0;
+    std::string g_orderAfter;   // the first depth-writing draws after the first blended one
+
+    void OrderFlush()
+    {
+        if (g_orderRun)
+        {
+            char t[24];
+            snprintf(t, sizeof(t), "%s%c%u", g_orderRuns.empty() ? "" : " ", g_orderLast, g_orderRun);
+            if (g_orderRuns.size() < 1500)
+                g_orderRuns += t;
+        }
+        g_orderRun = 0;
+    }
+
+    void NoteOrder(IDirect3DDevice9* dev, const char* call, UINT pc, UINT nv)
+    {
+        if (!g_orderRec || g_inPass || g_skyPhase || g_worldEnded)
+            return;
+        DWORD blend = 0, zwrite = 0, atest = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHATESTENABLE, &atest);
+        const char k = zwrite ? (blend ? 'W' : 'O') : (blend ? 'B' : 'N');
+        ++g_orderIndex;
+        if (k == 'B' && !g_orderFirstB)
+            g_orderFirstB = g_orderIndex;
+        if (zwrite && g_orderFirstB)
+        {
+            ++g_orderOAfterB;
+            if (g_orderOAfterB <= 12)
+            {
+                char t[120];
+                snprintf(t, sizeof(t), " [#%u %s %up %uv%s%s%s]", g_orderIndex, call, pc, nv, g_vshader ? " vs" : " ff",
+                         atest ? " atest" : "", blend ? " blend" : "");
+                g_orderAfter += t;
+            }
+        }
+        if (k != g_orderLast)
+        {
+            OrderFlush();
+            g_orderLast = k;
+        }
+        ++g_orderRun;
+    }
     bool               g_volumePending = false; // the map is ready; the light waits for the first UI draw
 
     // The world has finished drawing: depth and the shadow map go in now, with the world's render target
@@ -535,6 +588,25 @@ namespace
             return;
         g_worldEnded = true;
         g_inPass = true;
+        if (g_orderRec)
+        {
+            OrderFlush();
+            Log("order: the world's %u draws, the first blended one at #%u, %u depth-writing draws after it. Runs "
+                "(O depth writes, B blended, W both, N neither): %s", g_orderIndex, g_orderFirstB, g_orderOAfterB,
+                g_orderRuns.c_str());
+            if (!g_orderAfter.empty())
+                Log("order: the first depth-writing draws after it:%s", g_orderAfter.c_str());
+            g_orderRec = false;
+        }
+        if (g_orderArm)
+        {
+            g_orderArm = false;
+            g_orderRec = true;
+            g_orderRuns.clear();
+            g_orderAfter.clear();
+            g_orderLast = 0;
+            g_orderRun = g_orderIndex = g_orderFirstB = g_orderOAfterB = 0;
+        }
         DepthWorldEnded(dev, VolumeActive());   // a multisampled depth buffer is resolved only for the light
         if (VolumeActive())          // the map costs more than the light does; it is only for the light
         {
@@ -571,6 +643,39 @@ namespace
     bool               g_raysDone  = false;
     IDirect3DSurface9* g_bbArmed   = nullptr;   // the back buffer when armed; compared, never dereferenced
 
+    // The sky's fog, or the sky matched to it, drawn when the client has drawn its sky and nothing else
+    // (FogDraw, part 1). Grass on a skyline writes depth over its see-through parts, and a pass after the
+    // world skipped them: the game's sky showed through as pale halos (2026-09-30).
+    bool g_skyEarly = false;
+
+    void OwnFogInputs(DWORD& shaped, float& ds, float& de)
+    {
+        DWORD client = 0;
+        if (!WorldFogColor(client, shaped))
+            shaped = 0x808080;
+        ds = de = 0.0f;
+        if (g_haveWorldFog)
+            RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), ds, de);
+    }
+
+    void SkyEarly(IDirect3DDevice9* dev)
+    {
+        g_skyEarly = false;
+        if (g_inPass || !VolumeActive() || g_cfg.fog.debug || g_cfg.sunShadows.debug || !g_lastPersp)
+            return;
+        g_inPass = true;
+        if (OwnFog())
+        {
+            DWORD shaped = 0;
+            float ds = 0.0f, de = 0.0f;
+            OwnFogInputs(shaped, ds, de);
+            g_skyEarly = FogDraw(dev, shaped, g_cfg.fog.density, ds, de, 1, &g_viewAll, &g_projAll);
+        }
+        else
+            g_skyEarly = SkyMatchDraw(dev, 1, &g_viewAll, &g_projAll);
+        g_inPass = false;
+    }
+
     void FireRays(IDirect3DDevice9* dev, const char* where)
     {
         g_raysArmed = false;
@@ -584,7 +689,7 @@ namespace
             // The shade first: it darkens surfaces, and the light in the air goes over it.
             BenchSectionBegin(dev, kBenchSunShadows);
             if (!OwnFog())
-                SkyMatchDraw(dev);   // the sky near the horizon, to the fog's colour; before the shade
+                SkyMatchDraw(dev, g_skyEarly ? 2 : 0);   // the sky near the horizon, to the fog's colour
             const bool shaded = SunShadowsDraw(dev);
             // A sun shadow debug view is shown alone: fog, light and lamps drawn over it made every
             // object a grey shape by its depth, which read as part of the view.
@@ -592,14 +697,11 @@ namespace
             // Our fog over the shaded world, before the light in the air.
             if (OwnFog() && !shadowDebug)
             {
-                DWORD client = 0, shaped = 0;
-                if (!WorldFogColor(client, shaped))
-                    shaped = 0x808080;
                 // Its distance part: the game's own fog distances, as the dial moves them.
+                DWORD shaped = 0;
                 float ds = 0.0f, de = 0.0f;
-                if (g_haveWorldFog)
-                    RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), ds, de);
-                FogDraw(dev, shaped, g_cfg.fog.density, ds, de);
+                OwnFogInputs(shaped, ds, de);
+                FogDraw(dev, shaped, g_cfg.fog.density, ds, de, g_skyEarly ? 2 : 0);
             }
             BenchSectionEnd(dev, kBenchSunShadows, shaded);
             BenchSectionBegin(dev, kBenchVolume);
@@ -869,6 +971,7 @@ namespace
         g_lastPersp  = false;
         g_worldEnded = false;
         g_skyPhase  = true;
+        g_skyEarly  = false;
         SunFrameStart();
 
         PollKeys(dev);
@@ -1422,6 +1525,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT sv, UINT pc)
     {
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
+        NoteOrder(dev, "Draw", pc, VertsForPrims(prim, pc));
         if (!g_inPass)
             RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
         NoteLampDraw(dev, false, sv, VertsForPrims(prim, pc));
@@ -1446,6 +1550,7 @@ namespace
         if (zwrite || g_frameDraws >= 48)      // 16 until the night sky's dozen extra draws (see NoteSkySun)
         {
             g_skyPhase = false;
+            SkyEarly(dev);                     // the sky is drawn and nothing else: its fog goes in now
             return false;
         }
         if (prim != D3DPT_TRIANGLESTRIP || nv <= 8)
@@ -1480,6 +1585,7 @@ namespace
             CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
             return S_OK;
         }
+        NoteOrder(dev, "Indexed", pc, nv);
         if (!g_inPass)
             RecordDraw(dev, true, prim, bvi, mvi, nv, si, pc);
         NoteLampDraw(dev, true, static_cast<UINT>(bvi) + mvi, nv);
@@ -1491,6 +1597,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawPrimitiveUP(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc,
                                                 const void* data, UINT stride)
     {
+        NoteOrder(dev, "UP", pc, VertsForPrims(prim, pc));
         NoteLampDraw(dev, false, 0, VertsForPrims(prim, pc), data, stride);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitiveUP", prim, pc, false, 0, VertsForPrims(prim, pc), data);
@@ -1501,6 +1608,7 @@ namespace
                                                        UINT nv, UINT pc, const void* idx, D3DFORMAT fmt,
                                                        const void* data, UINT stride)
     {
+        NoteOrder(dev, "IndexedUP", pc, nv);
         NoteLampDraw(dev, true, mvi, nv, data, stride);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexedUP", prim, pc, true, 0, nv, data);
@@ -1709,6 +1817,7 @@ bool WorldFogColor(DWORD& client, DWORD& shaped)
 void ProbeArm()
 {
     g_probe.armed = true;
+    g_orderArm = true;
 }
 
 bool OwnFogActive()

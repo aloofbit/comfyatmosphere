@@ -893,6 +893,16 @@ rays, the light's glow and the dusk fade keep the real sun.
   terrain shaded. The far map's test takes more slack with distance: `[sunshadows] lodBias` 2 yards for every
   100 past `lodStart` (80). The owner: better.
 
+**Pale halos round grass on a skyline.** With Atmospheric Fog on, grass and flowers against the sky showed a
+light-blue fringe; off, none. The probe now records one frame's world draws in order (`order:` lines): 415
+draws, `O68 B1 O196 W129 O2 W2 B8 O1 W1 B6 N1`, where W is blended and writing depth. The grass is W: blended,
+but it writes depth over the whole card, see-through parts too. Our fog (and the sky match) found the sky by
+depth after the world, so it skipped every pixel inside a card, and the game's own sky showed through. The
+sky's part is now drawn when the client has drawn its sky and nothing else (`FogDraw` part 1, every pixel
+taken as sky, the frame's own view and projection, from the first depth-writing draw in `IsCloudDraw`), and
+the rest after the world (part 2, the true sky left alone; the far scenery drawn with the sky is still part 2).
+The grass now blends over our sky.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
