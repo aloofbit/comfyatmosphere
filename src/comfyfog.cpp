@@ -309,6 +309,12 @@ namespace
         uint32_t constSets = 0;
         uint32_t constLogs = 0;
         uint32_t boundary  = 0xFFFFFFFF;  // draw index the world ended at, for the detail window
+        // After our passes (2026-09-30): with the chat hidden (/togglechat) the passes ran and did not show,
+        // and the detail window ended just after them. Every later draw is counted, and each one that is not
+        // alpha blended or has a pixel shader is listed: one of those could paint over the passes.
+        bool     afterPass = false;
+        uint32_t lateDraws = 0;
+        uint32_t lateListed = 0;
     };
 
     Probe    g_probe;
@@ -703,6 +709,9 @@ namespace
     bool               g_raysArmed = false;
     bool               g_raysDone  = false;
     IDirect3DSurface9* g_bbArmed   = nullptr;   // the back buffer when armed; compared, never dereferenced
+    // Where the passes ran in ordinary frames since the last probe (2026-09-30): with the chat hidden they
+    // stopped showing, and a probe frame showed them drawn. Logged when a probe opens.
+    uint32_t g_placeFrames = 0, g_placeUi = 0, g_placePresent = 0, g_placeUnarmed = 0, g_placeNoWorld = 0;
 
     // The sky's fog, or the sky matched to it, drawn when the client has drawn its sky and nothing else
     // (FogDraw, part 1). Grass on a skyline writes depth over its see-through parts, and a pass after the
@@ -775,6 +784,27 @@ namespace
         g_raysArmed = false;
         g_raysDone  = true;
         g_inPass = true;
+        // The whole back buffer (2026-09-30). The passes run just before the first UI draw, with the state the
+        // client set for it, viewport included. With the chat hidden (/togglechat) that first draw is the
+        // player's portrait, and its viewport is the portrait's box: every pass was drawn inside it and none
+        // showed on screen. A probe did not see it, since its read-backs set a target of their own.
+        D3DVIEWPORT9 oldVp = {};
+        const bool haveVp = SUCCEEDED(dev->lpVtbl->GetViewport(dev, &oldVp));
+        {
+            IDirect3DSurface9* rt = nullptr;
+            dev->lpVtbl->GetRenderTarget(dev, 0, &rt);
+            if (rt)
+            {
+                D3DSURFACE_DESC rd = {};
+                rt->lpVtbl->GetDesc(rt, &rd);
+                const D3DVIEWPORT9 full = { 0, 0, rd.Width, rd.Height, 0.0f, 1.0f };
+                if (g_probe.active && haveVp)
+                    Log("  [draw %4u] VIEWPORT       the client's (%lu %lu %lu x %lu), the target %u x %u",
+                        g_probe.draws, oldVp.X, oldVp.Y, oldVp.Width, oldVp.Height, rd.Width, rd.Height);
+                dev->lpVtbl->SetViewport(dev, &full);
+                rt->lpVtbl->Release(rt);
+            }
+        }
         if (g_volumePending)
         {
             // The light first: the rays streak what is bright on screen, and the light was part of that
@@ -809,9 +839,16 @@ namespace
         BenchSectionBegin(dev, kBenchRays);
         const bool ran = RaysBeforeUI(dev);
         BenchSectionEnd(dev, kBenchRays, ran);
+        if (haveVp)
+            dev->lpVtbl->SetViewport(dev, &oldVp);
         g_inPass = false;
         if (ran && g_probe.active)
             Log("  [draw %4u] RAYS PASS      %s", g_probe.draws, where);
+        if (g_probe.active)
+        {
+            Log("  [draw %4u] PASSES DONE    %s", g_probe.draws, where);
+            g_probe.afterPass = true;
+        }
     }
 
     // Called before every draw is forwarded; does nothing unless armed.
@@ -994,6 +1031,15 @@ namespace
         // Between captures, so the pass's own draws and state changes never show up in a probe.
         // Armed but never fired: nothing was drawn to the back buffer after the world (UI hidden, say),
         // so the finished frame is exactly the world and the pass can run here.
+        ++g_placeFrames;
+        if (g_raysDone)
+            ++g_placeUi;
+        else if (g_raysArmed)
+            ++g_placePresent;
+        else if (g_worldEnded)
+            ++g_placeUnarmed;
+        else
+            ++g_placeNoWorld;
         if (g_raysArmed)
             FireRays(dev, "at Present (no UI draw followed)");
         g_inPass = true;
@@ -1014,6 +1060,8 @@ namespace
 
         if (g_probe.active)
         {
+            Log("  after our passes: %u draws, %u of them unblended or pixel-shaded (listed as LATE)",
+                g_probe.lateDraws, g_probe.lateListed);
             Log("--- end frame %llu: %u draws, %u fogged (%u of those through a vertex shader), "
                 "%u fog state sets, %u vs constant uploads ---",
                 g_frame, g_probe.draws, g_probe.fogged, g_probe.foggedVs, g_probe.fogSets, g_probe.constSets);
@@ -1082,6 +1130,10 @@ namespace
             g_probe = Probe();
             g_probe.active = true;
             LogDial("probe");
+            Log("passes: %u frames since the last probe: before the UI in %u, at Present in %u, world ended but "
+                "never armed in %u, no world end found in %u", g_placeFrames, g_placeUi, g_placePresent,
+                g_placeUnarmed, g_placeNoWorld);
+            g_placeFrames = g_placeUi = g_placePresent = g_placeUnarmed = g_placeNoWorld = 0;
             float hour = 0.0f;
             if (ClientHour(hour))
                 Log("night: game time %02d:%02d, night %.2f, rays and light x %.2f ([night] strength %.0f)",
@@ -1409,7 +1461,40 @@ namespace
         const bool early    = g_probe.draws < 300;
         const bool boundary = g_probe.boundary != 0xFFFFFFFF && g_probe.draws <= g_probe.boundary + 40;
         if (!early && !boundary)
+        {
+            if (!g_probe.afterPass)
+                return;
+            ++g_probe.lateDraws;
+            IDirect3DSurface9*     lrt = nullptr;
+            IDirect3DPixelShader9* lps = nullptr;
+            IDirect3DBaseTexture9* ltex = nullptr;
+            DWORD lblend = 0, lcw = 0;
+            dev->lpVtbl->GetRenderTarget(dev, 0, &lrt);
+            dev->lpVtbl->GetPixelShader(dev, &lps);
+            dev->lpVtbl->GetTexture(dev, 0, &ltex);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &lblend);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &lcw);
+            if ((!lblend || lps) && lcw && g_probe.lateListed < 60)
+            {
+                ++g_probe.lateListed;
+                UINT w = 0, h = 0;
+                if (ltex && ltex->lpVtbl->GetType(ltex) == D3DRTYPE_TEXTURE)
+                {
+                    D3DSURFACE_DESC td = {};
+                    auto* t2 = reinterpret_cast<IDirect3DTexture9*>(ltex);
+                    if (SUCCEEDED(t2->lpVtbl->GetLevelDesc(t2, 0, &td)))
+                        w = td.Width, h = td.Height;
+                }
+                DWORD fvf = 0;
+                dev->lpVtbl->GetFVF(dev, &fvf);
+                Log("  [draw %4u] LATE %-15s prims=%u verts=%u tex0=%p %ux%u ps=%p vs=%p blend=%u cw=0x%X fvf=0x%X rt=%p",
+                    g_probe.draws, kind, pc, nv, ltex, w, h, lps, g_vshader, lblend, lcw, fvf, lrt);
+            }
+            if (lrt) lrt->lpVtbl->Release(lrt);
+            if (lps) lps->lpVtbl->Release(lps);
+            if (ltex) ltex->lpVtbl->Release(ltex);
             return;
+        }
         IDirect3DSurface9*     rt  = nullptr;
         IDirect3DBaseTexture9* tex = nullptr;
         IDirect3DPixelShader9* ps  = nullptr;

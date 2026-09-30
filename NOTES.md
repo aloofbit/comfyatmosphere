@@ -973,6 +973,21 @@ within 25 yards always counts and past that only one within about 70 degrees of 
 (`LampsGather` takes the view's direction), and `[lamps] fogReach` (Lamp Distance, percent) stretches the fade
 and the 120-yard cut-off.
 
+## Every effect gone with the chat hidden (2026-09-30)
+
+The owner's `tchat` button (ClearChat's `/togglechat`, which moves the chat frames under a hidden parent)
+made the light, the shadows and the lamps vanish, debug views included, until a relog. Probes showed each pass
+drawn with the right values, before the UI, in every frame (1,478 of 1,478 with the chat shown, 405 of 405
+with it hidden), and nothing unblended or pixel-shaded drawn after them. The cause was the viewport. The
+passes run just before the first UI draw, with the state the client set for that draw. With the chat shown
+that is the chat, drawn with the whole screen as its viewport; with it hidden it is, by the draws that
+follow, the player's portrait, and its viewport is the portrait's box. None of the passes set a viewport, so
+all of them drew inside that box. A probe's read-backs set a target of their own, which resets the viewport,
+so their values looked right. `FireRays` now sets the whole target as the viewport and puts the client's back
+afterwards. A probe logs the client's viewport there (`VIEWPORT`), how many frames since the last probe ran
+the passes before the UI, at Present or not at all (`passes:`), and every unblended or pixel-shaded draw after
+them (`LATE`).
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
