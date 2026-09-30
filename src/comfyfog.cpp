@@ -41,6 +41,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <unordered_set>
 #include <set>
 #include <utility>
 #include <vector>
@@ -522,6 +523,9 @@ namespace
     }
 
     bool               g_worldEnded = false;    // the world finished drawing this frame
+    std::unordered_set<void*> g_waterPs;        // the client's water pixel shaders (IsWaterDraw)
+    float g_fogGround = 0.0f, g_fogCamZ = 0.0f, g_fogDensity = 0.0f;   // FogDensityAtCamera's last, for the probe
+    bool  g_fogGrounded = false;
 
     // The order of the world's draws, for one frame after each probe (2026-09-30): can our fog go in before
     // the blended draws? Grass drawn blended leaves the sky's depth behind it, and the fog painted full
@@ -532,6 +536,8 @@ namespace
     char        g_orderLast = 0;
     unsigned    g_orderRun = 0, g_orderIndex = 0, g_orderFirstB = 0, g_orderOAfterB = 0;
     std::string g_orderAfter;   // the first depth-writing draws after the first blended one
+    std::string g_orderBlended; // every blended draw without depth writes: to tell the water (2026-09-30)
+    unsigned    g_orderBCount = 0;
 
     void OrderFlush()
     {
@@ -557,6 +563,26 @@ namespace
         ++g_orderIndex;
         if (k == 'B' && !g_orderFirstB)
             g_orderFirstB = g_orderIndex;
+        // The blended draws that write no depth, each: the water is among them, and the fog cannot see it.
+        if (k == 'B' && ++g_orderBCount <= 40)
+        {
+            DWORD src = 0, dst = 0, fvf = 0, fog = 0;
+            dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+            dev->lpVtbl->GetRenderState(dev, D3DRS_FOGENABLE, &fog);
+            dev->lpVtbl->GetFVF(dev, &fvf);
+            IDirect3DBaseTexture9* tex = nullptr;
+            dev->lpVtbl->GetTexture(dev, 0, &tex);
+            IDirect3DPixelShader9* ps = nullptr;
+            dev->lpVtbl->GetPixelShader(dev, &ps);
+            char t[200];
+            snprintf(t, sizeof(t), " [#%u %s %up %uv%s ps %p tex %p fvf 0x%X blend %u/%u%s world (%.0f %.0f %.0f)]",
+                     g_orderIndex, call, pc, nv, g_vshader ? " vs" : " ff", ps, tex, fvf, src, dst, fog ? " fog" : "",
+                     g_world.m[3][0], g_world.m[3][1], g_world.m[3][2]);
+            g_orderBlended += t;
+            if (tex) tex->lpVtbl->Release(tex);
+            if (ps) ps->lpVtbl->Release(ps);
+        }
         if (zwrite && g_orderFirstB)
         {
             ++g_orderOAfterB;
@@ -596,6 +622,8 @@ namespace
                 g_orderRuns.c_str());
             if (!g_orderAfter.empty())
                 Log("order: the first depth-writing draws after it:%s", g_orderAfter.c_str());
+            if (!g_orderBlended.empty())
+                Log("order: %u blended draws without depth writes:%s", g_orderBCount, g_orderBlended.c_str());
             g_orderRec = false;
         }
         if (g_orderArm)
@@ -604,6 +632,8 @@ namespace
             g_orderRec = true;
             g_orderRuns.clear();
             g_orderAfter.clear();
+            g_orderBlended.clear();
+            g_orderBCount = 0;
             g_orderLast = 0;
             g_orderRun = g_orderIndex = g_orderFirstB = g_orderOAfterB = 0;
         }
@@ -658,6 +688,39 @@ namespace
             RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), ds, de);
     }
 
+    // The ground haze at the camera's height ([fog] ground): the fog is density at the ground around you and
+    // thins by e every [fog] height yards up, so at the camera it is density * e^-(camera - ground) / height.
+    // The ground's height glides (3 s), so walking over a ridge does not pop the fog. Capped to 4 heights
+    // either way.
+    float FogDensityAtCamera()
+    {
+        const FogSettings& f = g_cfg.fog;
+        static float base = 0.0f;
+        static bool  haveBase = false;
+        static double last = 0.0;
+        float cam[3], ground;
+        if (!f.ground || !g_cfg.shadow.mapTerrain || !ClientCamera(cam))
+            return f.density;
+        float pl[3];
+        const float* at = ClientPlayer(pl) ? pl : cam;
+        if (MapGroundBase(at, f.groundRadius, ground))
+        {
+            const double now = Now();
+            if (!haveBase || now - last > 2.0 || fabsf(ground - base) > 200.0f)
+                base = ground;
+            else
+                base += (ground - base) * static_cast<float>(1.0 - exp(-(now - last) / 3.0));
+            haveBase = true;
+            last = now;
+        }
+        if (!haveBase)
+            return f.density;
+        float up = (cam[2] - base) / f.height;
+        up = up < -4.0f ? -4.0f : (up > 4.0f ? 4.0f : up);
+        g_fogGround = base; g_fogCamZ = cam[2]; g_fogDensity = f.density * expf(-up); g_fogGrounded = true;
+        return g_fogDensity;
+    }
+
     void SkyEarly(IDirect3DDevice9* dev)
     {
         g_skyEarly = false;
@@ -669,7 +732,7 @@ namespace
             DWORD shaped = 0;
             float ds = 0.0f, de = 0.0f;
             OwnFogInputs(shaped, ds, de);
-            g_skyEarly = FogDraw(dev, shaped, g_cfg.fog.density, ds, de, 1, &g_viewAll, &g_projAll);
+            g_skyEarly = FogDraw(dev, shaped, FogDensityAtCamera(), ds, de, 1, &g_viewAll, &g_projAll);
         }
         else
             g_skyEarly = SkyMatchDraw(dev, 1, &g_viewAll, &g_projAll);
@@ -701,7 +764,7 @@ namespace
                 DWORD shaped = 0;
                 float ds = 0.0f, de = 0.0f;
                 OwnFogInputs(shaped, ds, de);
-                FogDraw(dev, shaped, g_cfg.fog.density, ds, de, g_skyEarly ? 2 : 0);
+                FogDraw(dev, shaped, FogDensityAtCamera(), ds, de, g_skyEarly ? 2 : 0);
             }
             BenchSectionEnd(dev, kBenchSunShadows, shaded);
             BenchSectionBegin(dev, kBenchVolume);
@@ -854,6 +917,7 @@ namespace
             SunShadowsReset();
             TerrainShadeReset();
             MapTerrainRelease();
+            g_waterPs.clear();
             g_fog       = ClientFog();
             g_haveWorldFog = false;
             g_haveWorldFogColor = false;
@@ -994,6 +1058,12 @@ namespace
                     g_cfg.night.strength);
             else
                 Log("night: no game clock at [client] clockAddr, so the rays and the light keep their day strength");
+            if (g_fogGrounded)
+                Log("fog: the ground around you at %.1f, the camera at %.1f: ground haze %.5f a yard there, %.5f at "
+                    "the camera ([fog] ground, height %.0f)", g_fogGround, g_fogCamZ, g_cfg.fog.density, g_fogDensity,
+                    g_cfg.fog.height);
+            else
+                Log("fog: ground haze at the camera's height ([fog] ground off, or no tile from the files)");
             DepthProbe();
             ShadowProbe();
             VolumeProbe();
@@ -1567,6 +1637,40 @@ namespace
         return true;
     }
 
+    // The water writes depth ([fog] waterDepth, 2026-09-30). The client draws it blended with depth writes
+    // off, so every pass that reads depth saw what lay under it: in Stormwind harbour the open sea showed
+    // through the fog that covered the ships in front of it. Measured there: the sea is a run of about 400
+    // draws, one per chunk, each fixed-function, 81 vertices (a 9 x 9 grid), vertex format 0x212, through
+    // the client's water pixel shader, alpha blended. That shader is learnt from the 81-vertex draws, so
+    // water in buildings, whose grids have other sizes, is taken too. Depth writes go on for the draw and
+    // off after it: what the client draws later behind the surface is then hidden by it, as under murky
+    // water.
+    bool IsWaterDraw(IDirect3DDevice9* dev, UINT nv)
+    {
+        if (!g_cfg.fog.waterDepth || g_inPass || g_skyPhase || g_worldEnded || g_vshader || !VolumeActive())
+            return false;
+        DWORD blend = 0, zwrite = 1, fvf = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        if (zwrite)
+            return false;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        dev->lpVtbl->GetFVF(dev, &fvf);
+        if (!blend || fvf != 0x212)
+            return false;
+        IDirect3DPixelShader9* ps = nullptr;
+        dev->lpVtbl->GetPixelShader(dev, &ps);
+        if (!ps)
+            return false;
+        ps->lpVtbl->Release(ps);
+        if (nv == 81)
+        {
+            if (g_waterPs.size() < 16 && g_waterPs.insert(ps).second)
+                Log("water: pixel shader %p draws the water; it writes depth now ([fog] waterDepth)", ps);
+            return true;
+        }
+        return g_waterPs.count(ps) != 0;
+    }
+
     HRESULT STDMETHODCALLTYPE hkDrawIndexedPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi,
                                                      UINT mvi, UINT nv, UINT si, UINT pc)
     {
@@ -1591,6 +1695,13 @@ namespace
         NoteLampDraw(dev, true, static_cast<UINT>(bvi) + mvi, nv);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
+        if (IsWaterDraw(dev, nv))
+        {
+            dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
+            const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+            dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
+            return hr;
+        }
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
     }
 

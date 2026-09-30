@@ -34,6 +34,11 @@ COMFYATMOSPHERE_FOG_HEIGHT     = "Fog Height";
 COMFYATMOSPHERE_FOG_FADE       = "Fog Edge Fade";
 COMFYATMOSPHERE_FOG_DARKNESS   = "Fog Darkness";
 COMFYATMOSPHERE_FOG_GREYNESS   = "Fog Greyness";
+COMFYATMOSPHERE_FOG_SUN_GLOW   = "Fog Sun Glow";
+COMFYATMOSPHERE_FOG_REACH      = "Fog Distance";
+COMFYATMOSPHERE_FOG_NEAR       = "Fog Near You";
+COMFYATMOSPHERE_FOG_FAR        = "Distance Fog Amount";
+COMFYATMOSPHERE_FOG_SUN_BRIGHT = "Fog Sun Brightness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
@@ -47,6 +52,8 @@ COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
 COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
 COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
+COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
+COMFYATMOSPHERE_SUN_TINT       = "Sunlight Warmth";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
 COMFYATMOSPHERE_SHADOW_SOFTNESS = "Shadow Softness";
 COMFYATMOSPHERE_SHADOW_EVERY   = "Shadow Redraw";
@@ -80,6 +87,39 @@ local ENTRIES = {
 		type = "slider",
 		cvar = "comfyFogThickness",
 		dependency = { "comfyFog", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent of the game's own fog distance: comfyfog.dll divides by 100 for [fog] reach.
+		name = "COMFYATMOSPHERE_FOG_REACH",
+		desc = "How far away the fog goes solid, as a share of the game's own fog distance. Higher lets you see further.",
+		type = "slider",
+		cvar = "comfyFogReach",
+		minval = 20,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] haze, the fog already where you stand when Fog Thickness is high.
+		name = "COMFYATMOSPHERE_FOG_NEAR",
+		desc = "How much fog there is right where you stand. Lower keeps things near you clear.",
+		type = "slider",
+		cvar = "comfyFogNear",
+		minval = 0,
+		maxval = 90,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] distance, the most the distance fog covers.
+		name = "COMFYATMOSPHERE_FOG_FAR",
+		desc = "The most the distance fog hides. Below 100, far shapes never vanish completely.",
+		type = "slider",
+		cvar = "comfyFogFar",
 		minval = 0,
 		maxval = 100,
 		step = 5,
@@ -138,6 +178,28 @@ local ENTRIES = {
 		desc = "How much of the fog colour is taken out, toward grey.",
 		type = "slider",
 		cvar = "comfyFogGreyness",
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: comfyfog.dll divides by 100 for [fog] sunGlow.
+		name = "COMFYATMOSPHERE_FOG_SUN_GLOW",
+		desc = "The fog turns warm looking toward the sun and cool looking away from it.",
+		type = "slider",
+		cvar = "comfyFogSunGlow",
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: comfyfog.dll divides by 100 for [fog] sunBright.
+		name = "COMFYATMOSPHERE_FOG_SUN_BRIGHT",
+		desc = "How much brighter the fog is looking straight into the sun.",
+		type = "slider",
+		cvar = "comfyFogSunBright",
 		minval = 0,
 		maxval = 100,
 		step = 5,
@@ -271,6 +333,30 @@ local ENTRIES = {
 		dependency = { "comfyVolume", "1" },
 		minval = 0,
 		maxval = 50,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: comfyfog.dll divides by 100 for [sunshadows] shadeTint.
+		name = "COMFYATMOSPHERE_SHADE_TINT",
+		desc = "Shade takes the sky's cool blue instead of only going darker.",
+		type = "slider",
+		cvar = "comfyShadeTint",
+		dependency = { "comfySunShadows", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: comfyfog.dll divides by 100 for [sunshadows] sunTint.
+		name = "COMFYATMOSPHERE_SUN_TINT",
+		desc = "Sunlit ground takes a warm colour.",
+		type = "slider",
+		cvar = "comfySunTint",
+		dependency = { "comfySunShadows", "1" },
+		minval = 0,
+		maxval = 100,
 		step = 5,
 		numberLabels = 1,
 	},

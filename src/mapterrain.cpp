@@ -95,6 +95,7 @@ namespace
         unsigned               gen = 0;
         bool                   found = false;   // the file exists and was read
         std::vector<float>     v;               // x y z, x and y relative to the tile's corner
+        std::vector<float>     grid;            // 129 x 129 outer heights, rows along -x (NaN: no chunk)
         std::vector<uint16_t>  idx;
         float                  minZ = 0.0f, maxZ = 0.0f;
         std::vector<Placement> wmos;
@@ -335,6 +336,7 @@ namespace
         m.v.clear();
         m.idx.clear();
         m.wmos.clear();
+        m.grid.assign(129 * 129, NAN);
         m.minZ = 1e9f;
         m.maxZ = -1e9f;
         unsigned chunks = 0;
@@ -372,6 +374,13 @@ namespace
                             const float r = rem < 9 ? static_cast<float>(row) : row + 0.5f;
                             const float c = rem < 9 ? static_cast<float>(rem) : rem - 9 + 0.5f;
                             const float z = pos[2] + height[k];
+                            if (rem < 9)   // an outer vertex: into the height grid
+                            {
+                                const int gx = static_cast<int>(floorf((ox - pos[0]) / kUnit + 0.5f)) + row;
+                                const int gy = static_cast<int>(floorf((oy - pos[1]) / kUnit + 0.5f)) + rem;
+                                if (gx >= 0 && gx < 129 && gy >= 0 && gy < 129)
+                                    m.grid[gx * 129 + gy] = z;
+                            }
                             m.v.push_back(pos[0] - r * kUnit - ox);
                             m.v.push_back(pos[1] - c * kUnit - oy);
                             m.v.push_back(z);
@@ -1031,6 +1040,48 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach)
         RebuildDoodadCover();
         ++g_filesVersion;
     }
+}
+
+bool MapGroundHeight(float x, float y, float& z)
+{
+    const int a = static_cast<int>(floorf(32.0f - y / kTile)), b = static_cast<int>(floorf(32.0f - x / kTile));
+    auto it = g_tiles.find(Key(a, b));
+    if (it == g_tiles.end() || it->second.pending || it->second.mesh.grid.size() != 129 * 129)
+        return false;
+    const std::vector<float>& g = it->second.mesh.grid;
+    const float fx = (CornerX(b) - x) / kUnit, fy = (CornerY(a) - y) / kUnit;
+    const int ix = (std::min)(static_cast<int>(fx), 127), iy = (std::min)(static_cast<int>(fy), 127);
+    if (ix < 0 || iy < 0)
+        return false;
+    const float tx = fx - ix, ty = fy - iy;
+    const float h00 = g[ix * 129 + iy], h01 = g[ix * 129 + iy + 1], h10 = g[(ix + 1) * 129 + iy],
+                h11 = g[(ix + 1) * 129 + iy + 1];
+    if (!(h00 == h00 && h01 == h01 && h10 == h10 && h11 == h11))
+        return false;
+    z = (h00 * (1 - ty) + h01 * ty) * (1 - tx) + (h10 * (1 - ty) + h11 * ty) * tx;
+    return true;
+}
+
+bool MapGroundBase(const float at[3], float radius, float& z)
+{
+    float sum = 0.0f;
+    int n = 0;
+    for (int i = -3; i <= 3; ++i)
+        for (int j = -3; j <= 3; ++j)
+        {
+            if (i * i + j * j > 10)
+                continue;   // a disc, not the square
+            float h;
+            if (MapGroundHeight(at[0] + i * radius / 3.0f, at[1] + j * radius / 3.0f, h))
+            {
+                sum += h;
+                ++n;
+            }
+        }
+    if (n < 5)
+        return false;
+    z = sum / n;
+    return true;
 }
 
 bool MapTerrainCovers(float x, float y)

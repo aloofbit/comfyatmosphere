@@ -903,6 +903,34 @@ taken as sky, the frame's own view and projection, from the first depth-writing 
 the rest after the world (part 2, the true sky left alone; the far scenery drawn with the sky is still part 2).
 The grass now blends over our sky.
 
+**Colour in the light (2026-09-30).** The owner found open land grey. Shade now leans to a cool sky colour
+and sunlit ground to a warm one (`[sunshadows] shadeColor`, `shadeTint`, `sunColor`, `sunTint`), and our fog
+is warm toward the sun and cool away from it (`[fog] sunGlow`, `glowColor`, `awayColor`, `sunBright`).
+Every colour is scaled to a brightness of 1 first, so it changes the hue and not the light. Sliders:
+Shade Colour, Sunlight Warmth, Fog Sun Glow, Fog Sun Brightness.
+
+**Water.** The sea is a run of about 400 draws, each fixed-function, 81 vertices (a 9 x 9 grid), vertex format
+0x212, through the client's water pixel shader, blended, with no depth writes: every pass that reads depth
+saw what lay under it, and in Stormwind harbour the open sea showed through the fog on the ships. Depth
+writes are turned on for those draws (`[fog] waterDepth`); the shader is learnt from the 81-vertex draws, so
+water in buildings is taken too. The probe lists the blended draws without depth writes (`order:` lines).
+
+**Our fog is off by default.** Tuned scene by scene (the dial, height fog, fog at the camera, a greyer and
+darker colour, sun glow, full fog on far scenery), it greyed the open land, and the owner found the game
+better without it. `[fog] enabled` is 0, and `desaturate` and `darken` are 0: they shape the game's own fog
+colour too. Along the way: sliders for `reach` (Fog Distance), `haze` (Fog Near You) and `distance`
+(Distance Fog Amount), which did not change the harbour view: its haze was the height fog. That fog was
+density at the camera's height, thickening by e every Fog Height yards below, and from the cliff the sea 50
+yards down had e^(50/15) = 28 times it. `[fog] ground` makes density the fog at the average ground height
+within `groundRadius` (150) yards, from the map files (a 129 x 129 height grid for each tile), gliding over 3
+seconds. If our fog comes back, the next step is to make it match the game's own first and add each extra
+only where it looks better.
+
+**Bird trails.** A bird moved further between frames than a draw is matched over, so each place it flew
+through became an entry of its own, drawn once or twice and then kept as a still thing: a trail of shade.
+It is a unit, but its model flies high over the unit's place. A model drawn on fewer than 20 redraws goes the
+moment it is not drawn (`Entry::drawnFor`), and `[shadow] staleTime` is 8 seconds.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

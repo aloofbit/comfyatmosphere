@@ -9,7 +9,10 @@
 
 struct FogSettings
 {
-    bool  enabled   = true;
+    // Off by default since 2026-09-30: with it off the game's own fog is used, untouched. The owner found
+    // the game looked better that way than with ours, which had grown feature by feature (the dial, height
+    // fog, fog at the camera, greyer and darker colour, sun glow) and together greyed the open land.
+    bool  enabled   = false;
 
     // The dial. 0 is the client's own fog, untouched; 100 is the heaviest the settings below allow.
     // Everything else in this struct describes the far end of the dial and is scaled by it.
@@ -37,6 +40,12 @@ struct FogSettings
                                 // fog. 0.02 scaled by the dial was tuned before the distance fog existed,
                                 // and with it on top the view distance shrank (2026-09-29)
     float height    = 130.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
+    // The height fog anchored to the ground (2026-09-30): density is the fog at the average ground height
+    // within groundRadius yards (from the map files), not at the camera. At the camera it was: standing on
+    // the cliff over Stormwind harbour, the sea 50 yards below had e^(50/15) = 28 times the fog, and the
+    // harbour was one flat haze. Needs [shadow] mapTerrain; without a tile, the camera as before.
+    bool  ground    = true;
+    float groundRadius = 150.0f;
     float distance  = 1.0f;     // 0..1: how much of the game's distance fog (its start and end, as the dial
                                 // moves them) is kept, on a soft curve. Far mountains need it
     float cover     = 0.65f;    // 0..1: past this share of the view distance, things fade in full into
@@ -48,13 +57,20 @@ struct FogSettings
     // The game's fog colour. Not part of the dial: applied as set, with the fog on or off (Shift+F11
     // turns it off with the rest). Until 2026-09-29 it was scaled by the dial, so these are the old
     // values at the default thickness of 60.
-    float desaturate = 0.8f;         // 0 .. 1, toward grey
-    float darken     = 0.75f;        // 0 .. 1, toward black
+    float desaturate = 0.0f;         // 0 .. 1, toward grey. Applied to the game's fog too: 0 leaves it as it is
+    float darken     = 0.0f;         // 0 .. 1, toward black
     DWORD tint       = 0x5A6470;     // RGB the colour is pulled toward, by tintAmount
     float tintAmount = 0.0f;         // 0 .. 1
+    // Our fog lit by the sun (2026-09-30): warm looking toward it, cool looking away, as haze is. The
+    // colours are scaled to a brightness of 1, so they tint and do not darken. Fades at night.
+    float sunGlow    = 0.35f;        // 0..1, how much of the tint
+    DWORD glowColor  = 0xFFD6A0;     // toward the sun
+    DWORD awayColor  = 0xA0BCFF;     // away from it
+    float sunBright  = 0.25f;        // the fog brighter by up to this share looking into the sun
     // The sky near the horizon gets the same change as the colour, so that seam does not show: it is
     // what shows between trees past the view distance, and a darker fog alone left it bright
     // (2026-09-29). Needs the depth buffer (Volumetric Light on).
+    bool  waterDepth = true;         // the water writes depth, so the fog, the shadows and the light see it
     float skyMatch   = 1.0f;         // 0 .. 1, how far the sky at the horizon fades into the fog colour
     float skyBand    = 0.35f;        // up to this height (sine of the angle above the horizon) it fades out
     bool  skyDebug   = false;        // 1 = the sky it changes shows red
@@ -144,7 +160,7 @@ struct ShadowSettings
                                   // still, but it steps as you walk, which reads worse
     float keepMargin    = 100.0f; // yards past range a caster out of view is kept, across the ground from
                                   // the player: while it can still cast into the map (see shadow.cpp)
-    float staleTime     = 20.0f;  // with mapTerrain: seconds a cache entry not drawn is kept at most; 0 = no
+    float staleTime     = 8.0f;   // with mapTerrain: seconds a cache entry not drawn is kept at most; 0 = no
                                   // limit. The world comes from the files then, and what the cache holds
                                   // (characters, creatures, the server's objects) has no need to outlast its
                                   // draws: a leaf-edged shade stayed on open ground at Gavin's Naze (2026-09-30)
@@ -218,6 +234,12 @@ struct SunShadowSettings
     // until you came closer and the client drew the fine mesh.
     float lodBias    = 2.0f;      // yards of slack for every 100 yards past lodStart
     float lodStart   = 80.0f;     // yards from the camera where it starts
+    // Coloured light (2026-09-30): shade takes the sky's cool colour, sunlight a warm one, where both only
+    // darkened and brightened in grey. Scaled to a brightness of 1: they tint, not darken.
+    DWORD shadeColor = 0x7C94C8;
+    float shadeTint  = 0.5f;      // 0..1
+    DWORD sunColor   = 0xFFE4C0;
+    float sunTint    = 0.5f;      // 0..1
     float strength   = 35.0f;     // the dial, 0..100: how much of the light a shaded surface loses
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself

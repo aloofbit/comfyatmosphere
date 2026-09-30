@@ -98,6 +98,8 @@ float4 gV    : register(c19);       // the view matrix's third column: camera-re
 float4 gFog  : register(c20);       // the world's fog start, 1 / (end - start), 1 if there is fog
 float4 gCh   : register(c21);       // leafShade, 1 if near leaf map, 1 if far leaf map, 1 = read the far map
 float4 gLod  : register(c22);       // far map: extra bias (map units) per yard past .y yards from the camera
+float4 gShC  : register(c23);       // the shade's colour (brightness 1), how much
+float4 gSuC  : register(c24);       // the sunlight's colour (brightness 1), how much
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -240,8 +242,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float clear = 1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0);
     float  f     = (1.0 - gSun.w * shade * clear) * (1.0 + gL.x * (1.0 - shade) * clear);
     f = (f >= 0.0 && f <= 2.0) ? f : 1.0;
-    f = gL.y > 0.5 ? f : f * 0.5;
-    return float4(f, f, f, 1.0);
+    if (gL.y > 0.5)
+        return float4(f, f, f, 1.0);                                       // debug: the shade in grey
+    // Shade takes the sky's cool colour and sunlight a warm one ([sunshadows] shadeTint, sunTint).
+    float3 c = f * lerp(1.0, gShC.rgb, gShC.w * shade * clear) * lerp(1.0, gSuC.rgb, gSuC.w * (1.0 - shade) * clear);
+    return float4(saturate(c * 0.5), 1.0);
 }
 )HLSL";
 
@@ -294,6 +299,9 @@ float4 gZ    : register(c4);        // MinZ, 1 / (MaxZ - MinZ), the depth of the
 float4 gC    : register(c5);        // fog colour, 1 = debug
 float4 gP    : register(c6);        // density, 1 / height, cover start (yards), 1 / (view distance - cover start)
 float4 gD    : register(c7);        // distance fog: start, 1 / (end - start), share (0 = none)
+float4 gS    : register(c8);        // direction to the sun, how much the fog is tinted by it ([fog] sunGlow)
+float4 gTw   : register(c9);        // the fog's colour toward the sun (brightness 1), brighter by .w into it
+float4 gAw   : register(c10);       // ...and away from it
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
     // Part 1: drawn before the world, when every pixel is sky.
@@ -333,9 +341,23 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         return far ? float4(1.0, 0.1, 0.1, 1.0) : float4(0.0, 0.0, 0.0, 1.0);   // debug 2: that scenery
     if (gC.w > 0.5)
         return float4(fog, fog, fog, 1.0);
-    return float4(gC.rgb, fog);
+    // Lit by the sun: warm looking toward it, cool looking away, and brighter looking into it.
+    float  cs  = dot(P / L, gS.xyz);
+    float  w   = smoothstep(-0.6, 1.0, cs);
+    float3 col = gC.rgb * lerp(1.0, lerp(gAw.rgb, gTw.rgb, w), gS.w);
+    col *= 1.0 + gTw.w * gS.w * pow(saturate(cs), 8.0);
+    return float4(saturate(col), fog);
 }
 )HLSL";
+
+    // An RGB colour scaled to a brightness (luminance) of 1, as a multiplier: it tints and does not darken.
+    void UnitColour(DWORD rgb, float out[3])
+    {
+        const float r = ((rgb >> 16) & 0xFF) / 255.0f, g = ((rgb >> 8) & 0xFF) / 255.0f, b = (rgb & 0xFF) / 255.0f;
+        const float l = 0.299f * r + 0.587f * g + 0.114f * b;
+        const float k = l > 1e-3f ? 1.0f / l : 1.0f;
+        out[0] = r * k; out[1] = g * k; out[2] = b * k;
+    }
 
     IDirect3DVertexShader9* g_vs = nullptr;
     IDirect3DPixelShader9*  g_ps = nullptr;
@@ -596,7 +618,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * g_cfg.shadow.depth - 1.0f;     // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[92] = {};
+    float pc[100] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -653,7 +675,9 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[87] = ss.world ? 1.0f : 0.0f;
     pc[88] = ss.lodBias * 0.01f / span;
     pc[89] = ss.lodStart;
-    d->SetPixelShaderConstantF(dev, 0, pc, 23);
+    UnitColour(ss.shadeColor, &pc[92]); pc[95] = ss.shadeTint;
+    UnitColour(ss.sunColor, &pc[96]);   pc[99] = ss.sunTint;
+    d->SetPixelShaderConstantF(dev, 0, pc, 25);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -972,7 +996,7 @@ bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart
 
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[32] = {};
+    float pc[44] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
             pc[r * 4 + c] = inv.m[r][c];
@@ -991,7 +1015,16 @@ bool FogDraw(IDirect3DDevice9* dev, DWORD colour, float density, float distStart
     {
         pc[28] = distStart; pc[29] = 1.0f / (distEnd - distStart); pc[30] = f.distance;
     }
-    d->SetPixelShaderConstantF(dev, 0, pc, 8);
+    // Lit by the sun ([fog] sunGlow): the real sun, and less of it at night.
+    float sunNow[3];
+    if (f.sunGlow > 0.0f && SunDirection(sunNow))
+    {
+        pc[32] = sunNow[0]; pc[33] = sunNow[1]; pc[34] = sunNow[2];
+        pc[35] = f.sunGlow * NightScale();
+        UnitColour(f.glowColor, &pc[36]); pc[39] = f.sunBright;
+        UnitColour(f.awayColor, &pc[40]);
+    }
+    d->SetPixelShaderConstantF(dev, 0, pc, 11);
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
     const ClipVertex q[4] = {

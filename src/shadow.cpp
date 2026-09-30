@@ -407,6 +407,7 @@ namespace
         double             lastSeen;       // == now once matched this frame
         double             claimed = -1.0; // == now when a draw this frame stands within kMatchRadius of it
         bool               unit = false;   // seen where a unit stands: a character's, never leaves (sticky)
+        unsigned           drawnFor = 0;   // map redraws it was drawn on (see Evict: kBrief)
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
     };
 
@@ -1153,6 +1154,7 @@ namespace
                 best->mobile = best->mobile || moved;
                 best->unit = best->unit || (r.vs && UnitAt(pos));
                 best->lastSeen = now;
+                ++best->drawnFor;
                 ReleaseRec(r);
                 ++g_nRefreshed;
             }
@@ -1170,6 +1172,7 @@ namespace
                 e.unit = r.vs && UnitAt(pos);
                 e.seq = r.seq;
                 e.lastSeen = now;
+                e.drawnFor = 1;
                 list.push_back(std::move(e));
                 ++g_entries;
                 ++g_nAdded;
@@ -1289,7 +1292,13 @@ namespace
                         // than cacheTime.
                         const float dx = e.pos[0] - player[0], dy = e.pos[1] - player[1];
                         const float reach = e.rec.vs ? keep : keepFixed;
-                        if (e.mobile || (e.unit && !UnitAt(e.pos)) || dx * dx + dy * dy > reach * reach ||
+                        // A model drawn on fewer than kBrief redraws, once it stops being drawn (2026-09-30): a
+                        // bird flew further between frames than a draw is matched over, each place became an
+                        // entry of its own, drawn once or twice, and left a trail of shade. It is a unit, but its
+                        // model flies high over the unit's place, so the unit rule did not take it.
+                        constexpr unsigned kBrief = 20;
+                        if (e.mobile || (e.unit && !UnitAt(e.pos)) || (e.rec.vs && e.drawnFor < kBrief) ||
+                            dx * dx + dy * dy > reach * reach ||
                             (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
                             (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime))
                         {
