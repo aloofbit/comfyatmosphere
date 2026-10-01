@@ -891,14 +891,66 @@ tuneFrame:SetScript("OnUpdate", function()
 end);
 
 SLASH_COMFYATMOS1 = "/atmos";
+-- /atmos stats: a few lines of figures from comfyfog.dll on screen, for finding faults. The DLL writes them
+-- into the CVar comfyStats once a second, lines ended by "~", padded with spaces.
+local statsFrame = nil;
+local function StatsToggle()
+	if not HasCVar("comfyStats") then
+		Say("this comfyfog.dll has no stats.");
+		return;
+	end
+	if not statsFrame then
+		statsFrame = CreateFrame("Frame", "ComfyAtmosphereStats", UIParent);
+		statsFrame:SetWidth(560);
+		statsFrame:SetHeight(110);
+		statsFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -120);
+		statsFrame:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", tile = true, tileSize = 16 });
+		statsFrame:SetBackdropColor(0, 0, 0, 0.6);
+		local text = statsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+		text:SetPoint("TOPLEFT", statsFrame, "TOPLEFT", 8, -8);
+		text:SetWidth(544);
+		text:SetJustifyH("LEFT");
+		statsFrame.text = text;
+		local wait = 0;
+		statsFrame:SetScript("OnUpdate", function()
+			wait = wait - arg1;
+			if wait > 0 then
+				return;
+			end
+			wait = 0.25;
+			local raw = GetCVar("comfyStats") or "";
+			raw = string.gsub(raw, "%s+$", "");
+			raw = string.gsub(raw, "~", "\n");
+			if raw == "" then
+				raw = "Waiting for comfyfog.dll (a second)...";
+			end
+			this.text:SetText(raw);
+			this:SetHeight(this.text:GetHeight() + 16);
+		end);
+		statsFrame:Hide();
+	end
+	if statsFrame:IsShown() then
+		statsFrame:Hide();
+	else
+		-- The DLL writes into the CVar's own string, so it must hold 600 characters. The game saves it in
+		-- Config.wtf, and at the next start it came back empty, with no room: it is set again here.
+		SetCVar("comfyStats", string.rep(" ", 600));
+		statsFrame:Show();
+	end
+end
+
 SlashCmdList["COMFYATMOS"] = function(msg)
 	local command = string.lower((string.gsub(msg or "", "^%s*(.-)%s*$", "%1")));
 	if command == "options" then
 		WindowToggle();
 		return;
 	end
+	if command == "stats" then
+		StatsToggle();
+		return;
+	end
 	if command == "" then
-		Say("/atmos options: the settings window.");
+		Say("/atmos options: the settings window. /atmos stats: figures on screen, for finding faults.");
 	end
 	if not HasCVar("comfyTune") then
 		Say("this comfyfog.dll has no /atmos. It needs the version from 2026-09-29 or later.");

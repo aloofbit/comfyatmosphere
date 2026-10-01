@@ -82,6 +82,8 @@
 #include <cstring>
 #include <unordered_map>
 #include <unordered_set>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace
@@ -427,7 +429,16 @@ namespace
     // map as soon as it was not drawn, and shadows hopped from tree to tree as the camera turned (525 of
     // 3,833 entries marked moving, 2026-09-29). Something that moves was drawn a frame ago, near where
     // it is now, so in view; a tree that just left the screen was not in view.
-    constexpr float  kMoveRadius = 60.0f;
+    //
+    // 15 yards, and never an instance that has stood still for kSettled draws unless it is a unit's
+    // (2026-09-30). It was 60, with no such test. In Stormwind a model is drawn with 3,664 vertices one
+    // frame and 4,122 the next, which is a key of its own, so as you walked its draw found no entry within
+    // kMatchRadius, and the move rule took another copy of it 51 yards off that had just switched the other
+    // way. Up to 10 of 11 copies a frame were swapped like this; each was marked moving and left the map
+    // as soon as it was not drawn, and their shadows blinked while you walked and settled when you stopped.
+    // A draw that finds nothing now becomes an entry of its own, beside the other key's.
+    constexpr float  kMoveRadius = 15.0f;
+    constexpr unsigned kSettled = 20;
 
     // Refreshed / added / evicted this frame, for the probe.
     UINT g_nRefreshed = 0, g_nAdded = 0, g_nEvictView = 0, g_nEvictAge = 0, g_nEvictCap = 0;
@@ -720,6 +731,45 @@ namespace
     int  g_dropInfoLen   = 0;
     int  g_dropInfoCount = 0;
 
+    // What was added and dropped within kNearTrace yards of you, and why (2026-09-30): the planter's shadow
+    // blinked as you walked, and the lists above are taken up by what is far off.
+    constexpr float kNearTrace = 40.0f;
+    char g_nearInfo[1200] = {};
+    int  g_nearInfoLen   = 0;
+    int  g_nearInfoCount = 0;
+
+    // The figures of the last second, for the on-screen stats (/atmos stats, ShadowStatsText).
+    struct SecStats
+    {
+        unsigned frames = 0, added = 0, evView = 0, evAge = 0, evWritten = 0, evCap = 0;
+        unsigned nearAdded = 0, nearGone = 0, mostDrawn = 0;
+        std::map<std::string, unsigned> nearWhy;
+    };
+    SecStats g_sec;
+
+    void NoteNear(const char* why, const Rec& r, const float pos[3], const float player[3], bool have, unsigned drawnFor)
+    {
+        if (!have)
+            return;
+        const float dx = pos[0] - player[0], dy = pos[1] - player[1], dz = pos[2] - player[2];
+        if (dx * dx + dy * dy + dz * dz > kNearTrace * kNearTrace)
+            return;
+        if (strcmp(why, "new") == 0)
+            ++g_sec.nearAdded;
+        else
+        {
+            ++g_sec.nearGone;
+            ++g_sec.nearWhy[why];
+        }
+        if (!g_cfg.trace || g_nearInfoCount >= 12)
+            return;
+        ++g_nearInfoCount;
+        g_nearInfoLen += _snprintf_s(g_nearInfo + g_nearInfoLen, sizeof(g_nearInfo) - g_nearInfoLen, _TRUNCATE,
+            " [%s: %s %uv %up base %d min %u start %u, drawn %u, %.0f yd at (%.1f %.1f %.1f)]", why, r.vs ? "M2" : "ff",
+            r.numVertices, r.primCount, r.baseVertex, r.minIndex, r.startIndex, drawnFor,
+            sqrtf(dx * dx + dy * dy + dz * dz), pos[0], pos[1], pos[2]);
+    }
+
     // And what the client overwrote under us, again on its own.
     char g_overInfo[400] = {};
     int  g_overInfoLen   = 0;
@@ -863,6 +913,7 @@ namespace
         g_newInfo[0] = 0; g_newInfoLen = 0; g_newInfoCount = 0;
         g_dropInfo[0] = 0; g_dropInfoLen = 0; g_dropInfoCount = 0;
         g_overInfo[0] = 0; g_overInfoLen = 0; g_overInfoCount = 0;
+        g_nearInfo[0] = 0; g_nearInfoLen = 0; g_nearInfoCount = 0;
         g_nChanged = 0; g_maxDiff = 0.0f; g_diffInfo[0] = 0;
         g_nOffWorld = 0;
         g_frameInfo[0] = 0;
@@ -1036,6 +1087,8 @@ namespace
                     if (cand.lastSeen == now || cand.lastSeen != g_prevMergeNow || cand.claimed == now)
                         continue;                  // drawn this frame already, not drawn the frame before, or
                                                    // claimed by a draw standing where it is
+                    if (!cand.mobile && !cand.drifts && !cand.unit && cand.drawnFor >= kSettled)
+                        continue;                  // it has stood still: something else, not it moved
                     const float dx = cand.pos[0] - pos[0], dy = cand.pos[1] - pos[1], dz = cand.pos[2] - pos[2];
                     const float d2 = dx * dx + dy * dy + dz * dz;
                     if (d2 > moveD2)
@@ -1184,6 +1237,7 @@ namespace
                 e.seq = r.seq;
                 e.lastSeen = now;
                 e.drawnFor = 1;
+                NoteNear("new", r, pos, player, havePlayer, 1);
                 list.push_back(std::move(e));
                 ++g_entries;
                 ++g_nAdded;
@@ -1255,9 +1309,11 @@ namespace
             {
                 Entry& e = list[i];
                 bool gone = false;
+                const char* why = "";
                 if (OverwrittenSince(e.rec, e.seq))
                 {
                     gone = true;
+                    why = "overwritten";
                     ++g_nEvictWritten;
                     if (g_cfg.trace && g_overInfoCount < 5)   // the trace: what the client overwrites under us
                     {
@@ -1273,6 +1329,7 @@ namespace
                                    (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn)))
                 {
                     gone = true; ++g_nFilesEvicted;   // kept before its tile came in
+                    why = "the files have it";
                 }
                 else if (e.rec.terrain && [&] {
                              const Best& b = best[placeKey(e)];
@@ -1280,6 +1337,7 @@ namespace
                          }())
                 {
                     gone = true; ++g_nEvictView;   // a finer or later version of the same chunk is held
+                    why = "finer chunk";
                 }
                 else if (e.lastSeen < now)
                 {
@@ -1293,10 +1351,18 @@ namespace
                     // files do not place, which moves: a ship (2026-09-30). In view and not drawn, it has gone,
                     // at any distance: the ship at Auberdine left a band of shade along its path, 1,793 entries
                     // 50 to 150 yards off, until staleTime.
-                    const bool movingFixed = s.mapTerrain && !e.rec.vs && !e.rec.terrain;
+                    // Only one that has shown it moves (2026-09-30): it has moved, or it was seen on fewer than
+                    // kSettled redraws (a ship's pieces, matched anew each frame). The stone frame and wooden
+                    // boxes of a planter in Stormwind are fixed-function too, and the files do not place them;
+                    // as you walked the client drew them from other places in its buffers, a key of their own,
+                    // and the entry they stood in was in view and not drawn, so it was dropped, and their
+                    // shadows blinked.
+                    const bool movingFixed = s.mapTerrain && !e.rec.vs && !e.rec.terrain &&
+                                             (e.mobile || e.drifts || (e.drawnFor < kSettled && now - e.lastSeen > 0.5));
                     if (inView && (movingFixed || dist2 < s.evictDistance * s.evictDistance))
                     {
                         gone = true; ++g_nEvictView;
+                        why = movingFixed ? "in view, not drawn, moving fixed" : "in view, not drawn, near";
                     }
                     else
                     {
@@ -1314,7 +1380,16 @@ namespace
                         // model flies high over the unit's place, so the unit rule did not take it.
                         constexpr unsigned kBrief = 20;
                         // With the world from the files, fixed-function draws too (2026-09-30): a ship's.
-                        const bool brief = e.drawnFor < kBrief && (e.rec.vs || (s.mapTerrain && !e.rec.terrain));
+                        // Half a second after it was last drawn, not at once (2026-09-30). In Stormwind the client
+                        // draws some models from a buffer it streams through, from another place in it as you walk
+                        // (490 vertices from index 0, then 960, then 2208; and batches of 5 to 10 copies of a
+                        // 458-vertex model): each place is a key of its own, back within a few frames. Dropped the
+                        // first frame it was not drawn, each was gone when the map was redrawn, and the planters'
+                        // shadows blinked while you walked. A bird's places are caught by the move rule, which
+                        // marks them moving, and they still go at once.
+                        constexpr double kBriefGrace = 0.5;
+                        const bool brief = e.drawnFor < kBrief && now - e.lastSeen > kBriefGrace &&
+                                           (e.rec.vs || (s.mapTerrain && !e.rec.terrain));
                         // Anything that has moved since it was first seen, once it stops being drawn, at any
                         // distance and in view or not (2026-09-30): a ship's pieces that it left out of view
                         // stayed as a dark outline of the ship until staleTime.
@@ -1324,11 +1399,14 @@ namespace
                             (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime))
                         {
                             gone = true; ++g_nEvictAge;
+                            why = e.mobile ? "moving" : e.drifts ? "has moved" : (e.unit && !UnitAt(e.pos)) ? "unit gone" :
+                                  brief ? "brief" : dx * dx + dy * dy > reach * reach ? "out of reach" : "unseen too long";
                         }
                     }
                 }
                 if (gone)
                 {
+                    NoteNear(why, e.rec, e.pos, player, true, e.drawnFor);
                     ReleaseRec(e.rec);
                     list[i] = std::move(list.back());
                     list.pop_back();
@@ -1882,6 +1960,40 @@ double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped)
     return g_replaySeconds;
 }
 
+void ShadowStatsText(std::string& out)
+{
+    const SecStats& s = g_sec;
+    char line[256];
+    unsigned models = 0, fixed = 0, moving = 0;
+    for (const auto& kv : g_cache)
+        for (const Entry& e : kv.second)
+        {
+            (e.rec.vs ? models : fixed)++;
+            moving += (e.mobile || e.drifts) ? 1u : 0u;
+        }
+    snprintf(line, sizeof(line), "Shadow casters: %zu held (%u models, %u fixed, %u moving); up to %u drawn into the map",
+             g_entries, models, fixed, moving, s.mostDrawn);
+    out += line; out += "~";
+    snprintf(line, sizeof(line), "Last second: %u added, %u dropped (in view %u, aged %u, overwritten %u, cap %u)",
+             s.added, s.evView + s.evAge + s.evWritten + s.evCap, s.evView, s.evAge, s.evWritten, s.evCap);
+    out += line; out += "~";
+    snprintf(line, sizeof(line), "Within %.0f yd: %u added, %u dropped", kNearTrace, s.nearAdded, s.nearGone);
+    out += line;
+    for (const auto& kv : s.nearWhy)
+    {
+        snprintf(line, sizeof(line), "%s %s %u", kv.first == s.nearWhy.begin()->first ? ":" : ",", kv.first.c_str(),
+                 kv.second);
+        out += line;
+    }
+    out += "~";
+    g_sec = SecStats();
+}
+
+const char* ShadowNearChanges()
+{
+    return g_nearInfo;
+}
+
 const char* ShadowOverwritten(unsigned& count)
 {
     count = g_nEvictWritten;
@@ -1932,6 +2044,11 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const double now = Now();
     const double t0  = now;
     const UINT recorded = static_cast<UINT>(g_frame.size());
+    // The last frame's figures, into the second's (/atmos stats).
+    ++g_sec.frames;
+    g_sec.added += g_nAdded; g_sec.evView += g_nEvictView; g_sec.evAge += g_nEvictAge;
+    g_sec.evWritten += g_nEvictWritten; g_sec.evCap += g_nEvictCap;
+    g_sec.mostDrawn = (std::max)(g_sec.mostDrawn, static_cast<unsigned>(g_replayDrawn));
     g_nRefreshed = g_nAdded = g_nEvictView = g_nEvictAge = g_nEvictCap = g_nEvictWritten = 0;
     if (logThis)
         Log("shadow: this frame's world draws: %u seen, recorded %u; rejected: depth test off %u, depth writes "

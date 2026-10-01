@@ -1332,6 +1332,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         unsigned nOver = 0;
         const char* overInfo = ShadowOverwritten(nOver);
         Log("volume: trace shadow overwritten under us: %u entries.%s", nOver, overInfo);
+        Log("volume: trace shadow near you:%s", ShadowNearChanges());
         Log("volume: trace shadow %s", ShadowMapCentre());
         Log("volume: trace shadow filter dropped:%s", ShadowDropped());
         Log("volume: trace shadow replay outcome %d, drew %u of %u entries; refreshed %u, added %u, evicted "
@@ -1588,6 +1589,20 @@ float FogThicknessAt(const float rel[3])
     }
     const float up = (base - p[2]) / fs.height;
     return mult * expf(up < 4.0f ? up : 4.0f);
+}
+
+void VolumeStatsText(std::string& out)
+{
+    const FogSettings& fs = g_cfg.fog;
+    char line[256];
+    if (!FogOn())
+        snprintf(line, sizeof(line), "Fog: off");
+    else
+        snprintf(line, sizeof(line), "Fog: %.4f a yard (x%.2f dawn and dusk), the ground %s (%d cells without a tile, %d wet), "
+                 "patches %s", fs.density, g_fogMorning, g_groundValid ? "from the map files" : "from the average",
+                 g_groundMissing, g_groundWet, g_noise ? "on" : "off");
+    out += line;
+    out += "~";
 }
 
 bool VolumeActive()

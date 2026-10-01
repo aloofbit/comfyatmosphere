@@ -3,6 +3,8 @@
 
 #include <d3d9.h>
 
+#include <string>
+
 void RecordConstants(UINT reg, const float* data, UINT count);          // every client upload in the world
 void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT baseVertex, UINT minIndex,
                 UINT numVertices, UINT startIndex, UINT primCount);     // before a client draw is forwarded
@@ -23,6 +25,9 @@ void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size);
 const char* ShadowMapCentre();   // where the map sits this frame, and the sun it uses
 const char* ShadowFrameInfo();   // the frame's first M2 entry: its absolute transform and the view
 const char* ShadowOverwritten(unsigned& count);   // entries the client overwrote under us
+const char* ShadowNearChanges();                  // the trace: what was added and dropped near you, and why
+// The on-screen stats (/atmos stats): the cache's figures over the time since the last call, lines ended by '~'.
+void ShadowStatsText(std::string& out);
 extern UINT g_maxConstReg;   // how many shader registers the client uses, so the replay sends no more
 unsigned ShadowCopies(unsigned& failed);   // chunks copied out of the client's arena, and failures
 void ShadowNoReplay();   // the map was not built this frame

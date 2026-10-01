@@ -31,6 +31,11 @@
 // the same way, comfyNotice1, comfyNotice2 and on, one line each. The addon checks for the next one twice a
 // second, and at load skips those already there, which a /reload would otherwise print again.
 //
+// Stats (2026-09-30): /atmos stats shows a few lines of figures on screen. comfyStats is registered with a
+// default of kStatsLen spaces, and the DLL writes its text into that string in place, padded with spaces to
+// the same length, so the client's buffer is never outgrown and never replaced. Only while its length is
+// still kStatsLen: had anything set the CVar, the string would be another, and it is left alone.
+//
 // All of this runs on the client's main thread (Present is called from the client's render), the same
 // thread Lua runs on, so nothing here races the options panel.
 
@@ -179,6 +184,8 @@ namespace
     char     g_tuneLast[256] = {};
     std::deque<std::string> g_tuneText;   // names and values given to Register, kept for good
     std::deque<std::string> g_notices;    // lines for chat, not yet registered
+    constexpr size_t kStatsLen = 600;
+    void*    g_stats = nullptr;             // comfyStats
     unsigned long g_noticeSeq = 0;
 
     intptr_t Slide()
@@ -432,6 +439,12 @@ namespace
             if (!cv)
                 Log("could not register CVar %s", kNames[k]);
         }
+        g_stats = lookup("comfyStats");
+        if (!g_stats)
+        {
+            g_tuneText.push_back(std::string(kStatsLen, ' '));
+            g_stats = registerFn("comfyStats", nullptr, 0, g_tuneText.back().c_str(), nullptr, kCategory, 0, nullptr);
+        }
         g_tune = lookup("comfyTune");
         if (!g_tune)
             g_tune = registerFn("comfyTune", nullptr, 0, "", nullptr, kCategory, 0, nullptr);
@@ -562,4 +575,34 @@ void CVarsNotice(const char* text)
     if (g_gaveUp || g_notices.size() >= 16)
         return;
     g_notices.push_back(text);
+}
+
+namespace
+{
+    bool SafeWrite(uintptr_t dst, const void* src, size_t n)
+    {
+        __try
+        {
+            memcpy(reinterpret_cast<void*>(dst), src, n);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+}
+
+void CVarsStats(const std::string& text)
+{
+    if (!g_ready || !g_stats)
+        return;
+    DWORD str = 0;
+    char probe[kStatsLen + 2];
+    if (!SafeCopy(reinterpret_cast<uintptr_t>(g_stats) + 0x20, &str, 4) || !str ||
+        !SafeString(str, probe, sizeof(probe)) || strlen(probe) != kStatsLen)
+        return;
+    std::string padded = text.substr(0, kStatsLen);
+    padded.resize(kStatsLen, ' ');
+    SafeWrite(str, padded.data(), kStatsLen);
 }

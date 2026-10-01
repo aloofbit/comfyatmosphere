@@ -848,6 +848,26 @@ namespace
         SunFrameStart();
 
         PollKeys(dev);
+        // The on-screen stats (/atmos stats), once a second: the frame rate, the shadow cache, the fog.
+        {
+            static double statsLast = 0.0;
+            static unsigned statsFrames = 0;
+            ++statsFrames;
+            const double now = Now();
+            if (statsLast == 0.0)
+                statsLast = now;
+            if (now - statsLast >= 1.0)
+            {
+                char line[96];
+                snprintf(line, sizeof(line), "%.0f fps~", statsFrames / (now - statsLast));
+                std::string text = line;
+                ShadowStatsText(text);
+                VolumeStatsText(text);
+                CVarsStats(text);
+                statsLast = now;
+                statsFrames = 0;
+            }
+        }
         if (CVarsPoll())
             BenchCancel("a control in Video > Atmosphere moved", false);
 

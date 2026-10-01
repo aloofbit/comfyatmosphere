@@ -1065,6 +1065,27 @@ animate only their flame (5 to 9 keys) and stay baked. An animated doodad is not
 `dAnim`, so the client's draws of it are kept, and `MapAnimatedDoodadAt` keeps the still rule off it. The
 probe lists them. The owner: nice.
 
+## Shadows that blinked while you walked (2026-09-30)
+
+In Stormwind the shadows of a planter's stone frame and wooden boxes, and of some lamp posts, came and
+went as you walked, and held still when you stopped. A trace of what the cache added and dropped within
+40 yards of you showed three causes, all from one thing: the client draws some models from a buffer it
+streams through, and as you walk it draws them from other places in it. Each place is a key of its own.
+
+- **The move rule took another copy.** One model came as 3,664 vertices one frame and 4,122 the next (a
+  batch of 8 or 9 copies of a 458-vertex model). Its draw found no entry within kMatchRadius, and the move
+  rule, which reached 60 yards, took another copy of it 51 yards off that had just switched the other way:
+  up to 10 of 11 a frame, each then marked moving and dropped as soon as it was not drawn. The rule now
+  reaches 15 yards and never takes an entry that has stood still for 20 draws, unless it is a unit's.
+- **Brief entries went at once.** A model drawn from index 0, then 960, then 2208 was a new entry each time,
+  drawn once, and dropped as brief the next frame. The brief rule (for birds) now waits half a second for
+  anything that has not moved; a bird's places are caught by the move rule and still go at once.
+- **The ship rule.** A fixed-function entry in view and not drawn was dropped, for ships. It now needs the
+  entry to have moved, or to be brief and unseen for half a second.
+
+`/atmos stats` shows the cache's figures on screen once a second, with what was added and dropped within
+40 yards and why. `[general] trace` adds a line a frame of the same, with each entry.
+
 ## The old fog removed (2026-09-30)
 
 The fog of 2026-09-29 was removed, on the branch `volumetric-fog`, to start again with a volumetric fog.
