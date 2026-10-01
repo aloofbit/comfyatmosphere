@@ -825,7 +825,9 @@ local function WindowBuild()
 	window = CreateFrame("Frame", "ComfyAtmosphereWindow", UIParent);
 	window:SetWidth(WINDOW_WIDTH);
 	window:SetHeight(WINDOW_HEIGHT);
-	window:SetPoint("CENTER", UIParent, "CENTER", 0, 0);
+	-- At the left of the screen, so the character and the world in the middle stay in view while a value
+	-- is moved (2026-10-01).
+	window:SetPoint("LEFT", UIParent, "LEFT", 40, 0);
 	window:SetFrameStrata("DIALOG");
 	window:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",

@@ -1407,8 +1407,21 @@ the player's shape there. Two rules now take it away:
 - past `[sunshadows] unitDrop` (4) yards straight under the unit, fading out over 3 more. A shadow on the
   ground lies within the unit's height whatever the sun's, the water under a bridge lower. At the soft edge,
   where the centre tap sees no unit, the nearest unit among the corner taps is used, so no ring is left;
-- on a surface that faces away from the sun. The facing is taken from the depth beside the pixel, only for
-  the pixels a unit shades (2035 instruction slots, from 1888).
+- on a surface that faces down and lies 0.3 to 0.8 yards or more under the unit (the deck's underside);
+- on a surface that faces away from the sun and lies 1.5 to 2.5 yards or more behind the unit along the sun
+  (the side of the bridge under its edge).
+
+The facing is taken from the depth beside the pixel, only for those pixels. The second rule first took every
+surface that faces away from the sun. That brought back the fault the top of `sunshadows.cpp` describes: the
+depth gives a model's flat triangles, and a player's back showed blocks and dark patches (a screenshot the
+same day). A character's own surfaces lie closer to the unit's front than the two distances, and the ground
+faces up, so the rules leave both alone. Close under the deck's edge the side of the bridge is nearer than
+1.5 yards along the sun, and a sliver of the player's shape can still show there.
+
+The unit's depth that `away`, `below` and `along` use was one texel of the half-size units' map, not
+filtered. On the character's shaded side the three changed in steps a texel wide, which showed as blocks in
+Debug View 5. The depth is now blended from the four texels around the point, by where it falls between
+them, leaving out texels with no unit (2084 instruction slots).
 
 ## The framing that matters
 

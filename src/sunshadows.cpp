@@ -252,8 +252,19 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float unit = 0.0;
     [branch] if (gU.w > 0.5 && wn > 0.0)
     {
+        // The unit's depth from the four texels around the point, blended by where it falls between them,
+        // leaving out texels with no unit (2026-10-01). One texel alone stepped away, below and along at
+        // each texel of the half-size map: blocks on the character's shaded side.
         float2 uu   = float2(sn.x * 0.5 + 0.5, 0.5 - sn.y * 0.5);
-        float  du   = tex2Dlod(sUnit, float4(uu, 0, 0)).r;
+        float2 ut   = uu / gU.z - 0.5;
+        float2 uf   = frac(ut);
+        float2 ub   = (ut - uf + 0.5) * gU.z;
+        float4 d4   = float4(tex2Dlod(sUnit, float4(ub, 0, 0)).r, tex2Dlod(sUnit, float4(ub + float2(gU.z, 0.0), 0, 0)).r,
+                             tex2Dlod(sUnit, float4(ub + float2(0.0, gU.z), 0, 0)).r, tex2Dlod(sUnit, float4(ub + gU.zz, 0, 0)).r);
+        float4 w4   = float4((1.0 - uf.x) * (1.0 - uf.y), uf.x * (1.0 - uf.y), (1.0 - uf.x) * uf.y, uf.x * uf.y)
+                    * step(d4, 0.99999);
+        float  wsum = dot(w4, 1.0);
+        float  du   = wsum > 1e-4 ? dot(w4, d4) / wsum : 1.0;
         float  away = du >= 0.99999 ? 1.0 : smoothstep(0.0, 1.0, saturate((sn.z - du) * gU2.x));
         [branch] if (du >= 0.99999)
         {
@@ -263,10 +274,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         }
         float below = du >= 0.99999 ? 0.0 : (sn.z - du) * gU2.y;
         unit = (1.0 - Lit5(sUnit, sn, float2(0.0, 0.0), gU.y, gU.z)) * wn * away * (1.0 - smoothstep(gU2.z, gU2.w, below));
-        // Nor on a surface that faces away from the sun: the underside of a bridge's deck, a yard under the
-        // player standing on it, is in the deck's own shade (2026-10-01). The facing is taken here, for the
-        // few pixels a unit shades, when the slope settings have not taken it already.
-        [branch] if (unit > 0.0)
+        // Nor on a surface in the shade of the world behind the unit (2026-10-01): the underside of a bridge's
+        // deck, a yard under the player standing on it, and the side of the bridge under its edge. The facing
+        // comes from the depth, which on a model gives each triangle's flat facing (see the top of this file):
+        // applied to every surface facing away from the sun, it put blocks on the character's back. So the
+        // facing counts only where the surface cannot be the unit's own:
+        // - it faces down, half a yard or more under the unit (the deck's underside);
+        // - it faces away from the sun, 1.5 yards or more behind the unit along the sun, more than a
+        //   character is thick (the side of the bridge).
+        // The ground faces up and keeps it.
+        float along = below / max(gSun.z, 0.1);
+        [branch] if (unit > 0.0 && (below > 0.3 || along > 1.5))
         {
             float3 Nu = N;
             [branch] if (gT.z < 0.5)
@@ -275,7 +293,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                 Nu = Nu / max(length(Nu), 1e-8);
                 Nu = dot(Nu, P) > 0.0 ? -Nu : Nu;
             }
-            unit *= smoothstep(-0.02, 0.03, dot(Nu, gSun.xyz));
+            float off = max(smoothstep(0.5, 0.8, -Nu.z) * smoothstep(0.3, 0.8, below),
+                            (1.0 - smoothstep(-0.02, 0.03, dot(Nu, gSun.xyz))) * smoothstep(1.5, 2.5, along));
+            unit *= 1.0 - off;
         }
     }
     if (gL.y > 1.5)
