@@ -23,6 +23,7 @@
 #include "cover.h"
 #include "config.h"
 #include "cvars.h"
+#include "report.h"
 #include "depth.h"
 #include "lampglow.h"
 #include "lamps.h"
@@ -679,6 +680,8 @@ namespace
             else
             {
                 g_probe.armed = true;
+                ReportStart("F12");
+                CVarsNotice("Probe taken. The frame goes to comfyfog.log. Stand still for a second while the lamps are logged.");
             }
         }
         g_probeDown = probe;
@@ -729,6 +732,7 @@ namespace
             g_raysDone       = false;
         }
         g_seenDev = dev;
+        ReportDevice(dev);
     }
 
     // The first call of a frame's rendering: the readable depth buffer goes in, and the shadow
@@ -1841,6 +1845,7 @@ bool WorldFogColor(DWORD& color)
 void ProbeArm()
 {
     g_probe.armed = true;
+    ReportStart("/atmos probe");
     g_orderArm = true;
 }
 

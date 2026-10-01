@@ -33,7 +33,16 @@ add_library(comfyfog SHARED
     src/mapterrain.cpp
     src/mapwmo.cpp
     src/mapm2.cpp
+    src/report.cpp
 )
+
+# version.h: comfyfog's version from git, for the client report (cmake/version.cmake).
+add_custom_target(comfyfog_version
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/version.h
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.cmake
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/version.h)
+add_dependencies(comfyfog comfyfog_version)
+target_include_directories(comfyfog PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # comfyfog.dll, loaded by VanillaFixes from dlls.txt, same as comfygrass. It exports nothing.
 # The DLL lands in the project root next to comfyfog.ini; the empty $<0:> stops MSVC adding a

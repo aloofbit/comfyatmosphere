@@ -133,7 +133,8 @@ Atmosphere page sets is refused: use the control.
 
 The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel:
 
-- **Probe** logs one frame to `comfyfog.log`.
+- **Probe** logs one frame to `comfyfog.log`, and a report of your client: the comfyfog version, WoW.exe, the
+  DLLs loaded, DXVK, the MPQs, the addons and the settings. The chat says when it is taken.
 - **Stats** shows a panel of figures, once a second: your position, the frame rate, the shadow casters held
   and what was added and dropped near you, and the fog.
 - **Benchmark** runs the benchmark (below). The chat says when it starts and ends.
@@ -141,7 +142,8 @@ The **Debug** button in the settings window, or `/atmos debug`, opens the debug 
 - **Debug view** `<` `>` shows one stage of an effect instead of the game.
 
 Probe, the stats and the debug panel can be put on keys: **Key Bindings > ComfyAtmosphere**. A screenshot with
-the stats on screen, and a probe at the same moment, is the best report of a fault.
+the stats on screen, and a probe at the same moment, is the best report of a fault. Send `comfyfog.log` with it.
+The log has no account name, and your user folder shows as `%USERPROFILE%`.
 
 ## Keys
 

@@ -1123,7 +1123,7 @@ local function Say(text)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: " .. text);
 end
 
--- Notices: lines the DLL starts on its own (the benchmark's start and end), as comfyNotice1, comfyNotice2
+-- Notices: lines the DLL starts on its own (the benchmark's start and end, F12), as comfyNotice1, comfyNotice2
 -- and on. Those already registered when the addon loads were printed before a /reload, so they are skipped.
 local noticeNext = 1;
 while HasCVar("comfyNotice" .. noticeNext) do

@@ -1366,6 +1366,29 @@ shadows jumped twice. With no sun yet, the first reading was taken as it came. I
 clock's sun: one more than 5 degrees off must hold for 3 seconds (against a sprite already seen, 10 frames,
 as before). The next login had no jump.
 
+## The client report (2026-10-01)
+
+Players' clients differ in the DLLs VanillaFixes loads, the patch MPQs, WoW.exe, DXVK and its conf, overlays
+and addons, and a log said nothing of that. It did not give comfyfog's own version either. `report.cpp` writes
+a report into `comfyfog.log` when the client makes its device, and again at each F12 and `/atmos probe`:
+
+- comfyfog's version from `git describe` (`cmake/version.cmake` writes `version.h` on each build), WoW.exe and
+  VanillaFixes.exe with a hash, and what started WoW.exe;
+- every module from outside the Windows folder, hashed (the test client: 15, among them OBS's capture hook),
+  and from the Windows folder the ones that draw;
+- `dlls.txt`, `dxvk.conf`, `Config.wtf` without its account lines, and from DXVK's `WoW_d3d9.log` its
+  version, the card and driver, its configuration and its errors. Under DXVK the D3D9 adapter gives the
+  driver as 32767.65535.65535.65535, so the real one comes from that log. An fopen of the log read nothing
+  while DXVK held it open; it is opened with every share flag;
+- the addons with their versions, every MPQ in Data and its folders with size and date, every setting, and
+  the controls (registered after the first report, so only an F12 report has them);
+- a fingerprint line of short codes: WoW.exe, the DLLs, the data, the settings, the controls.
+
+It runs on a thread of its own (104 to 160 ms on the test client) and writes in one piece, so a probe's lines
+do not fall between its own. Paths under the user's profile are written as %USERPROFILE%.
+
+F12 also writes a line in chat now, through the notices the benchmark uses.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

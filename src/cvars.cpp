@@ -602,6 +602,19 @@ void CVarsNotice(const char* text)
     g_notices.push_back(text);
 }
 
+void CVarsControlsText(std::string& out)
+{
+    if (!g_ready)
+    {
+        out = g_gaveUp ? "none (wrong client build, or [general] sliders = 0)" : "not registered yet";
+        return;
+    }
+    out.clear();
+    for (int k = 0; k < kKnobs; ++k)
+        if (g_slots[k].seen)
+            out += std::string(out.empty() ? "" : " ") + kNames[k] + "=" + g_slots[k].last;
+}
+
 namespace
 {
     bool SafeWrite(uintptr_t dst, const void* src, size_t n)

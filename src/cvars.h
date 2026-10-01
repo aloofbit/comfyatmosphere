@@ -10,3 +10,5 @@ bool CVarsPoll();        // once a frame, at Present; true when a control change
 void CVarsNotice(const char* text);
 // The on-screen stats (/atmos stats): written into comfyStats in place, as name=value; pairs.
 void CVarsStats(const std::string& text);
+// The controls' values as the client last gave them, as name=value, for the client report (report.cpp).
+void CVarsControlsText(std::string& out);
