@@ -34,6 +34,11 @@
 // the two parts in their colours. Past maxDistance the rest of each line of sight is fogged in one closed
 // form, unshadowed; the sky and the far scenery drawn with it end at [fog] skyDistance.
 //
+// The fog is broken into patches by a tiling 3D noise (made once on the CPU, 64 texels a side), fixed in
+// the world and carried along by the wind ([fog] windDeg, windSpeed), with a slow rise so the patches
+// change shape as they go. Patchiness 0 is an even fog; at 1 the thick patches hold twice the fog and the
+// gaps between them none, so the fog on average stays as thick as Fog Density says.
+//
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
 // shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
@@ -55,6 +60,7 @@
 #include "sunshadows.h"
 #include "volume.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include <cstdio>
@@ -92,7 +98,19 @@ float4 gP    : register(c9);        // debug stage, max distance, density, shado
 float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset, leafShade (0 = no leaf map)
 float4 gF    : register(c12);       // fog: per yard at the ground, 1 / height, the ground's height (camera-relative), sky distance
-float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (/4pi), share of the far part in sun
+float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (/4pi), share of the far part in sun, reach
+float4 gN    : register(c14);       // the patches: where the camera is in the noise (wind included), 1 / tile size in yards
+float4 gM    : register(c15);       // the patches: patchiness, how much flatter they are than wide
+sampler3D sNoise : register(s3);    // the patches: tiling noise, wrapped; r large shapes, g small
+
+// The patches at P (camera-relative): 1 on average; 0..2 at patchiness 1.
+float Patches(float3 P)
+{
+    float3 q = P * gN.w * float3(1.0, 1.0, gM.y) + gN.xyz;
+    float4 n = tex3Dlod(sNoise, float4(q, 0.0));
+    float  v = n.r * 0.7 + n.g * 0.3;
+    return lerp(1.0, 2.0 * smoothstep(0.3, 0.7, v), gM.x);
+}
 
 // The fog's extinction per yard at height z (camera-relative). Below the ground it is capped at 4 heights deep.
 float FogAt(float z)
@@ -134,6 +152,13 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float  slope = abs(ds.z) / max(length(ds.xy), 1e-5);
     float  bias  = gP.w * (1.0 + min(slope, 20.0));
 
+    // How far this line of sight gathers fog (2026-09-30): [fog] reach, and for the sky (and the far scenery
+    // drawn with it, past the world's depth slice) the nearer of that and [fog] skyDistance. Over the last
+    // 40% of it the fog fades out; past it the game's own fog is the far wall. At the ground the fog is as
+    // thick all the way out, and at sea level the view ended a few hundred yards out.
+    float  reachEnd = (d >= 0.9999) ? min(gF.w, gG.z) : gG.z;
+    float  fadeK    = 1.0 / max(0.4 * reachEnd, 1.0);
+
     float  stepLen = len * gL.y;
     float  T   = 1.0;      // how much of what lies behind gets through the fog so far
     float  sun = 0.0;      // sunlight scattered toward the camera, before the phase
@@ -159,7 +184,9 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         acc += lit;
         // The fog in this step: w is the step's length as the fog within it lets through, so a thick step
         // does not add more light than it can.
-        float  sf  = FogAt(dir.z * f * len);
+        float  sf  = FogAt(dir.z * f * len) * saturate((reachEnd - f * len) * fadeK);
+        [branch] if (sf > 0.0 && gM.x > 0.0)
+            sf *= Patches(dir * (f * len));
         float  tr  = exp(-sf * stepLen);
         float  w   = sf > 1e-6 ? (1.0 - tr) / sf : stepLen;
         sun += lit * (gP.z * stepLen + sf * gG.x * w) * T;
@@ -167,15 +194,15 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         T   *= tr;
     }
 
-    // Past maxDistance, the rest of the line of sight: the integral of the height fog in closed form, taken
-    // as lit by the sun (gG.y). The sky and the far scenery drawn with it (past the world's depth slice) end
-    // at the sky distance, so the fog thins upward and meets the horizon.
-    float tEnd = (d >= 0.9999) ? max(gF.w, len) : dist;
+    // Past maxDistance, the rest of the line of sight up to the reach: the integral of the height fog in
+    // closed form, taken as lit by the sun (gG.y), with the fade-out taken at its middle.
+    float tEnd = min((d >= 0.9999) ? reachEnd : dist, reachEnd);
     [branch] if (gF.x > 0.0 && tEnd > len)
     {
         float k   = dir.z * gF.y;
         float fa  = FogAt(dir.z * len), fb = FogAt(dir.z * tEnd);
         float tau = abs(k) > 1e-5 ? (fa - fb) / k : fa * (tEnd - len);
+        tau *= saturate((reachEnd - 0.5 * (len + tEnd)) * fadeK);
         float a   = 1.0 - exp(-max(tau, 0.0));
         sun += gG.x * gG.y * a * T;
         amb += a * T;
@@ -355,6 +382,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     IDirect3DPixelShader9*  g_psTemporal = nullptr;
     IDirect3DPixelShader9*  g_psComp  = nullptr;
     IDirect3DPixelShader9*  g_psPlain = nullptr;
+
+    // The fog's patches: a tiling 3D noise, made once (the CPU copy is kept, so a new device gets the same).
+    constexpr int kNoise = 64;
+    std::vector<uint32_t>     g_noiseData;
+    IDirect3DVolumeTexture9*  g_noise = nullptr;
+    bool                      g_noiseFailed = false;
+    double g_wind[3] = {};      // how far the wind has carried the patches, yards (kept small: wrapped by the tile)
+    double g_windLast = 0.0;
     bool                    g_shadersTried = false;
     IDirect3DStateBlock9*   g_sb = nullptr;
     bool                    g_failed  = false;
@@ -382,6 +417,107 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         SafeRelease(t.surf);
         SafeRelease(t.tex);
         t.w = t.h = 0;
+    }
+
+    // Tiling gradient noise: the lattice wraps every `period` cells.
+    float Fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+
+    uint32_t Hash(int x, int y, int z, uint32_t seed)
+    {
+        uint32_t h = seed ^ (static_cast<uint32_t>(x) * 0x8DA6B343u) ^ (static_cast<uint32_t>(y) * 0xD8163841u) ^
+                     (static_cast<uint32_t>(z) * 0xCB1AB31Fu);
+        h ^= h >> 13; h *= 0x5BD1E995u; h ^= h >> 15;
+        return h;
+    }
+
+    float Grad(int x, int y, int z, int period, uint32_t seed, float fx, float fy, float fz)
+    {
+        const uint32_t h = Hash(((x % period) + period) % period, ((y % period) + period) % period,
+                                ((z % period) + period) % period, seed) % 12u;
+        static const float g[12][3] = { {1,1,0},{-1,1,0},{1,-1,0},{-1,-1,0},{1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
+                                        {0,1,1},{0,-1,1},{0,1,-1},{0,-1,-1} };
+        return g[h][0] * fx + g[h][1] * fy + g[h][2] * fz;
+    }
+
+    float Perlin(float x, float y, float z, int period, uint32_t seed)
+    {
+        const int xi = static_cast<int>(floorf(x)), yi = static_cast<int>(floorf(y)), zi = static_cast<int>(floorf(z));
+        const float fx = x - xi, fy = y - yi, fz = z - zi;
+        const float u = Fade(fx), v = Fade(fy), w = Fade(fz);
+        float c[2][2][2];
+        for (int k = 0; k < 2; ++k)
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i < 2; ++i)
+                    c[k][j][i] = Grad(xi + i, yi + j, zi + k, period, seed, fx - i, fy - j, fz - k);
+        auto L = [](float a, float b, float t) { return a + (b - a) * t; };
+        return L(L(L(c[0][0][0], c[0][0][1], u), L(c[0][1][0], c[0][1][1], u), v),
+                 L(L(c[1][0][0], c[1][0][1], u), L(c[1][1][0], c[1][1][1], u), v), w);
+    }
+
+    // Octaves of the noise at base frequency f (cells across the tile), stretched to 0..1 over the tile.
+    void Octaves(std::vector<float>& out, int f, int count, uint32_t seed)
+    {
+        out.assign(kNoise * kNoise * kNoise, 0.0f);
+        float lo = 1e9f, hi = -1e9f;
+        for (int z = 0; z < kNoise; ++z)
+            for (int y = 0; y < kNoise; ++y)
+                for (int x = 0; x < kNoise; ++x)
+                {
+                    float v = 0.0f, amp = 1.0f;
+                    int fr = f;
+                    for (int o = 0; o < count; ++o, fr *= 2, amp *= 0.5f)
+                    {
+                        const float k = static_cast<float>(fr) / kNoise;
+                        v += amp * Perlin(x * k, y * k, z * k, fr, seed + o * 7919u);
+                    }
+                    out[(z * kNoise + y) * kNoise + x] = v;
+                    lo = (std::min)(lo, v);
+                    hi = (std::max)(hi, v);
+                }
+        for (float& v : out)
+            v = hi > lo ? (v - lo) / (hi - lo) : 0.5f;
+    }
+
+    bool EnsureNoise(IDirect3DDevice9* dev)
+    {
+        if (g_noise)
+            return true;
+        if (g_noiseFailed)
+            return false;
+        if (g_noiseData.empty())
+        {
+            const double t0 = Now();
+            std::vector<float> large, wisps;
+            Octaves(large, 4, 3, 0x1234567u);    // the patches
+            Octaves(wisps, 16, 2, 0x89ABCDEu);   // the wisps in them
+            g_noiseData.resize(large.size());
+            for (size_t i = 0; i < large.size(); ++i)
+                g_noiseData[i] = 0xFF000000u | (static_cast<uint32_t>(large[i] * 255.0f + 0.5f) << 16) |
+                                 (static_cast<uint32_t>(wisps[i] * 255.0f + 0.5f) << 8);
+            Log("fog: patch noise made, %d texels a side, in %.0f ms", kNoise, 1000.0 * (Now() - t0));
+        }
+        if (FAILED(dev->lpVtbl->CreateVolumeTexture(dev, kNoise, kNoise, kNoise, 1, 0, D3DFMT_A8R8G8B8,
+                                                     D3DPOOL_MANAGED, &g_noise, nullptr)) || !g_noise)
+        {
+            g_noise = nullptr;
+            g_noiseFailed = true;
+            Log("fog: could not create the patch noise texture: the fog is even");
+            return false;
+        }
+        D3DLOCKED_BOX box = {};
+        if (FAILED(g_noise->lpVtbl->LockBox(g_noise, 0, &box, nullptr, 0)))
+        {
+            SafeRelease(g_noise);
+            g_noiseFailed = true;
+            Log("fog: could not fill the patch noise texture: the fog is even");
+            return false;
+        }
+        for (int z = 0; z < kNoise; ++z)
+            for (int y = 0; y < kNoise; ++y)
+                memcpy(static_cast<char*>(box.pBits) + z * box.SlicePitch + y * box.RowPitch,
+                       &g_noiseData[(z * kNoise + y) * kNoise], kNoise * 4);
+        g_noise->lpVtbl->UnlockBox(g_noise, 0);
+        return true;
     }
 
     void ReleaseDefaultPool()
@@ -876,8 +1012,40 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     const bool camRead = ClientCamera(cam);
     const float groundRel = camRead ? FogGround(cam) : -2.0f;
     pc[48] = fogOn ? fs.density : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
-    pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = 0.0f; pc[55] = 0.0f;
+    pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = fs.reach; pc[55] = 0.0f;
+    // The patches: the wind carries them; they rise slowly too, so they change shape as they go. Where the
+    // camera is in the tiling noise is worked out here in doubles, so far from the world's origin the
+    // shader still gets small numbers.
+    const bool patches = fogOn && fs.patchiness > 0.0f && EnsureNoise(dev);
+    float pn[8] = {};
+    {
+        const double now = Now();
+        const double dt = g_windLast > 0.0 ? (std::min)(now - g_windLast, 0.25) : 0.0;
+        g_windLast = now;
+        const double a = fs.windDeg * 3.14159265358979 / 180.0;
+        const double tile = 4.0 * fs.scale;   // the large octave has 4 cells across the tile
+        // 0 degrees blows north (+x), 90 east (-y). The noise moves with the air, so it is read against it.
+        g_wind[0] = fmod(g_wind[0] - cos(a) * fs.windSpeed * dt, tile);
+        g_wind[1] = fmod(g_wind[1] + sin(a) * fs.windSpeed * dt, tile);
+        g_wind[2] = fmod(g_wind[2] - 0.08 * fs.windSpeed * dt, tile);
+        for (int i = 0; i < 3; ++i)
+        {
+            const double at = ((camRead ? cam[i] : 0.0) * (i == 2 ? fs.flatten : 1.0) + g_wind[i]) / tile;
+            pn[i] = static_cast<float>(at - floor(at));
+        }
+        pn[3] = static_cast<float>(1.0 / tile);
+        pn[4] = patches ? fs.patchiness : 0.0f;
+        pn[5] = fs.flatten;
+    }
     d->SetPixelShaderConstantF(dev, 0, pc, 14);
+    d->SetPixelShaderConstantF(dev, 14, pn, 2);
+    d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
+    for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
+        d->SetSamplerState(dev, 3, static_cast<D3DSAMPLERSTATETYPE>(k), D3DTADDRESS_WRAP);
+    d->SetSamplerState(dev, 3, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    d->SetSamplerState(dev, 3, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    d->SetSamplerState(dev, 3, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    d->SetSamplerState(dev, 3, D3DSAMP_SRGBTEXTURE, 0);
     const ClipVertex q[4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
         {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
@@ -906,6 +1074,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     }
     d->SetTexture(dev, 1, nullptr);
     d->SetTexture(dev, 2, nullptr);
+    d->SetTexture(dev, 3, nullptr);
     d->SetVertexShader(dev, nullptr);
     if (g_trace > 0)
     {
@@ -1166,10 +1335,15 @@ bool VolumeDraw(IDirect3DDevice9* dev)
             "sun (%.2f %.2f %.2f)", g_a.w, g_a.h, 1000.0 * (Now() - t0), gain, v.density, v.maxDistance,
             sunDir[0], sunDir[1], sunDir[2]);
         if (fogOn)
+        {
             Log("fog: %.4f a yard at the ground, height %.0f yd, the ground at %.1f (%.1f yd under the camera, from "
-                "%s), sky distance %.0f yd, sun %.2f, sky light 0x%06lX%s x %.2f, debug %d", fs.density, fs.height,
-                g_fogBase, -groundRel, g_fogBaseFrom, fs.skyDistance, fs.sunLight, fogCol & 0xFFFFFF,
+                "%s), reach %.0f yd, on the sky %.0f yd, sun %.2f, sky light 0x%06lX%s x %.2f, debug %d", fs.density, fs.height,
+                g_fogBase, -groundRel, g_fogBaseFrom, fs.reach, fs.skyDistance, fs.sunLight, fogCol & 0xFFFFFF,
                 haveFogCol ? "" : " (no game fog colour yet)", fs.brightness, fogDebug);
+            Log("fog: patches %s: patchiness %.2f, %.0f yd across, %.2f as tall, wind %.1f yd/s toward %.0f deg; "
+                "the camera at (%.3f %.3f %.3f) in the noise", patches ? "on" : g_noiseFailed ? "off (no texture)" : "off",
+                fs.patchiness, fs.scale, 1.0f / fs.flatten, fs.windSpeed, fs.windDeg, pn[0], pn[1], pn[2]);
+        }
         else
             Log("fog: off ([fog] enabled %d, density %.4f)", fs.enabled ? 1 : 0, fs.density);
     }
@@ -1184,6 +1358,11 @@ bool VolumeActive()
 
 void VolumeReset()
 {
+    if (g_noise)
+    {
+        g_noise->lpVtbl->Release(g_noise);
+        g_noise = nullptr;
+    }
     ReleaseDefaultPool();
     g_failed = false;
 }

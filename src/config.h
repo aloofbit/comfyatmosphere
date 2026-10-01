@@ -16,9 +16,16 @@ struct FogSettings
     float density     = 0.004f;    // fog per yard at the ground: 0.004 lets through 45% of what is 200 yards away
     float height      = 30.0f;     // yards: the fog thins by e (2.7 times) every this many yards up
     float groundRadius = 150.0f;   // yards around you the ground under the fog is averaged over (the map files)
-    float skyDistance = 600.0f;    // yards: where a line of sight to the sky stops gathering fog
+    float reach       = 600.0f;    // yards: how far a line of sight gathers fog; it fades out over the last 40%
+    float skyDistance = 300.0f;    // yards: the same for a line of sight to the sky (0 = the sky gets none)
     float brightness  = 1.0f;      // the sky's light on the fog: the game's fog colour times this
     float sunLight    = 4.0f;      // the sun's light on the fog, against the air's ([volume] strength sets both)
+    // The patches (2026-09-30): tiling noise fixed in the world, carried by the wind.
+    float patchiness  = 0.6f;      // 0 = even fog; 1 = thick patches with clear air between
+    float scale       = 60.0f;     // yards: how big a patch is
+    float flatten     = 2.0f;      // patches are this many times wider than tall
+    float windDeg     = 45.0f;     // the way the wind blows: 0 north, 90 east
+    float windSpeed   = 2.0f;      // yards a second
     int   debug       = 0;         // 1 = the transmittance (white = clear), 2 = the sky's light on the fog alone
 };
 

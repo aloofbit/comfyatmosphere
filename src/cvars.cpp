@@ -42,6 +42,7 @@
 #include <deque>
 #include <string>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -80,7 +81,8 @@ namespace
                 kShadowEvery, kSunShadows, kSunShadowStrength, kMaster, kSunlight, kVolumeDensity,
                 kVolumeDistance, kVolumeDirection, kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt,
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
-                kFogHeight, kFogBrightness, kFogSun, kKnobs };
+                kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
+                kFogSky, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -117,6 +119,11 @@ namespace
         "comfyMistHeight",
         "comfyMistBrightness",
         "comfyMistSun",
+        "comfyMistPatches",
+        "comfyMistWind",
+        "comfyMistWindDir",
+        "comfyMistReach",
+        "comfyMistSky",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -263,6 +270,11 @@ namespace
         case kFogHeight:      snprintf(out, cap, "%.0f", s.fog.height); break;
         case kFogBrightness:  snprintf(out, cap, "%.0f", s.fog.brightness * 100.0f); break;
         case kFogSun:         snprintf(out, cap, "%.0f", s.fog.sunLight * 10.0f); break;
+        case kFogReach:       snprintf(out, cap, "%.0f", s.fog.reach); break;         // yards
+        case kFogSky:         snprintf(out, cap, "%.0f", s.fog.skyDistance); break;
+        case kFogPatches:     snprintf(out, cap, "%.0f", s.fog.patchiness * 100.0f); break;
+        case kFogWind:        snprintf(out, cap, "%.0f", s.fog.windSpeed * 10.0f); break;   // tenths of a yard a second
+        case kFogWindDir:     snprintf(out, cap, "%.0f", fmodf(fmodf(s.fog.windDeg, 360.0f) + 360.0f, 360.0f)); break;
         }
     }
 
@@ -303,6 +315,11 @@ namespace
         if (c[kFogHeight].seen)      s.fog.height     = Clamp(c[kFogHeight].value, 1.0f, 2000.0f);
         if (c[kFogBrightness].seen)  s.fog.brightness = Clamp(c[kFogBrightness].value * 0.01f, 0.0f, 4.0f);
         if (c[kFogSun].seen)         s.fog.sunLight   = Clamp(c[kFogSun].value * 0.1f, 0.0f, 50.0f);
+        if (c[kFogReach].seen)       s.fog.reach      = Clamp(c[kFogReach].value, 20.0f, 5000.0f);
+        if (c[kFogSky].seen)         s.fog.skyDistance = Clamp(c[kFogSky].value, 0.0f, 5000.0f);
+        if (c[kFogPatches].seen)     s.fog.patchiness = Clamp(c[kFogPatches].value * 0.01f, 0.0f, 1.0f);
+        if (c[kFogWind].seen)        s.fog.windSpeed  = Clamp(c[kFogWind].value * 0.1f, 0.0f, 50.0f);
+        if (c[kFogWindDir].seen)     s.fog.windDeg    = Clamp(c[kFogWindDir].value, 0.0f, 360.0f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);

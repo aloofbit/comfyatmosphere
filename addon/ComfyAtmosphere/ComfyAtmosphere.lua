@@ -61,6 +61,11 @@ COMFYATMOSPHERE_MIST_DENSITY   = "Fog Density";
 COMFYATMOSPHERE_MIST_HEIGHT    = "Fog Height";
 COMFYATMOSPHERE_MIST_BRIGHTNESS = "Fog Brightness";
 COMFYATMOSPHERE_MIST_SUN       = "Fog Sunlight";
+COMFYATMOSPHERE_MIST_REACH     = "Fog Reach";
+COMFYATMOSPHERE_MIST_SKY       = "Fog on Sky";
+COMFYATMOSPHERE_MIST_PATCHES   = "Fog Patchiness";
+COMFYATMOSPHERE_MIST_WIND      = "Wind Speed";
+COMFYATMOSPHERE_MIST_WIND_DIR  = "Wind Direction";
 
 local ENTRIES = {
 	-- name is a KEY, not a string: the panel does _G[option.name] to get the label.
@@ -192,6 +197,66 @@ local ENTRIES = {
 		minval = 0,
 		maxval = 200,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Yards, [fog] reach. Past it the game's own fog is the far wall.
+		name = "COMFYATMOSPHERE_MIST_REACH",
+		desc = "How far away, in yards, the fog still gathers. Lower lets you see further across open land and sea.",
+		type = "slider",
+		cvar = "comfyMistReach",
+		dependency = { "comfyMist", "1" },
+		minval = 100,
+		maxval = 2000,
+		step = 50,
+		numberLabels = 1,
+	},
+	{
+		-- Yards, [fog] skyDistance: how far a line of sight to the sky gathers fog.
+		name = "COMFYATMOSPHERE_MIST_SKY",
+		desc = "How much the fog covers the sky, in yards of fog. 0 leaves the sky clear; higher hides the horizon.",
+		type = "slider",
+		cvar = "comfyMistSky",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 1000,
+		step = 25,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] patchiness.
+		name = "COMFYATMOSPHERE_MIST_PATCHES",
+		desc = "0 is an even fog. Higher breaks it into patches with clear air between them.",
+		type = "slider",
+		cvar = "comfyMistPatches",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard a second: comfyfog.dll divides by 10 for [fog] windSpeed (20 is 2).
+		name = "COMFYATMOSPHERE_MIST_WIND",
+		desc = "How fast the wind carries the fog patches.",
+		type = "slider",
+		cvar = "comfyMistWind",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Degrees, [fog] windDeg: the way the wind blows. 0 north, 90 east.
+		name = "COMFYATMOSPHERE_MIST_WIND_DIR",
+		desc = "The way the wind blows, in degrees: 0 north, 90 east, 180 south, 270 west.",
+		type = "slider",
+		cvar = "comfyMistWindDir",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 360,
+		step = 15,
 		numberLabels = 1,
 	},
 	{

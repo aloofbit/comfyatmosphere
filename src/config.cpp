@@ -139,9 +139,15 @@ void LoadSettings(const wchar_t* ini)
     s.fog.density      = Clamp(GetF(kFog, L"density",      s.fog.density,      ini), 0.0f, 0.1f);
     s.fog.height       = Clamp(GetF(kFog, L"height",       s.fog.height,       ini), 1.0f, 2000.0f);
     s.fog.groundRadius = Clamp(GetF(kFog, L"groundRadius", s.fog.groundRadius, ini), 20.0f, 500.0f);
-    s.fog.skyDistance  = Clamp(GetF(kFog, L"skyDistance",  s.fog.skyDistance,  ini), 50.0f, 5000.0f);
+    s.fog.reach        = Clamp(GetF(kFog, L"reach",        s.fog.reach,        ini), 20.0f, 5000.0f);
+    s.fog.skyDistance  = Clamp(GetF(kFog, L"skyDistance",  s.fog.skyDistance,  ini), 0.0f, 5000.0f);
     s.fog.brightness   = Clamp(GetF(kFog, L"brightness",   s.fog.brightness,   ini), 0.0f, 4.0f);
     s.fog.sunLight     = Clamp(GetF(kFog, L"sunLight",     s.fog.sunLight,     ini), 0.0f, 50.0f);
+    s.fog.patchiness   = Clamp(GetF(kFog, L"patchiness",   s.fog.patchiness,   ini), 0.0f, 1.0f);
+    s.fog.scale        = Clamp(GetF(kFog, L"scale",        s.fog.scale,        ini), 5.0f, 1000.0f);
+    s.fog.flatten      = Clamp(GetF(kFog, L"flatten",      s.fog.flatten,      ini), 0.25f, 8.0f);
+    s.fog.windDeg      = GetF(kFog, L"windDeg", s.fog.windDeg, ini);
+    s.fog.windSpeed    = Clamp(GetF(kFog, L"windSpeed",    s.fog.windSpeed,    ini), 0.0f, 50.0f);
     s.fog.debug        = GetI(kFog, L"debug", s.fog.debug, ini);
 
     s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);
