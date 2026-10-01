@@ -7,6 +7,21 @@
 #include <string>
 #include <vector>
 
+// The fog (volume.cpp, 2026-09-30): carried by the volumetric light's march, so it draws only while the
+// light does. Thick at the ground and thinning upward; it darkens what lies behind it, and the sun (through
+// the shadow map) and the sky light it.
+struct FogSettings
+{
+    bool  enabled     = true;
+    float density     = 0.004f;    // fog per yard at the ground: 0.004 lets through 45% of what is 200 yards away
+    float height      = 30.0f;     // yards: the fog thins by e (2.7 times) every this many yards up
+    float groundRadius = 150.0f;   // yards around you the ground under the fog is averaged over (the map files)
+    float skyDistance = 600.0f;    // yards: where a line of sight to the sky stops gathering fog
+    float brightness  = 1.0f;      // the sky's light on the fog: the game's fog colour times this
+    float sunLight    = 4.0f;      // the sun's light on the fog, against the air's ([volume] strength sets both)
+    int   debug       = 0;         // 1 = the transmittance (white = clear), 2 = the sky's light on the fog alone
+};
+
 // Where the sun is, for the shadow map and the volumetric light (sun.cpp). By default it is the sun the
 // client draws in the sky, so both follow the time of day.
 struct SunSettings
@@ -351,6 +366,7 @@ struct Settings
     VolumeSettings volume;
     LampSettings lamps;
     SunShadowSettings sunShadows;
+    FogSettings  fog;
     SunSettings  sun;
     NightSettings night;
     ClientSettings client;

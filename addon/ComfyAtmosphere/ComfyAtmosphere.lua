@@ -56,6 +56,11 @@ COMFYATMOSPHERE_NIGHT_STRENGTH = "Night Strength";
 COMFYATMOSPHERE_NIGHT_DARKNESS = "Night Darkness";
 COMFYATMOSPHERE_MOONLIGHT      = "Moonlight Colour";
 COMFYATMOSPHERE_CLOUDS         = "Clouds";
+COMFYATMOSPHERE_MIST           = "Fog";
+COMFYATMOSPHERE_MIST_DENSITY   = "Fog Density";
+COMFYATMOSPHERE_MIST_HEIGHT    = "Fog Height";
+COMFYATMOSPHERE_MIST_BRIGHTNESS = "Fog Brightness";
+COMFYATMOSPHERE_MIST_SUN       = "Fog Sunlight";
 
 local ENTRIES = {
 	-- name is a KEY, not a string: the panel does _G[option.name] to get the label.
@@ -130,6 +135,62 @@ local ENTRIES = {
 		dependency = { "comfyVolume", "1" },
 		minval = 0,
 		maxval = 500,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- The fog rides on the light's march, so it needs Volumetric Light on.
+		name = "COMFYATMOSPHERE_MIST",
+		desc = "Fog that lies on the ground and thins higher up. The sun lights it, with shafts where trees and walls shade it. Needs Volumetric Light on.",
+		type = "checkbutton",
+		cvar = "comfyMist",
+		dependency = { "comfyVolume", "1" },
+	},
+	{
+		-- Ten-thousandths a yard: comfyfog.dll divides by 10000 for [fog] density (40 is 0.004).
+		name = "COMFYATMOSPHERE_MIST_DENSITY",
+		desc = "How thick the fog is at the ground. Higher, you see less far.",
+		type = "slider",
+		cvar = "comfyMistDensity",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Yards, [fog] height: the fog thins by 2.7 times every this many yards up.
+		name = "COMFYATMOSPHERE_MIST_HEIGHT",
+		desc = "How deep the fog layer is, in yards. Lower keeps it on the ground; higher fills the air.",
+		type = "slider",
+		cvar = "comfyMistHeight",
+		dependency = { "comfyMist", "1" },
+		minval = 5,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] brightness, the sky's light on the fog (the game's fog colour times this).
+		name = "COMFYATMOSPHERE_MIST_BRIGHTNESS",
+		desc = "How bright the fog is in the shade. 100 is the game's own fog colour.",
+		type = "slider",
+		cvar = "comfyMistBrightness",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths: comfyfog.dll divides by 10 for [fog] sunLight (40 is 4).
+		name = "COMFYATMOSPHERE_MIST_SUN",
+		desc = "How brightly the sun lights the fog.",
+		type = "slider",
+		cvar = "comfyMistSun",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 200,
 		step = 5,
 		numberLabels = 1,
 	},
@@ -378,11 +439,13 @@ local ENTRIES = {
 			.. "8 lamps: the light on surfaces alone\n"
 			.. "9 sun rays: the mask\n"
 			.. "10 sun rays: the rays alone\n"
-			.. "11 sun rays: the sky kept before the clouds",
+			.. "11 sun rays: the sky kept before the clouds\n"
+			.. "12 fog: how much gets through (white = clear)\n"
+			.. "13 fog: the sky's light on it alone",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 11,
+		maxval = 13,
 		step = 1,
 		numberLabels = 1,
 	},

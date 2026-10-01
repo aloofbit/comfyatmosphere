@@ -26,6 +26,14 @@
 //      takes the four low-resolution texels around it, weighted also by how near their distance is to
 //      its own: a tree trunk in front of the sky takes the trunk's glow, not the sky's.
 //
+// The fog (2026-09-30). The same march carries a fog: thick at the ground and thinning upward, which
+// darkens what lies behind it (transmittance) and is lit by the sun (through the shadow map, as the air
+// above) and by the sky. The air of [volume] density only adds light, as before, so with the fog off the
+// picture is the light alone, as it was. The target holds the sun's part (r), the sky's part (g), the
+// transmittance (b) and the distance (a); the composite multiplies the world by the transmittance and adds
+// the two parts in their colours. Past maxDistance the rest of each line of sight is fogged in one closed
+// form, unshadowed; the sky and the far scenery drawn with it end at [fog] skyDistance.
+//
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
 // shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
@@ -42,7 +50,9 @@
 #include "cover.h"
 #include "depth.h"
 #include "sun.h"
+#include "mapterrain.h"
 #include "shadow.h"
+#include "sunshadows.h"
 #include "volume.h"
 
 #include <cmath>
@@ -81,6 +91,15 @@ float4 gSun  : register(c8);        // direction to the sun, phase anisotropy g
 float4 gP    : register(c9);        // debug stage, max distance, density, shadow bias
 float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset, leafShade (0 = no leaf map)
+float4 gF    : register(c12);       // fog: per yard at the ground, 1 / height, the ground's height (camera-relative), sky distance
+float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (/4pi), share of the far part in sun
+
+// The fog's extinction per yard at height z (camera-relative). Below the ground it is capped at 4 heights deep.
+float FogAt(float z)
+{
+    return gF.x * exp(min((gF.z - z) * gF.y, 4.0));
+}
+
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
@@ -115,10 +134,15 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float  slope = abs(ds.z) / max(length(ds.xy), 1e-5);
     float  bias  = gP.w * (1.0 + min(slope, 20.0));
 
+    float  stepLen = len * gL.y;
+    float  T   = 1.0;      // how much of what lies behind gets through the fog so far
+    float  sun = 0.0;      // sunlight scattered toward the camera, before the phase
+    float  amb = 0.0;      // sky light scattered toward the camera
     float  acc = 0.0;
     [loop] for (int i = 0; i < gL.x; ++i)
     {
-        float3 s   = lerp(s0, s1, (i + jit) * gL.y);
+        float  f   = (i + jit) * gL.y;
+        float3 s   = lerp(s0, s1, f);
         float2 suv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
         float  hit = (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
         // Leaves stop [volume] leafShade of the sun: all of it by default (2026-09-30), so the shafts under a
@@ -131,28 +155,53 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // map instead, so a caster dissolves in and out.
         float2 d   = abs(s.xy);
         float  inMap = saturate((1.0 - max(d.x, d.y)) * 10.0);
-        acc += lerp(1.0, hit, inMap);
+        float  lit = lerp(1.0, hit, inMap);
+        acc += lit;
+        // The fog in this step: w is the step's length as the fog within it lets through, so a thick step
+        // does not add more light than it can.
+        float  sf  = FogAt(dir.z * f * len);
+        float  tr  = exp(-sf * stepLen);
+        float  w   = sf > 1e-6 ? (1.0 - tr) / sf : stepLen;
+        sun += lit * (gP.z * stepLen + sf * gG.x * w) * T;
+        amb += sf * w * T;
+        T   *= tr;
+    }
+
+    // Past maxDistance, the rest of the line of sight: the integral of the height fog in closed form, taken
+    // as lit by the sun (gG.y). The sky and the far scenery drawn with it (past the world's depth slice) end
+    // at the sky distance, so the fog thins upward and meets the horizon.
+    float tEnd = (d >= 0.9999) ? max(gF.w, len) : dist;
+    [branch] if (gF.x > 0.0 && tEnd > len)
+    {
+        float k   = dir.z * gF.y;
+        float fa  = FogAt(dir.z * len), fb = FogAt(dir.z * tEnd);
+        float tau = abs(k) > 1e-5 ? (fa - fb) / k : fa * (tEnd - len);
+        float a   = 1.0 - exp(-max(tau, 0.0));
+        sun += gG.x * gG.y * a * T;
+        amb += a * T;
+        T   *= 1.0 - a;
     }
 
     if (gP.x > 5.5)
         return float4(tex2Dlod(sShadow, float4(uv, 0, 0)).r, 0.0, 0.0, 1.0);   // debug 6: the shadow map
     if (gP.x > 4.5)
         return float4(acc * gL.y, 0.0, 0.0, 1.0);                         // debug 5: share of the ray in sun
-    float lit   = acc * gL.y * len * gP.z;
     float c     = dot(dir, gSun.xyz);
     float g     = gSun.w;
     float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5);
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
     // The same for the distance, which is capped where 16-bit floats still hold it.
-    float v     = lit * phase;
-    v = (v >= 0.0 && v < 16.0) ? v : 0.0;
+    float v     = sun * phase;
+    v   = (v >= 0.0 && v < 16.0) ? v : 0.0;
+    amb = (amb >= 0.0 && amb < 16.0) ? amb : 0.0;
+    T   = (T >= 0.0 && T <= 1.0) ? T : 1.0;
     dist = (dist >= 0.0 && dist < 30000.0) ? dist : 30000.0;
-    return float4(v, dist, 0.0, 1.0);
+    return float4(v, amb, T, dist);
 }
 )HLSL";
 
     // 5-tap Gaussian along gD (one texel step), run once across and once down. A tap counts for less the
-    // further its distance (green) is from the centre's: 5% nearer or further halves it.
+    // further its distance (alpha) is from the centre's: 5% nearer or further halves it.
     const char* kBlurHlsl = R"HLSL(
 sampler2D s0 : register(s0);
 float4 gD : register(c0);
@@ -167,11 +216,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float4 b1 = tex2D(s0, uv - gD.xy);
     float4 a2 = tex2D(s0, uv + gD.xy * 2.0);
     float4 b2 = tex2D(s0, uv - gD.xy * 2.0);
-    float wa1 = W(a1.g, c.g, 0.25),   wb1 = W(b1.g, c.g, 0.25);
-    float wa2 = W(a2.g, c.g, 0.0625), wb2 = W(b2.g, c.g, 0.0625);
-    float v = (c.r * 0.375 + a1.r * wa1 + b1.r * wb1 + a2.r * wa2 + b2.r * wb2)
-            / (0.375 + wa1 + wb1 + wa2 + wb2);
-    return float4(v, c.g, 0.0, 1.0);
+    float wa1 = W(a1.a, c.a, 0.25),   wb1 = W(b1.a, c.a, 0.25);
+    float wa2 = W(a2.a, c.a, 0.0625), wb2 = W(b2.a, c.a, 0.0625);
+    float3 v = (c.rgb * 0.375 + a1.rgb * wa1 + b1.rgb * wb1 + a2.rgb * wa2 + b2.rgb * wb2)
+             / (0.375 + wa1 + wb1 + wa2 + wb2);
+    return float4(v, c.a);
 }
 )HLSL";
 
@@ -182,7 +231,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // has cannot linger, and is dropped where its distance does not match the point's: that point was
     // hidden last frame, and the history there belongs to whatever hid it.
     const char* kTemporalHlsl = R"HLSL(
-sampler2D sCur  : register(s0);     // this frame: glow (r), distance (g); point sampled
+sampler2D sCur  : register(s0);     // this frame: sun (r), sky (g), transmittance (b), distance (a); point sampled
 sampler2D sHist : register(s1);     // the last frame's result, the same layout; bilinear
 float4 gInv0  : register(c0);       // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1  : register(c1);
@@ -200,18 +249,18 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     if (gMove.w <= 0.0)
         return cur;
 
-    float lo = cur.r, hi = cur.r;
+    float3 lo = cur.rgb, hi = cur.rgb;
     for (int j = -1; j <= 1; ++j)
         for (int i = -1; i <= 1; ++i)
         {
-            float n = tex2Dlod(sCur, float4(uv + float2(i, j) * gT.xy, 0, 0)).r;
+            float3 n = tex2Dlod(sCur, float4(uv + float2(i, j) * gT.xy, 0, 0)).rgb;
             lo = min(lo, n);
             hi = max(hi, n);
         }
 
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp  = ndc.x * gInv0 + ndc.y * gInv1 + 0.5 * gInv2 + gInv3;
-    float3 P   = normalize(wp.xyz / max(wp.w, 1e-6)) * cur.g;
+    float3 P   = normalize(wp.xyz / max(wp.w, 1e-6)) * cur.a;
     float3 Q   = P + gMove.xyz;
     float4 clip = Q.x * gPrev0 + Q.y * gPrev1 + Q.z * gPrev2 + gPrev3;
     if (clip.w <= 1e-3)
@@ -222,16 +271,16 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
     float4 h      = tex2Dlod(sHist, float4(puv, 0, 0));
     float  expect = length(Q);
-    float  same   = saturate(1.0 - abs(h.g - expect) / max(0.2 * expect, 1.0));
-    float  v      = lerp(cur.r, clamp(h.r, lo, hi), gMove.w * same);
-    return float4(v, cur.g, 0.0, 1.0);
+    float  same   = saturate(1.0 - abs(h.a - expect) / max(0.2 * expect, 1.0));
+    float3 v      = lerp(cur.rgb, clamp(h.rgb, lo, hi), gMove.w * same);
+    return float4(v, cur.a);
 }
 )HLSL";
 
     // Onto the world at full resolution: the four low-resolution texels around each pixel, weighted as a
     // bilinear filter would, and by how near each texel's distance is to the pixel's own.
     const char* kCompositeHlsl = R"HLSL(
-sampler2D sGlow  : register(s0);    // glow (r), distance (g); point sampled
+sampler2D sGlow  : register(s0);    // sun (r), sky (g), transmittance (b), distance (a); point sampled
 sampler2D sDepth : register(s1);    // the scene's depth (INTZ), full resolution
 sampler2D sCover : register(s2);    // 1x1: how much of the sun is in view on screen (cover.cpp)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection)
@@ -240,14 +289,15 @@ float4 gInv2 : register(c2);
 float4 gInv3 : register(c3);
 float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gT    : register(c5);        // the glow's size, and one texel
-float4 gC    : register(c6);        // colour x gain; a = 1 when sCover is bound
-float Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
+float4 gC    : register(c6);        // the sun's colour x gain; a = 1 when sCover is bound
+float4 gA    : register(c7);        // the sky's colour on the fog; a = fog debug (1 transmittance, 2 sky light)
+float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
 {
     float4 s  = tex2Dlod(sGlow, float4((base + o + 0.5) * gT.zw, 0, 0));
     float2 bw = lerp(1.0 - f, f, o);
-    float  w  = bw.x * bw.y / (1e-3 + abs(s.g - dist) / max(dist, 1e-3)) + 1e-6;
+    float  w  = bw.x * bw.y / (1e-3 + abs(s.a - dist) / max(dist, 1e-3)) + 1e-6;
     wsum += w;
-    return s.r * w;
+    return s.rgb * w;
 }
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
@@ -259,9 +309,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float2 base = floor(t);
     float2 f    = t - base;
     float  wsum = 0.0;
-    float  sum  = Tap(base, float2(0, 0), f, dist, wsum) + Tap(base, float2(1, 0), f, dist, wsum)
+    float3 sum  = Tap(base, float2(0, 0), f, dist, wsum) + Tap(base, float2(1, 0), f, dist, wsum)
                 + Tap(base, float2(0, 1), f, dist, wsum) + Tap(base, float2(1, 1), f, dist, wsum);
-    return float4(gC.rgb * (sum / wsum) * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a), 0.0);
+    float3 m    = sum / wsum;
+    float  T    = saturate(m.b);
+    if (gA.w > 1.5)
+        return float4(gA.rgb * m.g, 1.0);                                  // fog debug 2: the sky light alone
+    if (gA.w > 0.5)
+        return float4(T, T, T, 1.0);                                       // fog debug 1: the transmittance
+    // Blended as ONE, SRCALPHA: the world times the transmittance, plus the light.
+    float3 rgb  = gC.rgb * m.r * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a) + gA.rgb * m.g;
+    return float4(rgb, T);
 }
 )HLSL";
 
@@ -623,6 +681,43 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         dev->lpVtbl->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
     }
 
+    bool FogOn()
+    {
+        return g_cfg.fog.enabled && g_cfg.fog.density > 0.0f;
+    }
+
+    // The ground under the fog, camera-relative: the average ground height within [fog] groundRadius of
+    // you, from the map files, easing over 3 s, so walking over a ridge does not pop the fog. Without a
+    // tile, your feet; without those, 2 yards under the camera.
+    float g_fogBase = 0.0f;
+    bool  g_fogHaveBase = false;
+    const char* g_fogBaseFrom = "none";
+
+    float FogGround(const float cam[3])
+    {
+        static double last = 0.0;
+        float pl[3], ground;
+        const bool havePl = ClientPlayer(pl);
+        const float* at = havePl ? pl : cam;
+        const double now = Now();
+        if (g_cfg.shadow.mapTerrain && MapGroundBase(at, g_cfg.fog.groundRadius, ground))
+        {
+            if (!g_fogHaveBase || now - last > 2.0 || fabsf(ground - g_fogBase) > 200.0f)
+                g_fogBase = ground;
+            else
+                g_fogBase += (ground - g_fogBase) * static_cast<float>(1.0 - exp(-(now - last) / 3.0));
+            g_fogHaveBase = true;
+            g_fogBaseFrom = "the map files";
+            last = now;
+        }
+        else if (!g_fogHaveBase || now - last > 2.0)
+        {
+            g_fogBase = havePl ? pl[2] : cam[2] - 2.0f;
+            g_fogBaseFrom = havePl ? "your feet" : "the camera";
+        }
+        return g_fogBase - cam[2];
+    }
+
     const D3DRENDERSTATETYPE kTouched[] = {
         D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_SRCBLEND,
         D3DRS_DESTBLEND, D3DRS_BLENDOP, D3DRS_CULLMODE, D3DRS_FOGENABLE, D3DRS_STENCILENABLE,
@@ -637,7 +732,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     g_logNext = false;
 
     const VolumeSettings& v = g_cfg.volume;
-    if (!v.enabled || !g_on || g_failed || (v.strength <= 0.0f && !v.debug))
+    const bool fogOn = FogOn();
+    if (!v.enabled || !g_on || g_failed || (v.strength <= 0.0f && !v.debug && !fogOn))
         return false;
     ++g_st.calls;
 
@@ -661,7 +757,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
 
     // Faded out as the sun goes down, and turned down at night by [night] strength.
     const float sunset = (sunDir[2] > 0.0f ? (sunDir[2] < 0.1f ? sunDir[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
-    if (sunset <= 0.0f && !v.debug)
+    if (sunset <= 0.0f && !v.debug && !fogOn)
     {
         ++g_st.sunDown;
         return false;
@@ -756,7 +852,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     const float half[4] = { -1.0f / g_a.w, 1.0f / g_a.h, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
-    float pc[48];
+    float pc[56];
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -775,7 +871,13 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     const bool temporal = v.smooth > 0.001f && v.debug < 2;
     const float turn = temporal ? static_cast<float>(fmod(g_frameNo * 0.6180339887, 1.0)) : 0.0f;
     pc[44] = steps; pc[45] = 1.0f / steps; pc[46] = turn; pc[47] = leaves ? g_cfg.volume.leafShade : 0.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 12);
+    const FogSettings& fs = g_cfg.fog;
+    float cam[3] = {};
+    const bool camRead = ClientCamera(cam);
+    const float groundRel = camRead ? FogGround(cam) : -2.0f;
+    pc[48] = fogOn ? fs.density : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
+    pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = 0.0f; pc[55] = 0.0f;
+    d->SetPixelShaderConstantF(dev, 0, pc, 14);
     const ClipVertex q[4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f },
         {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
@@ -902,8 +1004,6 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // through the camera's movement and blended in (see kTemporalHlsl). The history belongs to the frame
     // just before this one, or it is not used: after a skipped frame it is too old to trust.
     const Target* src = &g_a;
-    float cam[3] = {};
-    const bool camRead = ClientCamera(cam);
     if (temporal)
     {
         const bool reuse = g_histValid && camRead && g_histFrame + 1 == g_frameNo;
@@ -986,13 +1086,21 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(src->tex));
     d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN |
                                                    D3DCOLORWRITEENABLE_BLUE);
-    if (!v.debug)
+    // The world times the transmittance, plus the light (see kCompositeHlsl). With the fog off the
+    // transmittance is 1, and this is the plain addition it was.
+    const int fogDebug = fogOn && !v.debug ? fs.debug : 0;
+    if (!v.debug && !fogDebug)
     {
         d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, TRUE);
         d->SetRenderState(dev, D3DRS_SRCBLEND,         D3DBLEND_ONE);
-        d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_ONE);
+        d->SetRenderState(dev, D3DRS_DESTBLEND,        D3DBLEND_SRCALPHA);
         d->SetRenderState(dev, D3DRS_BLENDOP,          D3DBLENDOP_ADD);
     }
+    // The sky's light on the fog: the game's own fog colour, which it sets for the zone and the time of
+    // day, by [fog] brightness. The light's debug view shows the light alone.
+    DWORD fogCol = 0x808080;
+    const bool haveFogCol = WorldFogColor(fogCol);
+    const float amb = v.debug ? 0.0f : fs.brightness;
     if (v.debug >= 2)
     {
         d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
@@ -1003,7 +1111,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     }
     else
     {
-        float kc[28];
+        float kc[32];
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c)
                 kc[r * 4 + c] = inv.m[r][c];
@@ -1011,6 +1119,10 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         kc[20] = static_cast<float>(src->w); kc[21] = static_cast<float>(src->h);
         kc[22] = 1.0f / src->w;              kc[23] = 1.0f / src->h;
         kc[24] = cc[0]; kc[25] = cc[1]; kc[26] = cc[2]; kc[27] = cc[3];
+        kc[28] = ((fogCol >> 16) & 0xFF) / 255.0f * amb;
+        kc[29] = ((fogCol >>  8) & 0xFF) / 255.0f * amb;
+        kc[30] = ((fogCol      ) & 0xFF) / 255.0f * amb;
+        kc[31] = static_cast<float>(fogDebug);
         d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
         for (DWORD st = 0; st < 2; ++st)
         {
@@ -1021,7 +1133,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         }
         d->SetVertexShader(dev, g_vsMarch);
         d->SetPixelShader(dev, g_psComp);
-        d->SetPixelShaderConstantF(dev, 0, kc, 7);
+        d->SetPixelShaderConstantF(dev, 0, kc, 8);
         ClipQuad(dev, wd.Width, wd.Height);
         d->SetTexture(dev, 1, nullptr);
         d->SetVertexShader(dev, nullptr);
@@ -1049,16 +1161,25 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     ++g_st.drawn;
 
     if (logThis)
+    {
         Log("volume: drawn at %ux%u (%.2f ms CPU to issue), gain %.2f, density %.3f, max distance %.0f yards, "
             "sun (%.2f %.2f %.2f)", g_a.w, g_a.h, 1000.0 * (Now() - t0), gain, v.density, v.maxDistance,
             sunDir[0], sunDir[1], sunDir[2]);
+        if (fogOn)
+            Log("fog: %.4f a yard at the ground, height %.0f yd, the ground at %.1f (%.1f yd under the camera, from "
+                "%s), sky distance %.0f yd, sun %.2f, sky light 0x%06lX%s x %.2f, debug %d", fs.density, fs.height,
+                g_fogBase, -groundRel, g_fogBaseFrom, fs.skyDistance, fs.sunLight, fogCol & 0xFFFFFF,
+                haveFogCol ? "" : " (no game fog colour yet)", fs.brightness, fogDebug);
+        else
+            Log("fog: off ([fog] enabled %d, density %.4f)", fs.enabled ? 1 : 0, fs.density);
+    }
     return true;
 }
 
 bool VolumeActive()
 {
     const VolumeSettings& v = g_cfg.volume;
-    return v.enabled && g_on && !g_failed && (v.strength > 0.0f || v.debug);
+    return v.enabled && g_on && !g_failed && (v.strength > 0.0f || v.debug || FogOn());
 }
 
 void VolumeReset()

@@ -46,6 +46,7 @@ std::map<std::string, std::string>& ConfigOverrides() { return g_overrides; }
 
 namespace
 {
+    const wchar_t* kFog     = L"fog";
     const wchar_t* kSun     = L"sun";
     const wchar_t* kClient  = L"client";
     const wchar_t* kSky     = L"sky";
@@ -133,6 +134,15 @@ void LoadSettings(const wchar_t* ini)
     g_keys.clear();
     if (ini != g_ini)
         wcsncpy_s(g_ini, ini, _TRUNCATE);
+
+    s.fog.enabled      = GetB(kFog, L"enabled", s.fog.enabled, ini);
+    s.fog.density      = Clamp(GetF(kFog, L"density",      s.fog.density,      ini), 0.0f, 0.1f);
+    s.fog.height       = Clamp(GetF(kFog, L"height",       s.fog.height,       ini), 1.0f, 2000.0f);
+    s.fog.groundRadius = Clamp(GetF(kFog, L"groundRadius", s.fog.groundRadius, ini), 20.0f, 500.0f);
+    s.fog.skyDistance  = Clamp(GetF(kFog, L"skyDistance",  s.fog.skyDistance,  ini), 50.0f, 5000.0f);
+    s.fog.brightness   = Clamp(GetF(kFog, L"brightness",   s.fog.brightness,   ini), 0.0f, 4.0f);
+    s.fog.sunLight     = Clamp(GetF(kFog, L"sunLight",     s.fog.sunLight,     ini), 0.0f, 50.0f);
+    s.fog.debug        = GetI(kFog, L"debug", s.fog.debug, ini);
 
     s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);
     s.sun.azimuth      = GetF(kSun, L"azimuth",   s.sun.azimuth,   ini);

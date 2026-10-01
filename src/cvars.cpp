@@ -79,7 +79,8 @@ namespace
                 kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
                 kShadowEvery, kSunShadows, kSunShadowStrength, kMaster, kSunlight, kVolumeDensity,
                 kVolumeDistance, kVolumeDirection, kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt,
-                kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kKnobs };
+                kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
+                kFogHeight, kFogBrightness, kFogSun, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -110,26 +111,34 @@ namespace
         "comfyLampDistance",
         "comfyNightDarkness",
         "comfyMoonlight",
+        // New names for the new fog (2026-09-30): Config.wtf may still hold the old fog's comfyFog values.
+        "comfyMist",
+        "comfyMistDensity",
+        "comfyMistHeight",
+        "comfyMistBrightness",
+        "comfyMistSun",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
     // options window instead of an ini edit and F11. 0 leaves the ini's own debug values alone. The panel
     // cannot draw a dropdown (it builds a page from a table of tick boxes and sliders), so the names are
     // in the slider's tooltip and in the log.
-    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays; };
+    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays, fog; };
     const DebugViewInfo kDebugViews[] = {
-        { "off",                                              0, 0, 0, 0 },
-        { "volumetric light: the glow alone",                 1, 0, 0, 0 },
-        { "volumetric light: share of each line in sun",      5, 0, 0, 0 },
-        { "volumetric light: the shadow map",                 6, 0, 0, 0 },
-        { "volumetric light: the depth it reads",             3, 0, 0, 0 },
-        { "sun shadows: the shade alone",                     0, 1, 0, 0 },
-        { "lamps: the glow alone",                            0, 0, 1, 0 },
-        { "lamps: the distance read",                         0, 0, 2, 0 },
-        { "lamps: the light on surfaces alone",               0, 0, 3, 0 },
-        { "sun rays: the mask",                               0, 0, 0, 1 },
-        { "sun rays: the rays alone",                         0, 0, 0, 2 },
-        { "sun rays: the sky kept before the clouds",         0, 0, 0, 3 },
+        { "off",                                              0, 0, 0, 0, 0 },
+        { "volumetric light: the glow alone",                 1, 0, 0, 0, 0 },
+        { "volumetric light: share of each line in sun",      5, 0, 0, 0, 0 },
+        { "volumetric light: the shadow map",                 6, 0, 0, 0, 0 },
+        { "volumetric light: the depth it reads",             3, 0, 0, 0, 0 },
+        { "sun shadows: the shade alone",                     0, 1, 0, 0, 0 },
+        { "lamps: the glow alone",                            0, 0, 1, 0, 0 },
+        { "lamps: the distance read",                         0, 0, 2, 0, 0 },
+        { "lamps: the light on surfaces alone",               0, 0, 3, 0, 0 },
+        { "sun rays: the mask",                               0, 0, 0, 1, 0 },
+        { "sun rays: the rays alone",                         0, 0, 0, 2, 0 },
+        { "sun rays: the sky kept before the clouds",         0, 0, 0, 3, 0 },
+        { "fog: how much gets through (white = clear)",       0, 0, 0, 0, 1 },
+        { "fog: the sky's light on it alone",                 0, 0, 0, 0, 2 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;
@@ -248,6 +257,12 @@ namespace
         case kLampDistance:   snprintf(out, cap, "%.0f", s.lamps.fogReach * 100.0f); break;
         case kNightDarkness:  snprintf(out, cap, "%.0f", s.night.darkness * 100.0f); break;
         case kMoonlight:      snprintf(out, cap, "%.0f", s.night.tint * 100.0f); break;
+        case kFog:            snprintf(out, cap, "%d", s.fog.enabled ? 1 : 0); break;
+        // Ten-thousandths a yard (40 is 0.004), yards, and percentages.
+        case kFogDensity:     snprintf(out, cap, "%.0f", s.fog.density * 10000.0f); break;
+        case kFogHeight:      snprintf(out, cap, "%.0f", s.fog.height); break;
+        case kFogBrightness:  snprintf(out, cap, "%.0f", s.fog.brightness * 100.0f); break;
+        case kFogSun:         snprintf(out, cap, "%.0f", s.fog.sunLight * 10.0f); break;
         }
     }
 
@@ -283,6 +298,11 @@ namespace
         if (c[kLampDistance].seen)   s.lamps.fogReach = Clamp(c[kLampDistance].value * 0.01f, 0.5f, 4.0f);
         if (c[kNightDarkness].seen)  s.night.darkness = Clamp(c[kNightDarkness].value * 0.01f, 0.0f, 0.9f);
         if (c[kMoonlight].seen)      s.night.tint     = Clamp(c[kMoonlight].value * 0.01f, 0.0f, 1.0f);
+        if (c[kFog].seen)            s.fog.enabled    = c[kFog].value != 0.0f;
+        if (c[kFogDensity].seen)     s.fog.density    = Clamp(c[kFogDensity].value * 0.0001f, 0.0f, 0.1f);
+        if (c[kFogHeight].seen)      s.fog.height     = Clamp(c[kFogHeight].value, 1.0f, 2000.0f);
+        if (c[kFogBrightness].seen)  s.fog.brightness = Clamp(c[kFogBrightness].value * 0.01f, 0.0f, 4.0f);
+        if (c[kFogSun].seen)         s.fog.sunLight   = Clamp(c[kFogSun].value * 0.1f, 0.0f, 50.0f);
         if (c[kDebugView].seen)
         {
             const int v = static_cast<int>(Clamp(c[kDebugView].value, 0.0f, kDebugViewCount - 1.0f) + 0.5f);
@@ -293,6 +313,7 @@ namespace
                 s.sunShadows.debug = d.sunShadows;
                 s.lamps.debug      = d.lamps;
                 s.rays.debugView   = d.rays;
+                s.fog.debug        = d.fog;
             }
             if (v != g_debugViewLogged)
             {
@@ -320,7 +341,7 @@ namespace
         // buffer and the shadow map go too, since nothing reads them.
         if (!s.master)
         {
-            s.volume.enabled = s.depth.enabled = s.shadow.enabled = false;
+            s.volume.enabled = s.depth.enabled = s.shadow.enabled = s.fog.enabled = false;
             s.rays.enabled = s.sunShadows.enabled = s.lamps.enabled = false;
         }
     }
