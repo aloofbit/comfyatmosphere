@@ -24,6 +24,7 @@ measurement showed.
 
 | Piece | File | Keys |
 | --- | --- | --- |
+| Fog: carried by the volumetric light's march, on the ground from the map files | `volume.cpp` | none; `[fog]` in the ini |
 | Sun direction and world camera, for the shadow map and the light | `sun.cpp` | none |
 | Sun rays: radial blur of the bright sky toward the sun | `rays.cpp` | Ctrl+F11 toggle |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
@@ -1064,6 +1065,28 @@ the pivot). Offline, of 160 models on two tiles: the gryphon roost (48 of 53 bon
 animate only their flame (5 to 9 keys) and stay baked. An animated doodad is not baked; its place goes into
 `dAnim`, so the client's draws of it are kept, and `MapAnimatedDoodadAt` keeps the still rule off it. The
 probe lists them. The owner: nice.
+
+## Volumetric fog (2026-09-30)
+
+The fog is part of the volumetric light's march, not a pass of its own: one medium, so the shafts are the
+sunlit part of the fog. Built in steps on the branch `volumetric-fog`, each tested in game.
+
+- **The medium.** The target holds the sun's light (r), the sky's (g), the transmittance (b) and the distance
+  (a). The fog is extinction as well as light; the air of `[volume] density` adds light only, so with the fog
+  off the picture is the light alone, as before. The composite is `dest x T + light` (ONE, SRCALPHA).
+- **Past maxDistance** the rest of each line of sight is fogged in one closed form, exponential between its
+  two ends. `[fog] reach` stops gathering, fading over its last 40%: at sea level the view had ended a few
+  hundred yards out. `skyDistance` does the same for the sky.
+- **Light.** The sun lights it through the shadow map (`sunLight` against the air), and the sky lights it in
+  the game's fog colour for the zone and hour (`WorldFogColor`), so Duskwood's mist is teal and dark.
+- **Patches.** A tiling 3D noise, 64 texels a side, made once on the CPU (about 150 ms), fixed in the world
+  and carried by the wind. At patchiness 1 the patches hold twice the fog and the gaps none.
+- **Ground.** A 128 x 128 texture of 8-yard cells around you: the ground and water from the map files (MCLQ:
+  the range's top is the surface; dry cells' vertex heights are FLT_MAX) and the ground smoothed over 100
+  yards. The fog lies between the two (`follow`), more in hollows and over water; `morning` thickens it at
+  dawn and dusk.
+- **Lamps** are dimmed by the fog between you and them and glow more in thick mist (`lampMist`).
+- **Cost** at 2560x1440: the march went from 2.50 to 3.44 ms, about 0.9 ms for the fog.
 
 ## Shadows that blinked while you walked (2026-09-30)
 

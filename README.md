@@ -4,8 +4,8 @@
 >
 > [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
 
-Atmosphere for the World of Warcraft 1.12 client: sun shadows, volumetric light through the trees, sun rays,
-glowing lamps and darker nights. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
+Atmosphere for the World of Warcraft 1.12 client: volumetric fog, sun shadows, volumetric light through the
+trees, sun rays, glowing lamps and darker nights. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
 come from the first version, which only did fog.
 
 Looking for fog on 3.3.5a? [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light
@@ -27,7 +27,7 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 | **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. The rays come from the sun only, and fade when a mountain or a wall covers it. Cheap. | on |
 | **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files. Needs the volumetric light. | on |
 | **Night** | Nights are darker. Lamps still light the ground near them, and buildings stay as the game lights them. Night comes from the game clock. The rays and the light at night follow the moons. | on |
-| **Fog** | Our own fog: thick low down and thinning upward, lit toward the sun. The game's own fog is used unless you turn this on. | off |
+| **Fog** | Volumetric fog that lies on the ground and thins upward. It collects in valleys and over water, is thicker at dawn, and drifts in patches with the wind. The sun lights it, with shafts where trees and walls shade it, and the sky lights it in the zone's own fog colour. The game's own fog stays as the far wall. Needs the volumetric light. | on |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
 
 All settings are in `comfyfog.ini`. **F11 reloads it in game.**
@@ -69,12 +69,12 @@ own. Use the window on a client whose options window has no page for them.
 | Night Darkness, Moonlight Colour (%) | `[night] darkness`, `tint` |
 | Clouds | `[sky] clouds` |
 | Debug View | the `debug` values of each effect; 0 leaves them to the ini |
-| Atmospheric Fog, Fog Thickness | `[fog] enabled`, `thickness` |
-| Fog Distance, Fog Near You, Distance Fog Amount (%) | `[fog] reach`, `haze`, `distance` |
-| Ground Haze | `[fog] density` (100 = 0.02 a yard) |
-| Fog Height (yards), Fog Edge Fade (%) | `[fog] height`, `cover` |
-| Fog Darkness, Fog Greyness (%) | `[fog] darken`, `desaturate` |
-| Fog Sun Glow, Fog Sun Brightness (%) | `[fog] sunGlow`, `sunBright` |
+| Fog | `[fog] enabled` |
+| Fog Density, Fog Height (yards) | `[fog] density` (ten-thousandths of a yard: 25 = 0.0025), `height` |
+| Fog Reach, Fog on Sky (yards) | `[fog] reach`, `skyDistance` |
+| Fog Brightness (%), Fog Sunlight | `[fog] brightness`, `sunLight` (in tenths) |
+| Fog Patchiness (%), Wind Speed, Wind Direction | `[fog] patchiness`, `windSpeed` (tenths of a yard a second), `windDeg` |
+| Low Ground Mist, Water Mist, Morning Mist, Lamps in Mist (%) | `[fog] lowGround`, `water`, `morning`, `lampMist` |
 
 A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
 the values from `comfyfog.ini` back.
@@ -84,6 +84,9 @@ the values from `comfyfog.ini` back.
 - **Sun Shadows** use the volumetric light's shadow map, so they need Volumetric Light on. While both are
   on, the game's round shadow under each character is off (the CVar `shadowLOD`). At logout it is set
   back, so it returns if the mod is removed.
+- **Fog** is carried by the volumetric light, so it needs Volumetric Light on. It lies on the ground from
+  the map files (`[shadow] mapTerrain`). **Fog Reach** sets how far it gathers: lower lets you see further
+  across open land and the sea. **Fog on Sky** sets how much it covers the sky; 0 leaves the horizon clear.
 - **Night Darkness** makes the world darker at night, and **Moonlight Colour** makes the night bluer. They
   need Volumetric Light on. Inside buildings they do nothing.
 - **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns
@@ -107,6 +110,10 @@ add to. On another client, use `/atmos options`.
 | --- | --- |
 | `/atmos` | The commands and the sections |
 | `/atmos options` | Open or close the settings window |
+| `/atmos debug` | Open or close the debug panel (below) |
+| `/atmos stats` | Show or hide the stats panel (below) |
+| `/atmos probe` | Log one frame to `comfyfog.log`, as F12 does |
+| `/atmos bench` | Run the benchmark, as Alt+F12 does |
 | `/atmos <section>` | Every value in a section |
 | `/atmos <section>.<key>` | One value, and where it came from |
 | `/atmos <section>.<key> <value>` | Set it. The key alone will do when no other section has it |
@@ -117,12 +124,25 @@ add to. On another client, use `/atmos options`.
 A value set with `/atmos` stays until `reset` or `save`, also after F11. A value that a control on the
 Atmosphere page sets is refused: use the control.
 
+### Finding faults
+
+The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel:
+
+- **Probe** logs one frame to `comfyfog.log`.
+- **Stats** shows a panel of figures, once a second: your position, the frame rate, the shadow casters held
+  and what was added and dropped near you, and the fog.
+- **Benchmark** runs the benchmark (below). The chat says when it starts and ends.
+- **Trace**: the next probe also logs 180 frames. The game runs slowly meanwhile.
+- **Debug view** `<` `>` shows one stage of an effect instead of the game.
+
+Probe, the stats and the debug panel can be put on keys: **Key Bindings > ComfyAtmosphere**. A screenshot with
+the stats on screen, and a probe at the same moment, is the best report of a fault.
+
 ## Keys
 
 | Key | |
 | --- | --- |
 | F11 | Reload `comfyfog.ini` |
-| Shift+F11 | Fog on / off (to compare) |
 | Ctrl+F11 | Sun rays on / off |
 | Alt+F11 | Volumetric light on / off |
 | F12 | Log one frame of diagnostics to `comfyfog.log` |
@@ -130,14 +150,14 @@ Atmosphere page sets is refused: use the control.
 
 ## Benchmark
 
-Alt+F12 measures what each feature costs on your computer. It takes 40 seconds.
+Alt+F12, or `/atmos bench`, measures what each feature costs on your computer. It takes 30 seconds.
 
 1. Turn on the volumetric light and play for a minute, so its shadow cache fills as in normal play.
 2. Go outside in daylight. Stand still and face the sun.
-3. Press Alt+F12. Do not move the mouse until it is done.
+3. Press Alt+F12. Do not move the mouse until the chat says it is done.
 4. Open `comfyfog.log` in the client folder. The table is on the lines that start with `bench:`.
 
-It runs four steps: fog + rays + volumetric light, fog + rays, fog, and nothing. For each step the table
+It runs three steps: rays + volumetric light (with the fog), rays, and nothing. For each step the table
 gives:
 
 - **fps** and **ms/frame**: the frame rate.
@@ -159,7 +179,6 @@ Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/rel
 
 1. Copy `comfyfog.dll` and `comfyfog.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
 2. Add the line `comfyfog.dll` to `dlls.txt`. If you use comfygrass, put it **after** `comfygrass.dll`.
-   comfyfog chains on top of comfygrass, so the grass gets the new fog.
 3. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
 4. Start the game with `VanillaFixes.exe`.
 

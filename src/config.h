@@ -13,26 +13,26 @@
 struct FogSettings
 {
     bool  enabled     = true;
-    float density     = 0.004f;    // fog per yard at the ground: 0.004 lets through 45% of what is 200 yards away
-    float height      = 30.0f;     // yards: the fog thins by e (2.7 times) every this many yards up
+    float density     = 0.0025f;   // fog per yard at the ground: 0.0025 lets through 60% of what is 200 yards away
+    float height      = 25.0f;     // yards: the fog thins by e (2.7 times) every this many yards up
     float groundRadius = 150.0f;   // yards around you the ground under the fog is averaged over (the map files)
-    float reach       = 600.0f;    // yards: how far a line of sight gathers fog; it fades out over the last 40%
-    float skyDistance = 300.0f;    // yards: the same for a line of sight to the sky (0 = the sky gets none)
-    float brightness  = 1.0f;      // the sky's light on the fog: the game's fog colour times this
+    float reach       = 200.0f;    // yards: how far a line of sight gathers fog; it fades out over the last 40%
+    float skyDistance = 75.0f;     // yards: the same for a line of sight to the sky (0 = the sky gets none)
+    float brightness  = 1.2f;      // the sky's light on the fog: the game's fog colour times this
     float sunLight    = 4.0f;      // the sun's light on the fog, against the air's ([volume] strength sets both)
     // The patches (2026-09-30): tiling noise fixed in the world, carried by the wind.
-    float patchiness  = 0.6f;      // 0 = even fog; 1 = thick patches with clear air between
+    float patchiness  = 0.5f;      // 0 = even fog; 1 = thick patches with clear air between
     float scale       = 60.0f;     // yards: how big a patch is
     float flatten     = 2.0f;      // patches are this many times wider than tall
     float windDeg     = 45.0f;     // the way the wind blows: 0 north, 90 east
-    float windSpeed   = 2.0f;      // yards a second
+    float windSpeed   = 1.5f;      // yards a second
     // The ground under it (2026-09-30), from the map files: needs [shadow] mapTerrain.
     float follow      = 0.5f;      // 0 = the fog lies on the ground smoothed over smoothRadius; 1 = on the ground
                                    // itself, as thick on a hilltop as in the valley below it
     float smoothRadius = 100.0f;   // yards
     float lowGround   = 1.5f;      // the fog this much thicker again where the ground lies lowDepth below the
     float lowDepth    = 25.0f;     // smoothed ground around it (valleys, hollows)
-    float water       = 1.0f;      // this much thicker again over rivers, lakes and the sea
+    float water       = 2.1f;      // this much thicker again over rivers, lakes and the sea
     float morning     = 1.0f;      // this much thicker at dawn (6:00), half of it at dusk (20:00)
     float lampMist    = 0.5f;      // a lamp's glow in the air this much brighter for each time the fog's ground
                                    // density around it (2026-09-30); the fog between you and it dims it either way
@@ -157,10 +157,10 @@ struct ShadowSettings
 struct VolumeSettings
 {
     bool  enabled      = true;
-    float strength     = 45.0f;     // the dial, 0..100
+    float strength     = 25.0f;     // the dial, 0..100
     float maxIntensity = 3.0f;      // gain at 100
-    float density      = 0.012f;     // how much the air scatters, per yard (Light Density, in thousandths)
-    float maxDistance  = 140.0f;     // yards along each line of sight (the shadow map's reach)
+    float density      = 0.016f;     // how much the air scatters, per yard (Light Density, in thousandths)
+    float maxDistance  = 190.0f;     // yards along each line of sight (the shadow map's reach)
     int   steps        = 64;        // samples along each line of sight: more holds up over a long
                                     // maxDistance, where a thin canopy can fall between two samples.
                                     // 96 until 2026-09-24; with the noise turned each frame and the
