@@ -46,6 +46,13 @@
 // surface lies below its surroundings ([fog] lowGround) and over water ([fog] water). [fog] morning
 // thickens it around dawn, and less around dusk.
 //
+// Under the terrain (2026-10-01): Ironforge, the Undercity and mines are buildings under the map's ground, and
+// the map files hold only the terrain over them (in Ironforge, the mountain top 238 yards over the city). The
+// fog thickens below its ground, so it filled the city. The texture's fourth channel holds the floor of the
+// building under the terrain, where there is one: the highest floor no more than 4 yards over your feet. A point
+// of the march 4 to 16 yards and more under the terrain takes that floor as its ground. Each point decides for
+// itself, so walking out of the gate changes nothing at once.
+//
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
 // shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
@@ -132,6 +139,10 @@ float FogAt(float3 P)
         float4 g = tex2Dlod(sGround, float4(P.xy * gGr.z + gGr.xy, 0, 0));
         base = lerp(g.b, g.r, gW.x) + gGr.w;
         mult = (1.0 + gW.z * saturate((g.b - g.r) * gW.y)) * (1.0 + gW.w * g.g);
+        // Under the terrain, on the floor of the building there (.a; the same as .r where there is none).
+        float under = saturate((g.r + gGr.w - P.z - 4.0) * (1.0 / 12.0)) * step(1.0, g.r - g.a);
+        base = lerp(base, g.a + gGr.w, under);
+        mult = lerp(mult, 1.0, under);
     }
     return gF.x * mult * exp(min((base - P.z) * gF.y, 4.0));
 }
@@ -428,8 +439,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     double g_groundBuilt  = 0.0;
     int    g_groundMissing = 0;      // cells no tile covered when it was made
     int    g_groundWet     = 0;
+    int    g_groundFloor   = 0;      // cells with a building's floor under the terrain
     float  g_groundSmooth  = 0.0f;   // the smoothRadius it was made with
-    std::vector<float> g_gSurf, g_gSmooth, g_gWet;   // the texture's values, kept for FogThicknessAt
+    unsigned g_groundFiles = 0;      // MapFilesVersion when it was made
+    std::vector<float> g_gSurf, g_gSmooth, g_gWet, g_gFloor;   // the texture's values, kept for FogThicknessAt
     // This frame's fog, for FogThicknessAt (the lamps draw after the fog, in the same frame).
     float  g_fogCam[3]   = {};
     bool   g_fogCamOk    = false;
@@ -607,7 +620,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     }
 
     // Makes the ground texture around `at` when it is missing, when you have moved a quarter of its width
-    // from its centre, or, while some of it had no tile, every second (tiles load on their own thread).
+    // from its centre or 6 yards up or down (the floor taken under the terrain goes by your height), or, while
+    // some of it had no tile or more buildings came in, every second (tiles load on their own thread).
     void UpdateGround(IDirect3DDevice9* dev, const float at[3], float fallback)
     {
         if (g_groundFailed || !g_cfg.shadow.mapTerrain)
@@ -618,9 +632,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         const double now = Now();
         const float half = 0.5f * kGround * kGroundCell;
         const float dx = at[0] - g_groundAt[0], dy = at[1] - g_groundAt[1];
-        const bool moved = dx * dx + dy * dy > (0.25f * half) * (0.25f * half);
-        if (g_groundValid && !moved && g_groundSmooth == g_cfg.fog.smoothRadius &&
-            !(g_groundMissing > 0 && now - g_groundBuilt > 1.0))
+        const bool moved = dx * dx + dy * dy > (0.25f * half) * (0.25f * half) ||
+                           fabsf(at[2] - g_groundAt[2]) > 6.0f;
+        const bool stale = g_groundMissing > 0 || MapFilesVersion() != g_groundFiles;
+        if (g_groundValid && !moved && g_groundSmooth == g_cfg.fog.smoothRadius && !(stale && now - g_groundBuilt > 1.0))
             return;
         if (!g_ground && (FAILED(dev->lpVtbl->CreateTexture(dev, kGround, kGround, 1, 0, D3DFMT_A16B16G16R16F,
                                                              D3DPOOL_MANAGED, &g_ground, nullptr)) || !g_ground))
@@ -631,18 +646,27 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             return;
         }
         const double t0 = Now();
-        std::vector<float> surf(kGround * kGround), wet(kGround * kGround, 0.0f);
-        int missing = 0, nWet = 0;
+        std::vector<float> surf(kGround * kGround), wet(kGround * kGround, 0.0f), flo(kGround * kGround);
+        std::vector<char> hasFloor(kGround * kGround, 0);
+        const unsigned files = MapFilesVersion();
+        int missing = 0, nWet = 0, nFloor = 0;
         for (int j = 0; j < kGround; ++j)
             for (int i = 0; i < kGround; ++i)
             {
                 const float x = at[0] + (i + 0.5f - 0.5f * kGround) * kGroundCell;
                 const float y = at[1] + (j + 0.5f - 0.5f * kGround) * kGroundCell;
-                float z, w;
+                float z, w, f;
                 if (!MapGroundHeight(x, y, z))
                 {
                     z = fallback;
                     ++missing;
+                }
+                // A floor counts when it is well under the terrain: a house on the ground is not a cave.
+                else if (MapFloorHeight(x, y, at[2] + 4.0f, f) && f < z - 12.0f)
+                {
+                    flo[j * kGround + i] = f;
+                    hasFloor[j * kGround + i] = 1;
+                    ++nFloor;
                 }
                 if (MapWaterHeight(x, y, w) && w > z)
                 {
@@ -652,6 +676,37 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                 }
                 surf[j * kGround + i] = z;
             }
+        // Cells under the terrain with no floor found (over lava, which is not a triangle, and along walls)
+        // take the average of their neighbours' floors, up to 4 cells out, so the texture's filtering does not
+        // mix a floor with the mountain top over it.
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            std::vector<char> grown = hasFloor;
+            for (int j = 0; j < kGround; ++j)
+                for (int i = 0; i < kGround; ++i)
+                {
+                    const int k = j * kGround + i;
+                    if (hasFloor[k])
+                        continue;
+                    float sum = 0.0f;
+                    int n = 0;
+                    for (const int o : { k - 1, k + 1, k - kGround, k + kGround })
+                        if (o >= 0 && o < kGround * kGround && (o % kGround == i || o / kGround == j) && hasFloor[o])
+                        {
+                            sum += flo[o];
+                            ++n;
+                        }
+                    if (n > 0 && sum / n < surf[k] - 12.0f)
+                    {
+                        flo[k] = sum / n;
+                        grown[k] = 1;
+                    }
+                }
+            hasFloor.swap(grown);
+        }
+        for (int k = 0; k < kGround * kGround; ++k)
+            if (!hasFloor[k])
+                flo[k] = surf[k];   // none: the shader takes .a equal to .r as no floor
         std::vector<float> smooth = surf;
         Blur(smooth, static_cast<int>(g_cfg.fog.smoothRadius / kGroundCell + 0.5f));
         Blur(wet, 2);   // a soft shore
@@ -667,22 +722,25 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                 row[i * 4 + 0] = FloatToHalf(surf[k] - at[2]);
                 row[i * 4 + 1] = FloatToHalf(wet[k]);
                 row[i * 4 + 2] = FloatToHalf(smooth[k] - at[2]);
-                row[i * 4 + 3] = FloatToHalf(1.0f);
+                row[i * 4 + 3] = FloatToHalf(flo[k] - at[2]);
             }
         }
         g_ground->lpVtbl->UnlockRect(g_ground, 0);
         g_gSurf.swap(surf);
         g_gSmooth.swap(smooth);
         g_gWet.swap(wet);
+        g_gFloor.swap(flo);
         memcpy(g_groundAt, at, sizeof(g_groundAt));
         g_groundValid   = missing < kGround * kGround;
         g_groundBuilt   = now;
         g_groundMissing = missing;
         g_groundWet     = nWet;
+        g_groundFloor   = nFloor;
+        g_groundFiles   = files;
         g_groundSmooth  = g_cfg.fog.smoothRadius;
         if (g_logNext || g_cfg.trace)
-            Log("fog: ground texture made around (%.0f %.0f) in %.1f ms: %d of %d cells had no tile, %d wet",
-                at[0], at[1], 1000.0 * (Now() - t0), missing, kGround * kGround, nWet);
+            Log("fog: ground texture made around (%.0f %.0f) in %.1f ms: %d of %d cells had no tile, %d wet, %d with a "
+                "floor under the terrain", at[0], at[1], 1000.0 * (Now() - t0), missing, kGround * kGround, nWet, nFloor);
     }
 
     // Dawn and dusk ([fog] morning): the fog thicker by up to `morning` at 6:00 and half of that at 20:00.
@@ -1005,18 +1063,39 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The ground under the fog, camera-relative: the average ground height within [fog] groundRadius of
     // you, from the map files, easing over 3 s, so walking over a ridge does not pop the fog. Without a
     // tile, your feet; without those, 2 yards under the camera.
+    //
+    // Under the map's ground (2026-10-01; see the top of the file): more than kUnderEnter yards under the
+    // terrain where you stand, this ground is your feet; less than kUnderLeave, the map files again. The gap
+    // keeps it from switching on a slope. It counts only where the ground texture is off: the texture holds
+    // the floor under the terrain itself.
+    constexpr float kUnderEnter = 12.0f, kUnderLeave = 6.0f;
     float g_fogBase = 0.0f;
     bool  g_fogHaveBase = false;
+    bool  g_fogUnder = false;
     const char* g_fogBaseFrom = "none";
 
     float FogGround(const float cam[3])
     {
         static double last = 0.0;
-        float pl[3], ground;
+        float pl[3], ground, here;
         const bool havePl = ClientPlayer(pl);
         const float* at = havePl ? pl : cam;
         const double now = Now();
-        if (g_cfg.shadow.mapTerrain && MapGroundBase(at, g_cfg.fog.groundRadius, ground))
+        if (havePl && g_cfg.shadow.mapTerrain && MapGroundHeight(pl[0], pl[1], here))
+            g_fogUnder = here - pl[2] > (g_fogUnder ? kUnderLeave : kUnderEnter);
+        else if (!havePl)
+            g_fogUnder = false;
+        if (g_fogUnder)
+        {
+            if (!g_fogHaveBase || now - last > 2.0 || fabsf(pl[2] - g_fogBase) > 200.0f)
+                g_fogBase = pl[2];
+            else
+                g_fogBase += (pl[2] - g_fogBase) * static_cast<float>(1.0 - exp(-(now - last) / 3.0));
+            g_fogHaveBase = true;
+            g_fogBaseFrom = "your feet, under the map's ground";
+            last = now;
+        }
+        else if (g_cfg.shadow.mapTerrain && MapGroundBase(at, g_cfg.fog.groundRadius, ground))
         {
             if (!g_fogHaveBase || now - last > 2.0 || fabsf(ground - g_fogBase) > 200.0f)
                 g_fogBase = ground;
@@ -1554,11 +1633,11 @@ bool VolumeDraw(IDirect3DDevice9* dev)
             Log("fog: patches %s: patchiness %.2f, %.0f yd across, %.2f as tall, wind %.1f yd/s toward %.0f deg; "
                 "the camera at (%.3f %.3f %.3f) in the noise", patches ? "on" : g_noiseFailed ? "off (no texture)" : "off",
                 fs.patchiness, fs.scale, 1.0f / fs.flatten, fs.windSpeed, fs.windDeg, pn[0], pn[1], pn[2]);
-            Log("fog: ground %s around (%.0f %.0f): %d cells with no tile, %d wet; follow %.2f, low ground x%.2f "
-                "(full at %.0f yd below the %.0f yd average), water x%.2f; dawn and dusk x%.2f now",
-                g_groundValid ? "texture" : g_groundFailed ? "off (no texture)" : "off (no tiles)", g_groundAt[0],
-                g_groundAt[1], g_groundMissing, g_groundWet, fs.follow, 1.0f + fs.lowGround, fs.lowDepth,
-                fs.smoothRadius, 1.0f + fs.water, morning);
+            Log("fog: ground %s around (%.0f %.0f): %d cells with no tile, %d wet, %d with a floor under the terrain; "
+                "follow %.2f, low ground x%.2f (full at %.0f yd below the %.0f yd average), water x%.2f; dawn and "
+                "dusk x%.2f now", g_groundValid ? "texture" : g_groundFailed ? "off (no texture)" : "off (no tiles)",
+                g_groundAt[0], g_groundAt[1], g_groundMissing, g_groundWet, g_groundFloor, fs.follow,
+                1.0f + fs.lowGround, fs.lowDepth, fs.smoothRadius, 1.0f + fs.water, morning);
         }
         else
             Log("fog: off ([fog] enabled %d, density %.4f)", fs.enabled ? 1 : 0, fs.density);
@@ -1586,6 +1665,14 @@ float FogThicknessAt(const float rel[3])
         base = g_gSmooth[k] + (g_gSurf[k] - g_gSmooth[k]) * fs.follow;
         const float low = (g_gSmooth[k] - g_gSurf[k]) / fs.lowDepth;
         mult = (1.0f + fs.lowGround * (low < 0.0f ? 0.0f : (low > 1.0f ? 1.0f : low))) * (1.0f + fs.water * g_gWet[k]);
+        // Under the terrain, as the shader does.
+        if (g_gFloor.size() == g_gSurf.size() && g_gSurf[k] - g_gFloor[k] >= 1.0f)
+        {
+            float u = (g_gSurf[k] - p[2] - 4.0f) / 12.0f;
+            u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
+            base += (g_gFloor[k] - base) * u;
+            mult += (1.0f - mult) * u;
+        }
     }
     const float up = (base - p[2]) / fs.height;
     return mult * expf(up < 4.0f ? up : 4.0f);

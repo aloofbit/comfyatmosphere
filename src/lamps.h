@@ -26,6 +26,7 @@ struct LampLight
     float dist;         // yards from the camera
     int   kind;         // 0 = a client point light (torch, brazier), 1 = a glow sprite (lamppost)
     bool  fire;         // a torch, brazier or campfire: [lamps] torchLight; otherwise a lamp: lanternLight
+    bool  fill;         // a building's light for the floor under a lamp: lights surfaces, draws no glow
 };
 
 void LampsProbe(IDirect3DDevice9* dev);                  // F12: open a window of kWindow frames

@@ -13,6 +13,18 @@ struct WmoLight
     float    colour[3];  // 0..1
     uint16_t set;        // the doodad set it belongs to (0 is shown with every placement)
     char     what[12];   // the keyword it was taken by, for the probe
+    bool     fill;       // the building's light under a lamp, for the floor: lights surfaces, draws no glow
+};
+
+// A building's floors, for the fog's ground under the terrain (MapFloorHeight): its opaque triangles that lie
+// within 60 degrees of flat, in a grid of kCell-yard cells over its own x and y.
+struct WmoFloors
+{
+    static constexpr float kCell = 4.0f;
+    std::vector<float>    tris;          // 9 floats each, own space
+    std::vector<uint32_t> first, list;   // cell c holds the triangles list[first[c]] .. list[first[c + 1] - 1]
+    float                 lo[2] = {};    // the grid's corner, own space
+    int                   nx = 0, ny = 0;
 };
 
 struct WmoMesh
@@ -26,6 +38,7 @@ struct WmoMesh
     std::vector<std::vector<float>> indoorTris;   // each indoor group's triangles, 9 floats each, own space:
                                                   // for the ceiling over a point (MapIndoors)
     std::vector<WmoLight> lights;          // its candles, torches and fires (MODD, by name)
+    WmoFloors             floors;
 };
 
 struct M2Model;

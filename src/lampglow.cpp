@@ -537,7 +537,7 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
         // outshone the lampposts beside it.
         const float share = L.fire ? l.torchLight : l.lanternLight;
         const float k = gain * l.density * v * share, ks = sgain * (v < 1.0f ? v : 1.0f) * share;
-        glows[i]  = k > 0.0f || l.debug;
+        glows[i]  = (k > 0.0f || l.debug) && !L.fill;
         shines[i] = ks > 0.0f && l.surface > 0.0f;
         pos[i * 4 + 0] = L.pos[0]; pos[i * 4 + 1] = L.pos[1]; pos[i * 4 + 2] = L.pos[2];
         pos[i * 4 + 3] = 1.0f / (L.reach * L.reach);
@@ -601,7 +601,8 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
             haveFog ? "" : "(none) ", fogStart, fogEnd, fogDensity, g_cfg.fog.lampMist);
         for (int i = 0; i < found && i < 40; ++i)
             Log("lampglow:   %s %s %6.1f yd  camera-relative (%.1f %.1f %.1f)  colour (%.2f %.2f %.2f)  reach %.1f  "
-                "fog %.2f, mist x%.2f", lights[i].kind ? "sprite" : "light ", lights[i].fire ? "fire" : "lamp", lights[i].dist, lights[i].pos[0],
+                "fog %.2f, mist x%.2f", lights[i].kind ? "sprite" : "light ",
+                lights[i].fill ? "floor" : lights[i].fire ? "fire" : "lamp", lights[i].dist, lights[i].pos[0],
                 lights[i].pos[1], lights[i].pos[2], lights[i].colour[0], lights[i].colour[1], lights[i].colour[2],
                 lights[i].reach, vis[i], mist[i]);
     }

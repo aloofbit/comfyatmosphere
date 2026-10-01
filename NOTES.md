@@ -643,6 +643,14 @@ light was dropped at once while the sprite's faded in; when it stopped for a mom
 over `keep` seconds while it still held the file's back. The files' lights now win: a light the client
 shows within 2 yards of one is left out. A lamp from the files stays as it is however the client draws.
 
+**A glow under each Undercity lantern (2026-10-01).** Each lantern and chandelier glowed twice: at the lantern,
+and about 10 yards under it in empty air. Read from UNDERCITY.WMO: `UNDEADHANGINGLANTERN01` stands at -46.3
+(world), and the building has two lights (MOLT, colour (253 126 0), 11.1 yards) for it, at -48.4 inside the
+lantern and at -58.3, about 4 yards over the floor. The second lights the floor. The lantern's light took the
+place of the first, which was within 2.5 yards, and the second stayed. A building light 2.5 to 15 yards
+straight under a lamp's flame is now a floor light (`WmoLight::fill`): it lights surfaces and draws no glow.
+F12 lists it as `floor`.
+
 ## Sun shadows on the world (2026-09-29)
 
 `sunshadows.cpp` lays the volumetric light's shadow map on the world, just before the light: the point
@@ -1315,6 +1323,34 @@ fade with, and the vertex shader dumps. `waterDepth` moved to `[depth]`. The sec
 fog (*Our own fog*, the sky halos) are kept for what they found.
 
 The game's fog now goes through as the client sets it. The sun shadows fade with it, as before mode 1.
+
+## Fog under the terrain (2026-10-01)
+
+After the volumetric fog shipped, players reported Ironforge full of fog. The fog's ground came from the map
+files, which hold only the terrain. In Ironforge that is the mountain top, 238 yards over the city (F12: "the
+ground at 745.2, -237.9 yd under the camera"). The fog thickens below its ground, capped at 4 heights deep, so
+the whole city was at 54.6 times the density, and so was every lamp's mist. The Undercity and mines are the same
+case: buildings under the terrain.
+
+First tried: when you stand more than 12 yards under the terrain, the fog lies on your feet and the ground
+texture is off. Rejected by the owner: at the gate the fog went from a full layer to none at once.
+
+Now the ground texture's fourth channel holds the floor of the building under the terrain:
+- `WmoLoad` keeps each building's opaque triangles within 60 degrees of flat in a 4-yard grid
+  (`WmoFloors`). The winding is not relied on, so a ceiling is in the grid too.
+- `MapFloorHeight` gives the highest of them at a point that is not more than 4 yards over your feet: on
+  Ironforge's ring, the ring; over the Great Forge, the pit.
+- A cell takes a floor only when it is more than 12 yards under the terrain: a house on the ground is not a
+  cave. Cells with none (over lava, which is not a triangle) take their neighbours' average, up to 4 cells out,
+  so the filtering does not mix a floor with the mountain top.
+- The march decides at each point: 4 yards under the terrain it starts to take the floor as its ground, and 16
+  yards under, fully. Walking out of the gate, nothing changes at once.
+- The texture is made again when you go 6 yards up or down, and when more buildings come in.
+
+Measured with F12: Ironforge 2175 cells with a floor; its lamps at 0.8 to 1.0 times the density (54.6 before),
+a fire in the forge pit 39 yards down at 3.7. The Undercity 2197 to 2324 cells.
+
+Still open: logged in indoors, there is no sun until the sky is seen, and nothing draws.
 
 ## The framing that matters
 

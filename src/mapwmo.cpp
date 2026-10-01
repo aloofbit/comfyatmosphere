@@ -283,12 +283,17 @@ namespace
                 // The building's own light at the same lamp (a lantern's sits 2 yards under the top of its
                 // model) gives way to the flame. Until 2026-10-01 it was the other way round, and most of
                 // Stormwind's torches showed as their building lights: (0.26 0.19 0.10), reaching 5 yards.
+                // One 2.5 to 15 yards straight under the flame is there to light the floor: each Undercity
+                // lantern has one 10 yards under it, and its glow hung in the air under the lantern. It keeps
+                // its light on surfaces and draws no glow.
                 for (size_t k = 0; k < own; ++k)
                 {
                     const float dx = out.lights[k].pos[0] - L.pos[0], dy = out.lights[k].pos[1] - L.pos[1],
                                 dz = out.lights[k].pos[2] - L.pos[2];
                     if (dx * dx + dy * dy + dz * dz < 2.5f * 2.5f)
                         replaced[k] = true;
+                    else if (dx * dx + dy * dy < 2.5f * 2.5f && dz < 0.0f && dz > -15.0f)
+                        out.lights[k].fill = true;
                 }
                 memcpy(L.colour, info.colour, sizeof(L.colour));
                 L.reach = info.reach * (std::min)((std::max)(scale, 0.5f), 2.0f);
@@ -442,6 +447,80 @@ static void LampsInGeometry(const std::vector<float>& pts, WmoMesh& out)
     }
 }
 
+// The floors, from the opaque triangles (2026-10-01). The winding of a WMO's triangles is not relied on, so a
+// ceiling counts as a floor here: MapFloorHeight takes the highest one under a height, which is the floor.
+static void Floors(WmoMesh& out)
+{
+    WmoFloors& f = out.floors;
+    const float* v = out.v.data();
+    float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
+    for (size_t t = 0; t + 2 < out.idx.size(); t += 3)
+    {
+        const float* a = v + out.idx[t] * 3;
+        const float* b = v + out.idx[t + 1] * 3;
+        const float* c = v + out.idx[t + 2] * 3;
+        const float e0[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+        const float e1[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+        const float n[3] = { e0[1] * e1[2] - e0[2] * e1[1], e0[2] * e1[0] - e0[0] * e1[2], e0[0] * e1[1] - e0[1] * e1[0] };
+        const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (len < 1e-6f || fabsf(n[2]) < 0.5f * len)
+            continue;   // a wall, or steeper than 60 degrees
+        for (const float* p : { a, b, c })
+        {
+            f.tris.insert(f.tris.end(), p, p + 3);
+            for (int j = 0; j < 2; ++j)
+            {
+                lo[j] = (std::min)(lo[j], p[j]);
+                hi[j] = (std::max)(hi[j], p[j]);
+            }
+        }
+    }
+    const size_t nTri = f.tris.size() / 9;
+    if (nTri == 0)
+        return;
+    f.lo[0] = lo[0];
+    f.lo[1] = lo[1];
+    f.nx = static_cast<int>((hi[0] - lo[0]) / WmoFloors::kCell) + 1;
+    f.ny = static_cast<int>((hi[1] - lo[1]) / WmoFloors::kCell) + 1;
+    if (static_cast<long long>(f.nx) * f.ny > 4000000)
+    {
+        f = WmoFloors();   // over 8 km across: not a building
+        return;
+    }
+    // Two passes: count each cell's triangles, then place them.
+    auto span = [&](size_t t, int& x0, int& x1, int& y0, int& y1)
+    {
+        const float* p = &f.tris[t * 9];
+        const float mnx = (std::min)({ p[0], p[3], p[6] }), mxx = (std::max)({ p[0], p[3], p[6] });
+        const float mny = (std::min)({ p[1], p[4], p[7] }), mxy = (std::max)({ p[1], p[4], p[7] });
+        x0 = static_cast<int>((mnx - f.lo[0]) / WmoFloors::kCell);
+        x1 = (std::min)(static_cast<int>((mxx - f.lo[0]) / WmoFloors::kCell), f.nx - 1);
+        y0 = static_cast<int>((mny - f.lo[1]) / WmoFloors::kCell);
+        y1 = (std::min)(static_cast<int>((mxy - f.lo[1]) / WmoFloors::kCell), f.ny - 1);
+    };
+    f.first.assign(static_cast<size_t>(f.nx) * f.ny + 1, 0);
+    for (size_t t = 0; t < nTri; ++t)
+    {
+        int x0, x1, y0, y1;
+        span(t, x0, x1, y0, y1);
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+                ++f.first[static_cast<size_t>(y) * f.nx + x + 1];
+    }
+    for (size_t c = 1; c < f.first.size(); ++c)
+        f.first[c] += f.first[c - 1];
+    f.list.resize(f.first.back());
+    std::vector<uint32_t> at(f.first.begin(), f.first.end() - 1);
+    for (size_t t = 0; t < nTri; ++t)
+    {
+        int x0, x1, y0, y1;
+        span(t, x0, x1, y0, y1);
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+                f.list[at[static_cast<size_t>(y) * f.nx + x]++] = static_cast<uint32_t>(t);
+    }
+}
+
 bool WmoLoad(const std::string& rootName, WmoMesh& out)
 {
     out = WmoMesh();
@@ -495,5 +574,6 @@ bool WmoLoad(const std::string& rootName, WmoMesh& out)
             ++out.groupsRead;
     }
     LampsInGeometry(glassPts, out);
+    Floors(out);
     return out.groupsRead > 0 && !out.idx.empty();
 }

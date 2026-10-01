@@ -165,6 +165,7 @@ namespace
         std::vector<float>      indoor;                    // its indoor groups' boxes, own space: kept too
         std::vector<std::vector<float>> indoorTris;        // and their triangles, for the ceiling test
         std::vector<WmoLight>   lights;                    // its lights, own space: kept too
+        WmoFloors               floors;                    // its floors, own space: kept too (MapFloorHeight)
         bool                    used = true;
     };
 
@@ -946,6 +947,7 @@ namespace
                 w.reach = L.reach;
                 memcpy(w.colour, L.colour, sizeof(w.colour));
                 memcpy(w.what, L.what, sizeof(w.what));
+                w.fill = L.fill;
                 g_fileLights.push_back(w);
             }
         }
@@ -1281,6 +1283,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
             m.indoor = m.mesh.indoor;
             m.indoorTris = std::move(m.mesh.indoorTris);
             m.lights = m.mesh.lights;
+            m.floors = std::move(m.mesh.floors);
             memcpy(m.hi, m.mesh.hi, 12);
             m.mesh  = WmoMesh();   // on the GPU now; read again after a device change
             coverDirty = true;
@@ -1395,6 +1398,50 @@ bool MapIndoors(const float p[3])
         }
     }
     return false;
+}
+
+bool MapFloorHeight(float x, float y, float below, float& z)
+{
+    bool found = false;
+    for (const Inst& i : g_insts)
+    {
+        const WmoFloors& f = i.m->floors;
+        if (i.m->state != Model::kReady || f.nx == 0 || x < i.lo[0] || x > i.hi[0] || y < i.lo[1] || y > i.hi[1])
+            continue;
+        if (i.p->rot[2][2] < 0.999f)
+            continue;   // tilted: its own z is not the world's
+        // Into the building's own space, as in MapIndoors. Upright, so its own z is the world's less pos.
+        const float d[2] = { x - i.p->pos[0], y - i.p->pos[1] };
+        const float qx = d[0] * i.p->rot[0][0] + d[1] * i.p->rot[0][1];
+        const float qy = d[0] * i.p->rot[1][0] + d[1] * i.p->rot[1][1];
+        const int cx = static_cast<int>(floorf((qx - f.lo[0]) / WmoFloors::kCell));
+        const int cy = static_cast<int>(floorf((qy - f.lo[1]) / WmoFloors::kCell));
+        if (cx < 0 || cy < 0 || cx >= f.nx || cy >= f.ny)
+            continue;
+        const size_t c = static_cast<size_t>(cy) * f.nx + cx;
+        const float top = below - i.p->pos[2];
+        for (uint32_t k = f.first[c]; k < f.first[c + 1]; ++k)
+        {
+            const float* a = &f.tris[f.list[k] * 9];
+            const float* b = a + 3;
+            const float* e = a + 6;
+            const float d0x = b[0] - a[0], d0y = b[1] - a[1], d1x = e[0] - a[0], d1y = e[1] - a[1];
+            const float den = d0x * d1y - d1x * d0y;
+            if (den > -1e-6f && den < 1e-6f)
+                continue;
+            const float px = qx - a[0], py = qy - a[1];
+            const float u = (px * d1y - d1x * py) / den, v = (d0x * py - px * d0y) / den;
+            if (u < 0.0f || v < 0.0f || u + v > 1.0f)
+                continue;
+            const float h = a[2] + u * (b[2] - a[2]) + v * (e[2] - a[2]);
+            if (h <= top && (!found || h + i.p->pos[2] > z))
+            {
+                z = h + i.p->pos[2];
+                found = true;
+            }
+        }
+    }
+    return found;
 }
 
 bool MapGroundHeight(float x, float y, float& z)

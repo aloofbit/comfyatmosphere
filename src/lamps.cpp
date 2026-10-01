@@ -1385,7 +1385,7 @@ int LampsGather(const float cam[3], const D3DMATRIX& viewProj, LampLight* out, i
     const int nf = g_cfg.lamps.files && g_cfg.shadow.mapTerrain ? MapLightsNear(cam, reach + 20.0f, file, kLampsMax) : 0;
     for (int f = 0; f < nf; ++f)
     {
-        LampLight l;
+        LampLight l = {};
         for (int i = 0; i < 3; ++i)
             l.pos[i] = file[f].pos[i] - cam[i];
         l.dist = Len3(l.pos);
@@ -1397,13 +1397,14 @@ int LampsGather(const float cam[3], const D3DMATRIX& viewProj, LampLight* out, i
         l.reach = file[f].reach;
         l.kind  = 1;
         l.fire  = IsFire(file[f].what);
+        l.fill  = file[f].fill;
         g_gathered.push_back(l);
     }
     for (const Tracked& t : g_tracked)
     {
         if (t.mobile)
             continue;
-        LampLight l;
+        LampLight l = {};
         for (int i = 0; i < 3; ++i)
             l.pos[i] = t.abs[i] - cam[i];
         l.dist = Len3(l.pos);

@@ -38,6 +38,7 @@ struct MapLight
     float reach;
     float colour[3];
     char  what[12];
+    bool  fill;   // lights surfaces and draws no glow (WmoLight::fill)
 };
 // The lights within radius yards of `at`, up to max; and how many are held.
 int MapLightsNear(const float at[3], float radius, MapLight* out, int max);
@@ -46,6 +47,9 @@ unsigned MapLightCount();
 void MapObjectsLog(const float at[3], float radius);
 // Whether a point is inside one of the indoor groups (rooms, cellars) of a building from the files.
 bool MapIndoors(const float p[3]);
+// The highest floor of a building from the files at (x, y) that is not above `below`: for the fog's ground
+// under the terrain (Ironforge, the Undercity, a mine). False where no building has one.
+bool MapFloorHeight(float x, float y, float below, float& z);
 // The ground's height from the tiles loaded, at a point; false where no tile is held.
 bool MapGroundHeight(float x, float y, float& z);
 // The surface of a river or the sea at a point (the map files' MCLQ); false where dry or no tile is held.
