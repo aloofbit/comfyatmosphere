@@ -17,6 +17,21 @@ come from the first version, which only did fog.
 It loads like comfygrass (moving grass for the same client): VanillaFixes loads the DLL, and the DLL patches
 the Direct3D 9 device of DXVK's `d3d9.dll`.
 
+## Contents
+
+- [Features](#features)
+- [Compatibility](#compatibility)
+- [Install](#install)
+- [In-game controls](#in-game-controls)
+  - [/atmos](#atmos)
+  - [Finding faults](#finding-faults)
+- [Keys](#keys)
+- [Benchmark](#benchmark)
+- [Build](#build)
+- [Caveats](#caveats)
+- [Time of day](#time-of-day)
+- [Licence](#licence)
+
 ## Features
 
 | | What it does | Default |
@@ -38,6 +53,31 @@ All settings are in `comfyfog.ini`. **F11 reloads it in game.**
 [![A harbour walkway with lanterns and sun shadows. Click for the full video.](media/harbour-shadows.gif)](media/harbour-shadows.mp4)
 
 *Sun shadows and lanterns on a harbour walkway.*
+
+## Compatibility
+
+Tested on a fresh OctoWoW client with no other mods:
+
+| | Tested with |
+| --- | --- |
+| Client | `WoW.exe` 1.12.1 (build 5875), 4812 KB, hash `c1d1205e0a984ca4` |
+| Launcher | VanillaFixes, with only `comfyfog.dll` in `dlls.txt` |
+| DXVK | v2.7.1-1-gplasync, the `d3d9.dll` that comes with the client |
+| Data | 18 MPQs: the base archives, `patch.MPQ` and `patch-1` to `patch-5` |
+| Addons | ComfyAtmosphere and the client's Blizzard addons |
+| System | Windows 10 (build 19045), NVIDIA GeForce RTX 2080 Super, driver 576.28 |
+
+`/atmos probe` (or F12) writes a report of your client into `comfyfog.log`, under `client report`: the same
+parts, with a hash of each file and every DLL loaded. Compare it with this table.
+
+## Install
+
+Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it (below).
+
+1. Copy `comfyfog.dll` and `comfyfog.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
+2. Add the line `comfyfog.dll` to `dlls.txt`. If you use comfygrass, put it **after** `comfygrass.dll`.
+3. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
+4. Start the game with `VanillaFixes.exe`.
 
 ## In-game controls
 
@@ -179,32 +219,6 @@ a frame limiter, the background cap) the frame rate stays the same in every step
 so its times read too high. The CPU column still shows the cost. Turn the cap off for a benchmark.
 
 After the run, the settings go back as they were. F11 stops the run.
-
-## Install
-
-Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it (below).
-
-1. Copy `comfyfog.dll` and `comfyfog.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
-2. Add the line `comfyfog.dll` to `dlls.txt`. If you use comfygrass, put it **after** `comfygrass.dll`.
-3. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
-4. Start the game with `VanillaFixes.exe`.
-
-## Compatibility
-
-Tested on a fresh OctoWoW client with no other mods:
-
-| | Tested with |
-| --- | --- |
-| Client | `WoW.exe` 1.12.1 (build 5875), 4812 KB, hash `c1d1205e0a984ca4` |
-| Launcher | VanillaFixes, with only `comfyfog.dll` in `dlls.txt` |
-| DXVK | v2.7.1-1-gplasync, the `d3d9.dll` that comes with the client |
-| Data | 18 MPQs: the base archives, `patch.MPQ` and `patch-1` to `patch-5` |
-| Addons | ComfyAtmosphere and the client's Blizzard addons |
-| System | Windows 10 (build 19045), NVIDIA GeForce RTX 2080 Super, driver 576.28 |
-
-`/atmos probe` (or F12) writes a report of your client into `comfyfog.log`, under `client report`: the same
-parts, with a hash of each file and every DLL loaded. Compare it with this table.
-
 
 ## Build
 
