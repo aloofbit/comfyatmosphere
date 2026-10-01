@@ -60,6 +60,7 @@ own. Use the window on a client whose options window has no page for them.
 | Sun Shadow Strength | `[sunshadows] strength` |
 | Night Shadows (%) | `[sunshadows] night` |
 | Character Shadow Strength | `[sunshadows] unitStrength` |
+| Sun Smoothing (seconds) | `[sun] glide` |
 | Sunlight, Shade Colour, Sunlight Warmth (%) | `[sunshadows] sunlight`, `shadeTint`, `sunTint` |
 | Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
 | Shadow Softness | `[sunshadows] softness` |

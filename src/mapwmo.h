@@ -23,6 +23,8 @@ struct WmoMesh
     unsigned opaque = 0, other = 0;        // triangles kept (opaque) and left out (alpha keyed, blended)
     float    lo[3] = {}, hi[3] = {};       // the root's box (MOHD), in the building's own space
     std::vector<float> indoor;             // the indoor groups' boxes (MOGP flag 0x2000), 6 floats each, own space
+    std::vector<std::vector<float>> indoorTris;   // each indoor group's triangles, 9 floats each, own space:
+                                                  // for the ceiling over a point (MapIndoors)
     std::vector<WmoLight> lights;          // its candles, torches and fires (MODD, by name)
 };
 

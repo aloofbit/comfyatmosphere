@@ -91,7 +91,7 @@ namespace
                 kVolumeDistance, kVolumeDirection, kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt,
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
-                kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kKnobs };
+                kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -139,6 +139,7 @@ namespace
         "comfyMistLamps",
         "comfySunShadowsNight",
         "comfySunShadowsUnitStrength",
+        "comfySunGlide",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -296,6 +297,7 @@ namespace
         case kFogLamps:       snprintf(out, cap, "%.0f", s.fog.lampMist * 100.0f); break;
         case kShadowsNight:   snprintf(out, cap, "%.0f", s.sunShadows.night); break;
         case kShadowsUnitStrength: snprintf(out, cap, "%.0f", s.sunShadows.unitStrength); break;
+        case kSunGlide:       snprintf(out, cap, "%.0f", s.sun.glide); break;            // seconds
         case kFogReach:       snprintf(out, cap, "%.0f", s.fog.reach); break;         // yards
         case kFogSky:         snprintf(out, cap, "%.0f", s.fog.skyDistance); break;
         case kFogPatches:     snprintf(out, cap, "%.0f", s.fog.patchiness * 100.0f); break;
@@ -348,6 +350,7 @@ namespace
         if (c[kShadowsNight].seen)   s.sunShadows.night = Clamp(c[kShadowsNight].value, 0.0f, 100.0f);
         if (c[kShadowsUnitStrength].seen)
             s.sunShadows.unitStrength = Clamp(c[kShadowsUnitStrength].value, 0.0f, 100.0f);
+        if (c[kSunGlide].seen)       s.sun.glide = Clamp(c[kSunGlide].value, 0.0f, 60.0f);
         if (c[kFogReach].seen)       s.fog.reach      = Clamp(c[kFogReach].value, 20.0f, 5000.0f);
         if (c[kFogSky].seen)         s.fog.skyDistance = Clamp(c[kFogSky].value, 0.0f, 5000.0f);
         if (c[kFogPatches].seen)     s.fog.patchiness = Clamp(c[kFogPatches].value * 0.01f, 0.0f, 1.0f);

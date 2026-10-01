@@ -403,7 +403,12 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     g_logNext = false;
     const SunShadowSettings& ss = g_cfg.sunShadows;
     if (!ss.enabled || g_failed || (ss.strength <= 0.0f && ss.sunlight <= 0.0f && !ss.debug) || !VolumeActive())
+    {
+        if (logThis)
+            Log("sunshadows: not drawn: %s", !ss.enabled ? "off" : g_failed ? "failed earlier" :
+                !VolumeActive() ? "the volumetric light is not drawing" : "strength and sunlight 0");
         return false;
+    }
 
     IDirect3DTexture9* depth  = DepthWorldTexture();
     IDirect3DTexture9* shadow = ShadowTexture();
@@ -452,7 +457,12 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     // World shadows off: the terrain's baked shadow is kept, the ground's only shade then.
     g_share = ss.debug ? 1.0f : ss.world ? sunset : 0.0f;
     if (strength <= 0.0f && sunlight <= 0.0f)
+    {
+        if (logThis)
+            Log("sunshadows: not drawn: strength 0 (indoors %.2f, kept %.2f; sun height and night %.2f)", inside, keep,
+                sunset);
         return false;
+    }
 
     D3DMATRIX camVP, inv;
     Mul(view, proj, camVP);

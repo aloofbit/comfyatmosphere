@@ -46,6 +46,10 @@ struct SunSettings
     bool  fixed     = false;        // true: a fixed world direction, azimuth/elevation in degrees (Z up)
     float azimuth   = 45.0f;        // the afternoon sun logged while tuning
     float elevation = 50.0f;
+    // Seconds the sun's direction takes to follow the sky (a time constant; 2026-09-30, the Sun Smoothing
+    // control). The sky's sun is measured afresh each frame and wanders a little; this averages that out.
+    // The shadows, the rays and the volumetric light all follow it. 0 = at once, with the wander.
+    float glide     = 10.0f;
 };
 
 // Where the client keeps the camera and the player (verified for this WoW.exe by comfygrass). Shadows

@@ -824,6 +824,10 @@ namespace
     // the tiles loaded. Not a model where a unit stands: a character standing on a doodad's place is still
     // a character. The units are taken once a full frame, into 2-yard cells.
     unsigned g_nFilesRefused = 0, g_nFilesEvicted = 0;   // this frame
+    // After a probe, the first few building draws the files cover are logged with the turn the client draws
+    // them with and the turn the files give (2026-09-30): Stormwind's shade came from the wrong district, and
+    // the cover test matches the place only.
+    int g_refusedLogs = 0;
     std::unordered_map<long long, std::vector<int>> g_filesUnitCells;
     float g_filesUnits[512][3];
 
@@ -1054,6 +1058,19 @@ namespace
             if (FromFiles(r, pos, e.absolute, r.vs ? &g_constPool[r.consts] : nullptr, (std::min)(r.nregs, r.nregsOwn)))
             {
                 NoteNear("refused, the files place it", r, pos, player, havePlayer, 0);
+                if (!r.vs && !r.terrain && g_refusedLogs > 0)
+                {
+                    --g_refusedLogs;
+                    float bp[3], br[3][3];
+                    char bn[160];
+                    const D3DMATRIX& a = e.absolute;
+                    if (MapBuildingNearest(pos, bp, br, bn, sizeof(bn)))
+                        Log("shadow: the client draws a building at (%.2f %.2f %.2f), rows (%.3f %.3f %.3f) (%.3f %.3f "
+                            "%.3f) (%.3f %.3f %.3f); the files: %s at (%.2f %.2f %.2f), rows (%.3f %.3f %.3f) (%.3f "
+                            "%.3f %.3f) (%.3f %.3f %.3f)", pos[0], pos[1], pos[2], a.m[0][0], a.m[0][1], a.m[0][2],
+                            a.m[1][0], a.m[1][1], a.m[1][2], a.m[2][0], a.m[2][1], a.m[2][2], bn, bp[0], bp[1], bp[2],
+                            br[0][0], br[0][1], br[0][2], br[1][0], br[1][1], br[1][2], br[2][0], br[2][1], br[2][2]);
+                }
                 ReleaseRec(r);
                 r = Rec{};
                 ++g_nFilesRefused;
@@ -2923,5 +2940,6 @@ void ShadowReset()
 void ShadowProbe()
 {
     g_logNext = true;
+    g_refusedLogs = 6;
     g_fullFrame = true;   // called after ShadowFrameEnd: the probed frame records in full and redraws the map
 }

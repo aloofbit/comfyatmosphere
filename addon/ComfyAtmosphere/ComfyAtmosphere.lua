@@ -39,6 +39,7 @@ COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_NIGHT  = "Night Shadows";
 COMFYATMOSPHERE_SHADOWS_UNIT_STRENGTH = "Character Shadow Strength";
+COMFYATMOSPHERE_SUN_GLIDE      = "Sun Smoothing";
 COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
 COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
 COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
@@ -410,6 +411,18 @@ local ENTRIES = {
 		minval = 0,
 		maxval = 100,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Seconds: comfyfog.dll takes it as [sun] glide.
+		name = "COMFYATMOSPHERE_SUN_GLIDE",
+		desc = "Seconds the shadows, sun rays and light take to follow the sun as it moves. Higher is steadier. Lower follows the time of day sooner. 0 follows at once, with a small wander.",
+		type = "slider",
+		cvar = "comfySunGlide",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 30,
+		step = 1,
 		numberLabels = 1,
 	},
 	{

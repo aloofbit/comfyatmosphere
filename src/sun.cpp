@@ -215,6 +215,7 @@ bool SunDirection(float dir[3])
     // about every 30 seconds the long shadows of a low sun moved some ten pixels at once. Now it glides
     // toward the measurement with a time constant of 10 seconds: the noise averages out, the real sun is
     // followed a hair each frame, and a change of more than 5 degrees (the time set by hand) lands at once.
+    // The 10 seconds are [sun] glide since 2026-09-30 (the Sun Smoothing control); 0 follows at once.
     static float  stable[3] = { 0.0f, 0.0f, 0.0f };
     static bool   have = false;
     static double last = 0.0;
@@ -247,7 +248,9 @@ bool SunDirection(float dir[3])
     else
     {
         const double dt = now - last;
-        const float  k  = static_cast<float>(1.0 - exp(-(dt > 0.0 && dt < 1.0 ? dt : 0.0) / 10.0));
+        const double glide = g_cfg.sun.glide;
+        const float  k  = glide <= 0.0 ? 1.0f :
+                          static_cast<float>(1.0 - exp(-(dt > 0.0 && dt < 1.0 ? dt : 0.0) / glide));
         float len = 0.0f;
         for (int i = 0; i < 3; ++i)
         {
@@ -328,10 +331,12 @@ static bool ShadowTarget(float dir[3])
     return true;
 }
 
-// Eased toward ShadowTarget with a time constant of 1.5 seconds, once a frame (2026-09-30). A moon can
+// Turned toward ShadowTarget at most kTurnRate degrees a second, once a frame (2026-09-30). A moon can
 // first show well above the horizon, where the shadows' light stood at riseTo, and the shadows turned at
-// once. The sun's own glide in SunDirection lets a change of more than 5 degrees through at once, for the
-// time set by hand; here such a change takes a few seconds.
+// once: the sun's own glide in SunDirection lets a change of more than 5 degrees through at once, for the
+// time set by hand. Here such a change sweeps over. A slow change passes as it is, so [sun] glide alone
+// sets how far the shadows lag the sun. This was an ease of 1.5 seconds first, and with Sun Smoothing at 2
+// the shadows still took about 6 seconds to settle.
 bool ShadowSunDirection(float dir[3])
 {
     static float    cur[3] = { 0.0f, 0.0f, 1.0f };
@@ -352,20 +357,21 @@ bool ShadowSunDirection(float dir[3])
         memcpy(cur, target, sizeof(cur));
     else
     {
-        const double dt = now - last;
-        const float  k  = static_cast<float>(1.0 - exp(-(dt > 0.0 && dt < 1.0 ? dt : 0.0) / 1.5));
-        float len = 0.0f;
-        for (int i = 0; i < 3; ++i)
-        {
-            cur[i] += (target[i] - cur[i]) * k;
-            len += cur[i] * cur[i];
-        }
-        len = sqrtf(len);
-        if (len > 1e-6f)
-            for (int i = 0; i < 3; ++i)
-                cur[i] /= len;
-        else
+        constexpr float kTurnRate = 30.0f;   // degrees a second
+        const double dt   = now - last;
+        const float  step = kTurnRate * 0.01745329f * static_cast<float>(dt > 0.0 && dt < 1.0 ? dt : 0.0);
+        float d = cur[0] * target[0] + cur[1] * target[1] + cur[2] * target[2];
+        d = d > 1.0f ? 1.0f : d < -1.0f ? -1.0f : d;
+        const float angle = acosf(d);
+        if (angle <= step || angle < 1e-4f || sinf(angle) < 1e-4f)
             memcpy(cur, target, sizeof(cur));
+        else
+        {
+            // Along the great circle from cur to target, by step.
+            const float a = sinf(angle - step) / sinf(angle), b = sinf(step) / sinf(angle);
+            for (int i = 0; i < 3; ++i)
+                cur[i] = cur[i] * a + target[i] * b;
+        }
     }
     have = true;
     last = now;

@@ -162,6 +162,7 @@ namespace
         UINT                    nv = 0, ntri = 0;
         float                   lo[3] = {}, hi[3] = {};   // the root's box, own space: kept when the mesh goes
         std::vector<float>      indoor;                    // its indoor groups' boxes, own space: kept too
+        std::vector<std::vector<float>> indoorTris;        // and their triangles, for the ceiling test
         std::vector<WmoLight>   lights;                    // its lights, own space: kept too
         bool                    used = true;
     };
@@ -1121,6 +1122,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
             m.state = Model::kReady;
             memcpy(m.lo, m.mesh.lo, 12);
             m.indoor = m.mesh.indoor;
+            m.indoorTris = std::move(m.mesh.indoorTris);
             m.lights = m.mesh.lights;
             memcpy(m.hi, m.mesh.hi, 12);
             m.mesh  = WmoMesh();   // on the GPU now; read again after a device change
@@ -1167,9 +1169,35 @@ bool MapIndoors(const float p[3])
             q[j] = d[0] * i.p->rot[j][0] + d[1] * i.p->rot[j][1] + d[2] * i.p->rot[j][2];
         const std::vector<float>& b = i.m->indoor;
         for (size_t k = 0; k + 5 < b.size(); k += 6)
-            if (q[0] >= b[k] && q[0] <= b[k + 3] && q[1] >= b[k + 1] && q[1] <= b[k + 4] && q[2] >= b[k + 2] &&
-                q[2] <= b[k + 5])
-                return true;
+        {
+            if (!(q[0] >= b[k] && q[0] <= b[k + 3] && q[1] >= b[k + 1] && q[1] <= b[k + 4] && q[2] >= b[k + 2] &&
+                  q[2] <= b[k + 5]))
+                continue;
+            // A room's box can reach over a street: all of Stormwind is one building, and in the Trade
+            // District the sun shadows were off in the open (2026-09-30). The room must also have a ceiling
+            // over the point: one of its triangles straight above, more than 1.5 yards up and within 40.
+            const size_t g = k / 6;
+            if (g >= i.m->indoorTris.size())
+                return true;   // no triangles kept: the box alone, as before
+            const std::vector<float>& t = i.m->indoorTris[g];
+            for (size_t n = 0; n + 8 < t.size(); n += 9)
+            {
+                const float* a = &t[n];
+                const float* c = &t[n + 3];
+                const float* e = &t[n + 6];
+                const float d0x = c[0] - a[0], d0y = c[1] - a[1], d1x = e[0] - a[0], d1y = e[1] - a[1];
+                const float den = d0x * d1y - d1x * d0y;
+                if (den > -1e-6f && den < 1e-6f)
+                    continue;   // a wall, seen from above
+                const float px = q[0] - a[0], py = q[1] - a[1];
+                const float u = (px * d1y - d1x * py) / den, v = (d0x * py - px * d0y) / den;
+                if (u < 0.0f || v < 0.0f || u + v > 1.0f)
+                    continue;
+                const float z = a[2] + u * (c[2] - a[2]) + v * (e[2] - a[2]);
+                if (z > q[2] + 1.5f && z < q[2] + 40.0f)
+                    return true;
+            }
+        }
     }
     return false;
 }

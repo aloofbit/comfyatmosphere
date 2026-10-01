@@ -42,11 +42,18 @@ namespace
             }
             const size_t end = o + 8 + size;
             // The group's header: flags at +8, its box at +12. 0x2000: an indoor group (a room, a cellar).
-            if (o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x2000))
+            // 0x80: unreachable. No portal leads to it, so the client never draws it. Stormwind has four, 100
+            // to 250 yards up over the city ("Mage Quarter", "Command Center", "garrison_hall", "HB03"), and
+            // they cast a large shadow over the Trade District from an empty sky (2026-09-30). Left out whole.
+            if (o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x80))
+                return true;
+            const bool indoor = o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x2000);
+            if (indoor)
             {
                 float box[6];
                 memcpy(box, &d[o + 8 + 12], 24);
                 out.indoor.insert(out.indoor.end(), box, box + 6);
+                out.indoorTris.emplace_back();
             }
             const uint8_t*  mopy = nullptr; size_t nTri = 0;
             const uint8_t*  movi = nullptr; size_t nIdx = 0;
@@ -64,6 +71,24 @@ namespace
             if (!movi || !movt || !mopy)
                 return nVert == 0;   // a group with no geometry
             nTri = (std::min)(nTri, nIdx / 3);
+            // An indoor group keeps all its triangles, collision ones too, for the ceiling test.
+            if (indoor)
+            {
+                std::vector<float>& t = out.indoorTris.back();
+                for (size_t i = 0; i < nIdx / 3; ++i)
+                {
+                    uint16_t tri[3];
+                    memcpy(tri, movi + i * 6, 6);
+                    if (tri[0] >= nVert || tri[1] >= nVert || tri[2] >= nVert)
+                        continue;
+                    for (uint16_t k : tri)
+                    {
+                        float p[3];
+                        memcpy(p, movt + k * 12, 12);
+                        t.insert(t.end(), p, p + 3);
+                    }
+                }
+            }
             const uint32_t base = static_cast<uint32_t>(out.v.size() / 3);
             const size_t vFirst = out.v.size();
             out.v.resize(vFirst + nVert * 3);

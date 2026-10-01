@@ -401,8 +401,10 @@ sun nor moon is up, and lengthen as the next light rises. A steep light needs li
 on their casters, and the sun handing over to a moon no longer turns them at once, since both are near
 overhead when low. Not faded any more (except with riseFrom 0). The volumetric light reads the same map,
 so its shafts take the steeper angle below 12 degrees; it is faded out there by the sun's height anyway.
-A moon can first show well above the horizon, so the shadows' direction is eased toward its target with a
-time constant of 1.5 seconds (`ShadowSunDirection`): a jump becomes a sweep of a few seconds.
+A moon can first show well above the horizon, so the shadows' direction turns toward its target at most
+30 degrees a second (`ShadowSunDirection`): a jump becomes a sweep. It was an ease of 1.5 seconds first,
+which added to the sun's own glide: with Sun Smoothing (`[sun] glide`, the 10-second glide made a control
+the same night) at 2, the shadows still took about 6 seconds to settle.
 
 ## Rays and light through mountains (2026-09-28)
 
@@ -982,6 +984,24 @@ only what the client drew, and from inside it draws the interior alone. Each gro
 groups (MOGP flags 0x2000, the box at +12), kept with the building (`MapIndoors`). While the player stands in
 one, the sun shadows (shade, sunlight and both tints) fade to `[sunshadows] indoor` (0) over half a second.
 The volumetric light is left alone, so light through a door or a window still shows.
+
+**A street that counted as a room (2026-09-30).** In the Stormwind Trade District there were no sun shadows
+at all, in the open street. All of Stormwind is one building in the files, and the box of one of its rooms
+reached over the street, so the player counted as indoors and the shadows faded to 0. `/atmos
+sunshadows.indoor 1` brought them back, which showed it. Each indoor group now keeps its triangles too
+(collision ones included), and the point must also have one of that room's triangles straight above it,
+1.5 to 40 yards up: a ceiling. The pass also logs why it is not drawn on a probe frame; before, the
+probe showed no `sunshadows:` line at all.
+
+**Groups no portal reaches (2026-09-30).** With the shadows back, a large solid shade lay over the Trade
+District's plaza, from an empty sky. `/atmos shadow.mapTerrain 0` (the client's own draws) did not cast it.
+The probe now logs the turn of the client's building draws next to the files': Stormwind matched to three
+decimals, so the placement was right. Offline (`tools/model-browser`'s reader), rays toward the sun from
+the plaza hit group 218 first, 43 to 180 yards over the street. Stormwind has four groups with MOGP flag
+0x80 (unreachable): "HB03", "garrison_hall", "Command Center" and "Mage Quarter" (218), each 100 to 250
+yards up over the city. No portal leads to them, so the client never draws them. `mapwmo.cpp` leaves out
+a group with 0x80 whole, for the shadows and the indoor test alike. Of Stormwind's 306 groups, 304 carry
+the indoor flag, the streets included, which is also why the box test alone failed there.
 
 **Candles from the files.** Inside a building the client has no point lights and its candles are particles
 (the Darkshire inn probe), so the lamps never found them. A building's root file places its own doodads
