@@ -27,6 +27,10 @@
 // lines. A CVar at its default value is not written to Config.wtf, so the answers are not saved; the
 // addon sets comfyTune back to empty once answered, which is its default.
 //
+// Notices (2026-09-30), for a line in chat the DLL starts on its own, such as the benchmark's start and end:
+// the same way, comfyNotice1, comfyNotice2 and on, one line each. The addon checks for the next one twice a
+// second, and at load skips those already there, which a /reload would otherwise print again.
+//
 // All of this runs on the client's main thread (Present is called from the client's render), the same
 // thread Lua runs on, so nothing here races the options panel.
 
@@ -174,6 +178,8 @@ namespace
     void*    g_tune     = nullptr;  // comfyTune, the /atmos command
     char     g_tuneLast[256] = {};
     std::deque<std::string> g_tuneText;   // names and values given to Register, kept for good
+    std::deque<std::string> g_notices;    // lines for chat, not yet registered
+    unsigned long g_noticeSeq = 0;
 
     intptr_t Slide()
     {
@@ -491,6 +497,22 @@ bool CVarsPoll()
         Log("--- control: %s = %s ---", kNames[k], buf);
     }
 
+    // Notices waiting for chat.
+    if (!g_notices.empty())
+    {
+        const auto registerFn = reinterpret_cast<RegisterFn>(kRegister + Slide());
+        char name[64];
+        while (!g_notices.empty())
+        {
+            snprintf(name, sizeof(name), "comfyNotice%lu", ++g_noticeSeq);
+            g_tuneText.push_back(name);
+            const char* n = g_tuneText.back().c_str();
+            g_tuneText.push_back(g_notices.front());
+            g_notices.pop_front();
+            registerFn(n, nullptr, 0, g_tuneText.back().c_str(), nullptr, kCategory, 0, nullptr);
+        }
+    }
+
     // /atmos: a new "<number> <command>" in comfyTune.
     char tune[256];
     DWORD tstr = 0;
@@ -533,4 +555,11 @@ bool CVarsPoll()
         Apply(g_cfg);
     }
     return changed;
+}
+
+void CVarsNotice(const char* text)
+{
+    if (g_gaveUp || g_notices.size() >= 16)
+        return;
+    g_notices.push_back(text);
 }

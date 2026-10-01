@@ -33,6 +33,7 @@
 #include "bench.h"
 #include "common.h"
 #include "config.h"
+#include "cvars.h"
 #include "shadow.h"
 
 #include <algorithm>
@@ -289,6 +290,7 @@ namespace
             Log("bench: the frame rate did not change between the steps, so it is capped (vsync or a frame "
                 "limiter). Compare the GPU and CPU columns, or turn the cap off and run it again.");
         Log("bench: done. The settings are back as they were.");
+        CVarsNotice("Benchmark done. The results are in comfyfog.log.");
     }
 
     void Finish()
@@ -336,6 +338,10 @@ void BenchStart(IDirect3DDevice9* dev)
     Log("bench: %d steps of %.0f s (%.0f s to settle, then %.0f s measured), %.0f s in all. Stand still, do "
         "not move the mouse, and face the sun.", kStepCount, each, g_cfg.bench.settle, g_cfg.bench.measure,
         each * kStepCount);
+    char line[160];
+    snprintf(line, sizeof(line), "Running benchmark: %.0f seconds. Stand still, face the sun and do not move the mouse.",
+             each * kStepCount);
+    CVarsNotice(line);
     ApplyStep(0);
 }
 
@@ -399,6 +405,9 @@ void BenchCancel(const char* why, bool restore)
     g_running = false;
     ShadowTiming(false);
     Log("bench: stopped (%s)%s", why, restore ? ". The settings are back as they were." : "");
+    char line[160];
+    snprintf(line, sizeof(line), "Benchmark stopped: %s.", why);
+    CVarsNotice(line);
 }
 
 bool BenchRunning()

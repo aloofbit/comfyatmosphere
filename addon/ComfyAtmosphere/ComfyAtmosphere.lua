@@ -845,6 +845,26 @@ local function Say(text)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: " .. text);
 end
 
+-- Notices: lines the DLL starts on its own (the benchmark's start and end), as comfyNotice1, comfyNotice2
+-- and on. Those already registered when the addon loads were printed before a /reload, so they are skipped.
+local noticeNext = 1;
+while HasCVar("comfyNotice" .. noticeNext) do
+	noticeNext = noticeNext + 1;
+end
+local noticeFrame = CreateFrame("Frame");
+local noticeWait = 0;
+noticeFrame:SetScript("OnUpdate", function()
+	noticeWait = noticeWait - arg1;
+	if noticeWait > 0 then
+		return;
+	end
+	noticeWait = 0.5;
+	while HasCVar("comfyNotice" .. noticeNext) do
+		Say(GetCVar("comfyNotice" .. noticeNext));
+		noticeNext = noticeNext + 1;
+	end
+end);
+
 local tuneFrame = CreateFrame("Frame");
 tuneFrame:Hide();
 tuneFrame:SetScript("OnUpdate", function()
