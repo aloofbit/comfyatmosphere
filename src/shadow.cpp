@@ -2023,7 +2023,7 @@ double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped)
 void ShadowStatsText(std::string& out)
 {
     const SecStats& s = g_sec;
-    char line[256];
+    char line[512];
     unsigned models = 0, fixed = 0, moving = 0;
     for (const auto& kv : g_cache)
         for (const Entry& e : kv.second)
@@ -2031,26 +2031,20 @@ void ShadowStatsText(std::string& out)
             (e.rec.vs ? models : fixed)++;
             moving += (e.mobile || e.drifts) ? 1u : 0u;
         }
-    snprintf(line, sizeof(line), "Shadow casters: %zu held (%u models, %u fixed, %u moving); up to %u drawn into the map",
-             g_entries, models, fixed, moving, s.mostDrawn);
-    out += line; out += "~";
     const unsigned rf = s.recFrames ? s.recFrames : 1;
-    snprintf(line, sizeof(line), "Draws a frame: %u seen, %u recorded; turned away: depth writes off %u, blended %u, "
-             "dynamic buffer %u", s.seen / rf, s.recorded / rf, s.rejZW / rf, s.rejBlend / rf, s.rejDynamic / rf);
-    out += line; out += "~";
-    snprintf(line, sizeof(line), "Last second: %u added, %u dropped (in view %u, aged %u, overwritten %u, cap %u)",
-             s.added, s.evView + s.evAge + s.evWritten + s.evCap, s.evView, s.evAge, s.evWritten, s.evCap);
-    out += line; out += "~";
-    snprintf(line, sizeof(line), "Within %.0f yd: %u added, %u dropped, %u draws refused (the map files place them)",
-             kNearTrace, s.nearAdded, s.nearGone, s.nearRefused);
-    out += line;
+    std::string why;
     for (const auto& kv : s.nearWhy)
     {
-        snprintf(line, sizeof(line), "%s %s %u", kv.first == s.nearWhy.begin()->first ? ":" : ",", kv.first.c_str(),
-                 kv.second);
-        out += line;
+        snprintf(line, sizeof(line), "%s%s %u", why.empty() ? "" : ", ", kv.first.c_str(), kv.second);
+        why += line;
     }
-    out += "~";
+    snprintf(line, sizeof(line),
+             "held=%zu;models=%u;fixed=%u;moving=%u;drawn=%u;seen=%u;rec=%u;zw=%u;blend=%u;dyn=%u;added=%u;"
+             "dropped=%u;dview=%u;dage=%u;dover=%u;dcap=%u;nadd=%u;ndrop=%u;nref=%u;nwhy=%s;",
+             g_entries, models, fixed, moving, s.mostDrawn, s.seen / rf, s.recorded / rf, s.rejZW / rf,
+             s.rejBlend / rf, s.rejDynamic / rf, s.added, s.evView + s.evAge + s.evWritten + s.evCap, s.evView,
+             s.evAge, s.evWritten, s.evCap, s.nearAdded, s.nearGone, s.nearRefused, why.c_str());
+    out += line;
     g_sec = SecStats();
 }
 

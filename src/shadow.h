@@ -26,7 +26,7 @@ const char* ShadowMapCentre();   // where the map sits this frame, and the sun i
 const char* ShadowFrameInfo();   // the frame's first M2 entry: its absolute transform and the view
 const char* ShadowOverwritten(unsigned& count);   // entries the client overwrote under us
 const char* ShadowNearChanges();                  // the trace: what was added and dropped near you, and why
-// The on-screen stats (/atmos stats): the cache's figures over the time since the last call, lines ended by '~'.
+// The on-screen stats (/atmos stats): the cache's figures over the time since the last call, as name=value;.
 void ShadowStatsText(std::string& out);
 extern UINT g_maxConstReg;   // how many shader registers the client uses, so the replay sends no more
 unsigned ShadowCopies(unsigned& failed);   // chunks copied out of the client's arena, and failures

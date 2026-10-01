@@ -793,7 +793,7 @@ local function WindowBuild()
 	-- not in every 1.12 client, so the button is only there where it is.
 	if GetCVarDefault then
 		local defaults = CreateFrame("Button", "ComfyAtmosphereWindowDefaults", window, "UIPanelButtonTemplate");
-		defaults:SetWidth(88);
+		defaults:SetWidth(72);
 		defaults:SetHeight(22);
 		defaults:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 18, 16);
 		defaults:SetText(DEFAULTS or "Defaults");
@@ -807,8 +807,15 @@ local function WindowBuild()
 			WindowRefresh();
 		end);
 	end
+	-- The debug panel (/atmos debug), between the two.
+	local debug = CreateFrame("Button", "ComfyAtmosphereWindowDebug", window, "UIPanelButtonTemplate");
+	debug:SetWidth(72);
+	debug:SetHeight(22);
+	debug:SetPoint("BOTTOM", window, "BOTTOM", 0, 16);
+	debug:SetText("Debug");
+	debug:SetScript("OnClick", function() ComfyAtmosphere_DebugToggle(); end);
 	local done = CreateFrame("Button", "ComfyAtmosphereWindowDone", window, "UIPanelButtonTemplate");
-	done:SetWidth(88);
+	done:SetWidth(72);
 	done:SetHeight(22);
 	done:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 16);
 	done:SetText(CLOSE or "Close");
@@ -891,43 +898,207 @@ tuneFrame:SetScript("OnUpdate", function()
 end);
 
 SLASH_COMFYATMOS1 = "/atmos";
--- /atmos stats: a few lines of figures from comfyfog.dll on screen, for finding faults. The DLL writes them
--- into the CVar comfyStats once a second, lines ended by "~", padded with spaces.
+-- /atmos stats: comfyfog.dll's figures on screen, for finding faults. The DLL writes them into the CVar
+-- comfyStats once a second as name=value; pairs, padded with spaces, and this lays them out in sections.
+-- /atmos debug: a panel of buttons for finding faults (probe, stats, debug view, trace, benchmark).
+-- Both, and the probe, can be put on keys in Key Bindings > ComfyAtmosphere (Bindings.xml).
+
+BINDING_HEADER_COMFYATMOSPHERE      = "ComfyAtmosphere";
+BINDING_NAME_COMFYATMOSPHERE_PROBE  = "Probe (log one frame)";
+BINDING_NAME_COMFYATMOSPHERE_STATS  = "Show or hide the stats";
+BINDING_NAME_COMFYATMOSPHERE_DEBUG  = "Show or hide the debug panel";
+
+-- The debug views, as kDebugViews in comfyfog's cvars.cpp and the Debug View slider's tooltip above: keep
+-- the three in the same order. The first is view 0.
+local DEBUG_VIEWS = {
+	"off",
+	"volumetric light: the glow alone",
+	"volumetric light: share of each line in sun",
+	"volumetric light: the shadow map",
+	"volumetric light: the depth it reads",
+	"sun shadows: the shade alone",
+	"lamps: the glow alone",
+	"lamps: the distance read",
+	"lamps: the light on surfaces alone",
+	"sun rays: the mask",
+	"sun rays: the rays alone",
+	"sun rays: the sky kept before the clouds",
+	"fog: how much gets through (white = clear)",
+	"fog: the sky's light on it alone",
+	"fog: where mist collects (low ground, water)",
+};
+
+local PANEL_BACKDROP = {
+	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	tile = true, tileSize = 16, edgeSize = 16,
+	insets = { left = 4, right = 4, top = 4, bottom = 4 },
+};
+
+-- A small panel that can be dragged, with a title and a close button.
+local function PanelMake(name, title, width, x, y)
+	local f = CreateFrame("Frame", name, UIParent);
+	f:SetWidth(width);
+	f:SetHeight(100);
+	f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x, y);
+	f:SetBackdrop(PANEL_BACKDROP);
+	f:SetBackdropColor(0, 0, 0, 0.75);
+	f:SetBackdropBorderColor(0.6, 0.6, 0.6, 1);
+	f:SetFrameStrata("MEDIUM");
+	f:EnableMouse(true);
+	f:SetMovable(true);
+	f:RegisterForDrag("LeftButton");
+	f:SetScript("OnDragStart", function() this:StartMoving(); end);
+	f:SetScript("OnDragStop", function() this:StopMovingOrSizing(); end);
+	local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal");
+	t:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10);
+	t:SetText(title);
+	local close = CreateFrame("Button", name .. "Close", f, "UIPanelCloseButton");
+	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0);
+	f:Hide();
+	return f;
+end
+
+-- ---- the stats panel ------------------------------------------------------------------------------
+
+local STATS_ROWS = 30;
 local statsFrame = nil;
-local function StatsToggle()
+
+local function StatsParse(raw)
+	local v = {};
+	for k, val in string.gfind(raw, "([^;=]+)=([^;]*)") do
+		v[k] = val;
+	end
+	return v;
+end
+
+-- The rows to show: { header } or { label, value, warn }.
+local function StatsRows(v)
+	local rows = {};
+	local function G(k)
+		return v[k] or "?";
+	end
+	local function Head(text)
+		table.insert(rows, { text });
+	end
+	local function Row(label, value, warn)
+		table.insert(rows, { label, value, warn });
+	end
+
+	Head("Position");
+	local zone = GetRealZoneText() or "";
+	local sub = GetSubZoneText() or "";
+	Row("Zone", (sub ~= "" and sub ~= zone) and (zone .. ", " .. sub) or zone);
+	if not (WorldMapFrame and WorldMapFrame:IsVisible()) then
+		SetMapToCurrentZone();
+	end
+	local mx, my = GetPlayerMapPosition("player");
+	if mx and my and (mx > 0 or my > 0) then
+		Row("Map", string.format("%.1f, %.1f", mx * 100, my * 100));
+	end
+	if v.pos == "1" then
+		Row("World", G("x") .. ", " .. G("y") .. ", " .. G("z") .. ((v.map and v.map ~= "") and ("  (" .. v.map .. ")") or ""));
+	end
+
+	Head("Frame");
+	Row("Frame rate", G("fps") .. " fps");
+
+	Head("Shadow casters");
+	Row("Held", G("held") .. "  (" .. G("models") .. " models, " .. G("fixed") .. " buildings)");
+	Row("Moving", G("moving"));
+	Row("Drawn into the map", G("drawn"));
+	Row("Recorded a frame", G("rec") .. " of " .. G("seen") .. " draws");
+	Row("Turned away a frame", "depth writes off " .. G("zw") .. ", blended " .. G("blend") .. ", dynamic " .. G("dyn"));
+
+	Head("Last second");
+	Row("Added", G("added"));
+	Row("Dropped", G("dropped") .. "  (aged " .. G("dage") .. ", in view " .. G("dview") .. ", overwritten " .. G("dover") .. ")");
+
+	Head("Within 40 yards of you");
+	Row("Added", G("nadd"));
+	Row("Dropped", G("ndrop"), (tonumber(v.ndrop) or 0) > 0);
+	if v.nwhy and v.nwhy ~= "" then
+		Row("Why", v.nwhy);
+	end
+	Row("Refused (map files)", G("nref"));
+
+	Head("Fog");
+	if v.fog == "1" then
+		Row("Density", G("fogd") .. " a yard  (x" .. G("morning") .. " at this hour)");
+		local ground = G("ground");
+		if (tonumber(v.notile) or 0) > 0 then
+			ground = ground .. "  (" .. v.notile .. " cells without a tile)";
+		end
+		Row("Ground", ground);
+		Row("Wet cells", G("wet"));
+		Row("Patches", v.patches == "1" and "on" or "off");
+	else
+		Row("Fog", v.fog and "off" or "?");
+	end
+	return rows;
+end
+
+local function StatsBuild()
+	local f = PanelMake("ComfyAtmosphereStats", "Atmosphere stats", 420, 20, -120);
+	f.labels, f.values = {}, {};
+	for i = 1, STATS_ROWS do
+		local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+		label:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -26 - (i - 1) * 13);
+		label:SetJustifyH("LEFT");
+		local value = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+		value:SetPoint("TOPLEFT", f, "TOPLEFT", 140, -26 - (i - 1) * 13);
+		value:SetWidth(270);
+		value:SetJustifyH("LEFT");
+		f.labels[i], f.values[i] = label, value;
+	end
+	local wait = 0;
+	f:SetScript("OnUpdate", function()
+		wait = wait - arg1;
+		if wait > 0 then
+			return;
+		end
+		wait = 0.25;
+		local raw = string.gsub(GetCVar("comfyStats") or "", "%s+$", "");
+		local rows;
+		if raw == "" then
+			rows = { { "Waiting for comfyfog.dll (a second)..." } };
+		else
+			rows = StatsRows(StatsParse(raw));
+		end
+		local n = table.getn(rows);
+		for i = 1, STATS_ROWS do
+			local r = rows[i];
+			local label, value = this.labels[i], this.values[i];
+			if not r or i > n then
+				label:SetText("");
+				value:SetText("");
+			elseif r[2] == nil then
+				label:SetText(r[1]);
+				label:SetTextColor(1, 0.82, 0);          -- a section: gold
+				value:SetText("");
+			else
+				label:SetText(r[1]);
+				label:SetTextColor(0.7, 0.7, 0.7);
+				value:SetText(r[2]);
+				if r[3] then
+					value:SetTextColor(1, 0.5, 0.25);    -- worth a look: orange
+				else
+					value:SetTextColor(1, 1, 1);
+				end
+			end
+		end
+		this:SetHeight(26 + math.min(n, STATS_ROWS) * 13 + 12);
+	end);
+	return f;
+end
+
+function ComfyAtmosphere_StatsToggle()
 	if not HasCVar("comfyStats") then
 		Say("this comfyfog.dll has no stats.");
 		return;
 	end
 	if not statsFrame then
-		statsFrame = CreateFrame("Frame", "ComfyAtmosphereStats", UIParent);
-		statsFrame:SetWidth(560);
-		statsFrame:SetHeight(110);
-		statsFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -120);
-		statsFrame:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", tile = true, tileSize = 16 });
-		statsFrame:SetBackdropColor(0, 0, 0, 0.6);
-		local text = statsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
-		text:SetPoint("TOPLEFT", statsFrame, "TOPLEFT", 8, -8);
-		text:SetWidth(544);
-		text:SetJustifyH("LEFT");
-		statsFrame.text = text;
-		local wait = 0;
-		statsFrame:SetScript("OnUpdate", function()
-			wait = wait - arg1;
-			if wait > 0 then
-				return;
-			end
-			wait = 0.25;
-			local raw = GetCVar("comfyStats") or "";
-			raw = string.gsub(raw, "%s+$", "");
-			raw = string.gsub(raw, "~", "\n");
-			if raw == "" then
-				raw = "Waiting for comfyfog.dll (a second)...";
-			end
-			this.text:SetText(raw);
-			this:SetHeight(this.text:GetHeight() + 16);
-		end);
-		statsFrame:Hide();
+		statsFrame = StatsBuild();
 	end
 	if statsFrame:IsShown() then
 		statsFrame:Hide();
@@ -939,6 +1110,92 @@ local function StatsToggle()
 	end
 end
 
+-- ---- the debug panel ------------------------------------------------------------------------------
+
+local debugFrame = nil;
+local traceOn = false;
+
+function ComfyAtmosphere_Probe()
+	SlashCmdList["COMFYATMOS"]("probe");
+end
+
+local function DebugButton(f, name, text, width, x, y, onClick)
+	local b = CreateFrame("Button", "ComfyAtmosphereDebug" .. name, f, "UIPanelButtonTemplate");
+	b:SetWidth(width);
+	b:SetHeight(22);
+	b:SetPoint("TOPLEFT", f, "TOPLEFT", x, y);
+	b:SetText(text);
+	b:SetScript("OnClick", onClick);
+	return b;
+end
+
+local function DebugViewNow()
+	local v = tonumber(GetCVar("comfyDebugView") or "0") or 0;
+	return math.max(0, math.min(v, table.getn(DEBUG_VIEWS) - 1));
+end
+
+local function DebugRefresh()
+	if not debugFrame then
+		return;
+	end
+	local v = DebugViewNow();
+	debugFrame.view:SetText("View " .. v .. ": " .. DEBUG_VIEWS[v + 1]);
+	ComfyAtmosphereDebugTrace:SetText(traceOn and "Trace: on" or "Trace: off");
+end
+
+local function DebugViewStep(step)
+	local count = table.getn(DEBUG_VIEWS);
+	SetCVar("comfyDebugView", math.mod(DebugViewNow() + step + count, count));
+	DebugRefresh();
+end
+
+local function DebugBuild()
+	local f = PanelMake("ComfyAtmosphereDebug", "Atmosphere debug", 300, 400, -120);
+	DebugButton(f, "Probe", "Probe", 132, 12, -30, function() ComfyAtmosphere_Probe(); end);
+	DebugButton(f, "Stats", "Stats", 132, 152, -30, function() ComfyAtmosphere_StatsToggle(); end);
+	DebugButton(f, "Bench", "Benchmark", 132, 12, -56, function() SlashCmdList["COMFYATMOS"]("bench"); end);
+	DebugButton(f, "Trace", "Trace: off", 132, 152, -56, function()
+		-- The next probe also traces 180 frames, line by line. The game runs slowly while it does.
+		traceOn = not traceOn;
+		SlashCmdList["COMFYATMOS"]("general.trace " .. (traceOn and "1" or "0"));
+		DebugRefresh();
+	end);
+	local heading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
+	heading:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -88);
+	heading:SetText("Debug view");
+	DebugButton(f, "Prev", "<", 30, 12, -102, function() DebugViewStep(-1); end);
+	DebugButton(f, "Next", ">", 30, 254, -102, function() DebugViewStep(1); end);
+	local view = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+	view:SetPoint("TOPLEFT", f, "TOPLEFT", 48, -102);
+	view:SetWidth(200);
+	view:SetHeight(22);
+	view:SetJustifyH("CENTER");
+	f.view = view;
+	local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall");
+	hint:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -132);
+	hint:SetWidth(272);
+	hint:SetJustifyH("LEFT");
+	hint:SetText("Probe writes to comfyfog.log.");
+	f:SetHeight(132 + hint:GetHeight() + 14);
+	return f;
+end
+
+function ComfyAtmosphere_DebugToggle()
+	if not DllLoaded() then
+		Say("comfyfog.dll is not loaded.");
+		return;
+	end
+	if not debugFrame then
+		debugFrame = DebugBuild();
+	end
+	if debugFrame:IsShown() then
+		debugFrame:Hide();
+	else
+		debugFrame:Show();
+		DebugRefresh();
+	end
+end
+
 SlashCmdList["COMFYATMOS"] = function(msg)
 	local command = string.lower((string.gsub(msg or "", "^%s*(.-)%s*$", "%1")));
 	if command == "options" then
@@ -946,11 +1203,15 @@ SlashCmdList["COMFYATMOS"] = function(msg)
 		return;
 	end
 	if command == "stats" then
-		StatsToggle();
+		ComfyAtmosphere_StatsToggle();
+		return;
+	end
+	if command == "debug" then
+		ComfyAtmosphere_DebugToggle();
 		return;
 	end
 	if command == "" then
-		Say("/atmos options: the settings window. /atmos stats: figures on screen, for finding faults.");
+		Say("/atmos options: the settings window. /atmos debug: buttons for finding faults. /atmos stats: figures on screen.");
 	end
 	if not HasCVar("comfyTune") then
 		Say("this comfyfog.dll has no /atmos. It needs the version from 2026-09-29 or later.");

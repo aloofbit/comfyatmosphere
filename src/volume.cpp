@@ -1595,14 +1595,10 @@ void VolumeStatsText(std::string& out)
 {
     const FogSettings& fs = g_cfg.fog;
     char line[256];
-    if (!FogOn())
-        snprintf(line, sizeof(line), "Fog: off");
-    else
-        snprintf(line, sizeof(line), "Fog: %.4f a yard (x%.2f dawn and dusk), the ground %s (%d cells without a tile, %d wet), "
-                 "patches %s", fs.density, g_fogMorning, g_groundValid ? "from the map files" : "from the average",
-                 g_groundMissing, g_groundWet, g_noise ? "on" : "off");
+    snprintf(line, sizeof(line), "fog=%d;fogd=%.4f;morning=%.2f;ground=%s;notile=%d;wet=%d;patches=%d;", FogOn() ? 1 : 0,
+             fs.density, g_fogMorning, g_groundValid ? "map files" : "average", g_groundMissing, g_groundWet,
+             g_noise && fs.patchiness > 0.0f ? 1 : 0);
     out += line;
-    out += "~";
 }
 
 bool VolumeActive()

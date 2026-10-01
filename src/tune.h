@@ -10,3 +10,4 @@
 std::vector<std::string> TuneRun(const std::string& command, bool& reloaded);
 
 void ProbeArm();   // in comfyfog.cpp: log the next frame, as F12 does
+void BenchArm();   // in comfyfog.cpp: run the benchmark from the next frame, as Alt+F12 does

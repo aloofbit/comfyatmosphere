@@ -372,6 +372,7 @@ namespace
     // horizon fog over every blade on the skyline. Runs of: O depth-writing, B blended without depth writes,
     // W blended with depth writes, N neither.
     bool        g_orderArm = false, g_orderRec = false;
+    bool        g_benchArmed = false;   // /atmos bench: started at the next Present (PollKeys), which has the device
     std::string g_orderRuns;
     char        g_orderLast = 0;
     unsigned    g_orderRun = 0, g_orderIndex = 0, g_orderFirstB = 0, g_orderOAfterB = 0;
@@ -681,6 +682,11 @@ namespace
             }
         }
         g_probeDown = probe;
+        if (g_benchArmed)
+        {
+            g_benchArmed = false;
+            BenchStart(dev);
+        }
     }
 
     // The client can let its device go and make a new one, with no Reset: measured on 2026-09-25, changing
@@ -858,8 +864,14 @@ namespace
                 statsLast = now;
             if (now - statsLast >= 1.0)
             {
-                char line[96];
-                snprintf(line, sizeof(line), "%.0f fps~", statsFrames / (now - statsLast));
+                // As name=value; pairs, which the addon lays out (ComfyAtmosphere.lua, StatsBuild).
+                char line[200];
+                float pl[3] = {};
+                char map[64] = "";
+                const bool havePl = ClientPlayer(pl);
+                ClientMapName(map, sizeof(map));
+                snprintf(line, sizeof(line), "fps=%.0f;x=%.1f;y=%.1f;z=%.1f;pos=%d;map=%s;", statsFrames / (now - statsLast),
+                         pl[0], pl[1], pl[2], havePl ? 1 : 0, map);
                 std::string text = line;
                 ShadowStatsText(text);
                 VolumeStatsText(text);
@@ -1830,6 +1842,12 @@ void ProbeArm()
 {
     g_probe.armed = true;
     g_orderArm = true;
+}
+
+// /atmos bench: the same as Alt+F12. A second one while it runs stops it, as the key does.
+void BenchArm()
+{
+    g_benchArmed = true;
 }
 
 bool WorldFog(float& start, float& end)

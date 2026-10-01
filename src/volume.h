@@ -16,4 +16,4 @@ void VolumeFrameEnd();                    // at Present: count the frame, log th
 // ground, dawn included (0 when the fog is off), and how many times that it holds at a camera-relative point.
 float FogDensityNow();
 float FogThicknessAt(const float rel[3]);
-void VolumeStatsText(std::string& out);   // the on-screen stats (/atmos stats): the fog's line, ended by '~'
+void VolumeStatsText(std::string& out);   // the on-screen stats (/atmos stats): the fog's figures, as name=value;

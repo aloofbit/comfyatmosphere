@@ -1,0 +1,11 @@
+<Bindings>
+	<Binding name="COMFYATMOSPHERE_PROBE" header="COMFYATMOSPHERE">
+		ComfyAtmosphere_Probe();
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_STATS">
+		ComfyAtmosphere_StatsToggle();
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_DEBUG">
+		ComfyAtmosphere_DebugToggle();
+	</Binding>
+</Bindings>
