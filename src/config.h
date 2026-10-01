@@ -34,6 +34,8 @@ struct FogSettings
     float lowDepth    = 25.0f;     // smoothed ground around it (valleys, hollows)
     float water       = 1.0f;      // this much thicker again over rivers, lakes and the sea
     float morning     = 1.0f;      // this much thicker at dawn (6:00), half of it at dusk (20:00)
+    float lampMist    = 0.5f;      // a lamp's glow in the air this much brighter for each time the fog's ground
+                                   // density around it (2026-09-30); the fog between you and it dims it either way
     int   debug       = 0;         // 1 = the transmittance (white = clear), 2 = the sky's light on the fog alone
 };
 

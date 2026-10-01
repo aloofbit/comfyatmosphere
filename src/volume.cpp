@@ -429,6 +429,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     int    g_groundMissing = 0;      // cells no tile covered when it was made
     int    g_groundWet     = 0;
     float  g_groundSmooth  = 0.0f;   // the smoothRadius it was made with
+    std::vector<float> g_gSurf, g_gSmooth, g_gWet;   // the texture's values, kept for FogThicknessAt
+    // This frame's fog, for FogThicknessAt (the lamps draw after the fog, in the same frame).
+    float  g_fogCam[3]   = {};
+    bool   g_fogCamOk    = false;
+    float  g_fogMorning  = 1.0f;
     double g_wind[3] = {};      // how far the wind has carried the patches, yards (kept small: wrapped by the tile)
     double g_windLast = 0.0;
     bool                    g_shadersTried = false;
@@ -666,6 +671,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             }
         }
         g_ground->lpVtbl->UnlockRect(g_ground, 0);
+        g_gSurf.swap(surf);
+        g_gSmooth.swap(smooth);
+        g_gWet.swap(wet);
         memcpy(g_groundAt, at, sizeof(g_groundAt));
         g_groundValid   = missing < kGround * kGround;
         g_groundBuilt   = now;
@@ -1184,6 +1192,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     const bool camRead = ClientCamera(cam);
     const float groundRel = camRead ? FogGround(cam) : -2.0f;
     const float morning = fogOn ? MorningScale() : 1.0f;
+    g_fogMorning = morning;
+    g_fogCamOk   = camRead;
+    memcpy(g_fogCam, cam, sizeof(g_fogCam));
     pc[48] = fogOn ? fs.density * morning : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
     pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = fs.reach; pc[55] = 0.0f;
     // The patches: the wind carries them; they rise slowly too, so they change shape as they go. Where the
@@ -1552,6 +1563,31 @@ bool VolumeDraw(IDirect3DDevice9* dev)
             Log("fog: off ([fog] enabled %d, density %.4f)", fs.enabled ? 1 : 0, fs.density);
     }
     return true;
+}
+
+float FogDensityNow()
+{
+    return FogOn() && VolumeActive() ? g_cfg.fog.density * g_fogMorning : 0.0f;
+}
+
+float FogThicknessAt(const float rel[3])
+{
+    const FogSettings& fs = g_cfg.fog;
+    if (!FogOn() || !g_fogCamOk)
+        return 0.0f;
+    const float p[3] = { rel[0] + g_fogCam[0], rel[1] + g_fogCam[1], rel[2] + g_fogCam[2] };
+    float base = g_fogBase, mult = 1.0f;
+    if (g_groundValid && g_gSurf.size() == static_cast<size_t>(kGround * kGround))
+    {
+        const int i = static_cast<int>(floorf((p[0] - g_groundAt[0]) / kGroundCell + 0.5f * kGround));
+        const int j = static_cast<int>(floorf((p[1] - g_groundAt[1]) / kGroundCell + 0.5f * kGround));
+        const int k = (std::min)((std::max)(j, 0), kGround - 1) * kGround + (std::min)((std::max)(i, 0), kGround - 1);
+        base = g_gSmooth[k] + (g_gSurf[k] - g_gSmooth[k]) * fs.follow;
+        const float low = (g_gSmooth[k] - g_gSurf[k]) / fs.lowDepth;
+        mult = (1.0f + fs.lowGround * (low < 0.0f ? 0.0f : (low > 1.0f ? 1.0f : low))) * (1.0f + fs.water * g_gWet[k]);
+    }
+    const float up = (base - p[2]) / fs.height;
+    return mult * expf(up < 4.0f ? up : 4.0f);
 }
 
 bool VolumeActive()

@@ -62,6 +62,7 @@ namespace
         { "fog.lowGround",       "Low Ground Mist" },
         { "fog.water",           "Water Mist" },
         { "fog.morning",         "Morning Mist" },
+        { "fog.lampMist",        "Lamps in Mist" },
         { "fog.windSpeed",       "Wind Speed" },
         { "fog.windDeg",         "Wind Direction" },
         { "lamps.strength",      "Lamp Glow" },

@@ -154,6 +154,7 @@ void LoadSettings(const wchar_t* ini)
     s.fog.lowDepth     = Clamp(GetF(kFog, L"lowDepth",     s.fog.lowDepth,     ini), 1.0f, 500.0f);
     s.fog.water        = Clamp(GetF(kFog, L"water",        s.fog.water,        ini), 0.0f, 10.0f);
     s.fog.morning      = Clamp(GetF(kFog, L"morning",      s.fog.morning,      ini), 0.0f, 10.0f);
+    s.fog.lampMist     = Clamp(GetF(kFog, L"lampMist",     s.fog.lampMist,     ini), 0.0f, 10.0f);
     s.fog.debug        = GetI(kFog, L"debug", s.fog.debug, ini);
 
     s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);

@@ -67,6 +67,7 @@ COMFYATMOSPHERE_MIST_PATCHES   = "Fog Patchiness";
 COMFYATMOSPHERE_MIST_LOW       = "Low Ground Mist";
 COMFYATMOSPHERE_MIST_WATER     = "Water Mist";
 COMFYATMOSPHERE_MIST_MORNING   = "Morning Mist";
+COMFYATMOSPHERE_MIST_LAMPS     = "Lamps in Mist";
 COMFYATMOSPHERE_MIST_WIND      = "Wind Speed";
 COMFYATMOSPHERE_MIST_WIND_DIR  = "Wind Direction";
 
@@ -271,6 +272,18 @@ local ENTRIES = {
 		dependency = { "comfyMist", "1" },
 		minval = 0,
 		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] lampMist.
+		name = "COMFYATMOSPHERE_MIST_LAMPS",
+		desc = "How much brighter lamps glow in thick mist. 0 is no change.",
+		type = "slider",
+		cvar = "comfyMistLamps",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 200,
 		step = 10,
 		numberLabels = 1,
 	},

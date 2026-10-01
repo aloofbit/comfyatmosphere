@@ -390,6 +390,8 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
     const float sgain = (l.strength * 0.01f) * l.surface * scale;
     float fogStart = 0.0f, fogEnd = 0.0f;
     const bool haveFog = WorldFog(fogStart, fogEnd) && fogEnd > 1.0f;
+    const float fogDensity = FogDensityNow();   // our fog (volume.cpp), 0 when it is off
+    float mist[kMaxLights] = {};
 
     // Each light's constants, with the fog's fade and the gain folded into its colour. A light the fog
     // hides completely is left out.
@@ -411,9 +413,19 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
             v = (end - L.dist) / (0.5f * end);
             v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
         }
+        // Our fog (2026-09-30). The glow is added after it, so a lamp behind thick fog shone through it at
+        // full strength: it is dimmed by the fog between you and the lamp, taken at the halfway point. And it
+        // is brighter in thick mist ([fog] lampMist), where there is more air to light.
+        if (fogDensity > 0.0f)
+        {
+            const float half[3] = { 0.5f * L.pos[0], 0.5f * L.pos[1], 0.5f * L.pos[2] };
+            const float at = FogThicknessAt(L.pos);
+            v *= expf(-fogDensity * FogThicknessAt(half) * L.dist) * (1.0f + g_cfg.fog.lampMist * at);
+            mist[i] = at;
+        }
         vis[i] = v;
         // Only a lamppost lights surfaces: the client lights with its own lights already.
-        const float k = gain * l.density * v, ks = L.kind == 1 ? sgain * v : 0.0f;
+        const float k = gain * l.density * v, ks = L.kind == 1 ? sgain * (v < 1.0f ? v : 1.0f) : 0.0f;
         if (k <= 0.0f && ks <= 0.0f && !l.debug)
             continue;
         pos[n * 4 + 0] = L.pos[0]; pos[n * 4 + 1] = L.pos[1]; pos[n * 4 + 2] = L.pos[2];
@@ -429,13 +441,13 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
             Log("lampglow: night darkness: the world x (%.2f %.2f %.2f), the sky x (%.2f %.2f %.2f)", darkWorld[0],
                 darkWorld[1], darkWorld[2], darkSky[0], darkSky[1], darkSky[2]);
         Log("lampglow: %u lights held, %d gathered, %d drawn; gain %.2f, on surfaces %.2f (by day x %.2f), "
-            "density %.3f, fog %s%.0f..%.0f", LampsTracked(), found, n, gain, sgain, scale, l.density,
-            haveFog ? "" : "(none) ", fogStart, fogEnd);
+            "density %.3f, fog %s%.0f..%.0f; our fog %.4f a yard, lampMist %.2f", LampsTracked(), found, n, gain,
+            sgain, scale, l.density, haveFog ? "" : "(none) ", fogStart, fogEnd, fogDensity, g_cfg.fog.lampMist);
         for (int i = 0; i < found; ++i)
             Log("lampglow:   %s %6.1f yd  camera-relative (%.1f %.1f %.1f)  colour (%.2f %.2f %.2f)  reach %.1f  "
-                "fog %.2f", lights[i].kind ? "sprite" : "light ", lights[i].dist, lights[i].pos[0],
+                "fog %.2f, mist x%.2f", lights[i].kind ? "sprite" : "light ", lights[i].dist, lights[i].pos[0],
                 lights[i].pos[1], lights[i].pos[2], lights[i].colour[0], lights[i].colour[1], lights[i].colour[2],
-                lights[i].reach, vis[i]);
+                lights[i].reach, vis[i], mist[i]);
     }
     if (!n && !l.debug && !dark)
         return false;
