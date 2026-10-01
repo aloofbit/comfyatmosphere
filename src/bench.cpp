@@ -1,7 +1,7 @@
 // bench: what each feature costs, measured in the running client.
 //
-// Alt + the probe key (Alt+F12) runs four steps, one after the other: fog, sun rays and volumetric light;
-// fog and sun rays; fog; nothing. Each step runs for [bench] settle seconds, so shaders compile, then is
+// Alt + the probe key (Alt+F12) runs three steps, one after the other: sun rays and volumetric light; sun
+// rays; nothing. Each step runs for [bench] settle seconds, so shaders compile, then is
 // measured for [bench] measure seconds. Then the settings go back as they were, and one table goes to
 // comfyfog.log.
 //
@@ -19,9 +19,6 @@
 //     happens during the world and is in no pass.
 // For the light, one more line splits both: the shadow map and the light passes on the GPU; recording, the
 // cache upkeep and the replay on the CPU; and how many casters the map drew.
-//
-// The fog costs nothing to draw: it is the client's own fog with other numbers. Any difference between
-// "nothing" and "fog" is noise, which shows how far apart two steps must be to mean something.
 //
 // Stand still for the whole run and do not move the mouse. Face the sun: the rays do not draw when the sun
 // is behind you, and the table says so. F11, a control moved in Video > Atmosphere, or a device reset stops
@@ -46,14 +43,13 @@ namespace
     struct Step
     {
         const char* name;
-        bool fog, rays, light;
+        bool rays, light;
     };
 
     const Step kSteps[] = {
-        { "fog + rays + light",  true,  true,  true  },
-        { "fog + rays",          true,  true,  false },
-        { "fog",                 true,  false, false },
-        { "nothing",             false, false, false },
+        { "rays + light",  true,  true  },
+        { "rays",          true,  false },
+        { "nothing",       false, false },
     };
     constexpr int kLightStep = 0;
     constexpr int kRaysStep  = 1;
@@ -184,10 +180,6 @@ namespace
         g_cfg = g_saved;
         g_cfg.volume.debug  = 0;
         g_cfg.rays.debugView = 0;
-
-        g_cfg.fog.enabled = st.fog;
-        if (st.fog && g_cfg.fog.thickness <= 0.0f)
-            g_cfg.fog.thickness = 60.0f;
 
         g_cfg.rays.enabled = st.rays;
         if (st.rays && g_cfg.rays.strength <= 0.0f)
@@ -331,9 +323,9 @@ void BenchStart(IDirect3DDevice9* dev)
     const Settings& s = g_cfg;
     _snprintf_s(g_setup, sizeof(g_setup), _TRUNCATE,
                 "%ux%u; light: steps %d, downscale %d, smooth %.2f, shadow map %d every %d frames; "
-                "rays: downscale %d, passes %d; fog thickness %.0f",
+                "rays: downscale %d, passes %d",
                 bd.Width, bd.Height, s.volume.steps, s.volume.downscale, s.volume.smooth, s.shadow.size,
-                s.shadow.mapEvery, s.rays.downscale, s.rays.passes, s.fog.thickness);
+                s.shadow.mapEvery, s.rays.downscale, s.rays.passes);
 
     g_saved = g_cfg;
     g_running = true;

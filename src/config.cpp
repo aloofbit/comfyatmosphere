@@ -46,7 +46,6 @@ std::map<std::string, std::string>& ConfigOverrides() { return g_overrides; }
 
 namespace
 {
-    const wchar_t* kFog     = L"fog";
     const wchar_t* kSun     = L"sun";
     const wchar_t* kClient  = L"client";
     const wchar_t* kSky     = L"sky";
@@ -135,33 +134,6 @@ void LoadSettings(const wchar_t* ini)
     if (ini != g_ini)
         wcsncpy_s(g_ini, ini, _TRUNCATE);
 
-    s.fog.enabled    = GetB(kFog, L"enabled",    s.fog.enabled,    ini);
-    s.fog.thickness  = Clamp(GetF(kFog, L"thickness",  s.fog.thickness,  ini), 0.0f, 100.0f);
-    s.fog.haze       = Clamp(GetF(kFog, L"haze",       s.fog.haze,       ini), 0.0f, 0.9f);
-    s.fog.reach      = Clamp(GetF(kFog, L"reach",      s.fog.reach,      ini), 0.05f, 2.0f);
-    s.fog.desaturate = Clamp(GetF(kFog, L"desaturate", s.fog.desaturate, ini), 0.0f, 1.0f);
-    s.fog.darken     = Clamp(GetF(kFog, L"darken",     s.fog.darken,     ini), 0.0f, 1.0f);
-    s.fog.tint       = GetX(kFog, L"tint",       s.fog.tint,       ini) & 0xFFFFFF;
-    s.fog.tintAmount = Clamp(GetF(kFog, L"tintAmount", s.fog.tintAmount, ini), 0.0f, 1.0f);
-    s.fog.sunGlow    = Clamp(GetF(kFog, L"sunGlow",    s.fog.sunGlow,    ini), 0.0f, 1.0f);
-    s.fog.glowColor  = GetX(kFog, L"glowColor",  s.fog.glowColor,  ini) & 0xFFFFFF;
-    s.fog.awayColor  = GetX(kFog, L"awayColor",  s.fog.awayColor,  ini) & 0xFFFFFF;
-    s.fog.sunBright  = Clamp(GetF(kFog, L"sunBright",  s.fog.sunBright,  ini), 0.0f, 2.0f);
-    s.fog.mode       = GetI(kFog, L"mode",       s.fog.mode,       ini);
-    s.fog.density    = Clamp(GetF(kFog, L"density",    s.fog.density,    ini), 0.0f, 0.2f);
-    s.fog.height     = Clamp(GetF(kFog, L"height",     s.fog.height,     ini), 1.0f, 2000.0f);
-    s.fog.ground     = GetB(kFog, L"ground", s.fog.ground, ini);
-    s.fog.groundRadius = Clamp(GetF(kFog, L"groundRadius", s.fog.groundRadius, ini), 20.0f, 500.0f);
-    s.fog.distance   = Clamp(GetF(kFog, L"distance",   s.fog.distance,   ini), 0.0f, 1.0f);
-    s.fog.cover      = Clamp(GetF(kFog, L"cover",      s.fog.cover,      ini), 0.0f, 1.0f);
-    s.fog.skyDepth   = Clamp(GetF(kFog, L"skyDepth",   s.fog.skyDepth,   ini), 0.9f, 1.0f);
-    s.fog.debug      = GetI(kFog, L"debug",      s.fog.debug,      ini);
-    s.fog.skyMatch   = Clamp(GetF(kFog, L"skyMatch",   s.fog.skyMatch,   ini), 0.0f, 1.0f);
-    s.fog.waterDepth = GetB(kFog, L"waterDepth", s.fog.waterDepth, ini);
-    s.fog.skyBand    = Clamp(GetF(kFog, L"skyBand",    s.fog.skyBand,    ini), 0.01f, 1.0f);
-    s.fog.skyDebug   = GetB(kFog, L"skyDebug",   s.fog.skyDebug,   ini);
-    s.fog.shaderReg  = GetI(kFog, L"shaderReg",  s.fog.shaderReg,  ini);
-
     s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);
     s.sun.azimuth      = GetF(kSun, L"azimuth",   s.sun.azimuth,   ini);
     s.sun.elevation    = GetF(kSun, L"elevation", s.sun.elevation, ini);
@@ -176,6 +148,7 @@ void LoadSettings(const wchar_t* ini)
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
     s.depth.seeThrough  = GetB(kDepth, L"seeThrough", s.depth.seeThrough, ini);
     s.depth.seeThroughNear = Clamp(GetF(kDepth, L"seeThroughNear", s.depth.seeThroughNear, ini), 0.0f, 50.0f);
+    s.depth.waterDepth  = GetB(kDepth, L"waterDepth", s.depth.waterDepth, ini);
     s.shadow.enabled    = GetB(kShadow, L"enabled", s.shadow.enabled, ini);
     s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);

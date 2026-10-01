@@ -1,4 +1,4 @@
-// comfyfog.ini: one dial (thickness, 0..100) plus the few numbers that say what 100 looks like.
+// comfyfog.ini: the settings of every effect, one section each.
 #pragma once
 
 #include <windows.h>
@@ -6,79 +6,6 @@
 #include <map>
 #include <string>
 #include <vector>
-
-struct FogSettings
-{
-    // Off by default since 2026-09-30: with it off the game's own fog is used, untouched. The owner found
-    // the game looked better that way than with ours, which had grown feature by feature (the dial, height
-    // fog, fog at the camera, greyer and darker colour, sun glow) and together greyed the open land.
-    bool  enabled   = false;
-
-    // The dial. 0 is the client's own fog, untouched; 100 is the heaviest the settings below allow.
-    // Everything else in this struct describes the far end of the dial and is scaled by it.
-    float thickness = 65.0f;
-
-    // Fog already present right at the camera, at 100 (0..0.9). The client's fog is linear from 0, so
-    // near things are nearly clear and it only builds with distance; a haze floor fills in the near
-    // field. Done with a negative FOGSTART, which every fog path (grass shader included) handles.
-    float haze      = 0.55f;
-
-    // Where fog becomes total at 100, as a fraction of the client's own fog end. Kept well out, so the
-    // climb after the haze floor is gentle rather than a wall. Interpolated geometrically in the dial.
-    float reach     = 1.40f;
-
-    // Our own fog (mode 1, 2026-09-29): drawn over the picture from the depth, while the volumetric light
-    // runs (it needs the depth), with the game's fog moved out of the way. The game's fog is linear from
-    // start to end, the same in the terrain and in the tree shaders, so a fog made stronger with it
-    // still ended in a wall, and a far tree fogged in full stood out white against the sky behind it.
-    // This one is height fog: thick low down and thinning upward, so a line of sight toward the sky
-    // meets a known amount of it, and the sky near the horizon is the fog colour. Mode 0, or with the
-    // volumetric light off, is the game's fog moved by haze and reach as before.
-    int   mode      = 1;
-    float density   = 0.013f;   // the height fog: fog per yard at the camera's height (the Ground Haze
-                                // control, 0..0.02). Not scaled by the dial: the dial is the distance
-                                // fog. 0.02 scaled by the dial was tuned before the distance fog existed,
-                                // and with it on top the view distance shrank (2026-09-29)
-    float height    = 115.0f;   // yards: the fog thins by e (2.7 times) every this many yards up
-    // The height fog anchored to the ground (2026-09-30): density is the fog at the average ground height
-    // within groundRadius yards (from the map files), not at the camera. At the camera it was: standing on
-    // the cliff over Stormwind harbour, the sea 50 yards below had e^(50/15) = 28 times the fog, and the
-    // harbour was one flat haze. Needs [shadow] mapTerrain; without a tile, the camera as before.
-    bool  ground    = true;
-    float groundRadius = 150.0f;
-    float distance  = 0.30f;     // 0..1: how much of the game's distance fog (its start and end, as the dial
-                                // moves them) is kept, on a soft curve. Far mountains need it
-    float cover     = 0.55f;    // 0..1: past this share of the view distance, things fade in full into
-                                // the fog by the view distance, so nothing stops at a hard edge
-    float skyDepth  = 0.99999f; // depth at or past which a pixel is the sky itself. Between the world's
-                                // slice and this: scenery drawn with the sky (far mountains), fogged in full
-    int   debug     = 0;        // 1 = our fog's amount alone (white = all fog); 2 = that far scenery, red
-
-    // The game's fog colour. Not part of the dial: applied as set, with the fog on or off (Shift+F11
-    // turns it off with the rest). Until 2026-09-29 it was scaled by the dial, so these are the old
-    // values at the default thickness of 60.
-    float desaturate = 0.30f;         // 0 .. 1, toward grey. Applied to the game's fog too: 0 leaves it as it is
-    float darken     = 0.15f;         // 0 .. 1, toward black
-    DWORD tint       = 0x5A6470;     // RGB the colour is pulled toward, by tintAmount
-    float tintAmount = 0.0f;         // 0 .. 1
-    // Our fog lit by the sun (2026-09-30): warm looking toward it, cool looking away, as haze is. The
-    // colours are scaled to a brightness of 1, so they tint and do not darken. Fades at night.
-    float sunGlow    = 0.95f;        // 0..1, how much of the tint
-    DWORD glowColor  = 0xFFD6A0;     // toward the sun
-    DWORD awayColor  = 0xA0BCFF;     // away from it
-    float sunBright  = 0.40f;        // the fog brighter by up to this share looking into the sun
-    // The sky near the horizon gets the same change as the colour, so that seam does not show: it is
-    // what shows between trees past the view distance, and a darker fog alone left it bright
-    // (2026-09-29). Needs the depth buffer (Volumetric Light on).
-    bool  waterDepth = true;         // the water writes depth, so the fog, the shadows and the light see it
-    float skyMatch   = 1.0f;         // 0 .. 1, how far the sky at the horizon fades into the fog colour
-    float skyBand    = 0.35f;        // up to this height (sine of the angle above the horizon) it fades out
-    bool  skyDebug   = false;        // 1 = the sky it changes shows red
-
-    // The vertex-shader constant the client's M2 shaders fog from: (-1/(end-start), end/(end-start)).
-    // Found by disassembly for this WoW.exe (see comfyfog.cpp); -1 leaves M2 fog stock.
-    int   shaderReg  = 30;
-};
 
 // Where the sun is, for the shadow map and the volumetric light (sun.cpp). By default it is the sun the
 // client draws in the sky, so both follow the time of day.
@@ -130,6 +57,7 @@ struct DepthSettings
     // character and draws it as it draws a stealthed unit, a depth pass and then a see-through one; without
     // the depth pass the inside of the head showed through the back of it (the eyes, from behind).
     float seeThroughNear = 4.0f;
+    bool  waterDepth = true;   // the water writes depth, so the shadows and the light see its surface
 };
 
 // A shadow map from the sun (shadow.cpp): the frame's opaque world draws replayed from the sun.
@@ -423,7 +351,6 @@ struct Settings
     VolumeSettings volume;
     LampSettings lamps;
     SunShadowSettings sunShadows;
-    FogSettings  fog;
     SunSettings  sun;
     NightSettings night;
     ClientSettings client;
@@ -435,8 +362,8 @@ struct Settings
     bool  hook        = true;       // 0: load, log, patch nothing (bisecting)
     bool  sliders     = true;       // register the CVars the in-game controls set (cvars.cpp)
     bool  master      = true;       // [general] enabled: every effect at once. Off, the game draws as
-                                    // stock: fog, its colour, light, shadows, rays and lamps all off
-    int   reloadKey   = VK_F11;     // reload comfyfog.ini; with Shift, toggle the override
+                                    // stock: light, shadows, rays and lamps all off
+    int   reloadKey   = VK_F11;     // reload comfyfog.ini
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
     int   chainWaitMs = 10000;      // how long to wait for comfygrass to finish patching first
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the end of the

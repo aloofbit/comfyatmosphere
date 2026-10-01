@@ -34,14 +34,7 @@ namespace
 {
     struct Control { const char* key; const char* name; };
     const Control kControls[] = {
-        { "fog.enabled",         "Atmospheric Fog" },
         { "general.enabled",     "Atmosphere Effects" },
-        { "fog.thickness",       "Fog Thickness" },
-        { "fog.density",         "Ground Haze" },
-        { "fog.height",          "Fog Height" },
-        { "fog.cover",           "Fog Edge Fade" },
-        { "fog.darken",          "Fog Darkness" },
-        { "fog.desaturate",      "Fog Greyness" },
         { "volume.enabled",      "Volumetric Light" },
         { "volume.strength",     "Volumetric Light Strength" },
         { "volume.quality",      "Volumetric Light Quality" },
@@ -58,11 +51,6 @@ namespace
         { "sunshadows.lockTilt", "Shadow Angle" },
         { "sunshadows.shadeTint", "Shade Colour" },
         { "sunshadows.sunTint",  "Sunlight Warmth" },
-        { "fog.sunGlow",         "Fog Sun Glow" },
-        { "fog.sunBright",       "Fog Sun Brightness" },
-        { "fog.reach",           "Fog Distance" },
-        { "fog.haze",            "Fog Near You" },
-        { "fog.distance",        "Distance Fog Amount" },
         { "lamps.strength",      "Lamp Glow" },
         { "lamps.fogReach",      "Lamp Distance" },
         { "sunshadows.strength", "Sun Shadow Strength" },

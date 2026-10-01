@@ -75,16 +75,13 @@ namespace
                                            const char* dflt, void* callback, DWORD category,
                                            DWORD arg5, void* cbArg);
 
-    enum Knob { kFog, kFogThickness, kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
+    enum Knob { kVolume, kVolumeStrength, kClouds, kRays, kRaysStrength, kVolumeQuality,
                 kNightStrength, kRaysSoften, kRaysSmooth, kDebugView, kShadowResolution, kShadowSoftness,
-                kShadowEvery, kSunShadows, kSunShadowStrength, kFogHeight, kFogFade, kFogDarkness,
-                kFogGreyness, kMaster, kFogHaze, kSunlight, kVolumeDensity, kVolumeDistance, kVolumeDirection,
-                kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt, kShadeTint, kSunTint, kFogSunGlow,
-                kFogSunBright, kFogReach, kFogNear, kFogFar, kLampGlow, kLampDistance, kNightDarkness,
-                kMoonlight, kKnobs };
+                kShadowEvery, kSunShadows, kSunShadowStrength, kMaster, kSunlight, kVolumeDensity,
+                kVolumeDistance, kVolumeDirection, kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt,
+                kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kKnobs };
 
     const char* const kNames[kKnobs] = {
-        "comfyFog", "comfyFogThickness",
         "comfyVolume", "comfyVolumeStrength",
         "comfyClouds",
         "comfyRays", "comfyRaysStrength",
@@ -98,12 +95,7 @@ namespace
         "comfyShadowEvery",
         "comfySunShadows",
         "comfySunShadowStrength",
-        "comfyFogHeight",
-        "comfyFogFade",
-        "comfyFogDarkness",
-        "comfyFogGreyness",
         "comfyAtmosphere",
-        "comfyFogHaze",
         "comfySunlight",
         "comfyVolumeDensity",
         "comfyVolumeDistance",
@@ -114,11 +106,6 @@ namespace
         "comfyShadowTilt",
         "comfyShadeTint",
         "comfySunTint",
-        "comfyFogSunGlow",
-        "comfyFogSunBright",
-        "comfyFogReach",
-        "comfyFogNear",
-        "comfyFogFar",
         "comfyLampGlow",
         "comfyLampDistance",
         "comfyNightDarkness",
@@ -223,8 +210,6 @@ namespace
     {
         switch (k)
         {
-        case kFog:            snprintf(out, cap, "%d", s.fog.enabled ? 1 : 0); break;
-        case kFogThickness:   snprintf(out, cap, "%.0f", s.fog.thickness); break;
         // The light draws nothing without the depth buffer and the shadow map, so the ini counts as
         // "on" only when all three are.
         case kVolume:         snprintf(out, cap, "%d",
@@ -246,13 +231,7 @@ namespace
         case kShadowEvery:    snprintf(out, cap, "%d", s.shadow.mapEvery); break;
         case kSunShadows:     snprintf(out, cap, "%d", s.sunShadows.enabled ? 1 : 0); break;
         case kSunShadowStrength: snprintf(out, cap, "%.0f", s.sunShadows.strength); break;
-        // Yards; the other three in percent.
-        case kFogHeight:      snprintf(out, cap, "%.0f", s.fog.height); break;
-        case kFogFade:        snprintf(out, cap, "%.0f", s.fog.cover * 100.0f); break;
-        case kFogDarkness:    snprintf(out, cap, "%.0f", s.fog.darken * 100.0f); break;
-        case kFogGreyness:    snprintf(out, cap, "%.0f", s.fog.desaturate * 100.0f); break;
         case kMaster:         snprintf(out, cap, "%d", s.master ? 1 : 0); break;
-        case kFogHaze:        snprintf(out, cap, "%.0f", s.fog.density / 0.0002f); break;   // 100 = 0.02
         case kSunlight:       snprintf(out, cap, "%.0f", s.sunShadows.sunlight * 100.0f); break;   // percent
         // Thousandths: density 0.015 is 15, anisotropy 0.025 is 25. Distance in yards.
         case kVolumeDensity:  snprintf(out, cap, "%.0f", s.volume.density * 1000.0f); break;
@@ -265,11 +244,6 @@ namespace
         // Percentages of the 0..1 values.
         case kShadeTint:      snprintf(out, cap, "%.0f", s.sunShadows.shadeTint * 100.0f); break;
         case kSunTint:        snprintf(out, cap, "%.0f", s.sunShadows.sunTint * 100.0f); break;
-        case kFogSunGlow:     snprintf(out, cap, "%.0f", s.fog.sunGlow * 100.0f); break;
-        case kFogSunBright:   snprintf(out, cap, "%.0f", s.fog.sunBright * 100.0f); break;
-        case kFogReach:       snprintf(out, cap, "%.0f", s.fog.reach * 100.0f); break;       // percent
-        case kFogNear:        snprintf(out, cap, "%.0f", s.fog.haze * 100.0f); break;
-        case kFogFar:         snprintf(out, cap, "%.0f", s.fog.distance * 100.0f); break;
         case kLampGlow:       snprintf(out, cap, "%.0f", s.lamps.strength); break;
         case kLampDistance:   snprintf(out, cap, "%.0f", s.lamps.fogReach * 100.0f); break;
         case kNightDarkness:  snprintf(out, cap, "%.0f", s.night.darkness * 100.0f); break;
@@ -281,8 +255,6 @@ namespace
     void Apply(Settings& s)
     {
         const Slot* c = g_slots;
-        if (c[kFog].seen)            s.fog.enabled     = c[kFog].value != 0.0f;
-        if (c[kFogThickness].seen)   s.fog.thickness   = Clamp(c[kFogThickness].value, 0.0f, 100.0f);
         if (c[kVolumeStrength].seen) s.volume.strength = Clamp(c[kVolumeStrength].value, 0.0f, 100.0f);
         if (c[kClouds].seen)         s.sky.clouds      = c[kClouds].value != 0.0f;
         if (c[kRays].seen)           s.rays.enabled    = c[kRays].value != 0.0f;
@@ -296,12 +268,7 @@ namespace
         if (c[kShadowEvery].seen)    s.shadow.mapEvery = static_cast<int>(Clamp(c[kShadowEvery].value, 1.0f, 8.0f) + 0.5f);
         if (c[kSunShadows].seen)     s.sunShadows.enabled = c[kSunShadows].value != 0.0f;
         if (c[kSunShadowStrength].seen) s.sunShadows.strength = Clamp(c[kSunShadowStrength].value, 0.0f, 100.0f);
-        if (c[kFogHeight].seen)      s.fog.height      = Clamp(c[kFogHeight].value, 1.0f, 2000.0f);
-        if (c[kFogFade].seen)        s.fog.cover       = Clamp(c[kFogFade].value * 0.01f, 0.0f, 1.0f);
-        if (c[kFogDarkness].seen)    s.fog.darken      = Clamp(c[kFogDarkness].value * 0.01f, 0.0f, 1.0f);
-        if (c[kFogGreyness].seen)    s.fog.desaturate  = Clamp(c[kFogGreyness].value * 0.01f, 0.0f, 1.0f);
         if (c[kMaster].seen)         s.master          = c[kMaster].value != 0.0f;
-        if (c[kFogHaze].seen)        s.fog.density     = Clamp(c[kFogHaze].value, 0.0f, 100.0f) * 0.0002f;
         if (c[kSunlight].seen)       s.sunShadows.sunlight = Clamp(c[kSunlight].value * 0.01f, 0.0f, 0.5f);
         if (c[kVolumeDensity].seen)  s.volume.density  = Clamp(c[kVolumeDensity].value * 0.001f, 0.0f, 0.05f);
         if (c[kVolumeDistance].seen) s.volume.maxDistance = Clamp(c[kVolumeDistance].value, 20.0f, 1000.0f);
@@ -312,11 +279,6 @@ namespace
         if (c[kShadowsTilt].seen)    s.sunShadows.lockTilt = Clamp(c[kShadowsTilt].value, 0.0f, 80.0f);
         if (c[kShadeTint].seen)      s.sunShadows.shadeTint = Clamp(c[kShadeTint].value * 0.01f, 0.0f, 1.0f);
         if (c[kSunTint].seen)        s.sunShadows.sunTint   = Clamp(c[kSunTint].value * 0.01f, 0.0f, 1.0f);
-        if (c[kFogSunGlow].seen)     s.fog.sunGlow   = Clamp(c[kFogSunGlow].value * 0.01f, 0.0f, 1.0f);
-        if (c[kFogSunBright].seen)   s.fog.sunBright = Clamp(c[kFogSunBright].value * 0.01f, 0.0f, 2.0f);
-        if (c[kFogReach].seen)       s.fog.reach     = Clamp(c[kFogReach].value * 0.01f, 0.05f, 2.0f);
-        if (c[kFogNear].seen)        s.fog.haze      = Clamp(c[kFogNear].value * 0.01f, 0.0f, 0.9f);
-        if (c[kFogFar].seen)         s.fog.distance  = Clamp(c[kFogFar].value * 0.01f, 0.0f, 1.0f);
         if (c[kLampGlow].seen)       s.lamps.strength = Clamp(c[kLampGlow].value, 0.0f, 100.0f);
         if (c[kLampDistance].seen)   s.lamps.fogReach = Clamp(c[kLampDistance].value * 0.01f, 0.5f, 4.0f);
         if (c[kNightDarkness].seen)  s.night.darkness = Clamp(c[kNightDarkness].value * 0.01f, 0.0f, 0.9f);
@@ -355,10 +317,10 @@ namespace
         ApplyVolumeQuality(s);
 
         // The Atmosphere Effects box: off, every effect is off, whatever its own box says. The depth
-        // buffer and the shadow map go too, since nothing reads them. The fog colour checks it itself.
+        // buffer and the shadow map go too, since nothing reads them.
         if (!s.master)
         {
-            s.fog.enabled = s.volume.enabled = s.depth.enabled = s.shadow.enabled = false;
+            s.volume.enabled = s.depth.enabled = s.shadow.enabled = false;
             s.rays.enabled = s.sunShadows.enabled = s.lamps.enabled = false;
         }
     }

@@ -24,7 +24,6 @@ measurement showed.
 
 | Piece | File | Keys |
 | --- | --- | --- |
-| Fog: one `thickness` dial, haze floor + gentler climb | `comfyfog.cpp` | Shift+F11 toggle |
 | Sun direction and world camera, for the shadow map and the light | `sun.cpp` | none |
 | Sun rays: radial blur of the bright sky toward the sun | `rays.cpp` | Ctrl+F11 toggle |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
@@ -40,8 +39,9 @@ measurement showed.
 
 **Fog.** Linear (`FOGVERTEXMODE` 3), set again many times a frame (zone colour ↔ black for additive
 passes). M2s (trees, characters) fog in their vertex shaders from `c30 = (-1/(end-start), end/(end-start))`.
-All 19 shaders that fog read nothing else. comfyfog waits for comfygrass to patch first and chains on top,
-so grass sees the rewritten fog.
+All 19 shaders that fog read nothing else. comfyfog waits for comfygrass to patch first and chains on top.
+That was for the old fog, which rewrote these values so that grass followed it; since its removal
+(2026-09-30) they pass through unchanged.
 
 **World → UI boundary.** The first switch from a perspective to an orthographic projection each frame,
 after some world has been drawn (the client also switches at draw 0 with nothing drawn). `ZENABLE` is never
@@ -1064,6 +1064,24 @@ the pivot). Offline, of 160 models on two tiles: the gryphon roost (48 of 53 bon
 animate only their flame (5 to 9 keys) and stay baked. An animated doodad is not baked; its place goes into
 `dAnim`, so the client's draws of it are kept, and `MapAnimatedDoodadAt` keeps the still rule off it. The
 probe lists them. The owner: nice.
+
+## The old fog removed (2026-09-30)
+
+The fog of 2026-09-29 was removed, on the branch `volumetric-fog`, to start again with a volumetric fog.
+It was off by default since v0.7.0-alpha: the owner found the game's own fog looked better. Removed:
+
+- the dial (`thickness`, `haze`, `reach`) that rewrote FOGSTART, FOGEND and FOGDENSITY, and c30 in the
+  M2 vertex shaders;
+- our own fog pass (`FogDraw`: distance fog on an S curve, height fog anchored to the ground, the sun glow);
+- the sky match (`SkyMatchDraw`) and the sky's early fog pass;
+- the colour shaping (`darken`, `desaturate`, `tint`), which applied with the fog off too;
+- the `[fog]` section, its 12 controls, Shift+F11 and the fog step of the benchmark.
+
+Kept: the mirror of the game's fog (`WorldFog`, `WorldFogColor`), which the sun shadows and the lamps
+fade with, and the vertex shader dumps. `waterDepth` moved to `[depth]`. The sections above about the
+fog (*Our own fog*, the sky halos) are kept for what they found.
+
+The game's fog now goes through as the client sets it. The sun shadows fade with it, as before mode 1.
 
 ## The framing that matters
 

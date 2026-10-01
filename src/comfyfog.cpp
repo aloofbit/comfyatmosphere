@@ -1,18 +1,15 @@
-// comfyfog: fog control for the 1.12 client.
+// comfyfog: the atmosphere effects for the 1.12 client.
 //
 // Same shape as comfygrass: loaded by VanillaFixes from dlls.txt, attaches by patching DXVK's shared
 // IDirect3DDevice9 vtable in place (found through a throwaway device of our own), and is tuned from an
 // ini that reloads in game. See comfygrass/src/README.md for why each of those choices was made.
 //
-// The effect itself is small. The client hands its fog to the fixed-function pipeline through
-// SetRenderState, so the FOGSTART / FOGEND / FOGCOLOR / FOGDENSITY values are rewritten on the way
-// through, scaled by one 0..100 dial. Nothing is drawn, allocated or read back.
+// The game's own fog goes through unchanged (2026-09-30: the old fog, which rewrote it, was removed). Its
+// start, end and colour are mirrored, for the passes that fade with it (WorldFog, WorldFogColor).
 //
-// Load order with comfygrass matters. Both DLLs patch the same vtable slots, so whichever patches last
-// sits outermost and sees the client's calls first. comfygrass mirrors the fog states it is handed and
-// fogs grass from that mirror, so comfyfog has to be the OUTER hook. Then comfygrass records the
-// rewritten values and grass follows the new fog for free. Inner, grass would keep the stock fog and
-// stand out bright against fogged terrain. Hence the wait in AttachToDxvk.
+// Load order with comfygrass. Both DLLs patch the same vtable slots, so whichever patches last sits
+// outermost and sees the client's calls first. The old fog had to be the OUTER hook, so that comfygrass
+// fogged grass from the rewritten fog states. The wait in AttachToDxvk is kept from then.
 
 #define CINTERFACE // C-style IDirect3DDevice9Vtbl, so slots are patched by name, not by index
 #define WIN32_LEAN_AND_MEAN
@@ -129,10 +126,7 @@ namespace
     }
 
     // ---------------------------------------------------------------------------------------------
-    // the client's fog, as it asked for it
-    //
-    // The raw values are kept so the dial can be re-applied on a reload without waiting for the client
-    // to set them again. It may only do that on a zone change.
+    // the client's fog, as it asked for it: for the probe
 
     struct ClientFog
     {
@@ -144,7 +138,6 @@ namespace
     };
 
     ClientFog g_fog;
-    bool      g_on = true;   // Shift+reload toggles; independent of [fog] enabled in the ini
 
     // The fog the world is drawn with, for the lamp glow (lampglow.cpp), which is drawn after the client
     // has parked its fog for the UI (start 0, end 1). Taken from each end the client sets during the world.
@@ -153,121 +146,6 @@ namespace
     DWORD     g_worldFogColor = 0;          // the last fog colour the world set that was not black
     bool      g_haveWorldFogColor = false;
 
-    bool Active()
-    {
-        return g_on && g_cfg.fog.enabled && g_cfg.fog.thickness > 0.0f;
-    }
-
-    float Dial() { return g_cfg.fog.thickness * 0.01f; }
-
-    // Our own fog draws this frame (FogDraw), so the game's is moved out of the way.
-    bool OwnFog()
-    {
-        return Active() && g_cfg.fog.mode == 1 && VolumeActive();
-    }
-
-    // Geometric in the dial, so 0->10 feels about as big a step as 90->100.
-    float EndMul() { return powf(g_cfg.fog.reach, Dial()); }
-
-    // The whole curve, in one place, so the fixed-function states and the shader constant (c30, below)
-    // are remapped identically and M2s match terrain.
-    //
-    // End is scaled by the dial. Start is expressed as a fraction of end, and that fraction slides from
-    // the client's own toward a negative one. Linear fog amount at distance d is (d - start) / (end -
-    // start), so a start of -h/(1-h) of end puts fog amount h at the camera and still reaches full fog
-    // at end: a haze floor with a gentler slope behind it, rather than clear air that thickens into a wall.
-    // The game's fog as the dial moves it: what the game draws in mode 0, and the distance part of our
-    // own fog in mode 1.
-    void RemapGame(float s, float e, float& sOut, float& eOut)
-    {
-        if (!Active())
-        {
-            sOut = s; eOut = e;
-            return;
-        }
-        eOut = e * EndMul();
-        const float stockFrac = e > 1e-3f ? s / e : 0.0f;
-        const float h         = g_cfg.fog.haze;
-        const float hazeFrac  = -h / (1.0f - h);
-        const float frac      = stockFrac + (hazeFrac - stockFrac) * Dial();
-        sOut = eOut * frac;
-    }
-
-    // What the game is sent: with our own fog, no fog at all.
-    void Remap(float s, float e, float& sOut, float& eOut)
-    {
-        if (OwnFog())
-        {
-            // Past anything drawn: no fog. Linear fog is (end - d) / (end - start), 1 = none.
-            sOut = 100000.0f; eOut = 200000.0f;
-            return;
-        }
-        RemapGame(s, e, sOut, eOut);
-    }
-
-    DWORD OutEnd()
-    {
-        float s, e;
-        Remap(D2F(g_fog.start), D2F(g_fog.end), s, e);
-        return Active() ? F2D(e) : g_fog.end;
-    }
-
-    DWORD OutStart()
-    {
-        float s, e;
-        Remap(D2F(g_fog.start), D2F(g_fog.end), s, e);
-        return Active() ? F2D(s) : g_fog.start;
-    }
-
-    // Fog amount right at the camera for the values being sent, for the log.
-    float OutHaze()
-    {
-        const float s = D2F(OutStart()), e = D2F(OutEnd());
-        return (e - s) > 1e-6f ? Clamp01(-s / (e - s)) : 0.0f;
-    }
-
-    // Exponential fog modes carry no start/end; the density is scaled to match the linear case.
-    DWORD OutDensity()
-    {
-        if (OwnFog())
-            return F2D(0.0f);
-        return Active() ? F2D(D2F(g_fog.density) / EndMul()) : g_fog.density;
-    }
-
-    // The game's fog colour, changed by [fog] darken, desaturate and tint. Not tied to the distance
-    // part: it applies with Atmospheric Fog off too, and is not scaled by the thickness. Until
-    // 2026-09-29 it was both, so with the fog off the colour settings did nothing at all.
-    DWORD ShapeColor(DWORD color)
-    {
-        // Black fog is how additive passes (glows, particles) are kept from brightening into the fog,
-        // and the client switches to it several times a frame. Tinting it would haze those effects.
-        if (!g_on || !g_cfg.master || (color & 0xFFFFFF) == 0)
-            return color;
-        const FogSettings& f = g_cfg.fog;
-        const float t = 1.0f;
-
-        float c[3] = { ((color >> 16) & 0xFF) / 255.0f,
-                       ((color >>  8) & 0xFF) / 255.0f,
-                       ((color      ) & 0xFF) / 255.0f };
-        const float tint[3] = { ((f.tint >> 16) & 0xFF) / 255.0f,
-                                ((f.tint >>  8) & 0xFF) / 255.0f,
-                                ((f.tint      ) & 0xFF) / 255.0f };
-
-        const float lum = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
-        const float ds = f.desaturate * t, ta = f.tintAmount * t, dk = 1.0f - f.darken * t;
-
-        DWORD out = color & 0xFF000000;
-        for (int i = 0; i < 3; ++i)
-        {
-            float v = c[i] + (lum - c[i]) * ds;
-            v = v + (tint[i] - v) * ta;
-            v = Clamp01(v * dk);
-            out |= static_cast<DWORD>(v * 255.0f + 0.5f) << (16 - 8 * i);
-        }
-        return out;
-    }
-
-    DWORD OutColor() { return ShapeColor(g_fog.color); }
 
     // ---------------------------------------------------------------------------------------------
     // diagnostics
@@ -421,22 +299,13 @@ namespace
     bool            g_inPass         = false;   // our own passes: their calls stay out of the mirrors and the probe
 
     // ---------------------------------------------------------------------------------------------
-    // vertex-shader fog
+    // vertex shader dumps
     //
     // M2s (trees, doodads, every character) draw through the client's Model2 vertex shaders, which write
-    // oFog themselves, so FOGSTART/FOGEND never reach them, and they stood out clear against fogged
-    // terrain. Disassembling them (below, logged once per shader) shows all 19 that fog do it the same way:
-    //
-    //     mad r.w, viewZ, c30.x, c30.y      max 0, min 1  ->  oFog
-    //
-    // which is linear fog folded into one multiply-add: c30.x = -1/(end-start), c30.y = end/(end-start).
-    // Measured: with FOGSTART 104.167 / FOGEND 416.667 the client uploaded c30 = (-0.0032, 1.3333).
-    // c30 is read for nothing else in any shader. So the client's start/end are recovered from c30 itself
-    // and pushed through the same Remap as the render states, and M2s fog exactly like terrain.
-    //
-    // The probe key still logs the small constant uploads of one frame (bone palettes are large, so
-    // uploads of more than 4 registers are only counted), and the dumps stay in, so a different client
-    // build can be re-checked from one log.
+    // oFog themselves from c30: mad r.w, viewZ, c30.x, c30.y, with c30.x = -1/(end-start) and
+    // c30.y = end/(end-start). Each shader is disassembled and logged once, so a different client build can
+    // be checked from one log. The probe key logs the small constant uploads of one frame (bone palettes
+    // are large, so uploads of more than 4 registers are only counted).
 
     std::set<void*> g_dumpedShaders;
 
@@ -468,33 +337,13 @@ namespace
         text->lpVtbl->Release(text);
     }
 
-    float g_c30[4]    = {};      // the client's last c30, as it sent it
-    bool  g_haveC30   = false;
-
-    // Rewrites a c30 fog constant in place. A non-negative slope is not a linear fog (the client parks
-    // fog this way when it is off), so it is passed through untouched.
-    void RemapC30(float* c)
-    {
-        const float a = c[0], b = c[1];
-        if (!(a < -1e-9f) || !Active())
-            return;
-        const float range = -1.0f / a;
-        const float e = b * range, s0 = e - range;
-        float s, e2;
-        Remap(s0, e, s, e2);
-        const float span = e2 - s;
-        if (!(span > 1e-4f))
-            return;
-        c[0] = -1.0f / span;
-        c[1] = e2 / span;
-    }
 
     HRESULT STDMETHODCALLTYPE hkSetVertexShaderConstantF(IDirect3DDevice9* dev, UINT reg, const float* data,
                                                          UINT count)
     {
         if (g_inPass)
             return g_oSetVSConstF(dev, reg, data, count);   // our own passes: no fog remap, no recording
-        RecordConstants(reg, data, count);                  // the client's values, before the c30 remap
+        RecordConstants(reg, data, count);
         LampsConstants(reg, data, count);
         if (g_probe.active && data)
         {
@@ -508,34 +357,15 @@ namespace
             }
         }
 
-        const int fr = g_cfg.fog.shaderReg;
-        if (fr < 0 || !data || static_cast<UINT>(fr) < reg || static_cast<UINT>(fr) >= reg + count)
-            return g_oSetVSConstF(dev, reg, data, count);
-
-        // c30 often arrives inside a larger upload alongside the bone palette, so the whole range is
-        // copied and forwarded with only that one register changed.
-        const UINT at = static_cast<UINT>(fr) - reg;
-        memcpy(g_c30, data + 4 * at, sizeof(g_c30));
-        g_haveC30 = true;
-
-        static std::vector<float> buf;
-        buf.assign(data, data + 4 * count);
-        RemapC30(&buf[4 * at]);
-
-        if (g_probe.active)
-            Log("  [draw %4u] c%d fog client=(%.5f %.4f) sent=(%.5f %.4f)", g_probe.draws, fr,
-                g_c30[0], g_c30[1], buf[4 * at], buf[4 * at + 1]);
-        return g_oSetVSConstF(dev, reg, buf.data(), count);
+        return g_oSetVSConstF(dev, reg, data, count);
     }
 
     bool               g_worldEnded = false;    // the world finished drawing this frame
     std::unordered_set<void*> g_waterPs;        // the client's water pixel shaders (IsWaterDraw)
-    float g_fogGround = 0.0f, g_fogCamZ = 0.0f, g_fogDensity = 0.0f;   // FogDensityAtCamera's last, for the probe
     unsigned g_seeThroughDraws = 0, g_seeThroughLast = 0;   // IsSeeThroughModel's draws this frame, and last frame
     unsigned g_depthOnlySkipped = 0, g_depthOnlyLast = 0;   // IsDepthOnlyModel's, the same way
     bool     g_ownFaded = false;   // the camera within [depth] seeThroughNear of your character (hkBeginScene)
     float    g_ownDist  = 1e9f;    // ... how far, in yards
-    bool  g_fogGrounded = false;
 
     // The order of the world's draws, for one frame after each probe (2026-09-30): can our fog go in before
     // the blended draws? Grass drawn blended leaves the sky's depth behind it, and the fog painted full
@@ -715,72 +545,6 @@ namespace
     // stopped showing, and a probe frame showed them drawn. Logged when a probe opens.
     uint32_t g_placeFrames = 0, g_placeUi = 0, g_placePresent = 0, g_placeUnarmed = 0, g_placeNoWorld = 0;
 
-    // The sky's fog, or the sky matched to it, drawn when the client has drawn its sky and nothing else
-    // (FogDraw, part 1). Grass on a skyline writes depth over its see-through parts, and a pass after the
-    // world skipped them: the game's sky showed through as pale halos (2026-09-30).
-    bool g_skyEarly = false;
-
-    void OwnFogInputs(DWORD& shaped, float& ds, float& de)
-    {
-        DWORD client = 0;
-        if (!WorldFogColor(client, shaped))
-            shaped = 0x808080;
-        ds = de = 0.0f;
-        if (g_haveWorldFog)
-            RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), ds, de);
-    }
-
-    // The ground haze at the camera's height ([fog] ground): the fog is density at the ground around you and
-    // thins by e every [fog] height yards up, so at the camera it is density * e^-(camera - ground) / height.
-    // The ground's height glides (3 s), so walking over a ridge does not pop the fog. Capped to 4 heights
-    // either way.
-    float FogDensityAtCamera()
-    {
-        const FogSettings& f = g_cfg.fog;
-        static float base = 0.0f;
-        static bool  haveBase = false;
-        static double last = 0.0;
-        float cam[3], ground;
-        if (!f.ground || !g_cfg.shadow.mapTerrain || !ClientCamera(cam))
-            return f.density;
-        float pl[3];
-        const float* at = ClientPlayer(pl) ? pl : cam;
-        if (MapGroundBase(at, f.groundRadius, ground))
-        {
-            const double now = Now();
-            if (!haveBase || now - last > 2.0 || fabsf(ground - base) > 200.0f)
-                base = ground;
-            else
-                base += (ground - base) * static_cast<float>(1.0 - exp(-(now - last) / 3.0));
-            haveBase = true;
-            last = now;
-        }
-        if (!haveBase)
-            return f.density;
-        float up = (cam[2] - base) / f.height;
-        up = up < -4.0f ? -4.0f : (up > 4.0f ? 4.0f : up);
-        g_fogGround = base; g_fogCamZ = cam[2]; g_fogDensity = f.density * expf(-up); g_fogGrounded = true;
-        return g_fogDensity;
-    }
-
-    void SkyEarly(IDirect3DDevice9* dev)
-    {
-        g_skyEarly = false;
-        if (g_inPass || !VolumeActive() || g_cfg.fog.debug || g_cfg.sunShadows.debug || !g_lastPersp)
-            return;
-        g_inPass = true;
-        if (OwnFog())
-        {
-            DWORD shaped = 0;
-            float ds = 0.0f, de = 0.0f;
-            OwnFogInputs(shaped, ds, de);
-            g_skyEarly = FogDraw(dev, shaped, FogDensityAtCamera(), ds, de, 1, &g_viewAll, &g_projAll);
-        }
-        else
-            g_skyEarly = SkyMatchDraw(dev, 1, &g_viewAll, &g_projAll);
-        g_inPass = false;
-    }
-
     void FireRays(IDirect3DDevice9* dev, const char* where)
     {
         g_raysArmed = false;
@@ -814,21 +578,10 @@ namespace
             g_volumePending = false;
             // The shade first: it darkens surfaces, and the light in the air goes over it.
             BenchSectionBegin(dev, kBenchSunShadows);
-            if (!OwnFog())
-                SkyMatchDraw(dev, g_skyEarly ? 2 : 0);   // the sky near the horizon, to the fog's colour
             const bool shaded = SunShadowsDraw(dev);
             // A sun shadow debug view is shown alone: fog, light and lamps drawn over it made every
             // object a grey shape by its depth, which read as part of the view.
             const bool shadowDebug = shaded && g_cfg.sunShadows.debug != 0;
-            // Our fog over the shaded world, before the light in the air.
-            if (OwnFog() && !shadowDebug)
-            {
-                // Its distance part: the game's own fog distances, as the dial moves them.
-                DWORD shaped = 0;
-                float ds = 0.0f, de = 0.0f;
-                OwnFogInputs(shaped, ds, de);
-                FogDraw(dev, shaped, FogDensityAtCamera(), ds, de, g_skyEarly ? 2 : 0);
-            }
             BenchSectionEnd(dev, kBenchSunShadows, shaded);
             BenchSectionBegin(dev, kBenchVolume);
             const bool drawn = !shadowDebug && VolumeDraw(dev);
@@ -869,31 +622,11 @@ namespace
             FireRays(dev, "before the first UI draw");
     }
 
-    // Pushes the current dial onto the device for every fog value the client has set, so a reload or a
-    // toggle shows at once instead of on the next zone change.
-    void ApplyAll(IDirect3DDevice9* dev)
+    // The game's fog as the client set it last.
+    void LogFog(const char* why)
     {
-        if (g_fog.haveEnd)     g_oSetRS(dev, D3DRS_FOGEND,     OutEnd());
-        if (g_fog.haveStart)   g_oSetRS(dev, D3DRS_FOGSTART,   OutStart());
-        if (g_fog.haveDensity) g_oSetRS(dev, D3DRS_FOGDENSITY, OutDensity());
-        if (g_fog.haveColor)   g_oSetRS(dev, D3DRS_FOGCOLOR,   OutColor());
-        if (g_haveC30 && g_cfg.fog.shaderReg >= 0)
-        {
-            float c[4];
-            memcpy(c, g_c30, sizeof(c));
-            RemapC30(c);
-            g_oSetVSConstF(dev, static_cast<UINT>(g_cfg.fog.shaderReg), c, 1);
-        }
-    }
-
-    void LogDial(const char* why)
-    {
-        const FogSettings& f = g_cfg.fog;
-        Log("--- %s: override %s, thickness %.0f, client end %.1f -> %.1f, start %.1f -> %.1f "
-            "(%.0f%% fog at the camera), colour 0x%06X -> 0x%06X ---",
-            why, Active() ? "ON" : "OFF", f.thickness,
-            D2F(g_fog.end), D2F(OutEnd()), D2F(g_fog.start), D2F(OutStart()), 100.0f * OutHaze(),
-            g_fog.color & 0xFFFFFF, OutColor() & 0xFFFFFF);
+        Log("--- %s: the game's fog: start %.1f, end %.1f, colour 0x%06X ---", why, D2F(g_fog.start),
+            D2F(g_fog.end), g_fog.color & 0xFFFFFF);
     }
 
     // Keys only count while the client has focus, so typing F11 into another window does nothing here.
@@ -913,8 +646,7 @@ namespace
         {
             // Any of these changes what the benchmark measures. A plain reload rebuilds the settings from
             // the ini, so the benchmark has nothing to put back.
-            const bool plain = !(GetAsyncKeyState(VK_MENU) & 0x8000) && !(GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
-                               !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+            const bool plain = !(GetAsyncKeyState(VK_MENU) & 0x8000) && !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
             BenchCancel("F11", !plain);
             if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
             {
@@ -924,19 +656,12 @@ namespace
             {
                 VolumeToggle();
             }
-            else if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
-            {
-                g_on = !g_on;
-                LogDial("toggled");
-                ApplyAll(dev);
-            }
             else
             {
                 LoadSettings(g_iniPath);
                 CVarsAfterLoad();
                 RaysReload();
-                LogDial("reloaded");
-                ApplyAll(dev);
+                LogFog("reloaded");
             }
         }
         g_reloadDown = reload;
@@ -949,7 +674,6 @@ namespace
             if (GetAsyncKeyState(VK_MENU) & 0x8000)
             {
                 BenchStart(dev);
-                ApplyAll(dev);
             }
             else
             {
@@ -991,7 +715,6 @@ namespace
             g_fog       = ClientFog();
             g_haveWorldFog = false;
             g_haveWorldFogColor = false;
-            g_haveC30   = false;
             g_fogEnable = 0;
             g_vshader   = nullptr;
             g_worldEnded     = false;
@@ -1083,8 +806,7 @@ namespace
             static double last = 0.0, worstFrame = 0.0, sumFrame = 0.0, sumShadow = 0.0, worstShadow = 0.0;
             static unsigned frames = 0, sumDrawn = 0, sumSkipped = 0;
             const double now = Now();
-            if (BenchFrame(dev, last > 0.0 ? now - last : 0.0))
-                ApplyAll(dev);   // the benchmark moved to its next step, or finished
+            BenchFrame(dev, last > 0.0 ? now - last : 0.0);
             if (last > 0.0)
             {
                 const double dt = now - last;
@@ -1123,22 +845,18 @@ namespace
         g_lastPersp  = false;
         g_worldEnded = false;
         g_skyPhase  = true;
-        g_skyEarly  = false;
         SunFrameStart();
 
         PollKeys(dev);
         if (CVarsPoll())
-        {
             BenchCancel("a control in Video > Atmosphere moved", false);
-            ApplyAll(dev);   // a moved slider shows this frame, not on the next zone change
-        }
 
         g_frame++;
         if (g_probe.armed)
         {
             g_probe = Probe();
             g_probe.active = true;
-            LogDial("probe");
+            LogFog("probe");
             Log("passes: %u frames since the last probe: before the UI in %u, at Present in %u, world ended but "
                 "never armed in %u, no world end found in %u", g_placeFrames, g_placeUi, g_placePresent,
                 g_placeUnarmed, g_placeNoWorld);
@@ -1154,12 +872,6 @@ namespace
                 "model passes were skipped ([depth] seeThrough %d); the camera %.1f yd from you, so %s",
                 g_seeThroughLast, g_depthOnlyLast, g_cfg.depth.seeThrough ? 1 : 0, g_ownDist,
                 g_ownFaded ? "off (your character may be faded)" : "on");
-            if (g_fogGrounded)
-                Log("fog: the ground around you at %.1f, the camera at %.1f: ground haze %.5f a yard there, %.5f at "
-                    "the camera ([fog] ground, height %.0f)", g_fogGround, g_fogCamZ, g_cfg.fog.density, g_fogDensity,
-                    g_cfg.fog.height);
-            else
-                Log("fog: ground haze at the camera's height ([fog] ground off, or no tile from the files)");
             DepthProbe();
             ShadowProbe();
             VolumeProbe();
@@ -1199,7 +911,6 @@ namespace
             g_fog      = ClientFog();
             g_haveWorldFog = false;
             g_haveWorldFogColor = false;
-            g_haveC30  = false;
             g_fogEnable = 0;
             g_vshader  = nullptr;
             Log("device reset: fog mirror cleared");
@@ -1209,17 +920,13 @@ namespace
 
     HRESULT STDMETHODCALLTYPE hkSetRenderState(IDirect3DDevice9* dev, D3DRENDERSTATETYPE st, DWORD value)
     {
-        HRESULT hr;
         switch (st)
         {
         case D3DRS_FOGSTART:
             g_fog.start = value; g_fog.haveStart = true;
-            hr = g_oSetRS(dev, st, OutStart());
-            NoteFogState(st, value, OutStart());
-            return hr;
+            break;
 
         case D3DRS_FOGEND:
-            // Start is derived from end, so a new end re-sends start too.
             g_fog.end = value; g_fog.haveEnd = true;
             if (!g_worldEnded && D2F(value) > 2.0f)
             {
@@ -1227,17 +934,11 @@ namespace
                 g_worldFogStart = g_fog.start;
                 g_haveWorldFog  = true;
             }
-            hr = g_oSetRS(dev, st, OutEnd());
-            if (g_fog.haveStart && Active())
-                g_oSetRS(dev, D3DRS_FOGSTART, OutStart());
-            NoteFogState(st, value, OutEnd());
-            return hr;
+            break;
 
         case D3DRS_FOGDENSITY:
             g_fog.density = value; g_fog.haveDensity = true;
-            hr = g_oSetRS(dev, st, OutDensity());
-            NoteFogState(st, value, OutDensity());
-            return hr;
+            break;
 
         case D3DRS_FOGCOLOR:
             g_fog.color = value; g_fog.haveColor = true;
@@ -1246,9 +947,7 @@ namespace
                 g_worldFogColor = value;
                 g_haveWorldFogColor = true;
             }
-            hr = g_oSetRS(dev, st, OutColor());
-            NoteFogState(st, value, OutColor());
-            return hr;
+            break;
 
         case D3DRS_FOGENABLE:
             g_fogEnable = value;
@@ -1749,7 +1448,6 @@ namespace
         if (zwrite || g_frameDraws >= 48)      // 16 until the night sky's dozen extra draws (see NoteSkySun)
         {
             g_skyPhase = false;
-            SkyEarly(dev);                     // the sky is drawn and nothing else: its fog goes in now
             return false;
         }
         if (prim != D3DPT_TRIANGLESTRIP || nv <= 8)
@@ -1776,7 +1474,7 @@ namespace
     // water.
     bool IsWaterDraw(IDirect3DDevice9* dev, UINT nv)
     {
-        if (!g_cfg.fog.waterDepth || g_inPass || g_skyPhase || g_worldEnded || g_vshader || !VolumeActive())
+        if (!g_cfg.depth.waterDepth || g_inPass || g_skyPhase || g_worldEnded || g_vshader || !VolumeActive())
             return false;
         DWORD blend = 0, zwrite = 1, fvf = 0;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
@@ -2099,12 +1797,11 @@ namespace
     }
 }
 
-bool WorldFogColor(DWORD& client, DWORD& shaped)
+bool WorldFogColor(DWORD& color)
 {
     if (!g_haveWorldFogColor)
         return false;
-    client = g_worldFogColor;
-    shaped = ShapeColor(g_worldFogColor);
+    color = g_worldFogColor;
     return true;
 }
 
@@ -2115,17 +1812,12 @@ void ProbeArm()
     g_orderArm = true;
 }
 
-bool OwnFogActive()
-{
-    return OwnFog();
-}
-
 bool WorldFog(float& start, float& end)
 {
-    // With our own fog, its distance part: the game's fog as the dial moves it.
     if (!g_haveWorldFog)
         return false;
-    RemapGame(D2F(g_worldFogStart), D2F(g_worldFogEnd), start, end);
+    start = D2F(g_worldFogStart);
+    end = D2F(g_worldFogEnd);
     return true;
 }
 
@@ -2147,8 +1839,7 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         DeleteFileW(g_logPath);
         LoadSettings(g_iniPath);
         CVarsAfterLoad();
-        Log("comfyfog loaded (module=%p, thickness=%.0f, enabled=%d)",
-            self, g_cfg.fog.thickness, g_cfg.fog.enabled ? 1 : 0);
+        Log("comfyfog loaded (module=%p, effects %s)", self, g_cfg.master ? "on" : "off");
 
         if (g_cfg.hook)
         {

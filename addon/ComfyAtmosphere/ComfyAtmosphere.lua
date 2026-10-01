@@ -27,18 +27,6 @@
 
 COMFYATMOSPHERE_CATEGORY       = "Atmosphere";
 COMFYATMOSPHERE_MASTER         = "Atmosphere Effects";
-COMFYATMOSPHERE_FOG            = "Atmospheric Fog";
-COMFYATMOSPHERE_FOG_THICKNESS  = "Fog Thickness";
-COMFYATMOSPHERE_FOG_HAZE       = "Ground Haze";
-COMFYATMOSPHERE_FOG_HEIGHT     = "Fog Height";
-COMFYATMOSPHERE_FOG_FADE       = "Fog Edge Fade";
-COMFYATMOSPHERE_FOG_DARKNESS   = "Fog Darkness";
-COMFYATMOSPHERE_FOG_GREYNESS   = "Fog Greyness";
-COMFYATMOSPHERE_FOG_SUN_GLOW   = "Fog Sun Glow";
-COMFYATMOSPHERE_FOG_REACH      = "Fog Distance";
-COMFYATMOSPHERE_FOG_NEAR       = "Fog Near You";
-COMFYATMOSPHERE_FOG_FAR        = "Distance Fog Amount";
-COMFYATMOSPHERE_FOG_SUN_BRIGHT = "Fog Sun Brightness";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
 COMFYATMOSPHERE_VOLUME_STRENGTH = "Volumetric Light Strength";
 COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
@@ -398,137 +386,6 @@ local ENTRIES = {
 		step = 1,
 		numberLabels = 1,
 	},
-	-- The fog last (2026-09-30): it is off by default, and the owner wanted it at the bottom of the page.
-	{
-		name = "COMFYATMOSPHERE_FOG",
-		desc = "Fog that is thick low down and thins higher up, and hides the edge of the view distance. With Volumetric Light off, the game's own fog is made thicker instead.",
-		type = "checkbutton",
-		cvar = "comfyFog",
-	},
-	{
-		name = "COMFYATMOSPHERE_FOG_THICKNESS",
-		desc = "How far you see into the fog. 100 is the heaviest.",
-		type = "slider",
-		cvar = "comfyFogThickness",
-		dependency = { "comfyFog", "1" },
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Percent of the game's own fog distance: comfyfog.dll divides by 100 for [fog] reach.
-		name = "COMFYATMOSPHERE_FOG_REACH",
-		desc = "How far away the fog goes solid, as a share of the game's own fog distance. Higher lets you see further.",
-		type = "slider",
-		cvar = "comfyFogReach",
-		minval = 20,
-		maxval = 200,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Percent: [fog] haze, the fog already where you stand when Fog Thickness is high.
-		name = "COMFYATMOSPHERE_FOG_NEAR",
-		desc = "How much fog there is right where you stand. Lower keeps things near you clear.",
-		type = "slider",
-		cvar = "comfyFogNear",
-		minval = 0,
-		maxval = 90,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Percent: [fog] distance, the most the distance fog covers.
-		name = "COMFYATMOSPHERE_FOG_FAR",
-		desc = "The most the distance fog hides. Below 100, far shapes never vanish completely.",
-		type = "slider",
-		cvar = "comfyFogFar",
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- The height fog's density: 100 = 0.02 a yard ([fog] density). Needs Volumetric Light on.
-		name = "COMFYATMOSPHERE_FOG_HAZE",
-		desc = "Extra fog low down: in valleys and on the ground near you. 0 is none. Needs Volumetric Light on.",
-		type = "slider",
-		cvar = "comfyFogHaze",
-		dependency = { "comfyFog", "1" },
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Yards: the fog thins by 2.7 times every this many yards up. Needs Volumetric Light on.
-		name = "COMFYATMOSPHERE_FOG_HEIGHT",
-		desc = "How deep the fog layer is, in yards. Lower keeps the fog near the ground; higher fills the air.",
-		type = "slider",
-		cvar = "comfyFogHeight",
-		dependency = { "comfyFog", "1" },
-		minval = 10,
-		maxval = 150,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- A percentage of the view distance: comfyfog.dll divides it by 100 for [fog] cover.
-		name = "COMFYATMOSPHERE_FOG_FADE",
-		desc = "Where things start to fade out before the edge of the view distance, as a percentage of it. Lower starts the fade sooner.",
-		type = "slider",
-		cvar = "comfyFogFade",
-		dependency = { "comfyFog", "1" },
-		minval = 50,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Percentages, for [fog] darken and desaturate. They change the game's fog colour too, so no
-		-- dependency.
-		name = "COMFYATMOSPHERE_FOG_DARKNESS",
-		desc = "How much darker than the game's own fog colour the fog is.",
-		type = "slider",
-		cvar = "comfyFogDarkness",
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		name = "COMFYATMOSPHERE_FOG_GREYNESS",
-		desc = "How much of the fog colour is taken out, toward grey.",
-		type = "slider",
-		cvar = "comfyFogGreyness",
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Percent: comfyfog.dll divides by 100 for [fog] sunGlow.
-		name = "COMFYATMOSPHERE_FOG_SUN_GLOW",
-		desc = "The fog turns warm looking toward the sun and cool looking away from it.",
-		type = "slider",
-		cvar = "comfyFogSunGlow",
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
-		-- Percent: comfyfog.dll divides by 100 for [fog] sunBright.
-		name = "COMFYATMOSPHERE_FOG_SUN_BRIGHT",
-		desc = "How much brighter the fog is looking straight into the sun.",
-		type = "slider",
-		cvar = "comfyFogSunBright",
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
 };
 
 -- pcall, because GetCVar raises an error for a CVar that does not exist.
@@ -538,7 +395,7 @@ local function HasCVar(name)
 end
 
 local function DllLoaded()
-	return HasCVar("comfyFog");
+	return HasCVar("comfyAtmosphere");
 end
 
 local function AddControls()
