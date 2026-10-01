@@ -8,8 +8,7 @@ Atmosphere for the World of Warcraft 1.12 client: volumetric fog, sun shadows, v
 trees, sun rays, glowing lamps and darker nights. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
 come from the first version, which only did fog.
 
-Looking for fog on 3.3.5a? [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light
-shafts for the Ascension (CoA) 3.3.5a client.
+> **❄ Looking for fog on 3.3.5a? ❄** [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light shafts for the Ascension (CoA) 3.3.5a client.
 
 [![Sun shafts through the forest canopy, in game. Click for the full video.](media/comfyatmosphere.gif)](media/comfyatmosphere.mp4)
 
