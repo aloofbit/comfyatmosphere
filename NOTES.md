@@ -634,8 +634,8 @@ now a fire (TORCH, BRAZIER, FIREPLACE, CAMPFIRE, FIREPIT, BONFIRE, and the clien
 (the rest, the buildings' own lights and the glow sprites), and each kind has a share of both the glow and
 the light on surfaces: Torch Light (`[lamps] torchLight`) and Lantern Light (`lanternLight`).
 
-**The defaults (2026-10-01)** are the owner's, read from the test client after a night of tuning: Lamp Glow 29,
-Lantern Light 77, Torch Light 74, Indoor Lamps 21, Lamps by Day 1, Lamp Distance 260.
+**The defaults (2026-10-01)** are the owner's, read from the test client after a night of tuning: Lamp Glow 26,
+Lantern Light 69, Torch Light 23, Indoor Lamps 21, Lamps by Day 1, Lamp Distance 260.
 
 **A lamppost that went out as you walked up to it (2026-10-01).** A lamppost in the files is also seen by its
 glow sprite, and the client's light used to win. When the client began to draw the sprite, the file's

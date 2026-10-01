@@ -282,17 +282,17 @@ struct SunShadowSettings
 struct LampSettings
 {
     bool  enabled      = true;
-    float strength     = 29.0f;     // the dial, 0..50 on its slider (Lamp Glow)
+    float strength     = 26.0f;     // the dial, 0..50 on its slider (Lamp Glow)
     float maxIntensity = 10.0f;     // the glow in the air: gain at 100. 4 until 2026-09-28, too faint to see
     float surface      = 7.0f;      // a lamppost's light on the surfaces near it: gain at 100 (0 = none).
                                     // About 1 / the night's own light, so a lamp lights like a torch
     // Two kinds of light (2026-10-01), each with its own share of the glow and of the light on surfaces. In a
     // Duskwood camp seven pole torches and a campfire stood within a few yards, and a walkway lamppost beside
     // it, one light four yards up, looked dim next to them.
-    float torchLight   = 0.74f;     // fires: torches, braziers, campfires, fireplaces, and the game's own lights
+    float torchLight   = 0.23f;     // fires: torches, braziers, campfires, fireplaces, and the game's own lights
                                     // (those NPCs carry too). The game lights its models with its own lights
                                     // already, so at 1 a model near one is lit twice. Torch Light, in percent
-    float lanternLight = 0.77f;     // lamps: lampposts, lanterns, candles, chandeliers, and the buildings' own
+    float lanternLight = 0.69f;     // lamps: lampposts, lanterns, candles, chandeliers, and the buildings' own
                                     // lights. Lantern Light, in percent
     float indoors      = 0.21f;     // all lamps while you are inside a building, eased over half a second at the
                                     // door. The Goldshire inn holds 34 lights within 30 yards, and with every one
