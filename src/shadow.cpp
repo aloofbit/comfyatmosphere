@@ -1544,8 +1544,132 @@ namespace
     D3DMATRIX             g_nearVP    = {};        // camera-relative world -> near map clip, for the reader
     D3DMATRIX             g_nearAbsToSun = {};     // absolute world -> near map clip, as it was last drawn
 
+    // The alpha test with the UVs where the shader puts them (2026-10-01). The replay turns the pixel shader
+    // off, and stage 0 then cuts an alpha-tested model by texture coordinate 0. A druid's bear and travel form
+    // are drawn by a vertex shader that writes a constant to oT0 and the model's UVs to oT2, so the whole
+    // model was cut by one texel and cast no shadow at some places (a player's report from Darnassus, with
+    // the fix). For such a shader the replay binds a pixel shader that samples texture 0 by the coordinate
+    // the UVs went to; the alpha test still applies to what it returns.
+    std::unordered_map<IDirect3DVertexShader9*, int> g_uvOut;   // each holds a reference: no reused address
+    IDirect3DPixelShader9* g_uvPs[8] = {};
+    bool                   g_uvPsFailed[8] = {};
+
+    // From the disassembly: the register of the first TEXCOORD input, then the first instruction that
+    // writes an oT register from it. 0 when that is oT0, or when the shader has another shape.
+    int ParseUvOutput(const std::string& text)
+    {
+        int in = -1;
+        for (size_t at = text.find("dcl_texcoord"); at != std::string::npos; at = text.find("dcl_texcoord", at + 1))
+        {
+            size_t q = at + 12;
+            if (q < text.size() && text[q] == '0')
+                ++q;
+            if (q >= text.size() || text[q] != ' ')
+                continue;   // dcl_texcoord1 and on
+            q = text.find_first_not_of(' ', q);
+            if (q + 1 < text.size() && text[q] == 'v' && isdigit(static_cast<unsigned char>(text[q + 1])))
+            {
+                in = atoi(text.c_str() + q + 1);
+                break;
+            }
+        }
+        if (in < 0)
+            return 0;
+        const std::string reg = "v" + std::to_string(in);
+        size_t at = 0;
+        while (at < text.size())
+        {
+            size_t end = text.find('\n', at);
+            if (end == std::string::npos)
+                end = text.size();
+            const std::string line = text.substr(at, end - at);
+            at = end + 1;
+            const size_t op = line.find_first_not_of(' ');
+            if (op == std::string::npos || !isalpha(static_cast<unsigned char>(line[op])) ||
+                line.compare(op, 3, "dcl") == 0 || line.compare(op, 3, "def") == 0)
+                continue;
+            const size_t dst = line.find_first_not_of(' ', line.find(' ', op));
+            if (dst == std::string::npos || line.compare(dst, 2, "oT") != 0 || dst + 2 >= line.size() ||
+                !isdigit(static_cast<unsigned char>(line[dst + 2])))
+                continue;
+            const int k = line[dst + 2] - '0';
+            for (size_t v = line.find(reg, line.find(',', dst)); v != std::string::npos; v = line.find(reg, v + 1))
+            {
+                const size_t after = v + reg.size();
+                const bool whole = (v == 0 || !isalnum(static_cast<unsigned char>(line[v - 1]))) &&
+                                   (after >= line.size() || !isdigit(static_cast<unsigned char>(line[after])));
+                if (whole)
+                    return k;
+            }
+        }
+        return 0;
+    }
+
+    int UvOutput(IDirect3DVertexShader9* vs)
+    {
+        auto it = g_uvOut.find(vs);
+        if (it != g_uvOut.end())
+            return it->second;
+        int out = 0;
+        UINT size = 0;
+        auto dis = reinterpret_cast<PFN_D3DDisassemble>(CompilerProc("D3DDisassemble"));
+        if (dis && SUCCEEDED(vs->lpVtbl->GetFunction(vs, nullptr, &size)) && size)
+        {
+            std::vector<char> code(size);
+            OgBlob* text = nullptr;
+            if (SUCCEEDED(vs->lpVtbl->GetFunction(vs, code.data(), &size)) &&
+                SUCCEEDED(dis(code.data(), size, 0, nullptr, &text)) && text)
+            {
+                out = ParseUvOutput(std::string(static_cast<const char*>(text->lpVtbl->GetBufferPointer(text)),
+                                                text->lpVtbl->GetBufferSize(text)));
+                text->lpVtbl->Release(text);
+            }
+        }
+        vs->lpVtbl->AddRef(vs);
+        g_uvOut[vs] = out;
+        if (out > 0)
+            Log("shadow: vertex shader %p puts the UVs in TEXCOORD%d: its alpha test samples there", vs, out);
+        return out;
+    }
+
+    IDirect3DPixelShader9* UvShader(IDirect3DDevice9* dev, int k)
+    {
+        if (k <= 0 || k > 7 || g_uvPsFailed[k])
+            return nullptr;
+        if (g_uvPs[k])
+            return g_uvPs[k];
+        auto compile = reinterpret_cast<PFN_D3DCompile>(CompilerProc("D3DCompile"));
+        char src[200];
+        snprintf(src, sizeof(src), "sampler2D t : register(s0);\n"
+                                   "float4 main(float2 uv : TEXCOORD%d) : COLOR { return tex2D(t, uv); }\n", k);
+        OgBlob* code = nullptr;
+        OgBlob* errs = nullptr;
+        if (compile && SUCCEEDED(compile(src, strlen(src), "shadow_uv", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code,
+                                         &errs)) && code)
+            dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)),
+                                           &g_uvPs[k]);
+        if (code) code->lpVtbl->Release(code);
+        if (errs) errs->lpVtbl->Release(errs);
+        if (!g_uvPs[k])
+        {
+            g_uvPsFailed[k] = true;
+            Log("shadow: could not make the TEXCOORD%d alpha mask; those models keep the plain alpha test", k);
+        }
+        else
+            Log("shadow: TEXCOORD%d alpha mask ready", k);
+        return g_uvPs[k];
+    }
+
     void ReleaseResources()
     {
+        for (auto& kv : g_uvOut)
+            kv.first->lpVtbl->Release(kv.first);
+        g_uvOut.clear();
+        for (int k = 0; k < 8; ++k)
+        {
+            SafeRelease(g_uvPs[k]);
+            g_uvPsFailed[k] = false;
+        }
         SafeRelease(g_nearSurf);
         SafeRelease(g_nearTex);
         g_nearValid = false;
@@ -2529,6 +2653,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             n += MapDoodadsDraw(dev, passCut, cam, true, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
         if (nearPass) nearDoodads += n; else farDoodads += n;
     }
+    IDirect3DPixelShader9* passPs = nullptr;   // the UV alpha mask bound, if any (UvOutput)
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
@@ -2598,6 +2723,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (r.indexed)
             d->SetIndices(dev, r.ib);
         d->SetTexture(dev, 0, r.tex0);
+        IDirect3DPixelShader9* ps = r.vs && r.alphaTest ? UvShader(dev, UvOutput(r.vs)) : nullptr;
+        if (ps != passPs)
+        {
+            d->SetPixelShader(dev, ps);
+            passPs = ps;
+        }
         d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, r.alphaTest);
         d->SetRenderState(dev, D3DRS_ALPHAREF,        r.alphaRef);
         d->SetRenderState(dev, D3DRS_ALPHAFUNC,       r.alphaFunc);
@@ -2618,6 +2749,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         else
             ++drawn;
     }
+    if (passPs)
+        d->SetPixelShader(dev, nullptr);   // the next pass draws the files' terrain and buildings first
     passTime[pass] = Now() - passStart;
     }   // the two maps
     if (logThis)

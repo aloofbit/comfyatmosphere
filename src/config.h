@@ -248,6 +248,8 @@ struct SunShadowSettings
                                   // character darkens its own back and arms little and the shadow stays
                                   // on its feet. Until 2026-09-30 a hard gap, on top of the world's slack:
                                   // with a low sun the dark shadow started 1.6 yards from the feet
+    float unitDrop   = 4.0f;      // yards under the unit past which the extra fades out, over 3 more: on the
+                                  // water under a bridge, already in the bridge's shade (2026-10-01)
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the

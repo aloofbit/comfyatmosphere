@@ -103,7 +103,8 @@ float4 gLod  : register(c22);       // far map: extra bias (map units) per yard 
 float4 gShC  : register(c23);       // the shade's colour (brightness 1), how much
 float4 gSuC  : register(c24);       // the sunlight's colour (brightness 1), how much
 float4 gU    : register(c25);       // units' map: extra strength, depth bias (map units), one texel (uv), 1 if there is one
-float4 gU2   : register(c26);       // units' map: 1 / unitGap (map units)
+float4 gU2   : register(c26);       // units' map: 1 / unitGap (map units), yards down per map unit, unitDrop and
+                                    // unitDrop + 3 (yards)
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -244,12 +245,38 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // of the ground's slack. The extra fades in over unitGap from the unit along the sun instead: a unit
     // adds little to its own back, and the shadow stays on its feet. Where the centre sees no unit (the
     // outer edge of the soft shadow), it counts in full.
+    // It fades out again where the shade lies more than unitDrop yards under the unit (2026-10-01): a shadow
+    // on the ground lies within the unit's height, whatever the sun's, and the water under a bridge, already
+    // in the bridge's shade, showed the player's shape darker. At the outer edge the nearest unit among the
+    // corner taps is taken, so no ring is left.
     float unit = 0.0;
     [branch] if (gU.w > 0.5 && wn > 0.0)
     {
-        float  du   = tex2Dlod(sUnit, float4(sn.x * 0.5 + 0.5, 0.5 - sn.y * 0.5, 0, 0)).r;
+        float2 uu   = float2(sn.x * 0.5 + 0.5, 0.5 - sn.y * 0.5);
+        float  du   = tex2Dlod(sUnit, float4(uu, 0, 0)).r;
         float  away = du >= 0.99999 ? 1.0 : smoothstep(0.0, 1.0, saturate((sn.z - du) * gU2.x));
-        unit = (1.0 - Lit5(sUnit, sn, float2(0.0, 0.0), gU.y, gU.z)) * wn * away;
+        [branch] if (du >= 0.99999)
+        {
+            float o = gU.z * max(gB.w, 0.5);
+            du = min(min(tex2Dlod(sUnit, float4(uu + float2(-o, -o), 0, 0)).r, tex2Dlod(sUnit, float4(uu + float2(o, -o), 0, 0)).r),
+                     min(tex2Dlod(sUnit, float4(uu + float2(-o,  o), 0, 0)).r, tex2Dlod(sUnit, float4(uu + float2(o,  o), 0, 0)).r));
+        }
+        float below = du >= 0.99999 ? 0.0 : (sn.z - du) * gU2.y;
+        unit = (1.0 - Lit5(sUnit, sn, float2(0.0, 0.0), gU.y, gU.z)) * wn * away * (1.0 - smoothstep(gU2.z, gU2.w, below));
+        // Nor on a surface that faces away from the sun: the underside of a bridge's deck, a yard under the
+        // player standing on it, is in the deck's own shade (2026-10-01). The facing is taken here, for the
+        // few pixels a unit shades, when the slope settings have not taken it already.
+        [branch] if (unit > 0.0)
+        {
+            float3 Nu = N;
+            [branch] if (gT.z < 0.5)
+            {
+                Nu = cross(Near(uv, raw, P, float2(0.0, gZ.w)), Near(uv, raw, P, float2(gZ.z, 0.0)));
+                Nu = Nu / max(length(Nu), 1e-8);
+                Nu = dot(Nu, P) > 0.0 ? -Nu : Nu;
+            }
+            unit *= smoothstep(-0.02, 0.03, dot(Nu, gSun.xyz));
+        }
     }
     if (gL.y > 1.5)
         return float4(1.0 - leaf, 1.0 - leaf, 1.0 - leaf, 1.0);            // debug 2: the leaves alone
@@ -615,6 +642,8 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[102] = 2.0f / size;
     pc[103] = unitMap ? 1.0f : 0.0f;
     pc[104] = ss.unitGap > 0.0f ? span / ss.unitGap : 1e6f;
+    pc[105] = span * sunDir[2];                                 // yards straight down per map unit along the sun
+    pc[106] = ss.unitDrop; pc[107] = ss.unitDrop + 3.0f;
     d->SetPixelShaderConstantF(dev, 0, pc, 27);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };

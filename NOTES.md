@@ -1389,6 +1389,27 @@ do not fall between its own. Paths under the user's profile are written as %USER
 
 F12 also writes a line in chat now, through the notices the benchmark uses.
 
+## Druid forms, and a shadow under a bridge (2026-10-01)
+
+**Bear and travel form cast no shadow at some places.** A player's report from Darnassus, with the cause and
+a fix, taken here as they gave it. The replay turns the pixel shader off, and stage 0 cuts an alpha-tested
+model by texture coordinate 0. The forms' vertex shader writes a constant to oT0 and the model's UVs to oT2
+(`dcl_texcoord v4`, `mov oT0.xyz, c0.z`, `mov oT2.xy, v4`), so the whole model was cut by one texel. The
+replay now reads each alpha-tested vertex shader once (`UvOutput`, from its disassembly) and, where the UVs
+go to oT1 to oT7, binds a ps_2_0 that samples texture 0 by that coordinate; the alpha test applies to what it
+returns. oT0, and any shape not recognised, keep the old path. Tested offline on six shapes. In the test
+client a shader of that shape was met at once (`TEXCOORD2 alpha mask ready`).
+
+**A player's shadow on the water under a bridge, and on the deck's underside.** The units' extra darkness
+(`unitStrength`) darkens a unit's shade again on top of the world's, so a character shows in a building's
+shade. Under a bridge the water and the deck's underside are in the deck's shade already, and the extra drew
+the player's shape there. Two rules now take it away:
+- past `[sunshadows] unitDrop` (4) yards straight under the unit, fading out over 3 more. A shadow on the
+  ground lies within the unit's height whatever the sun's, the water under a bridge lower. At the soft edge,
+  where the centre tap sees no unit, the nearest unit among the corner taps is used, so no ring is left;
+- on a surface that faces away from the sun. The facing is taken from the depth beside the pixel, only for
+  the pixels a unit shades (2035 instruction slots, from 1888).
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
