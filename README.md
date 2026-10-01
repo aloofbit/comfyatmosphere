@@ -59,6 +59,8 @@ own. Use the window on a client whose options window has no page for them.
 | World / Object Shadows, Player / Creature Shadows | `[sunshadows] world`, `units` |
 | Lock Shadow Angle, Shadow Angle (degrees) | `[sunshadows] lock`, `lockTilt` |
 | Sun Shadow Strength | `[sunshadows] strength` |
+| Night Shadows (%) | `[sunshadows] night` |
+| Character Shadow Strength | `[sunshadows] unitStrength` |
 | Sunlight, Shade Colour, Sunlight Warmth (%) | `[sunshadows] sunlight`, `shadeTint`, `sunTint` |
 | Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
 | Shadow Softness | `[sunshadows] softness` |
@@ -90,7 +92,9 @@ the values from `comfyfog.ini` back.
 - **Night Darkness** makes the world darker at night, and **Moonlight Colour** makes the night bluer. They
   need Volumetric Light on. Inside buildings they do nothing.
 - **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns
-  both off at night. The change to night starts at 20:00 and the change to day at 05:00. Each takes 1.5
+  both off at night. **Night Shadows** sets the shadows at night in the same way.
+- **Character Shadow Strength** makes the shadows of players and creatures darker than the world's
+  shadows. They then show inside the shade of a building too. The change to night starts at 20:00 and the change to day at 05:00. Each takes 1.5
   hours. Set other hours with `[night] dusk`, `dawn` and `fade`. For rays from the larger moon only, set
   `[rays] secondMoon = 0`.
 - **Volumetric Light Quality** at High uses the values in `comfyfog.ini`. Medium and Low replace two of

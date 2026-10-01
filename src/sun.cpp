@@ -283,7 +283,12 @@ float NightWeight(float hour)
 
 float NightScale()
 {
-    const float night = g_cfg.night.strength * 0.01f;
+    return NightScale(g_cfg.night.strength);
+}
+
+float NightScale(float percent)
+{
+    const float night = percent * 0.01f;
     float hour = 0.0f;
     if (night >= 1.0f || !ClientHour(hour))
         return 1.0f;

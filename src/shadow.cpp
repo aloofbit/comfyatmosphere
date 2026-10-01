@@ -1517,6 +1517,13 @@ namespace
     IDirect3DTexture9*    g_farLeafTex   = nullptr;   // the far map's leaves
     IDirect3DSurface9*    g_farLeafSurf  = nullptr;
     bool                  g_nearLeafValid = false, g_farLeafValid = false;
+    // The units' map (2026-09-30): players and creatures alone, under the near map's camera, at half its size,
+    // so the sun shadows can darken their shade more than the world's. Half size needs a colour target of
+    // its own.
+    IDirect3DTexture9*    g_unitTex    = nullptr;
+    IDirect3DSurface9*    g_unitSurf   = nullptr;
+    IDirect3DSurface9*    g_unitColour = nullptr;
+    bool                  g_unitValid  = false;
     D3DMATRIX             g_nearVP    = {};        // camera-relative world -> near map clip, for the reader
     D3DMATRIX             g_nearAbsToSun = {};     // absolute world -> near map clip, as it was last drawn
 
@@ -1530,6 +1537,10 @@ namespace
         SafeRelease(g_farLeafSurf);
         SafeRelease(g_farLeafTex);
         g_nearLeafValid = g_farLeafValid = false;
+        SafeRelease(g_unitSurf);
+        SafeRelease(g_unitTex);
+        SafeRelease(g_unitColour);
+        g_unitValid = false;
         SafeRelease(g_depthSurf);
         SafeRelease(g_depthTex);
         SafeRelease(g_colour);
@@ -1543,7 +1554,8 @@ namespace
         const bool wantNear = g_cfg.shadow.nearRange > 0.0f;
         const bool wantLeaves = g_cfg.shadow.leaves;
         if (g_size == size && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr) &&
-            wantLeaves == (g_farLeafSurf != nullptr) && (wantLeaves && wantNear) == (g_nearLeafSurf != nullptr))
+            wantLeaves == (g_farLeafSurf != nullptr) && (wantLeaves && wantNear) == (g_nearLeafSurf != nullptr) &&
+            wantNear == (g_unitSurf != nullptr))
             return true;
         ReleaseResources();
         auto* d = dev->lpVtbl;
@@ -1563,6 +1575,16 @@ namespace
                 if (SUCCEEDED(hr))
                     hr = g_nearLeafTex->lpVtbl->GetSurfaceLevel(g_nearLeafTex, 0, &g_nearLeafSurf);
             }
+        }
+        if (SUCCEEDED(hr) && wantNear)
+        {
+            const UINT half = size / 2;
+            hr = d->CreateTexture(dev, half, half, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_unitTex, nullptr);
+            if (SUCCEEDED(hr))
+                hr = g_unitTex->lpVtbl->GetSurfaceLevel(g_unitTex, 0, &g_unitSurf);
+            if (SUCCEEDED(hr) &&
+                FAILED(d->CreateRenderTarget(dev, half, half, kNULL, D3DMULTISAMPLE_NONE, 0, FALSE, &g_unitColour, nullptr)))
+                hr = d->CreateRenderTarget(dev, half, half, D3DFMT_R5G6B5, D3DMULTISAMPLE_NONE, 0, FALSE, &g_unitColour, nullptr);
         }
         if (SUCCEEDED(hr) && wantLeaves)
         {
@@ -1595,9 +1617,9 @@ namespace
             return false;
         }
         g_size = size;
-        Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)", size, size,
+        Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)%s", size, size,
             g_nearLeafSurf ? "s, far and near, each solid and leaves," : g_nearSurf ? "s, far and near," : "",
-            colourKind);
+            colourKind, g_unitSurf ? ", and a half-size map of the units" : "");
         return true;
     }
 
@@ -2430,19 +2452,26 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     };
     UINT leafDrawn = 0;
     unsigned farTiles = 0, nearTiles = 0, farWmos = 0, nearWmos = 0, farDoodads = 0, nearDoodads = 0;
-    double passTime[4] = {};
-    unsigned long long bytesNow[4] = {};
-    for (int pass = 0; pass < 4; ++pass)
+    // The fifth pass draws the units alone into their own map, under the near map's camera.
+    const bool doUnits = doNear && g_unitSurf && g_unitColour && g_cfg.sunShadows.units &&
+                         g_cfg.sunShadows.unitStrength > 0.0f;
+    UINT unitDrawn = 0;
+    double passTime[5] = {};
+    unsigned long long bytesNow[5] = {};
+    for (int pass = 0; pass < 5; ++pass)
     {
+    const bool unitPass = pass == 4;
     const bool nearPass = pass >= 2;
     const bool leafPass = (pass & 1) != 0;
-    if ((!nearPass && !drawFar) || (nearPass && !doNear) || (leafPass && !doLeaves))
+    if ((!nearPass && !drawFar) || (nearPass && !doNear) || (leafPass && !doLeaves) || (unitPass && !doUnits))
         continue;
     const double passStart = Now();
     const float mapRange = nearPass ? s.nearRange : s.range;
     const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : fromAbsToSun;
     const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : cutAbsToSun;
-    d->SetDepthStencilSurface(dev, nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
+    if (unitPass)
+        d->SetRenderTarget(dev, 0, g_unitColour);   // the last pass: the restore puts the client's back
+    d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
                                             : (leafPass ? g_farLeafSurf : g_depthSurf));
     d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
     d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : &sunProj);
@@ -2458,7 +2487,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
     // [sunshadows] world and units (2026-09-30): the near maps are the sun shadows' alone, so the world is
     // left out of them when its shadows are off; units are left out of every map when theirs are.
-    const bool worldHere = !nearPass || g_cfg.sunShadows.world;
+    const bool worldHere = (!nearPass || g_cfg.sunShadows.world) && !unitPass;
     const bool unitsHere = g_cfg.sunShadows.units;
     // The ground from the files goes where the client's terrain would: the leaf map with terrainLeaves.
     if (worldHere && s.mapTerrain && (doLeaves ? leafPass == s.terrainLeaves : !leafPass))
@@ -2493,6 +2522,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (doLeaves && isLeaf(e) != leafPass)
             continue;
         if (e.unit ? !unitsHere : !worldHere)
+            continue;
+        if (unitPass && !(r.vs && e.unit))
             continue;
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
         // hundred of them rather than thousands, and one chunk covers so much ground that the point we
@@ -2561,7 +2592,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             g_replayed[&e] |= nearPass ? 2 : 1;
         if (r.vb[1])
             d->SetStreamSource(dev, 1, nullptr, 0, 0);
-        if (leafPass)
+        if (unitPass)
+            ++unitDrawn;
+        else if (leafPass)
             ++leafDrawn;
         else if (nearPass)
             ++nearDrawn;
@@ -2685,13 +2718,15 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         }
     }
     if (logThis)
-        Log("shadow: time: far map %.2f + %.2f ms (solid + leaves)%s, near map %.2f + %.2f ms; %u leaf draws; "
-            "model constants uploaded %.1f MB (far) + %.1f MB (near)", 1000.0 * passTime[0], 1000.0 * passTime[1],
-            drawFar ? "" : " (not redrawn this time)", 1000.0 * passTime[2], 1000.0 * passTime[3], leafDrawn,
-            (bytesNow[0] + bytesNow[1]) / 1048576.0, (bytesNow[2] + bytesNow[3]) / 1048576.0);
+        Log("shadow: time: far map %.2f + %.2f ms (solid + leaves)%s, near map %.2f + %.2f ms, units %.2f ms; "
+            "%u leaf draws, %u unit draws; model constants uploaded %.1f MB (far) + %.1f MB (near)",
+            1000.0 * passTime[0], 1000.0 * passTime[1], drawFar ? "" : " (not redrawn this time)",
+            1000.0 * passTime[2], 1000.0 * passTime[3], 1000.0 * passTime[4], leafDrawn, unitDrawn,
+            (bytesNow[0] + bytesNow[1]) / 1048576.0, (bytesNow[2] + bytesNow[3] + bytesNow[4]) / 1048576.0);
     if (drawFar)
         g_farLeafValid = doLeaves;
     g_nearLeafValid = doLeaves && doNear;
+    g_unitValid = doUnits;
     if (doNear)
     {
         g_nearVP       = nearVP;
@@ -2834,6 +2869,11 @@ void ShadowWorldDepthRange(float& minZ, float& maxZ)
 IDirect3DTexture9* ShadowNearLeaves()
 {
     return (g_cfg.shadow.enabled && g_valid && g_nearValid && g_nearLeafValid) ? g_nearLeafTex : nullptr;
+}
+
+IDirect3DTexture9* ShadowNearUnits()
+{
+    return (g_cfg.shadow.enabled && g_valid && g_nearValid && g_unitValid) ? g_unitTex : nullptr;
 }
 
 IDirect3DTexture9* ShadowFarLeaves()

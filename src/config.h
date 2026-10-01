@@ -224,6 +224,16 @@ struct SunShadowSettings
     DWORD sunColor   = 0xFFE4C0;
     float sunTint    = 0.95f;      // 0..1
     float strength   = 20.0f;     // the dial, 0..100: how much of the light a shaded surface loses
+    // At night, as % of strength (2026-09-30). The shadows had [night] strength with the rays and the light,
+    // 25%: Sun Shadow Strength 20 became 5% at night, and players saw no shadows from the moon.
+    float night      = 100.0f;
+    // The characters' shadows darker than the world's (2026-09-30). In Darkshire the buildings' shade took
+    // so much of the street that a player's shadow was lost in it: a shaded pixel is shaded once, whatever
+    // shades it. Players and creatures are drawn a second time into a map of their own, and their shade
+    // darkens by unitStrength more, on top of the world's, inside a building's shade too.
+    float unitStrength = 30.0f;   // 0..100: the extra, as Sun Shadow Strength is
+    float unitGap    = 0.6f;      // yards: a unit nearer the surface than this, along the sun, adds nothing,
+                                  // so a character does not darken its own back and arms
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the

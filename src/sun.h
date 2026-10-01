@@ -13,3 +13,4 @@ bool SunCamera(D3DMATRIX& view, D3DMATRIX& proj);  // the world camera (rotation
 float NightWeight(float hour);               // 0 by day, 1 at night, by [night] dusk, dawn and fade
 float NightScale();                          // what the rays and the light are multiplied by now: 1 by day,
                                              // [night] strength / 100 at night; 1 without the game clock
+float NightScale(float percent);             // the same for another night share, in percent

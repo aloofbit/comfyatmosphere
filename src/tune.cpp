@@ -69,6 +69,8 @@ namespace
         { "lamps.strength",      "Lamp Glow" },
         { "lamps.fogReach",      "Lamp Distance" },
         { "sunshadows.strength", "Sun Shadow Strength" },
+        { "sunshadows.night",    "Night Shadows" },
+        { "sunshadows.unitStrength", "Character Shadow Strength" },
         { "sunshadows.sunlight", "Sunlight" },
         { "rays.enabled",        "Sun Rays" },
         { "rays.strength",       "Sun Rays Strength" },

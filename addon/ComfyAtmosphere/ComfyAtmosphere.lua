@@ -37,6 +37,8 @@ COMFYATMOSPHERE_LAMP_GLOW      = "Lamp Glow";
 COMFYATMOSPHERE_LAMP_DISTANCE  = "Lamp Distance";
 COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
+COMFYATMOSPHERE_SHADOWS_NIGHT  = "Night Shadows";
+COMFYATMOSPHERE_SHADOWS_UNIT_STRENGTH = "Character Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
 COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
 COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
@@ -383,6 +385,28 @@ local ENTRIES = {
 		type = "slider",
 		cvar = "comfySunShadowStrength",
 		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOWS_NIGHT",
+		desc = "The shadows the moon casts at night. 100 is as dark as by day. 0 is off.",
+		type = "slider",
+		cvar = "comfySunShadowsNight",
+		dependency = { "comfySunShadows", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		name = "COMFYATMOSPHERE_SHADOWS_UNIT_STRENGTH",
+		desc = "Makes the shadows of players and creatures darker than the world's, also inside the shade of a building. 0 makes them as dark as the world's.",
+		type = "slider",
+		cvar = "comfySunShadowsUnitStrength",
+		dependency = { "comfySunShadowsUnits", "1" },
 		minval = 0,
 		maxval = 100,
 		step = 5,

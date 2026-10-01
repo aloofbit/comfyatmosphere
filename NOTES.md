@@ -369,6 +369,23 @@ the horizon, which is the larger moon (a quad of 1.8 against 1.0), and the other
 (`[rays] secondMoon`). Late in the night the client stops drawing the larger moon, and the light moves to
 the other one.
 
+**The shadows at night (2026-09-30).** Players in Darkshire saw no shadows of their characters or of the
+NPCs. The game clock read 02:00. The sun shadows followed Night Strength with the light, so Sun Shadow
+Strength 20 at Night Strength 25 darkened a shaded pixel by 5%, which does not show. The shadows now have
+a night share of their own, `[sunshadows] night` (Night Shadows, 100 by default): the moon casts shadows
+as dark as the sun's, and the rays and the light stay dim at night. The terrain's baked shadow
+(`[sunshadows] baked`) follows the same share.
+
+**Characters in a building's shade (2026-09-30).** In Darkshire at night the buildings' shade covered so
+much of the street that the player seemed to have no shadow. A pixel is shaded once, whatever shades it,
+so a character's shadow inside a building's shade did not show at all. The replay now draws the units a
+fifth time, alone, into a map of their own (`g_unitTex`: the near map's camera at half its size, with a
+NULL colour target of that size). The sun shadows read it with five taps and darken the units' shade by
+`[sunshadows] unitStrength` more (Character Shadow Strength, 30), on top of the world's:
+`(1 - strength x shade) x (1 - unitStrength x unit)`. This is not how light works (in a building's shade
+there is no sun to cast a second shadow), but it shows where a character stands. `[sunshadows] unitGap`
+(0.6 yards) is added to that map's bias, so a character does not darken its own back and arms.
+
 ## Rays and light through mountains (2026-09-28)
 
 The rays came over mountains with the sun behind them. `[volume] debug = 5` showed the light shaded right;

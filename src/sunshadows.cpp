@@ -33,7 +33,7 @@
 // slope, both 0 by default: only when either is above 0.
 //
 // It draws only while the volumetric light does, since the map is built for it. It follows the sun's
-// height and [night] strength as the light does (the map follows the moon at night).
+// height as the light does (the map follows the moon at night), and at night [sunshadows] night.
 
 #define CINTERFACE
 #define WIN32_LEAN_AND_MEAN
@@ -76,6 +76,7 @@ sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the
 sampler2D sNear   : register(s2);   // the near map, the same way
 sampler2D sNearL  : register(s3);   // the near map's leaves
 sampler2D sFarL   : register(s4);   // the far map's leaves
+sampler2D sUnit   : register(s5);   // the units alone, the near map's camera
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -101,6 +102,7 @@ float4 gCh   : register(c21);       // leafShade, 1 if near leaf map, 1 if far l
 float4 gLod  : register(c22);       // far map: extra bias (map units) per yard past .y yards from the camera
 float4 gShC  : register(c23);       // the shade's colour (brightness 1), how much
 float4 gSuC  : register(c24);       // the sunlight's colour (brightness 1), how much
+float4 gU    : register(c25);       // units' map: extra strength, depth bias (map units), one texel (uv), 1 if there is one
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -203,10 +205,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The near map where it reaches, blended into the far one over the band from 80% to 90% of its
     // half-width. The far map is read only where the near map does not cover all of the shade.
     float wn = 0.0, litN = 1.0, leafN = 1.0;
+    float4 sn = 0.0;
     [branch] if (gNB.w > 0.5)
     {
         float3 Qn = P + N * (gNB.y * graze) + gSun.xyz * gT.y;
-        float4 sn = Qn.x * gN0 + Qn.y * gN1 + Qn.z * gN2 + gN3;
+        sn = Qn.x * gN0 + Qn.y * gN1 + Qn.z * gN2 + gN3;
         float2 en = abs(sn.xy);
         wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
         [branch] if (wn > 0.0)
@@ -236,17 +239,23 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // Solid things stop the sun; leaves stop leafShade of it.
     float leaf  = 1.0 - lerp(leafF, leafN, wn);
     float shade = max(1.0 - lerp(litF, litN, wn), gCh.x * leaf);
+    // The units' own shade, darkened again on top of the world's. Its bias holds unitGap, so a unit does not
+    // add to its own back.
+    float unit = 0.0;
+    [branch] if (gU.w > 0.5 && wn > 0.0)
+        unit = (1.0 - Lit5(sUnit, sn, float2(0.0, 0.0), gU.y, gU.z)) * wn;
     if (gL.y > 1.5)
         return float4(1.0 - leaf, 1.0 - leaf, 1.0 - leaf, 1.0);            // debug 2: the leaves alone
     // The game's fog at this depth: a fogged pixel shows the fog colour, not what the shade falls on.
     float vz    = dot(P, gV.xyz) + gV.w;
     float clear = 1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0);
-    float  f     = (1.0 - gSun.w * shade * clear) * (1.0 + gL.x * (1.0 - shade) * clear);
+    float  dark  = max(shade, unit);
+    float  f     = (1.0 - gSun.w * shade * clear) * (1.0 - gU.x * unit * clear) * (1.0 + gL.x * (1.0 - dark) * clear);
     f = (f >= 0.0 && f <= 2.0) ? f : 1.0;
     if (gL.y > 0.5)
         return float4(f, f, f, 1.0);                                       // debug: the shade in grey
     // Shade takes the sky's cool colour and sunlight a warm one ([sunshadows] shadeTint, sunTint).
-    float3 c = f * lerp(1.0, gShC.rgb, gShC.w * shade * clear) * lerp(1.0, gSuC.rgb, gSuC.w * (1.0 - shade) * clear);
+    float3 c = f * lerp(1.0, gShC.rgb, gShC.w * dark * clear) * lerp(1.0, gSuC.rgb, gSuC.w * (1.0 - dark) * clear);
     return float4(saturate(c * 0.5), 1.0);
 }
 )HLSL";
@@ -397,6 +406,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const bool haveNear = ShadowNear(nearTex, nearVP, nearRange);
     IDirect3DTexture9* nearLeaf = haveNear ? ShadowNearLeaves() : nullptr;
     IDirect3DTexture9* farLeaf  = ShadowFarLeaves();
+    IDirect3DTexture9* unitMap  = haveNear ? ShadowNearUnits() : nullptr;
     float sunDir[3], cam[3], player[3];
     D3DMATRIX view, proj, shadowVP;
     const bool haveCam = ShadowWorldCamera(view, proj) || SunCamera(view, proj);
@@ -411,8 +421,9 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
         return false;
     }
 
-    // As the volumetric light: gone as the sun sets, and [night] strength at night.
-    const float sunset = (realSun[2] > 0.0f ? (realSun[2] < 0.1f ? realSun[2] / 0.1f : 1.0f) : 0.0f) * NightScale();
+    // As the volumetric light: gone as the sun sets. At night [sunshadows] night, not [night] strength.
+    const float sunset = (realSun[2] > 0.0f ? (realSun[2] < 0.1f ? realSun[2] / 0.1f : 1.0f) : 0.0f) *
+                         NightScale(ss.night);
     // Indoors ([sunshadows] indoor): faded to that share over half a second while the player is in one of a
     // building's indoor groups.
     static float  inside = 0.0f;
@@ -495,7 +506,8 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(haveNear ? nearTex : shadow));
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(nearLeaf ? nearLeaf : (haveNear ? nearTex : shadow)));
     d->SetTexture(dev, 4, reinterpret_cast<IDirect3DBaseTexture9*>(farLeaf ? farLeaf : shadow));
-    for (DWORD st = 0; st < 5; ++st)
+    d->SetTexture(dev, 5, reinterpret_cast<IDirect3DBaseTexture9*>(unitMap ? unitMap : shadow));
+    for (DWORD st = 0; st < 6; ++st)
     {
         d->SetSamplerState(dev, st, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, st, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -505,7 +517,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     // Off a map reads as far: lit.
-    for (DWORD st = 1; st < 5; ++st)
+    for (DWORD st = 1; st < 6; ++st)
     {
         d->SetSamplerState(dev, st, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
         d->SetSamplerState(dev, st, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
@@ -517,7 +529,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[100] = {};
+    float pc[104] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -576,7 +588,13 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[89] = ss.lodStart;
     UnitColour(ss.shadeColor, &pc[92]); pc[95] = ss.debug ? 0.0f : ss.shadeTint * keep;
     UnitColour(ss.sunColor, &pc[96]);   pc[99] = ss.debug ? 0.0f : ss.sunTint * keep;
-    d->SetPixelShaderConstantF(dev, 0, pc, 25);
+    // The units' map: half the near map's size, so twice its texel.
+    const float unitTex = nearRange * 4.0f / size;
+    pc[100] = ss.debug ? 0.0f : ss.unitStrength * 0.01f * sunset * keep;
+    pc[101] = (biasTex * unitTex + ss.unitGap) / span;
+    pc[102] = 2.0f / size;
+    pc[103] = unitMap ? 1.0f : 0.0f;
+    d->SetPixelShaderConstantF(dev, 0, pc, 26);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -592,6 +610,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 2, nullptr);
     d->SetTexture(dev, 3, nullptr);
     d->SetTexture(dev, 4, nullptr);
+    d->SetTexture(dev, 5, nullptr);
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
@@ -613,9 +632,9 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     if (logThis)
         Log("sunshadows: drawn, strength %.2f (sun height x night %.2f), sun (%.2f %.2f %.2f); far map %.3f yd a "
             "texel, near map %s %.3f yd a texel; bias %.1f texels (set %.1f, by the sun's height), sunOffset %.2f "
-            "yd, normalBias %.1f texels, slope %.2f, softness %.1f",
+            "yd, normalBias %.1f texels, slope %.2f, softness %.1f; units' map %s, %.2f more (gap %.2f yd)",
             strength, sunset, sunDir[0], sunDir[1], sunDir[2], farTex, haveNear ? "on," : "off,", nearTex_, biasTex,
-            ss.bias, ss.sunOffset, ss.normalBias, ss.slope, ss.softness);
+            ss.bias, ss.sunOffset, ss.normalBias, ss.slope, ss.softness, unitMap ? "on" : "off", pc[100], ss.unitGap);
     return true;
 }
 
