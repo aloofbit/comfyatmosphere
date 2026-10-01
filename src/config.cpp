@@ -243,6 +243,8 @@ void LoadSettings(const wchar_t* ini)
     s.sunShadows.sunTint    = Clamp(GetF(kSunShadows, L"sunTint", s.sunShadows.sunTint, ini), 0.0f, 1.0f);
     s.sunShadows.strength   = Clamp(GetF(kSunShadows, L"strength",   s.sunShadows.strength,   ini), 0.0f, 100.0f);
     s.sunShadows.night      = Clamp(GetF(kSunShadows, L"night",      s.sunShadows.night,      ini), 0.0f, 100.0f);
+    s.sunShadows.riseFrom   = Clamp(GetF(kSunShadows, L"riseFrom",   s.sunShadows.riseFrom,   ini), 0.0f, 60.0f);
+    s.sunShadows.riseTo     = Clamp(GetF(kSunShadows, L"riseTo",     s.sunShadows.riseTo,     ini), 10.0f, 89.0f);
     s.sunShadows.unitStrength = Clamp(GetF(kSunShadows, L"unitStrength", s.sunShadows.unitStrength, ini), 0.0f, 100.0f);
     s.sunShadows.unitGap    = Clamp(GetF(kSunShadows, L"unitGap",    s.sunShadows.unitGap,    ini), 0.0f, 5.0f);
     s.sunShadows.bias       = Clamp(GetF(kSunShadows, L"bias",       s.sunShadows.bias,       ini), 0.0f, 20.0f);

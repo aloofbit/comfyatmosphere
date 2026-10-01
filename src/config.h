@@ -227,13 +227,23 @@ struct SunShadowSettings
     // At night, as % of strength (2026-09-30). The shadows had [night] strength with the rays and the light,
     // 25%: Sun Shadow Strength 20 became 5% at night, and players saw no shadows from the moon.
     float night      = 100.0f;
+    // A low sun or moon (2026-09-30): the test's slack grows as the light gets lower (against flat ground
+    // shading itself in stripes) and pushes each shadow away from what casts it, 0.5 yards on the near map
+    // and 2 on the far one at 10 degrees. Below riseFrom the shadows' light climbs back toward riseTo as
+    // the real light sinks, as the owner asked: at the horizon, and with neither sun nor moon up, the
+    // shadows are short, as at noon. A steep light needs little slack. Until then they faded out between
+    // 6 and 0 degrees.
+    float riseFrom   = 12.0f;     // degrees: the real light's height below which the shadows' light climbs
+    float riseTo     = 85.0f;     // degrees: the shadows' light with the real light at the horizon or under
     // The characters' shadows darker than the world's (2026-09-30). In Darkshire the buildings' shade took
     // so much of the street that a player's shadow was lost in it: a shaded pixel is shaded once, whatever
     // shades it. Players and creatures are drawn a second time into a map of their own, and their shade
     // darkens by unitStrength more, on top of the world's, inside a building's shade too.
     float unitStrength = 30.0f;   // 0..100: the extra, as Sun Shadow Strength is
-    float unitGap    = 0.6f;      // yards: a unit nearer the surface than this, along the sun, adds nothing,
-                                  // so a character does not darken its own back and arms
+    float unitGap    = 0.5f;      // yards along the sun over which the extra fades in from the unit, so a
+                                  // character darkens its own back and arms little and the shadow stays
+                                  // on its feet. Until 2026-09-30 a hard gap, on top of the world's slack:
+                                  // with a low sun the dark shadow started 1.6 yards from the feet
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the

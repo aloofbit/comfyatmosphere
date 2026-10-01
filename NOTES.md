@@ -383,8 +383,26 @@ fifth time, alone, into a map of their own (`g_unitTex`: the near map's camera a
 NULL colour target of that size). The sun shadows read it with five taps and darken the units' shade by
 `[sunshadows] unitStrength` more (Character Shadow Strength, 30), on top of the world's:
 `(1 - strength x shade) x (1 - unitStrength x unit)`. This is not how light works (in a building's shade
-there is no sun to cast a second shadow), but it shows where a character stands. `[sunshadows] unitGap`
-(0.6 yards) is added to that map's bias, so a character does not darken its own back and arms.
+there is no sun to cast a second shadow), but it shows where a character stands.
+
+The first version gave that map the world's slack (the bias that grows as the sun gets lower, against
+stripes on flat ground) plus `unitGap` 0.6 yards as a hard gap. With the moon or the sun low, the dark
+shadow started 1.6 yards from the feet, and the owner saw shadows come loose from the models. The map
+holds no ground, so it now has one texel of slack, and `unitGap` (0.5) is a fade: the extra grows from
+none at the unit to full at that distance along the sun, read from the depth at the centre tap. A
+character adds little to its own back, and its shadow stays on its feet.
+
+The world's slack has the same effect in a smaller measure: at a 10-degree sun 0.5 yards on the near
+map and 2 yards on the far one. Blending the sun into the moon would not change it. A fade between 12 and 3
+degrees was tried for an hour and replaced on the owner's idea: below `[sunshadows] riseFrom` (12 degrees)
+the shadows' light climbs back up as the real light sinks, on a smoothstep, to `riseTo` (85) at the
+horizon and under it. So the shadows shorten again through dusk, stay short, as at noon, while neither
+sun nor moon is up, and lengthen as the next light rises. A steep light needs little slack, so they stay
+on their casters, and the sun handing over to a moon no longer turns them at once, since both are near
+overhead when low. Not faded any more (except with riseFrom 0). The volumetric light reads the same map,
+so its shafts take the steeper angle below 12 degrees; it is faded out there by the sun's height anyway.
+A moon can first show well above the horizon, so the shadows' direction is eased toward its target with a
+time constant of 1.5 seconds (`ShadowSunDirection`): a jump becomes a sweep of a few seconds.
 
 ## Rays and light through mountains (2026-09-28)
 

@@ -297,19 +297,79 @@ float NightScale(float percent)
 
 // The shadows' sun: the sun, or with [sunshadows] lock the sun's azimuth at lockTilt degrees from straight
 // down. With the sun overhead, whose azimuth says nothing, the client's 45 degrees.
-bool ShadowSunDirection(float dir[3])
+// Below [sunshadows] riseFrom degrees the shadows' light climbs back toward riseTo as the real light sinks
+// (2026-09-30), on a smoothstep: at the horizon and under it, the shadows are short, as at noon.
+static bool ShadowTarget(float dir[3])
 {
     if (!SunDirection(dir))
         return false;
     const SunShadowSettings& ss = g_cfg.sunShadows;
-    if (!ss.lock)
-        return true;
     const float h = sqrtf(dir[0] * dir[0] + dir[1] * dir[1]);
     const float ax = h > 1e-4f ? dir[0] / h : 0.70710678f, ay = h > 1e-4f ? dir[1] / h : 0.70710678f;
+    if (!ss.lock)
+    {
+        const float el = asinf(dir[2] < -1.0f ? -1.0f : dir[2] > 1.0f ? 1.0f : dir[2]) * 57.29578f;
+        if (ss.riseFrom <= 0.0f || el >= ss.riseFrom)
+            return true;
+        float t = (ss.riseFrom - el) / ss.riseFrom;
+        t = t > 1.0f ? 1.0f : t;
+        t = t * t * (3.0f - 2.0f * t);
+        const float lifted = el > 0.0f ? el : 0.0f;
+        const float up = (lifted + ((std::max)(ss.riseTo, ss.riseFrom) - lifted) * t) * 0.01745329f;
+        dir[0] = cosf(up) * ax;
+        dir[1] = cosf(up) * ay;
+        dir[2] = sinf(up);
+        return true;
+    }
     const float tilt = ss.lockTilt * 0.01745329f;
     dir[0] = sinf(tilt) * ax;
     dir[1] = sinf(tilt) * ay;
     dir[2] = cosf(tilt);
+    return true;
+}
+
+// Eased toward ShadowTarget with a time constant of 1.5 seconds, once a frame (2026-09-30). A moon can
+// first show well above the horizon, where the shadows' light stood at riseTo, and the shadows turned at
+// once. The sun's own glide in SunDirection lets a change of more than 5 degrees through at once, for the
+// time set by hand; here such a change takes a few seconds.
+bool ShadowSunDirection(float dir[3])
+{
+    static float    cur[3] = { 0.0f, 0.0f, 1.0f };
+    static bool     have = false;
+    static unsigned frame = ~0u;
+    static double   last = 0.0;
+    if (have && frame == g_sunFrame)
+    {
+        memcpy(dir, cur, sizeof(cur));
+        return true;
+    }
+    float target[3];
+    if (!ShadowTarget(target))
+        return false;
+    frame = g_sunFrame;
+    const double now = Now();
+    if (!have)
+        memcpy(cur, target, sizeof(cur));
+    else
+    {
+        const double dt = now - last;
+        const float  k  = static_cast<float>(1.0 - exp(-(dt > 0.0 && dt < 1.0 ? dt : 0.0) / 1.5));
+        float len = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            cur[i] += (target[i] - cur[i]) * k;
+            len += cur[i] * cur[i];
+        }
+        len = sqrtf(len);
+        if (len > 1e-6f)
+            for (int i = 0; i < 3; ++i)
+                cur[i] /= len;
+        else
+            memcpy(cur, target, sizeof(cur));
+    }
+    have = true;
+    last = now;
+    memcpy(dir, cur, sizeof(cur));
     return true;
 }
 
