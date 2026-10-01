@@ -1083,6 +1083,13 @@ streams through, and as you walk it draws them from other places in it. Each pla
 - **The ship rule.** A fixed-function entry in view and not drawn was dropped, for ships. It now needs the
   entry to have moved, or to be brief and unseen for half a second.
 
+- **A batch was culled by its first model.** Some planters come in one draw of up to 10 copies of a
+  458-vertex model, a bone each, and an entry's place is its first bone. The near map culled the batch by
+  that place, up to 40 yards off, and with it the planter beside you; which planter came first changed as
+  you walked and turned. Once you stood still the batch settled into an order with a far planter first, and
+  the shadow beside you went over a second or two. Each entry now keeps how far its bones reach (`spread`),
+  and the culling and the distance rules allow for it.
+
 `/atmos stats` shows the cache's figures on screen once a second, with what was added and dropped within
 40 yards and why. `[general] trace` adds a line a frame of the same, with each entry.
 

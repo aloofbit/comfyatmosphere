@@ -412,10 +412,13 @@ namespace
         unsigned           drawnFor = 0;   // map redraws it was drawn on (see Evict: kBrief)
         bool               drifts = false; // has moved past stillRadius once: the still rule no longer holds it
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
+        float              spread = 0.0f;  // yards from pos to its farthest bone: a batch of models (see Spread)
     };
 
     // Each key holds the instances of that model, wherever they stand.
     std::unordered_map<Key, std::vector<Entry>, KeyHash> g_cache;
+    // Which entries the last redraw drew, for the probe's list of those near you: bit 1 the far map, 2 the near.
+    std::unordered_map<const Entry*, unsigned char> g_replayed;
     size_t           g_entries = 0;
     constexpr size_t kMaxCache = 5000;
     constexpr float  kMatchRadius = 3.0f;   // yards a recorded draw may be from an instance and still be it
@@ -742,7 +745,8 @@ namespace
     struct SecStats
     {
         unsigned frames = 0, added = 0, evView = 0, evAge = 0, evWritten = 0, evCap = 0;
-        unsigned nearAdded = 0, nearGone = 0, mostDrawn = 0;
+        unsigned nearAdded = 0, nearGone = 0, nearRefused = 0, mostDrawn = 0;
+        unsigned seen = 0, recorded = 0, rejZW = 0, rejBlend = 0, rejDynamic = 0, recFrames = 0;
         std::map<std::string, unsigned> nearWhy;
     };
     SecStats g_sec;
@@ -756,6 +760,8 @@ namespace
             return;
         if (strcmp(why, "new") == 0)
             ++g_sec.nearAdded;
+        else if (strncmp(why, "refused", 7) == 0)
+            ++g_sec.nearRefused;
         else
         {
             ++g_sec.nearGone;
@@ -860,6 +866,31 @@ namespace
     //     to a tenth of a yard: a character's hand beside a bush is not a bush. Only the registers the draw
     //     uploaded itself (nregsOwn): past them the snapshot holds the bones of models drawn before it.
     // With the first bone alone, 283 draws were refused a frame and 4,765 models kept.
+    // How far a shader draw's bones reach from its reference point (2026-09-30). In Stormwind the client draws
+    // planters in batches, up to 10 copies of a 458-vertex model in one draw with a bone each, and an entry's
+    // place is its first bone: the first planter of the batch, which as you moved could be 40 yards off. The
+    // map left the batch out by that place, and with it the planter beside you; which planter came first
+    // changed as you walked and turned, so its shadow came and went, and was gone once you stood still.
+    // Only the registers the draw uploaded itself (nregs here), as in FromFiles.
+    float Spread(const float* consts, UINT nregs, const D3DMATRIX& absolute, const float pos[3])
+    {
+        float most = 0.0f;
+        for (UINT k = 0; consts && 34 + 3 * k <= nregs && k < 64; ++k)
+        {
+            const float b[3] = { consts[(31 + 3 * k) * 4 + 3], consts[(32 + 3 * k) * 4 + 3], consts[(33 + 3 * k) * 4 + 3] };
+            float d2 = 0.0f;
+            for (int j = 0; j < 3; ++j)
+            {
+                const float w = b[0] * absolute.m[0][j] + b[1] * absolute.m[1][j] + b[2] * absolute.m[2][j] +
+                                absolute.m[3][j];
+                d2 += (w - pos[j]) * (w - pos[j]);
+            }
+            most = (std::max)(most, d2);
+        }
+        most = sqrtf(most);
+        return std::isfinite(most) ? (std::min)(most, 300.0f) : 0.0f;
+    }
+
     bool FromFiles(const Rec& r, const float pos[3], const D3DMATRIX& absolute, const float* consts, UINT nregs)
     {
         if (!g_cfg.shadow.mapTerrain)
@@ -1022,6 +1053,7 @@ namespace
             }
             if (FromFiles(r, pos, e.absolute, r.vs ? &g_constPool[r.consts] : nullptr, (std::min)(r.nregs, r.nregsOwn)))
             {
+                NoteNear("refused, the files place it", r, pos, player, havePlayer, 0);
                 ReleaseRec(r);
                 r = Rec{};
                 ++g_nFilesRefused;
@@ -1209,7 +1241,10 @@ namespace
                     best->absolute = e.absolute;
                     memcpy(best->pos, pos, sizeof(pos));
                     if (r.vs)
+                    {
                         best->consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + r.nregs * 4);
+                        best->spread = Spread(&g_constPool[r.consts], (std::min)(r.nregs, r.nregsOwn), e.absolute, pos);
+                    }
                 }
                 best->rec.alphaTest = r.alphaTest; best->rec.alphaRef = r.alphaRef; best->rec.alphaFunc = r.alphaFunc;
                 if (r.nregsOwn > best->rec.nregsOwn)
@@ -1226,7 +1261,10 @@ namespace
             {
                 e.rec = r;                         // the entry takes over the references
                 if (r.vs)
+                {
                     e.consts.assign(&g_constPool[r.consts], &g_constPool[r.consts] + r.nregs * 4);
+                    e.spread = Spread(&g_constPool[r.consts], (std::min)(r.nregs, r.nregsOwn), e.absolute, pos);
+                }
                 memcpy(e.pos, pos, sizeof(pos));
                 for (int j = 0; j < 3; ++j)
                     e.posEnd[j] = pos[j] + delta[j];
@@ -1394,13 +1432,14 @@ namespace
                         // distance and in view or not (2026-09-30): a ship's pieces that it left out of view
                         // stayed as a dark outline of the ship until staleTime.
                         if (e.mobile || e.drifts || (e.unit && !UnitAt(e.pos)) || brief ||
-                            dx * dx + dy * dy > reach * reach ||
+                            dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ||
                             (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
                             (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime))
                         {
                             gone = true; ++g_nEvictAge;
                             why = e.mobile ? "moving" : e.drifts ? "has moved" : (e.unit && !UnitAt(e.pos)) ? "unit gone" :
-                                  brief ? "brief" : dx * dx + dy * dy > reach * reach ? "out of reach" : "unseen too long";
+                                  brief ? "brief" : dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ? "out of reach" :
+                                  "unseen too long";
                         }
                     }
                 }
@@ -1678,6 +1717,27 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
     r.vb[0]->lpVtbl->GetDesc(r.vb[0], &vd);
     if (vd.Usage & D3DUSAGE_DYNAMIC)
     {
+        // The probe (2026-09-30): which draws these are. Looked at when planters in Stormwind lost their
+        // shadow after you stopped; that turned out to be the batches (see Spread), not these.
+        static unsigned logged = 0;
+        if (!g_logNext)
+            logged = 0;
+        else if (logged < 40)
+        {
+            ++logged;
+            IDirect3DVertexShader9* vs = nullptr;
+            d->GetVertexShader(dev, &vs);
+            D3DMATRIX w = {};
+            d->GetTransform(dev, D3DTS_WORLD, &w);
+            float cam[3] = {};
+            ClientCamera(cam);
+            Log("shadow:   dynamic buffer draw turned away: %s %uv %up, stride %u, buffer %p offset %u, base %d start %u; "
+                "world at (%.1f %.1f %.1f); c31..33.w (%.1f %.1f %.1f)", vs ? "M2" : "ff", numVertices, primCount,
+                r.vbStride[0], r.vb[0], r.vbOffset[0], baseVertex, startIndex, w.m[3][0] + cam[0], w.m[3][1] + cam[1],
+                w.m[3][2] + cam[2], g_mirror[31 * 4 + 3] + cam[0], g_mirror[32 * 4 + 3] + cam[1],
+                g_mirror[33 * 4 + 3] + cam[2]);
+            SafeRelease(vs);
+        }
         SafeRelease(r.vb[0]);
         ++g_rejDynamic;
         return;
@@ -1974,10 +2034,15 @@ void ShadowStatsText(std::string& out)
     snprintf(line, sizeof(line), "Shadow casters: %zu held (%u models, %u fixed, %u moving); up to %u drawn into the map",
              g_entries, models, fixed, moving, s.mostDrawn);
     out += line; out += "~";
+    const unsigned rf = s.recFrames ? s.recFrames : 1;
+    snprintf(line, sizeof(line), "Draws a frame: %u seen, %u recorded; turned away: depth writes off %u, blended %u, "
+             "dynamic buffer %u", s.seen / rf, s.recorded / rf, s.rejZW / rf, s.rejBlend / rf, s.rejDynamic / rf);
+    out += line; out += "~";
     snprintf(line, sizeof(line), "Last second: %u added, %u dropped (in view %u, aged %u, overwritten %u, cap %u)",
              s.added, s.evView + s.evAge + s.evWritten + s.evCap, s.evView, s.evAge, s.evWritten, s.evCap);
     out += line; out += "~";
-    snprintf(line, sizeof(line), "Within %.0f yd: %u added, %u dropped", kNearTrace, s.nearAdded, s.nearGone);
+    snprintf(line, sizeof(line), "Within %.0f yd: %u added, %u dropped, %u draws refused (the map files place them)",
+             kNearTrace, s.nearAdded, s.nearGone, s.nearRefused);
     out += line;
     for (const auto& kv : s.nearWhy)
     {
@@ -2048,12 +2113,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     ++g_sec.frames;
     g_sec.added += g_nAdded; g_sec.evView += g_nEvictView; g_sec.evAge += g_nEvictAge;
     g_sec.evWritten += g_nEvictWritten; g_sec.evCap += g_nEvictCap;
-    g_sec.mostDrawn = (std::max)(g_sec.mostDrawn, static_cast<unsigned>(g_replayDrawn));
     g_nRefreshed = g_nAdded = g_nEvictView = g_nEvictAge = g_nEvictCap = g_nEvictWritten = 0;
     if (logThis)
         Log("shadow: this frame's world draws: %u seen, recorded %u; rejected: depth test off %u, depth writes "
             "off %u, blended %u, no vertex buffer %u, dynamic %u", g_seen, recorded, g_rejZ, g_rejZW, g_rejBlend,
             g_rejNoVB, g_rejDynamic);
+    g_sec.seen += g_seen; g_sec.recorded += recorded; g_sec.rejZW += g_rejZW; g_sec.rejBlend += g_rejBlend;
+    g_sec.rejDynamic += g_rejDynamic; ++g_sec.recFrames;
     g_rejZ = g_rejZW = g_rejBlend = g_rejNoVB = g_rejDynamic = g_seen = 0;
     if (logThis)
     {
@@ -2444,7 +2510,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             const float along = dx * sunDir[0] + dy * sunDir[1] + dz * sunDir[2];
             const float sx = dx - along * sunDir[0], sy = dy - along * sunDir[1], sz = dz - along * sunDir[2];
             const float side2 = sx * sx + sy * sy + sz * sz;
-            if (side2 > sideReach * sideReach || along > alongReach || along < -alongReach)
+            const float sr = sideReach + e.spread, ar = alongReach + e.spread;   // a batch: any of its models
+            if (side2 > sr * sr || along > ar || along < -ar)
             {
                 if (!nearPass)
                     ++skipped;
@@ -2496,6 +2563,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             d->DrawIndexedPrimitive(dev, r.prim, r.baseVertex, r.minIndex, r.numVertices, r.startIndex, r.primCount);
         else
             d->DrawPrimitive(dev, r.prim, r.baseVertex, r.primCount);
+        if (logThis)
+            g_replayed[&e] |= nearPass ? 2 : 1;
         if (r.vb[1])
             d->SetStreamSource(dev, 1, nullptr, 0, 0);
         if (leafPass)
@@ -2551,6 +2620,30 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 }
             Log("shadow: %u cache entries within 150 yd not drawn for over 1 s", total);
         }
+        // Every entry within 25 yards (2026-09-30), for a shadow that is missing while you stand still: where
+        // its place is held, when the game last drew it, and whether this redraw put it in either map.
+        {
+            unsigned listed = 0;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                {
+                    const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1], dz = e.pos[2] - pl[2];
+                    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+                    if (d - e.spread > 25.0f || listed >= 60)
+                        continue;
+                    ++listed;
+                    auto f = g_replayed.find(&e);
+                    const unsigned char bits = f == g_replayed.end() ? 0 : f->second;
+                    Log("shadow:   near you: %s %uv %up start %u at (%.1f %.1f %.1f), %.1f yd (its bones %.1f yd about); the game drew it %.1f s ago, "
+                        "on %u redraws%s%s%s%s; this redraw: far map %s, near map %s", e.rec.vs ? "M2" : "ff",
+                        e.rec.numVertices, e.rec.primCount, e.rec.startIndex, e.pos[0], e.pos[1], e.pos[2], d,
+                        e.spread, now - e.lastSeen, e.drawnFor, e.unit ? ", at a unit" : "", e.mobile ? ", moving" : "",
+                        e.drifts ? ", has moved" : "", e.rec.alphaTest ? ", alpha tested" : "",
+                        (bits & 1) ? "yes" : "no", (bits & 2) ? "yes" : "no");
+                }
+            Log("shadow: %u cache entries within 25 yd", listed);
+        }
+        g_replayed.clear();
         // The check on the doodads' places: the nearest one from the files against the nearest model draw.
         float dp[3];
         if (MapDoodadNearest(pl, dp))
@@ -2644,6 +2737,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     g_valid = true;
     g_replayOutcome = 0;
     g_replayDrawn   = drawn;
+    g_sec.mostDrawn = (std::max)(g_sec.mostDrawn, static_cast<unsigned>(drawn));
     if (g_timing)
     {
         g_tReplay += Now() - tCache;
