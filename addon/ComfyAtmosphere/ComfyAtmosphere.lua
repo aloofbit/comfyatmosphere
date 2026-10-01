@@ -33,8 +33,13 @@ COMFYATMOSPHERE_VOLUME_QUALITY = "Volumetric Light Quality";
 COMFYATMOSPHERE_VOLUME_DENSITY = "Light Density";
 COMFYATMOSPHERE_VOLUME_DISTANCE = "Light Distance";
 COMFYATMOSPHERE_VOLUME_DIRECTION = "Light Toward the Sun";
+COMFYATMOSPHERE_LAMPS          = "Lamps";
 COMFYATMOSPHERE_LAMP_GLOW      = "Lamp Glow";
 COMFYATMOSPHERE_LAMP_DISTANCE  = "Lamp Distance";
+COMFYATMOSPHERE_LANTERN_LIGHT  = "Lantern Light";
+COMFYATMOSPHERE_TORCH_LIGHT    = "Torch Light";
+COMFYATMOSPHERE_INDOOR_LAMPS   = "Indoor Lamps";
+COMFYATMOSPHERE_LAMPS_DAY      = "Lamps by Day";
 COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_NIGHT  = "Night Shadows";
@@ -315,15 +320,23 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- [lamps] enabled. Night Darkness is drawn in the lamps' pass but stays on without them.
+		name = "COMFYATMOSPHERE_LAMPS",
+		desc = "Lamps, candles and torches glow in the air and light the walls and ground near them. Needs Volumetric Light on.",
+		type = "checkbutton",
+		cvar = "comfyLamps",
+		dependency = { "comfyVolume", "1" },
+	},
+	{
 		-- [lamps] strength: the glow around lamps, candles and torches and their light on the walls near them.
 		name = "COMFYATMOSPHERE_LAMP_GLOW",
 		desc = "How strongly lamps, candles and torches glow and light the walls and ground near them.",
 		type = "slider",
 		cvar = "comfyLampGlow",
-		dependency = { "comfyVolume", "1" },
+		dependency = { "comfyLamps", "1" },
 		minval = 0,
-		maxval = 100,
-		step = 5,
+		maxval = 50,
+		step = 1,
 		numberLabels = 1,
 	},
 	{
@@ -332,10 +345,58 @@ local ENTRIES = {
 		desc = "How far away lamps still glow. At 100 they fade into the fog as the game's own lamp glows do.",
 		type = "slider",
 		cvar = "comfyLampDistance",
-		dependency = { "comfyVolume", "1" },
+		dependency = { "comfyLamps", "1" },
 		minval = 50,
 		maxval = 400,
 		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [lamps] lanternLight.
+		name = "COMFYATMOSPHERE_LANTERN_LIGHT",
+		desc = "How brightly lampposts, lanterns, candles and chandeliers glow and light the ground and walls near them.",
+		type = "slider",
+		cvar = "comfyLanternLight",
+		dependency = { "comfyLamps", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [lamps] torchLight. The game lights its models with its own torches already.
+		name = "COMFYATMOSPHERE_TORCH_LIGHT",
+		desc = "How brightly torches, braziers, campfires and the torches NPCs carry glow and light the ground and walls near them. The game lights characters near them already, so at 100 they are lit twice.",
+		type = "slider",
+		cvar = "comfyTorchLight",
+		dependency = { "comfyLamps", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [lamps] indoors.
+		name = "COMFYATMOSPHERE_INDOOR_LAMPS",
+		desc = "How bright lamps, candles and fires are while you are inside a building. A room holds many lights close together.",
+		type = "slider",
+		cvar = "comfyIndoorLamps",
+		dependency = { "comfyLamps", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [lamps] day, of the night's strength. The change follows the game clock at dusk and dawn.
+		name = "COMFYATMOSPHERE_LAMPS_DAY",
+		desc = "How bright lamps, candles and torches are by day, as a share of their night brightness. 0 puts them out by day. Inside buildings, Indoor Lamps applies instead.",
+		type = "slider",
+		cvar = "comfyLampsDay",
+		dependency = { "comfyLamps", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 1,
 		numberLabels = 1,
 	},
 	{
@@ -654,15 +715,40 @@ end
 --
 -- A control sets its CVar as it moves, as the page does, and comfyfog.dll reads it at once. There is no
 -- Cancel: close the window to keep the values. A control whose `dependency` is not met is greyed and does
--- not move, and is indented under the control it depends on.
+-- not move.
+--
+-- The controls are in sections, one word each across the top, as the ComfyUI bank's filters; the chosen
+-- one's controls show below (2026-10-01; until then one long list with each control indented under the one it
+-- depends on; buttons along the top and then down the left made the window too wide). Atmosphere Effects, the
+-- box for all of them, sits above the sections. A control no section names goes to the last section, so a new
+-- one is never lost. Debug View is left out: the debug window has it.
 local WINDOW_VALUE_TEXT = {
 	comfyVolumeQuality = { "Low", "Medium", "High" },
 	comfyShadowResolution = { "1024", "2048", "4096" },
 };
-local WINDOW_WIDTH = 266;
-local WINDOW_HEIGHT = 500;
-local CONTENT_WIDTH = 200;
-local INDENT = 16;
+local WINDOW_SECTIONS = {
+	{ "Light", { "comfyVolume", "comfyVolumeStrength", "comfyVolumeQuality", "comfyVolumeDensity",
+	             "comfyVolumeDistance", "comfyVolumeDirection" } },
+	{ "Fog", { "comfyMist", "comfyMistDensity", "comfyMistHeight", "comfyMistBrightness", "comfyMistSun",
+	           "comfyMistReach", "comfyMistSky", "comfyMistPatches", "comfyMistLow", "comfyMistWater",
+	           "comfyMistMorning", "comfyMistLamps", "comfyMistWind", "comfyMistWindDir" } },
+	{ "Lamps", { "comfyLamps", "comfyLampGlow", "comfyLampDistance", "comfyLanternLight", "comfyTorchLight",
+	             "comfyIndoorLamps", "comfyLampsDay" } },
+	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
+	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
+	               "comfySunShadowsUnitStrength", "comfySunGlide", "comfySunlight", "comfyShadeTint",
+	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery" } },
+	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
+	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
+};
+local WINDOW_MASTER = "comfyAtmosphere";
+-- Left out of this window: Debug View has the debug window (/atmos debug, the Debug button below).
+local WINDOW_LEFT_OUT = { comfyDebugView = true };
+local WINDOW_WIDTH = 246;
+local WINDOW_HEIGHT = 480;
+local CONTENT_WIDTH = 198;
+local CHIP_HEIGHT = 20;     -- a section's word, as the ComfyUI bank's filters
+local CHIP_GAP = 0;
 
 local window = nil;
 local windowControls = {};
@@ -724,6 +810,17 @@ local function WindowTooltipHide()
 	GameTooltip:Hide();
 end
 
+-- A grey button, as Turtle's options frame draws its Defaults (UIPanelButtonGrayTemplate, patch-9.mpq): the
+-- stock disabled button art with white text. Drawn here from the art itself, so a client without Turtle's
+-- template gets the same button.
+local function GreyButton(button)
+	button:SetNormalTexture("Interface\\Buttons\\UI-Panel-Button-Disabled");
+	button:GetNormalTexture():SetTexCoord(0, 0.625, 0, 0.6875);
+	button:SetPushedTexture("Interface\\Buttons\\UI-Panel-Button-Disabled-Down");
+	button:GetPushedTexture():SetTexCoord(0, 0.625, 0, 0.6875);
+	button:SetTextColor(1, 1, 1);
+end
+
 local function WindowBuild()
 	window = CreateFrame("Frame", "ComfyAtmosphereWindow", UIParent);
 	window:SetWidth(WINDOW_WIDTH);
@@ -732,8 +829,7 @@ local function WindowBuild()
 	window:SetFrameStrata("DIALOG");
 	window:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true, tileSize = 32, edgeSize = 32,
+		tile = true, tileSize = 32,
 		insets = { left = 11, right = 12, top = 12, bottom = 11 },
 	});
 	window:EnableMouse(true);
@@ -744,87 +840,217 @@ local function WindowBuild()
 	window:SetScript("OnShow", WindowRefresh);
 	table.insert(UISpecialFrames, "ComfyAtmosphereWindow");    -- Escape closes it
 
-	local header = window:CreateTexture(nil, "ARTWORK");
+	-- The window's border on a frame of its own, above the panels: a frame draws its own backdrop under its
+	-- children, so the panels reach under this and it covers their outer edges. It takes no mouse. The title
+	-- and the close button go above it.
+	local rim = CreateFrame("Frame", "ComfyAtmosphereWindowRim", window);
+	rim:SetAllPoints(window);
+	rim:SetBackdrop({
+		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+		edgeSize = 32,
+		insets = { left = 11, right = 12, top = 12, bottom = 11 },
+	});
+	rim:SetFrameLevel(window:GetFrameLevel() + 10);
+
+	local header = rim:CreateTexture(nil, "ARTWORK");
 	header:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header");
 	header:SetWidth(256);
 	header:SetHeight(64);
 	header:SetPoint("TOP", window, "TOP", 0, 12);
-	local title = window:CreateFontString(nil, "ARTWORK", "GameFontNormal");
+	local title = rim:CreateFontString(nil, "OVERLAY", "GameFontNormal");
 	title:SetPoint("TOP", header, "TOP", 0, -14);
 	title:SetText(COMFYATMOSPHERE_CATEGORY);
 
 	local close = CreateFrame("Button", "ComfyAtmosphereWindowClose", window, "UIPanelCloseButton");
 	close:SetPoint("TOPRIGHT", window, "TOPRIGHT", -3, -3);
+	close:SetFrameLevel(rim:GetFrameLevel() + 1);
 
-	local scroll = CreateFrame("ScrollFrame", "ComfyAtmosphereWindowScroll", window, "UIPanelScrollFrameTemplate");
-	scroll:SetPoint("TOPLEFT", window, "TOPLEFT", 20, -30);
-	scroll:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -40, 44);
+	-- The controls in a panel with no border, and the scroll bar in a bordered column of its own along the
+	-- panel's right edge, as Turtle's options frame has its scroll bar.
+	local function Box(name, parent, edge, alpha)
+		local box = CreateFrame("Frame", name, parent);
+		box:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = edge,
+			insets = { left = edge / 4, right = edge / 4, top = edge / 4, bottom = edge / 4 },
+		});
+		box:SetBackdropColor(0, 0, 0, alpha);
+		box:SetBackdropBorderColor(0.6, 0.6, 0.6, 1);
+		return box;
+	end
+	-- The panel's top is set under the section words, once they are laid out.
+	local panel = CreateFrame("Frame", "ComfyAtmosphereWindowPanel", window);   -- holds the layout; no border
+
+	-- A bar across the window, as thick as the window's own frame: the top edge of UI-DialogBox-Border, the
+	-- third of its eight pieces, stored on its side, so it is drawn a quarter turn round. The visible bar is
+	-- the outer 12 of the piece's 32 pixels, so the strip starts 6 above the line. On the window, under its
+	-- border, which covers the bar's ends. (The tooltip border's edge, used first, was far thinner.)
+	local function Divider()
+		local line = window:CreateTexture(nil, "ARTWORK");
+		line:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Border");
+		line:SetTexCoord(0.25, 0, 0.375, 0, 0.25, 1, 0.375, 1);
+		line:SetHeight(32);
+		return line;
+	end
+	-- Above the buttons.
+	local lower = Divider();
+	lower:SetPoint("TOPLEFT", window, "BOTTOMLEFT", 6, 46);
+	lower:SetPoint("TOPRIGHT", window, "BOTTOMRIGHT", -6, 46);
+	panel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -6, 37);
+
+	local scroll = CreateFrame("ScrollFrame", "ComfyAtmosphereWindowScroll", panel, "UIPanelScrollFrameTemplate");
+	scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 6, -4);
+	scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -30, 4);
+	-- The scroll bar's column: the template puts the bar 6 to 22 pixels right of the frame, so the column runs
+	-- from 2 right of it to the panel's inner edge.
+	local track = Box("ComfyAtmosphereWindowScrollTrack", panel, 12, 0.3);
+	track:SetPoint("TOPLEFT", panel, "TOPRIGHT", -28, -3);
+	track:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -3, 3);
 	scroll:EnableMouseWheel(true);
 	scroll:SetScript("OnMouseWheel", function()
 		local bar = getglobal(this:GetName() .. "ScrollBar");
 		bar:SetValue(bar:GetValue() - arg1 * 40);
 	end);
-	local content = CreateFrame("Frame", "ComfyAtmosphereWindowContent", scroll);
-	content:SetWidth(CONTENT_WIDTH);
 
-	-- How deep under other controls each CVar sits, for the indent.
-	local depth = {};
-	local y = -4;
-	for i, entry in ipairs(ENTRIES) do
-		local option = entry;
-		if HasCVar(option.cvar) then
-			local level = option.dependency and depth[option.dependency[1]] and depth[option.dependency[1]] + 1 or 0;
-			depth[option.cvar] = level;
-			local x = level * INDENT;
-			local name = "ComfyAtmosphereWindowControl" .. i;
-			local control = { option = option };
-			if option.type == "checkbutton" then
-				if level == 0 and y < -4 then
-					y = y - 10;    -- a gap before each group
-				end
-				local box = CreateFrame("CheckButton", name, content, "UICheckButtonTemplate");
-				box:SetWidth(26);
-				box:SetHeight(26);
-				box:SetPoint("TOPLEFT", content, "TOPLEFT", x, y);
-				getglobal(name .. "Text"):SetText(WindowLabel(option));
-				box:SetScript("OnClick", function()
-					SetCVar(this.comfyOption.cvar, this:GetChecked() and "1" or "0");
-					WindowRefresh();
-				end);
-				control.frame = box;
-				y = y - 26;
-			else
-				local slider = CreateFrame("Slider", name, content, "OptionsSliderTemplate");
-				slider:SetWidth(CONTENT_WIDTH - x - 16);
-				slider:SetHeight(17);
-				slider:SetPoint("TOPLEFT", content, "TOPLEFT", x + 8, y - 16);
-				slider:SetMinMaxValues(option.minval, option.maxval);
-				slider:SetValueStep(option.step);
-				local names = WINDOW_VALUE_TEXT[option.cvar];
-				getglobal(name .. "Low"):SetText(names and names[1] or tostring(option.minval));
-				getglobal(name .. "High"):SetText(names and names[table.getn(names)] or tostring(option.maxval));
-				slider:SetScript("OnValueChanged", function()
-					if windowRefreshing then
-						return;
-					end
-					local o = this.comfyOption;
-					local value = o.minval + math.floor((this:GetValue() - o.minval) / o.step + 0.5) * o.step;
-					SetCVar(o.cvar, tostring(value));
-					WindowSliderText(this.comfyControl);
-				end);
-				slider.comfyControl = control;
-				control.frame = slider;
-				y = y - 50;
-			end
-			control.frame.comfyOption = option;
-			control.frame:SetScript("OnEnter", WindowTooltip);
-			control.frame:SetScript("OnLeave", WindowTooltipHide);
-			table.insert(windowControls, control);
+	-- Each CVar's tab: its section, or the last.
+	local sectionOf = {};
+	for i, section in ipairs(WINDOW_SECTIONS) do
+		for _, cvar in ipairs(section[2]) do
+			sectionOf[cvar] = i;
 		end
 	end
-	content:SetHeight(-y + 8);
-	scroll:SetScrollChild(content);
-	scroll:UpdateScrollChildRect();
+	local count = table.getn(WINDOW_SECTIONS);
+
+	-- One control, at y in its frame; returns the y under it.
+	local function Add(option, i, parent, x, y, width)
+		local name = "ComfyAtmosphereWindowControl" .. i;
+		local control = { option = option };
+		if option.type == "checkbutton" then
+			local box = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate");
+			box:SetWidth(26);
+			box:SetHeight(26);
+			box:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y);
+			getglobal(name .. "Text"):SetText(WindowLabel(option));
+			box:SetScript("OnClick", function()
+				SetCVar(this.comfyOption.cvar, this:GetChecked() and "1" or "0");
+				WindowRefresh();
+			end);
+			control.frame = box;
+			y = y - 30;
+		else
+			local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate");
+			slider:SetWidth(width - 16);
+			slider:SetHeight(17);
+			slider:SetPoint("TOPLEFT", parent, "TOPLEFT", x + 8, y - 16);
+			slider:SetMinMaxValues(option.minval, option.maxval);
+			slider:SetValueStep(option.step);
+			local names = WINDOW_VALUE_TEXT[option.cvar];
+			getglobal(name .. "Low"):SetText(names and names[1] or tostring(option.minval));
+			getglobal(name .. "High"):SetText(names and names[table.getn(names)] or tostring(option.maxval));
+			slider:SetScript("OnValueChanged", function()
+				if windowRefreshing then
+					return;
+				end
+				local o = this.comfyOption;
+				local value = o.minval + math.floor((this:GetValue() - o.minval) / o.step + 0.5) * o.step;
+				SetCVar(o.cvar, tostring(value));
+				WindowSliderText(this.comfyControl);
+			end);
+			slider.comfyControl = control;
+			control.frame = slider;
+			y = y - 50;
+		end
+		control.frame.comfyOption = option;
+		control.frame:SetScript("OnEnter", WindowTooltip);
+		control.frame:SetScript("OnLeave", WindowTooltipHide);
+		table.insert(windowControls, control);
+		return y;
+	end
+
+	-- Atmosphere Effects, at the top, over every section.
+	local chipTop = -32;
+	for i, option in ipairs(ENTRIES) do
+		if option.cvar == WINDOW_MASTER and HasCVar(option.cvar) then
+			Add(option, i, window, 12, chipTop, CONTENT_WIDTH);
+			chipTop = chipTop - 30;
+		end
+	end
+
+	-- The sections: a word each, as the ComfyUI bank's filters are (Storage.lua), flowing across and
+	-- wrapping. The chosen one has a gold ground of its own: LockHighlight draws what hovering draws.
+	local chips = {};
+	local x, line = 0, 0;
+	for t = 1, count do
+		local chip = CreateFrame("Button", "ComfyAtmosphereWindowSection" .. t, window);
+		chip:SetHeight(CHIP_HEIGHT);
+		local text = chip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+		text:SetPoint("CENTER", chip, "CENTER", 0, 0);
+		text:SetText(WINDOW_SECTIONS[t][1]);
+		chip.text = text;
+		local w = text:GetStringWidth() + 10;
+		chip:SetWidth(w);
+		if x > 0 and x + w > WINDOW_WIDTH - 24 then
+			x = 0;
+			line = line + 1;
+		end
+		chip:SetPoint("TOPLEFT", window, "TOPLEFT", 12 + x, chipTop - line * (CHIP_HEIGHT + CHIP_GAP));
+		x = x + w + CHIP_GAP;
+		local sel = chip:CreateTexture(nil, "BACKGROUND");
+		sel:SetAllPoints(chip);
+		sel:SetTexture(1, 0.82, 0, 0.25);
+		sel:Hide();
+		chip.sel = sel;
+		chip:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD");
+		chip.comfyTab = t;
+		chips[t] = chip;
+	end
+	panel:SetPoint("TOPLEFT", window, "TOPLEFT", 6, chipTop - (line + 1) * (CHIP_HEIGHT + CHIP_GAP) - 2);
+	-- Under the section words.
+	local upper = Divider();
+	upper:SetPoint("TOPLEFT", window, "TOPLEFT", 6, chipTop - (line + 1) * (CHIP_HEIGHT + CHIP_GAP) + 4);
+	upper:SetPoint("TOPRIGHT", window, "TOPRIGHT", -6, chipTop - (line + 1) * (CHIP_HEIGHT + CHIP_GAP) + 4);
+
+	-- A frame for each section, in the scroll frame's place while it is chosen.
+	local contents, heights = {}, {};
+	for t = 1, count do
+		local content = CreateFrame("Frame", "ComfyAtmosphereWindowContent" .. t, scroll);
+		content:SetWidth(CONTENT_WIDTH);
+		content:Hide();
+		contents[t] = content;
+		heights[t] = -4;
+	end
+	for i, option in ipairs(ENTRIES) do
+		if option.cvar ~= WINDOW_MASTER and not WINDOW_LEFT_OUT[option.cvar] and HasCVar(option.cvar) then
+			local t = sectionOf[option.cvar] or count;
+			heights[t] = Add(option, i, contents[t], 0, heights[t], CONTENT_WIDTH);
+		end
+	end
+	for t = 1, count do
+		contents[t]:SetHeight(-heights[t] + 8);
+	end
+
+	local function Choose(t)
+		for k = 1, count do
+			contents[k]:Hide();
+			if k == t then
+				chips[k].sel:Show();
+				chips[k].text:SetTextColor(1, 1, 1);
+			else
+				chips[k].sel:Hide();
+				chips[k].text:SetTextColor(0.7, 0.7, 0.7);
+			end
+		end
+		contents[t]:Show();
+		scroll:SetScrollChild(contents[t]);
+		scroll:UpdateScrollChildRect();
+		getglobal(scroll:GetName() .. "ScrollBar"):SetValue(0);
+		window.comfyTab = t;
+	end
+	for t = 1, count do
+		chips[t]:SetScript("OnClick", function() Choose(this.comfyTab); end);
+	end
+	Choose(window.comfyTab or 1);
 
 	-- The values comfyfog.dll registered the CVars with, which are comfyfog.ini's. GetCVarDefault is
 	-- not in every 1.12 client, so the button is only there where it is.
@@ -832,8 +1058,9 @@ local function WindowBuild()
 		local defaults = CreateFrame("Button", "ComfyAtmosphereWindowDefaults", window, "UIPanelButtonTemplate");
 		defaults:SetWidth(72);
 		defaults:SetHeight(22);
-		defaults:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 18, 16);
+		defaults:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 14, 12);
 		defaults:SetText(DEFAULTS or "Defaults");
+		GreyButton(defaults);
 		defaults:SetScript("OnClick", function()
 			for _, control in ipairs(windowControls) do
 				local ok, value = pcall(GetCVarDefault, control.option.cvar);
@@ -848,15 +1075,22 @@ local function WindowBuild()
 	local debug = CreateFrame("Button", "ComfyAtmosphereWindowDebug", window, "UIPanelButtonTemplate");
 	debug:SetWidth(72);
 	debug:SetHeight(22);
-	debug:SetPoint("BOTTOM", window, "BOTTOM", 0, 16);
+	debug:SetPoint("BOTTOM", window, "BOTTOM", 0, 12);
 	debug:SetText("Debug");
+	GreyButton(debug);
 	debug:SetScript("OnClick", function() ComfyAtmosphere_DebugToggle(); end);
 	local done = CreateFrame("Button", "ComfyAtmosphereWindowDone", window, "UIPanelButtonTemplate");
 	done:SetWidth(72);
 	done:SetHeight(22);
-	done:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 16);
+	done:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -14, 12);
 	done:SetText(CLOSE or "Close");
 	done:SetScript("OnClick", function() window:Hide(); end);
+
+	-- ShaguTweaks' dark mode darkens the frames there when it loads, and this window is built later, on the
+	-- first /atmos options: it asks for the same. Nothing happens without ShaguTweaks or with dark mode off.
+	if ShaguTweaks and ShaguTweaks.DarkenFrame then
+		ShaguTweaks.DarkenFrame(window);
+	end
 
 	window:Hide();
 end

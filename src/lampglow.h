@@ -3,7 +3,8 @@
 
 #include <d3d9.h>
 
-bool LampGlowActive();                     // should the lights be tracked and the glow drawn this frame?
+bool LampGlowActive();                     // should the pass draw this frame (the lamps, or the night's darkness)?
+bool LampGlowWantsLights();                // should the lights be tracked: the lamps are on
 bool LampGlowDraw(IDirect3DDevice9* dev);  // before the UI, after the volumetric light; true if drawn
 void LampGlowReset();                      // before Reset
 void LampGlowProbe();                      // log the next draw

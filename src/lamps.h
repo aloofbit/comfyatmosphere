@@ -25,6 +25,7 @@ struct LampLight
     float reach;        // yards
     float dist;         // yards from the camera
     int   kind;         // 0 = a client point light (torch, brazier), 1 = a glow sprite (lamppost)
+    bool  fire;         // a torch, brazier or campfire: [lamps] torchLight; otherwise a lamp: lanternLight
 };
 
 void LampsProbe(IDirect3DDevice9* dev);                  // F12: open a window of kWindow frames
@@ -37,9 +38,10 @@ void LampsSetLight(DWORD index, const D3DLIGHT9* light, bool inWorld);   // a cl
 void LampsLightEnable(DWORD index, BOOL on);                    // a client LightEnable
 void LampsDraw(IDirect3DDevice9* dev, const LampDraw& d);       // a client draw in the world phase
 void LampsWorldEnded();                                  // the world is drawn: this frame's sightings go in
-// The lights to draw this frame, nearest first, up to max. cam is the camera's world position, fwd the way it
-// looks (unit length): past kAlways yards only lights in front of it count.
-int  LampsGather(const float cam[3], const float fwd[3], LampLight* out, int max);
+constexpr int kLampsMax = 256;                           // the most lights gathered in a frame
+// The lights to draw this frame, nearest first, up to max. cam is the camera's world position, viewProj the
+// camera-relative view and projection: only a light whose reach can show on screen counts.
+int  LampsGather(const float cam[3], const D3DMATRIX& viewProj, LampLight* out, int max);
 unsigned LampsTracked();                                 // how many lights are held, for the probe
 void LampsFrameEnd();                                    // at Present: count the frame, report at the end
 void LampsReset();                                       // before Reset or a new device

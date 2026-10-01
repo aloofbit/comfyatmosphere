@@ -749,7 +749,7 @@ namespace
             if (!g_worldEnded)
             {
                 ShadowSetPhase(VolumeActive());
-                LampsSetTracking(LampGlowActive());
+                LampsSetTracking(LampGlowWantsLights());
             }
         }
         return g_oBeginScene(dev);

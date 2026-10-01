@@ -522,6 +522,122 @@ light, the glow and the distance at its pixel and beside it (lines `lampglow:   
 `maxIntensity` 4 could not be seen; the default is 10 at strength 40. The cost has not been measured:
 the benchmark has a line for it (`bench: the fog around lamps`).
 
+**On and off (2026-10-01).** The Lamps box on the Atmosphere page sets `[lamps] enabled`. Off, the tracker
+stops too. Night Darkness stays: it is drawn in the same pass but does not need the lamps.
+
+**Lamps that went out as the camera turned (2026-10-01).** Four causes, all found in the code:
+- Past 25 yards a light counted only within about 70 degrees of where the camera looked. A lamp at the edge
+  of a wide screen, or one just off it whose glow reached into view, went out. Now a light counts when the
+  sphere its light reaches can show on screen (`LampsGather`, against the five sides of the view).
+- Only the nearest 16 lights in front of the camera were drawn. A turn changed which lights were in front,
+  so it changed which 16 were drawn.
+- The client names its own point light only while it draws a model near it. A torch on a wall stayed in
+  view while its models went off screen, counted as unseen, and went out after `keep` seconds. A client
+  light that has stayed put for a second now counts unseen time 15 times slower.
+- 32 sprite draws were read a frame. A lamp whose sprite came after the 32nd was not read. Now 128.
+
+`MapLightsNear` also gave the files' lights in file order and stopped at 256. Stormwind's building alone
+holds up to 1351 (606 lights of its own and 745 lit doodads), so the candles beside you could be left
+out. It now gives the nearest first.
+
+**More lights: tiles (2026-10-01).** The screen is cut into 8 x 6 tiles. The box round each light's sphere,
+projected, says which tiles the light can show in. Each tile draws up to `[lamps] maxLights` (32) of them,
+nearest first, through a shader built for 0, 4, 8, 16 or 32 lights. Up to 256 lights are gathered a frame.
+The F12 line `lampglow: ... the fullest tile has N` says when a tile is full.
+
+**The flame's colour and place (2026-10-01).** Read offline from the light doodads of Stormwind, Ironforge,
+Undercity, Darnassus and Orgrimmar (`m2_lights.js` and `m2_flames.js`, on the model browser's library):
+- Few light models carry an M2 light of their own: 3 of about 60, all thrones.
+- Their flames are particle emitters and small glow quads, and those carry the colour. The middle particle
+  colour is (223 138 47) on torches and candles, (168 107 196) on a night elf lantern and (194 0 255) on a
+  Kalidar lamppost. A glow quad's unit colour is (0.92 0.74 0.22) on a Stormwind lamppost and
+  (0.33 0.74 1.00) on a Darkshore one.
+- The colour in MODD is not the flame's. It changes from one placement to the next with the light around
+  the doodad (Stormwind's 203 torches have 68 different values).
+
+`mapm2.cpp` reads both. The light sits at the glow quads, else at the emitters; its colour is the quads',
+else the emitters', with the brightest channel at 1. Until then every flame was orange (1 0.62 0.29) and sat
+85% of the way up the model's box: 70 yards above an Undercity lantern, whose chain is in the box, and 1.5
+yards above the candles of the Goldshire inn's chandelier. `CANDLEOFF` (69 in Stormwind) and `BROKEN`
+lampposts give no light. A model with neither emitters nor quads (an Undercity torch, a dwarf lantern)
+keeps the orange: near its top when it is 6 yards tall or less (a pole torch, `FREESTANDINGTORCH02`), else
+at its median vertex. An emitter's colour is the mean of its three colours weighted by their alpha, from
+additive emitters only (blend 4): a pole torch's flame turns white at mid-life, and a Duskwood lamppost has
+a grey smoke emitter (blend 2) beside its flame.
+
+**Lamps outside buildings (2026-10-01).** Only the buildings' doodads were read. The map tiles place their
+own (MDDF), and the Darkshire tile alone places 17 pole torches, 22 lampposts and 8 lanterns outside any
+building. A lamp out there glowed only when the client showed a light or a glow sprite for it, and a pole
+torch never did: its glow quad is blend 2, not additive, so it is not taken for a sprite. `Doodads` in
+`mapterrain.cpp` now reads them with the same words and flames (`LightModelWord`, `LightFlame`).
+
+**Blocks on characters (2026-10-01).** The lamps' light on a player model fell in small square facets. The
+surface pass took a surface's facing from `ddx`/`ddy` of the rebuilt point, which the GPU works out once for
+each 2 x 2 block of pixels: one facing for four pixels, and across a model's outline a facing made from two
+different surfaces. It now reads the depth one pixel to each side and, on each axis, takes the side nearer
+in depth. That costs 4 more depth reads a pixel; the pixel size goes to the shader in c6.
+
+**Fires with no light word (2026-10-01).** The stone pyres outside Northshire Abbey (`STONEPYRE01`) burn a
+flame on a pillar and gave no light: no word took them. A scan of the 7150 doodad models placed in Azeroth and
+Kalimdor (`flame_scan.js`) found 100 that burn a flame and match no word: 44 wood piles (campfires), 49
+cauldrons, 27 outposts, 14 pyres, gargoyles, foundry pits, warlock shrines, a watchtower, the Darkshire
+entrance. A model now gives light when it has an additive emitter whose texture is a flame (FLAME, FIRE1,
+FIRE_), taken as FLAME, a fire, 14 yards. Embers alone (a burning tree, a cart) do not count. Its light sits at
+those flames, never at its glow quads: a building's window is a small blended mesh too. Each model gives a light
+for each group of flames within 3 yards of each other, up to 6: a chandelier's candles are one, a watchtower's
+corner fires are one each. A building's doodads are now all read once (cached for every building), where only
+those with a light word were before.
+
+An emitter switched off at rest gives no light: its "enabled" track (uint8, at +476) starts at 0. The Blackrock
+arena flag (`ARENAFLAG`, a game object in Stormwind) has three flame emitters that burn only when an animation
+turns them on, and it glowed standing still. Every lit lamp read (torches, candles, the inn chandelier, pyres,
+a night elf lantern) starts at 1.
+
+**Game objects (2026-10-01).** In Stormwind's Trade District a pole torch by a planter gave no light: no map
+file places it, because the server spawns it. `ClientGameObjects` (`client.cpp`) walks the object manager for
+type 5 and reads 1.12's update fields: the scale at 0x4, GAMEOBJECT_DISPLAYID at 0x8, POS_X..FACING at
+0xF..0x12. The loader reads `GameObjectDisplayInfo.dbc` once (11769 rows in this client) and each display id's
+model once, with the same words and flames as the files. Four times a second the game objects in the world
+become lights beside the files' (`RebuildObjectLights`). The first walk found the torch, Midsummer braziers,
+candles and lanterns: 22 of 381 game objects lit. F12 lists every game object within 20 yards, with its
+display id, model and light.
+
+**Lamps built into a building (2026-10-01).** A Stormwind street lamp beside the same planter was in no file
+as a lamp: not a doodad, not a game object, not a creature, and no building light stands at it. It is part
+of the city's own geometry: this client's Stormwind.wmo (from patch-3.mpq) draws its lamps with
+STORMWINDSTREETLAMP.BLP and STORMWINDLAMPGLASS.BLP. `WmoLoad` now marks a material whose texture names
+LAMPGLASS, and each group of its triangles within 1.5 yards of each other is a lamp, lit like a Stormwind
+lamppost's glow (0.92 0.74 0.22), 10 yards. Stormwind has 1720 such triangles: 215 lamps.
+
+**NPC torches, and the game's lights on the ground (2026-10-01).** A probe in Darkshire caught a guard
+walking with a torch: a client light of (1.40 0.87 0.40), 16.7 yards, named in 5 to 36 of 60 frames as it
+moved about a yard at a time. The held torch's model (`Club_1H_Torch_A_01`) carries an M2 light of its own,
+(0.47 0.29 0.13) reaching 2.2 yards, but the client sent the same light it sends for a brazier. These lights glowed
+but did not light surfaces, since the client lights its models with them. It lights only its models: the
+ground round a guard or a brazier stayed dark. Every light now lights surfaces, so a model near one is lit
+twice.
+
+The gaps also broke the tracker. With 3 yards as the most a light could move between sightings, the guard
+had walked further after each gap, so the torch was taken for a new light and the old one stayed. Off
+screen it never aged out, and the tracker filled to its 256. Now a client light may have moved 6 yards for
+each second unseen (15 at most), one that has moved ages out off screen too, and one counts as fixed only
+after 3 seconds seen in one place (then kept 5 times longer, not 15).
+
+**Fires and lamps (2026-10-01).** At a camp on the Duskwood road seven pole torches and a campfire stood within
+a few yards, and the lamppost beside it, one light four yards up, looked dim next to them. Each light is
+now a fire (TORCH, BRAZIER, FIREPLACE, CAMPFIRE, FIREPIT, BONFIRE, and the client's own lights) or a lamp
+(the rest, the buildings' own lights and the glow sprites), and each kind has a share of both the glow and
+the light on surfaces: Torch Light (`[lamps] torchLight`) and Lantern Light (`lanternLight`).
+
+**The defaults (2026-10-01)** are the owner's, read from the test client after a night of tuning: Lamp Glow 29,
+Lantern Light 77, Torch Light 74, Indoor Lamps 21, Lamps by Day 1, Lamp Distance 260.
+
+**A lamppost that went out as you walked up to it (2026-10-01).** A lamppost in the files is also seen by its
+glow sprite, and the client's light used to win. When the client began to draw the sprite, the file's
+light was dropped at once while the sprite's faded in; when it stopped for a moment, the sprite's faded out
+over `keep` seconds while it still held the file's back. The files' lights now win: a light the client
+shows within 2 yards of one is left out. A lamp from the files stays as it is however the client draws.
+
 ## Sun shadows on the world (2026-09-29)
 
 `sunshadows.cpp` lays the volumetric light's shadow map on the world, just before the light: the point
@@ -992,6 +1108,12 @@ sunshadows.indoor 1` brought them back, which showed it. Each indoor group now k
 (collision ones included), and the point must also have one of that room's triangles straight above it,
 1.5 to 40 yards up: a ceiling. The pass also logs why it is not drawn on a probe frame; before, the
 probe showed no `sunshadows:` line at all.
+
+**Tunnels (2026-10-01).** Walking through Stormwind's canal tunnels switched every indoor rule on and off:
+Indoor Lamps, Night Darkness, the sun shadows. A tunnel has a ceiling, so it passed the test above. Many
+of them are 0xa040: indoor (0x2000), but also lit by the exterior light (0x40), which the client lights as
+it lights the open air. A group marked exterior lit (0x40) or exterior (0x8) no longer counts as indoor.
+Stormwind keeps 190 of its 304 indoor groups; the Goldshire inn keeps all 8.
 
 **Groups no portal reaches (2026-09-30).** With the shadows back, a large solid shade lay over the Trade
 District's plaza, from an empty sky. `/atmos shadow.mapTerrain 0` (the client's own draws) did not cast it.

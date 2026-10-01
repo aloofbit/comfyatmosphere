@@ -122,6 +122,7 @@ namespace
         std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
         std::vector<float>     dAnim;           // the places of the animated ones, left out: the client's
         std::vector<std::string> dAnimName;     // draws of them cast instead (a gryphon roost)
+        std::vector<MapLight>  dLights;         // the doodads that give light, in the world (LightModelWord)
         std::vector<std::string> dName;         // ...its model and scale, for the probe
         std::vector<float>     dScale;
         std::string            archives;        // the archives that hold the tile, the one read first
@@ -292,6 +293,29 @@ namespace
                     model.reset();
                 it = g_m2.emplace(name, model).first;
             }
+            // A doodad that gives light: a torch on a pole, a lamppost, a campfire in the open (2026-10-01).
+            // Until then only the buildings' doodads were read, and a lamp outside them glowed only when the
+            // client showed a light or a glow sprite for it. Taken before the model is known to be readable:
+            // LightFlames has an answer either way. One light for each group of flames.
+            float lightReach = 0.0f;
+            if (const char* word = LightModelWord(name.substr(name.find_last_of('\\') + 1), it->second.get(), lightReach))
+            {
+                float r[3][3], fp[kMaxFlames][3], colour[3];
+                EulerZYX(rotDeg[1] * deg, rotDeg[0] * deg, rotDeg[2] * deg, r);
+                const float sc = scale16 / 1024.0f;
+                const int nf = LightFlames(it->second.get(), strcmp(word, "FLAME") != 0, fp, colour);
+                for (int f = 0; f < nf; ++f)
+                {
+                    MapLight L = {};
+                    memcpy(L.colour, colour, sizeof(colour));
+                    for (int j = 0; j < 3; ++j)
+                        L.pos[j] = (j < 2 ? -1.0f : 1.0f) * sc *
+                                   (fp[f][0] * r[j][0] + fp[f][1] * r[j][1] + fp[f][2] * r[j][2]) + pos[j];
+                    L.reach = lightReach * (std::min)((std::max)(sc, 0.5f), 2.0f);
+                    strncpy_s(L.what, word, _TRUNCATE);
+                    m.dLights.push_back(L);
+                }
+            }
             if (!it->second)
             {
                 ++m.doodadsMissing;
@@ -461,10 +485,24 @@ namespace
 
     // --- the loader thread ---------------------------------------------------------------------------
 
-    enum JobKind { kJobTile, kJobBuilding, kJobTexture };
+    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject };
     struct Job { JobKind kind; std::string name; int a, b; unsigned gen; bool groundOnly = false; };   // name: the map, the WMO, the BLP
+                                                                                                    // a: a game object's display id
     struct Loaded { std::string name; unsigned gen; bool ok; WmoMesh mesh; double ms; };
     struct LoadedTex { std::string name; unsigned gen; bool ok; BlpData data; };
+
+    // What a game object's model gives as light (2026-10-01): read once for each display id, by the loader.
+    struct ObjectLight
+    {
+        unsigned    display = 0;
+        bool        done = false;       // the loader has answered; false while it is asked for
+        std::string model;              // from GameObjectDisplayInfo.dbc; empty if the row was not found
+        const char* word = nullptr;     // null: no light
+        float       reach = 0.0f;
+        int         count = 0;
+        float       pos[kMaxFlames][3] = {};
+        float       colour[3] = {};
+    };
 
     std::mutex              g_mx;
     std::condition_variable g_cv;
@@ -472,6 +510,7 @@ namespace
     std::deque<Mesh>        g_done;
     std::deque<Loaded>      g_doneWmo;
     std::deque<LoadedTex>   g_doneTex;
+    std::deque<ObjectLight> g_doneObj;
     bool                    g_started = false;
     unsigned                g_gen = 1;   // bumped at a map change: older results are thrown away
 
@@ -494,6 +533,55 @@ namespace
                 tried = true;
             }
             const double t0 = Now();
+            if (job.kind == kJobObject)
+            {
+                // GameObjectDisplayInfo.dbc, read once: the id is field 0 and the model's name field 1, an
+                // offset into the strings after the records.
+                static std::unordered_map<unsigned, std::string> displays;
+                static bool read = false;
+                if (!read && open)
+                {
+                    read = true;
+                    std::vector<uint8_t> dbc;
+                    if (MpqRead("DBFilesClient\\GameObjectDisplayInfo.dbc", dbc) && dbc.size() >= 20 &&
+                        U32(dbc, 0) == 0x43424457)   // "WDBC"
+                    {
+                        const uint32_t rows = U32(dbc, 4), size = U32(dbc, 12), strSize = U32(dbc, 16);
+                        const size_t strs = 20 + static_cast<size_t>(rows) * size;
+                        if (size >= 8 && strs + strSize <= dbc.size())
+                            for (uint32_t r = 0; r < rows; ++r)
+                            {
+                                const uint32_t off = U32(dbc, 20 + static_cast<size_t>(r) * size + 4);
+                                std::string name;
+                                for (size_t k = strs + off; off < strSize && k < dbc.size() && dbc[k]; ++k)
+                                    name += static_cast<char>(dbc[k] >= 'a' && dbc[k] <= 'z' ? dbc[k] - 32 : dbc[k]);
+                                displays[U32(dbc, 20 + static_cast<size_t>(r) * size)] = name;
+                            }
+                    }
+                    Log("map terrain: GameObjectDisplayInfo.dbc: %u display rows", static_cast<unsigned>(displays.size()));
+                }
+                ObjectLight o;
+                o.display = static_cast<unsigned>(job.a);
+                o.done = true;
+                auto it = displays.find(o.display);
+                if (it != displays.end() && !it->second.empty())
+                {
+                    o.model = it->second;
+                    M2Model m;
+                    const bool ok = M2Load(o.model, m);
+                    float reach = 0.0f;
+                    if (const char* word = LightModelWord(o.model.substr(o.model.find_last_of('\\') + 1),
+                                                          ok ? &m : nullptr, reach))
+                    {
+                        o.word  = word;
+                        o.reach = reach;
+                        o.count = LightFlames(ok ? &m : nullptr, strcmp(word, "FLAME") != 0, o.pos, o.colour);
+                    }
+                }
+                std::lock_guard<std::mutex> lock(g_mx);
+                g_doneObj.push_back(std::move(o));
+                continue;
+            }
             if (job.kind == kJobTexture)
             {
                 LoadedTex t;
@@ -552,6 +640,9 @@ namespace
     std::unordered_map<int, Tile>          g_tiles;
     std::unordered_map<std::string, Model> g_models;
     std::unordered_map<std::string, Tex>   g_texs;
+    // The game objects' lights (RebuildObjectLights): each display id's, and those in the world.
+    std::unordered_map<unsigned, ObjectLight> g_objectLights;   // by display id
+    std::vector<MapLight>                  g_objLights;
     std::unordered_map<long long, std::vector<float>> g_doodadGrid;   // doodads drawn from the files, 4-yard cells
     unsigned                               g_dDrawnLast[2] = {};    // solid, leaf batches drawn into the last map
     unsigned                               g_texRead = 0, g_texFailed = 0;
@@ -616,6 +707,10 @@ namespace
         g_coverGrid.clear();
         g_doodadGrid.clear();
         g_instDirty = true;
+        // A display id still asked for loses its job here: forget it, so the next walk asks again.
+        for (auto it = g_objectLights.begin(); it != g_objectLights.end();)
+            it = it->second.done ? std::next(it) : g_objectLights.erase(it);
+        g_objLights.clear();
         std::lock_guard<std::mutex> lock(g_mx);
         g_jobs.clear();
         ++g_gen;
@@ -783,6 +878,56 @@ namespace
     // The lights of the buildings held, in the world: rebuilt with the cover.
     std::vector<MapLight> g_fileLights;
 
+    // The game objects' lights (2026-10-01): each display id's light, once the loader has read it, and the
+    // lights of the game objects in the world, rebuilt four times a second.
+    double                g_objWalked = 0.0;
+    unsigned              g_objSeen = 0, g_objLit = 0;
+
+    void RebuildObjectLights()
+    {
+        static ClientObject objs[2048];
+        const int n = ClientGameObjects(objs, 2048);
+        g_objLights.clear();
+        g_objSeen = static_cast<unsigned>(n);
+        g_objLit = 0;
+        std::vector<int> ask;
+        for (int i = 0; i < n; ++i)
+        {
+            const ClientObject& o = objs[i];
+            auto it = g_objectLights.find(o.display);
+            if (it == g_objectLights.end())
+            {
+                g_objectLights[o.display].display = o.display;
+                ask.push_back(static_cast<int>(o.display));
+                continue;
+            }
+            const ObjectLight& L = it->second;
+            if (!L.word)
+                continue;
+            ++g_objLit;
+            const float c = cosf(o.facing), sn = sinf(o.facing);
+            for (int f = 0; f < L.count; ++f)
+            {
+                MapLight w = {};
+                const float x = L.pos[f][0] * o.scale, y = L.pos[f][1] * o.scale;
+                w.pos[0] = o.pos[0] + x * c - y * sn;
+                w.pos[1] = o.pos[1] + x * sn + y * c;
+                w.pos[2] = o.pos[2] + L.pos[f][2] * o.scale;
+                w.reach = L.reach * (std::min)((std::max)(o.scale, 0.5f), 2.0f);
+                memcpy(w.colour, L.colour, sizeof(w.colour));
+                strncpy_s(w.what, L.word, _TRUNCATE);
+                g_objLights.push_back(w);
+            }
+        }
+        if (!ask.empty())
+        {
+            std::lock_guard<std::mutex> lock(g_mx);
+            for (int d : ask)
+                g_jobs.push_back({ kJobObject, std::string(), d, 0, g_gen });
+            g_cv.notify_one();
+        }
+    }
+
     void RebuildLights()
     {
         g_fileLights.clear();
@@ -804,6 +949,8 @@ namespace
                 g_fileLights.push_back(w);
             }
         }
+        for (const auto& kv : g_tiles)
+            g_fileLights.insert(g_fileLights.end(), kv.second.mesh.dLights.begin(), kv.second.mesh.dLights.end());
     }
 
     void RebuildCover()
@@ -908,6 +1055,16 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
                 Log("map terrain: could not read the building %s", w.name.c_str());
             it->second.mesh  = std::move(w.mesh);
             it->second.state = w.ok ? Model::kLoaded : Model::kFailed;
+        }
+        while (!g_doneObj.empty())
+        {
+            ObjectLight o = std::move(g_doneObj.front());
+            g_doneObj.pop_front();
+            if (o.word)
+                Log("map terrain: game object display %u (%s): %s, %d light%s, reach %.0f, colour (%.2f %.2f %.2f)",
+                    o.display, o.model.c_str(), o.word, o.count, o.count == 1 ? "" : "s", o.reach, o.colour[0],
+                    o.colour[1], o.colour[2]);
+            g_objectLights[o.display] = std::move(o);
         }
         while (!g_doneTex.empty())
         {
@@ -1137,22 +1294,60 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
         RebuildLights();
         ++g_filesVersion;
     }
+    const double now = Now();
+    if (now - g_objWalked > 0.25)
+    {
+        g_objWalked = now;
+        RebuildObjectLights();
+    }
 }
 
+// Nearest first. Until 2026-10-01 they came in the files' order and stopped at max. Stormwind's building
+// alone holds up to 1351 (606 of its own, 745 lit doodads), so the candles beside you could be left out.
 int MapLightsNear(const float at[3], float radius, MapLight* out, int max)
 {
-    int n = 0;
-    for (const MapLight& L : g_fileLights)
-    {
-        const float dx = L.pos[0] - at[0], dy = L.pos[1] - at[1], dz = L.pos[2] - at[2];
-        if (dx * dx + dy * dy + dz * dz > radius * radius || n >= max)
-            continue;
-        out[n++] = L;
-    }
+    static std::vector<std::pair<float, const MapLight*>> inReach;
+    inReach.clear();
+    for (const std::vector<MapLight>* list : { &g_fileLights, &g_objLights })
+        for (const MapLight& L : *list)
+        {
+            const float dx = L.pos[0] - at[0], dy = L.pos[1] - at[1], dz = L.pos[2] - at[2];
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 <= radius * radius)
+                inReach.emplace_back(d2, &L);
+        }
+    const int n = (std::min)(max, static_cast<int>(inReach.size()));
+    std::partial_sort(inReach.begin(), inReach.begin() + n, inReach.end(),
+                      [](const std::pair<float, const MapLight*>& a, const std::pair<float, const MapLight*>& b)
+                      { return a.first < b.first; });
+    for (int i = 0; i < n; ++i)
+        out[i] = *inReach[i].second;
     return n;
 }
 
-unsigned MapLightCount() { return static_cast<unsigned>(g_fileLights.size()); }
+unsigned MapLightCount() { return static_cast<unsigned>(g_fileLights.size() + g_objLights.size()); }
+
+void MapObjectsLog(const float at[3], float radius)
+{
+    static ClientObject objs[2048];
+    const int n = ClientGameObjects(objs, 2048);
+    int shown = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        const ClientObject& o = objs[i];
+        const float dx = o.pos[0] - at[0], dy = o.pos[1] - at[1], dz = o.pos[2] - at[2];
+        const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (d > radius)
+            continue;
+        ++shown;
+        auto it = g_objectLights.find(o.display);
+        const ObjectLight* L = it != g_objectLights.end() ? &it->second : nullptr;
+        Log("map terrain:   game object %5.1f yd at (%.1f %.1f %.1f), scale %.2f, display %u: %s, %s", d, o.pos[0],
+            o.pos[1], o.pos[2], o.scale, o.display, L && L->done ? (L->model.empty() ? "(no row)" : L->model.c_str())
+            : "(not read yet)", L && L->word ? L->word : "no light");
+    }
+    Log("map terrain: %d of %d game objects within %.0f yards", shown, n, radius);
+}
 
 bool MapIndoors(const float p[3])
 {
@@ -1627,12 +1822,14 @@ const char* MapTerrainInfo()
                 "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map; "
                 "%.0f ms a model. Doodads: %u (%u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
                 "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
-                "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u",
+                "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u; game "
+                "objects %u, %u of them lit, %u lights, %u display ids read",
                 g_map.c_str(), MpqArchiveCount(), ready, ground, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
                 static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast,
                 wDone ? g_wmoMs / wDone : 0.0, doodads, missing, dTris, dTiles, settled,
                 g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1],
-                static_cast<unsigned>(g_fileLights.size()));
+                static_cast<unsigned>(g_fileLights.size()), g_objSeen, g_objLit,
+                static_cast<unsigned>(g_objLights.size()), static_cast<unsigned>(g_objectLights.size()));
     return g_info;
 }

@@ -263,12 +263,15 @@ void LoadSettings(const wchar_t* ini)
     s.lamps.strength     = Clamp(GetF(kLamps, L"strength",     s.lamps.strength,     ini), 0.0f, 100.0f);
     s.lamps.maxIntensity = Clamp(GetF(kLamps, L"maxIntensity", s.lamps.maxIntensity, ini), 0.0f, 50.0f);
     s.lamps.surface      = Clamp(GetF(kLamps, L"surface",      s.lamps.surface,      ini), 0.0f, 20.0f);
+    s.lamps.torchLight   = Clamp(GetF(kLamps, L"torchLight",   s.lamps.torchLight,   ini), 0.0f, 2.0f);
+    s.lamps.lanternLight = Clamp(GetF(kLamps, L"lanternLight", s.lamps.lanternLight, ini), 0.0f, 2.0f);
+    s.lamps.indoors      = Clamp(GetF(kLamps, L"indoors",      s.lamps.indoors,      ini), 0.0f, 1.0f);
     s.lamps.density      = Clamp(GetF(kLamps, L"density",      s.lamps.density,      ini), 0.0f, 1.0f);
     s.lamps.day          = Clamp(GetF(kLamps, L"day",          s.lamps.day,          ini), 0.0f, 100.0f);
     s.lamps.maxDistance  = Clamp(GetF(kLamps, L"maxDistance",  s.lamps.maxDistance,  ini), 5.0f, 1000.0f);
     s.lamps.maxLights    = GetI(kLamps, L"maxLights", s.lamps.maxLights, ini);
     if (s.lamps.maxLights < 1)  s.lamps.maxLights = 1;
-    if (s.lamps.maxLights > 16) s.lamps.maxLights = 16;
+    if (s.lamps.maxLights > 32) s.lamps.maxLights = 32;
     s.lamps.keep         = Clamp(GetF(kLamps, L"keep",         s.lamps.keep,         ini), 0.0f, 30.0f);
     s.lamps.softness     = Clamp(GetF(kLamps, L"softness",     s.lamps.softness,     ini), 0.05f, 5.0f);
     s.lamps.through      = Clamp(GetF(kLamps, L"through",      s.lamps.through,      ini), 0.0f, 10.0f);

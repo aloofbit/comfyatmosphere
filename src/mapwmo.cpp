@@ -26,9 +26,12 @@ namespace
     uint32_t U32(const std::vector<uint8_t>& d, size_t o) { uint32_t v; memcpy(&v, &d[o], 4); return v; }
 
     constexpr uint32_t kMOHD = 0x4D4F4844, kMOMT = 0x4D4F4D54, kMOGP = 0x4D4F4750;
-    constexpr uint32_t kMOPY = 0x4D4F5059, kMOVI = 0x4D4F5649, kMOVT = 0x4D4F5654;
+    constexpr uint32_t kMOPY = 0x4D4F5059, kMOVI = 0x4D4F5649, kMOVT = 0x4D4F5654, kMOTX = 0x4D4F5458;
 
-    bool Group(const std::vector<uint8_t>& d, const std::vector<uint32_t>& blend, WmoMesh& out)
+    // glass: the materials whose texture is a lamp's glass; the centre of each triangle drawn with one goes into
+    // glassPts (see LampsInGeometry).
+    bool Group(const std::vector<uint8_t>& d, const std::vector<uint32_t>& blend, const std::vector<bool>& glass,
+               std::vector<float>& glassPts, WmoMesh& out)
     {
         for (size_t o = 0; o + 8 <= d.size();)
         {
@@ -47,7 +50,11 @@ namespace
             // they cast a large shadow over the Trade District from an empty sky (2026-09-30). Left out whole.
             if (o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x80))
                 return true;
-            const bool indoor = o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x2000);
+            // Not indoor when the group is also lit by the exterior light (0x40) or marked exterior (0x8): the
+            // client lights it as it lights the open air. Stormwind's canal tunnels are 0xa040, and walking through
+            // them switched every indoor rule on and off (2026-10-01).
+            const uint32_t flags = o + 8 + 36 <= end ? U32(d, o + 8 + 8) : 0;
+            const bool indoor = (flags & 0x2000) && !(flags & 0x48);
             if (indoor)
             {
                 float box[6];
@@ -98,6 +105,23 @@ namespace
                 const uint8_t mat = mopy[i * 2 + 1];
                 if (mat == 0xFF)
                     continue;   // collision only, never drawn
+                if (mat < glass.size() && glass[mat])
+                {
+                    uint16_t tri[3];
+                    memcpy(tri, movi + i * 6, 6);
+                    if (tri[0] < nVert && tri[1] < nVert && tri[2] < nVert)
+                    {
+                        float c[3] = {};
+                        for (uint16_t k : tri)
+                            for (int j = 0; j < 3; ++j)
+                            {
+                                float v;
+                                memcpy(&v, movt + k * 12 + j * 4, 4);
+                                c[j] += v / 3.0f;
+                            }
+                        glassPts.insert(glassPts.end(), c, c + 3);
+                    }
+                }
                 if (mat >= blend.size() || blend[mat] != 0)
                 {
                     ++out.other;
@@ -128,12 +152,46 @@ namespace
     const LightWord kLightWords[] = {
         { "CHANDELIER", 10.0f }, { "CANDELABRA", 8.0f }, { "CANDLE", 6.0f }, { "SCONCE", 10.0f }, { "LANTERN", 10.0f },
         { "LAMP", 10.0f }, { "TORCH", 14.0f }, { "BRAZIER", 16.0f }, { "FIREPLACE", 16.0f },
-        { "CAMPFIRE", 16.0f }, { "FIREPIT", 16.0f },
+        { "CAMPFIRE", 16.0f }, { "FIREPIT", 16.0f }, { "BONFIRE", 16.0f },
     };
 
+    // What one doodad model gives as light, read once for every building (the loader thread alone runs this):
+    // its word (null = none), reach, flames and colour. A model with no light word is read to see whether it
+    // burns, so each model a building places is read once (2026-10-01).
+    struct LightModelInfo
+    {
+        const char* word = nullptr;
+        float       reach = 0.0f;
+        int         count = 0;
+        float       pos[kMaxFlames][3] = {};
+        float       colour[3] = {};
+    };
+    std::unordered_map<std::string, LightModelInfo> g_lightModels;
+
+    const LightModelInfo& LightModelOf(const std::string& name)
+    {
+        auto it = g_lightModels.find(name);
+        if (it != g_lightModels.end())
+            return it->second;
+        LightModelInfo info;
+        const std::string file = name.substr(name.find_last_of('\\') + 1);
+        M2Model m;
+        const bool read = M2Load(name, m);
+        float reach = 0.0f;
+        if (const char* word = LightModelWord(file, read ? &m : nullptr, reach))
+        {
+            info.word  = word;
+            info.reach = reach;
+            info.count = LightFlames(read ? &m : nullptr, strcmp(word, "FLAME") != 0, info.pos, info.colour);
+        }
+        return g_lightModels.emplace(name, info).first->second;
+    }
+
     // The building's doodads that give light (MODN names, MODS sets, MODD placements: 40 bytes, the name's
-    // offset in its low 24 bits, position, rotation as a quaternion x y z w, scale). The flame is taken at the
-    // top of the model: its box centre across, 85% of the way up.
+    // offset in its low 24 bits, position, rotation as a quaternion x y z w, scale). The flame and its colour
+    // come from the model (M2Load). Until 2026-10-01 every flame was orange and sat 85% of the way up the
+    // model's box, which put the light 70 yards above an Undercity lantern (its chain is in the box) and 1.5
+    // yards above the candles of the Goldshire inn's chandelier.
     void Lights(const std::vector<uint8_t>& d, WmoMesh& out)
     {
         size_t modn = 0, modnSize = 0, mods = 0, modsSize = 0, modd = 0, moddSize = 0;
@@ -181,7 +239,7 @@ namespace
         const size_t own = out.lights.size();
         if (!modnSize || !moddSize)
             return;
-        std::unordered_map<std::string, std::array<float, 4>> tops;   // a light model's flame, own space, and whether read
+        std::vector<bool> replaced(own, false);
         const uint32_t nDoodads = static_cast<uint32_t>(moddSize / 40);
         for (uint32_t i = 0; i < nDoodads; ++i)
         {
@@ -192,74 +250,195 @@ namespace
             std::string name;
             for (size_t k = modn + nameOff; k < modn + modnSize && d[k]; ++k)
                 name += static_cast<char>(d[k] >= 'a' && d[k] <= 'z' ? d[k] - 32 : d[k]);
-            const std::string file = name.substr(name.find_last_of('\\') + 1);
-            const LightWord* w = nullptr;
-            for (const LightWord& lw : kLightWords)
-                if (file.find(lw.word) != std::string::npos) { w = &lw; break; }
-            if (!w)
+            const LightModelInfo& info = LightModelOf(name);
+            if (!info.word)
                 continue;
-            auto it = tops.find(name);
-            if (it == tops.end())
-            {
-                M2Model m;
-                float top[4] = { 0.0f, 0.0f, 0.5f, 0.0f };
-                if (M2Load(name, m) && !m.pos.empty())
-                {
-                    float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
-                    for (size_t k = 0; k + 2 < m.pos.size(); k += 3)
-                        for (int j = 0; j < 3; ++j)
-                        {
-                            lo[j] = (std::min)(lo[j], m.pos[k + j]);
-                            hi[j] = (std::max)(hi[j], m.pos[k + j]);
-                        }
-                    top[0] = (lo[0] + hi[0]) * 0.5f;
-                    top[1] = (lo[1] + hi[1]) * 0.5f;
-                    top[2] = lo[2] + (hi[2] - lo[2]) * 0.85f;
-                    top[3] = 1.0f;
-                }
-                it = tops.emplace(name, std::array<float, 4>{ top[0], top[1], top[2], top[3] }).first;
-            }
             float pos[3], q[4], scale;
             memcpy(pos, &d[o + 4], 12);
             memcpy(q, &d[o + 16], 16);
             memcpy(&scale, &d[o + 32], 4);
             if (!(scale > 0.0f && scale < 100.0f))
                 scale = 1.0f;
-            // v' = q v q*, for the flame's offset scaled.
-            const float v[3] = { it->second[0] * scale, it->second[1] * scale, it->second[2] * scale };
-            const float x = q[0], y = q[1], z = q[2], s = q[3];
-            const float t[3] = { 2.0f * (y * v[2] - z * v[1]), 2.0f * (z * v[0] - x * v[2]), 2.0f * (x * v[1] - y * v[0]) };
-            const float r[3] = { v[0] + s * t[0] + (y * t[2] - z * t[1]), v[1] + s * t[1] + (z * t[0] - x * t[2]),
-                                 v[2] + s * t[2] + (x * t[1] - y * t[0]) };
-            WmoLight L = {};
-            for (int j = 0; j < 3; ++j)
-                L.pos[j] = pos[j] + r[j];
-            // Not where one of the building's own lights already is: a lantern's own light sits 2 yards
-            // under the top of its model.
-            bool near = false;
-            for (size_t k = 0; k < own && !near; ++k)
-            {
-                const float dx = out.lights[k].pos[0] - L.pos[0], dy = out.lights[k].pos[1] - L.pos[1],
-                            dz = out.lights[k].pos[2] - L.pos[2];
-                near = dx * dx + dy * dy + dz * dz < 2.5f * 2.5f;
-            }
-            if (near)
-                continue;
-            L.colour[0] = 1.0f; L.colour[1] = 0.62f; L.colour[2] = 0.29f;
-            L.reach = w->reach * (std::min)((std::max)(scale, 0.5f), 2.0f);
-            L.set = 0;
+            uint16_t set = 0;
             for (size_t sOff = mods; sOff + 32 <= mods + modsSize; sOff += 32)
             {
                 const uint32_t first = U32(d, sOff + 20), count = U32(d, sOff + 24);
                 if (i >= first && i < first + count)
                 {
-                    L.set = static_cast<uint16_t>((sOff - mods) / 32);
+                    set = static_cast<uint16_t>((sOff - mods) / 32);
                     break;
                 }
             }
-            strncpy_s(L.what, w->word, _TRUNCATE);
-            out.lights.push_back(L);
+            for (int f = 0; f < info.count; ++f)
+            {
+                // v' = q v q*, for the flame's offset scaled.
+                const float v[3] = { info.pos[f][0] * scale, info.pos[f][1] * scale, info.pos[f][2] * scale };
+                const float x = q[0], y = q[1], z = q[2], w = q[3];
+                const float t[3] = { 2.0f * (y * v[2] - z * v[1]), 2.0f * (z * v[0] - x * v[2]), 2.0f * (x * v[1] - y * v[0]) };
+                const float r[3] = { v[0] + w * t[0] + (y * t[2] - z * t[1]), v[1] + w * t[1] + (z * t[0] - x * t[2]),
+                                     v[2] + w * t[2] + (x * t[1] - y * t[0]) };
+                WmoLight L = {};
+                for (int j = 0; j < 3; ++j)
+                    L.pos[j] = pos[j] + r[j];
+                // The building's own light at the same lamp (a lantern's sits 2 yards under the top of its
+                // model) gives way to the flame. Until 2026-10-01 it was the other way round, and most of
+                // Stormwind's torches showed as their building lights: (0.26 0.19 0.10), reaching 5 yards.
+                for (size_t k = 0; k < own; ++k)
+                {
+                    const float dx = out.lights[k].pos[0] - L.pos[0], dy = out.lights[k].pos[1] - L.pos[1],
+                                dz = out.lights[k].pos[2] - L.pos[2];
+                    if (dx * dx + dy * dy + dz * dz < 2.5f * 2.5f)
+                        replaced[k] = true;
+                }
+                memcpy(L.colour, info.colour, sizeof(L.colour));
+                L.reach = info.reach * (std::min)((std::max)(scale, 0.5f), 2.0f);
+                L.set = set;
+                strncpy_s(L.what, info.word, _TRUNCATE);
+                out.lights.push_back(L);
+            }
         }
+        std::vector<WmoLight> kept;
+        kept.reserve(out.lights.size());
+        for (size_t k = 0; k < out.lights.size(); ++k)
+            if (k >= own || !replaced[k])
+                kept.push_back(out.lights[k]);
+        out.lights.swap(kept);
+    }
+}
+
+const char* LightModelWord(const std::string& file, const M2Model* m, float& reach)
+{
+    // An unlit candle (CANDLEOFF01: 69 in Stormwind) and a broken lamppost give no light. Both have no flame
+    // in the file either.
+    if (file.find("OFF") != std::string::npos || file.find("BROKEN") != std::string::npos)
+        return nullptr;
+    for (const LightWord& lw : kLightWords)
+        if (file.find(lw.word) != std::string::npos)
+        {
+            reach = lw.reach;
+            return lw.word;
+        }
+    if (m && !m->firePts.empty())
+    {
+        reach = 14.0f;
+        return "FLAME";
+    }
+    return nullptr;
+}
+
+int LightFlames(const M2Model* m, bool byWord, float pos[][3], float colour[3])
+{
+    // The orange the lights had before the colour was read, for a model that names none.
+    colour[0] = 1.0f; colour[1] = 0.62f; colour[2] = 0.29f;
+    pos[0][0] = pos[0][1] = 0.0f;
+    pos[0][2] = 0.5f;
+    if (!m || m->pos.empty())
+        return 1;
+    if (m->haveColour)
+        memcpy(colour, m->flameColour, 3 * sizeof(float));
+    // A model taken by its name: its glow quads, else its emitters. One taken by its flames: those alone, since
+    // a building's small blended meshes (a window) are no flame.
+    const std::vector<float>& pts = !byWord ? m->firePts : !m->quadPts.empty() ? m->quadPts : m->emitPts;
+    const size_t n = pts.size() / 3;
+    if (!n)
+    {
+        // Without a flame, near the top of the model (a pole torch: FREESTANDINGTORCH02), or for a tall one its
+        // body: an Undercity lantern's chain reaches 84 yards up, so that box's top is no use.
+        memcpy(pos[0], m->height <= 6.0f ? m->top : m->middle, 3 * sizeof(float));
+        return 1;
+    }
+    // Points within 3 yards of each other, directly or through others, are one light at their middle.
+    std::vector<int> group(n, -1);
+    int groups = 0;
+    for (size_t i = 0; i < n; ++i)
+    {
+        if (group[i] >= 0)
+            continue;
+        group[i] = groups;
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            for (size_t a = 0; a < n; ++a)
+                if (group[a] == groups)
+                    for (size_t b = 0; b < n; ++b)
+                    {
+                        if (group[b] >= 0)
+                            continue;
+                        const float dx = pts[a * 3] - pts[b * 3], dy = pts[a * 3 + 1] - pts[b * 3 + 1],
+                                    dz = pts[a * 3 + 2] - pts[b * 3 + 2];
+                        if (dx * dx + dy * dy + dz * dz < 9.0f)
+                        {
+                            group[b] = groups;
+                            grew = true;
+                        }
+                    }
+        }
+        ++groups;
+    }
+    const int out = (std::min)(groups, kMaxFlames);
+    for (int g = 0; g < out; ++g)
+    {
+        float sum[3] = {};
+        int count = 0;
+        for (size_t i = 0; i < n; ++i)
+            if (group[i] == g)
+            {
+                for (int j = 0; j < 3; ++j)
+                    sum[j] += pts[i * 3 + j];
+                ++count;
+            }
+        for (int j = 0; j < 3; ++j)
+            pos[g][j] = sum[j] / count;
+    }
+    return out;
+}
+
+// Lamps built into a building's own walls (2026-10-01). Stormwind's street lamps in this client (its root from
+// patch-3.mpq) are part of the city's geometry, drawn with STORMWINDSTREETLAMP.BLP and STORMWINDLAMPGLASS.BLP:
+// no doodad, game object or building light stands at them, so they had no light. Each group of glass triangles
+// within 1.5 yards of each other is one lamp, lit like a Stormwind lamppost's glow, (0.92 0.74 0.22).
+static void LampsInGeometry(const std::vector<float>& pts, WmoMesh& out)
+{
+    const size_t n = pts.size() / 3;
+    std::vector<int> group(n, -1);
+    int groups = 0;
+    for (size_t i = 0; i < n; ++i)
+    {
+        if (group[i] >= 0)
+            continue;
+        std::vector<size_t> open{ i };
+        group[i] = groups;
+        float sum[3] = {};
+        int count = 0;
+        while (!open.empty())
+        {
+            const size_t a = open.back();
+            open.pop_back();
+            for (int j = 0; j < 3; ++j)
+                sum[j] += pts[a * 3 + j];
+            ++count;
+            for (size_t b = 0; b < n; ++b)
+            {
+                if (group[b] >= 0)
+                    continue;
+                const float dx = pts[a * 3] - pts[b * 3], dy = pts[a * 3 + 1] - pts[b * 3 + 1],
+                            dz = pts[a * 3 + 2] - pts[b * 3 + 2];
+                if (dx * dx + dy * dy + dz * dz < 1.5f * 1.5f)
+                {
+                    group[b] = groups;
+                    open.push_back(b);
+                }
+            }
+        }
+        ++groups;
+        WmoLight L = {};
+        for (int j = 0; j < 3; ++j)
+            L.pos[j] = sum[j] / count;
+        L.colour[0] = 1.0f; L.colour[1] = 0.80f; L.colour[2] = 0.24f;
+        L.reach = 10.0f;
+        L.set = 0;
+        strncpy_s(L.what, "LAMP", _TRUNCATE);
+        out.lights.push_back(L);
     }
 }
 
@@ -269,7 +448,8 @@ bool WmoLoad(const std::string& rootName, WmoMesh& out)
     std::vector<uint8_t> d;
     if (!MpqRead(rootName.c_str(), d))
         return false;
-    std::vector<uint32_t> blend;
+    std::vector<uint32_t> blend, texOff;
+    std::string motx;
     for (size_t o = 0; o + 8 <= d.size();)
     {
         const uint32_t tag = U32(d, o), size = U32(d, o + 4);
@@ -283,9 +463,24 @@ bool WmoLoad(const std::string& rootName, WmoMesh& out)
         }
         if (tag == kMOMT)
             for (size_t m = 0; m + 64 <= size; m += 64)
+            {
                 blend.push_back(U32(d, o + 8 + m + 8));
+                texOff.push_back(U32(d, o + 8 + m + 12));   // its first texture, an offset into MOTX
+            }
+        if (tag == kMOTX)
+            motx.assign(reinterpret_cast<const char*>(&d[o + 8]), size);
         o += 8 + static_cast<size_t>(size);
     }
+    std::vector<bool> glass(texOff.size(), false);
+    for (size_t m = 0; m < texOff.size(); ++m)
+        if (texOff[m] < motx.size())
+        {
+            std::string t(motx.c_str() + texOff[m]);
+            for (char& ch : t)
+                ch = ch >= 'a' && ch <= 'z' ? static_cast<char>(ch - 32) : ch;
+            glass[m] = t.find("LAMPGLASS") != std::string::npos;
+        }
+    std::vector<float> glassPts;
     if (out.groups == 0 || out.groups > 1024)
         return false;
     Lights(d, out);
@@ -296,8 +491,9 @@ bool WmoLoad(const std::string& rootName, WmoMesh& out)
     {
         char name[16];
         _snprintf_s(name, sizeof(name), _TRUNCATE, "_%03u.wmo", g);
-        if (MpqRead((stem + name).c_str(), d) && Group(d, blend, out))
+        if (MpqRead((stem + name).c_str(), d) && Group(d, blend, glass, glassPts, out))
             ++out.groupsRead;
     }
+    LampsInGeometry(glassPts, out);
     return out.groupsRead > 0 && !out.idx.empty();
 }

@@ -24,7 +24,7 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 | **Volumetric light** | The air is lit where sunlight reaches it and dark where leaves and walls shade it. It stays fixed in the world when the camera moves. | on |
 | **Sun shadows** | Terrain, buildings, trees, players and creatures cast shadows from the sun. Shade takes the sky's cool colour and sunlit ground a warm one. The shadows of the world are drawn from the game's map files, so they are there before you walk past. Needs the volumetric light. | on |
 | **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. The rays come from the sun only, and fade when a mountain or a wall covers it. Cheap. | on |
-| **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files. Needs the volumetric light. | on |
+| **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files, with the colour of each flame. Needs the volumetric light. | on |
 | **Night** | Nights are darker. Lamps still light the ground near them, and buildings stay as the game lights them. Night comes from the game clock. The rays and the light at night follow the moons. | on |
 | **Fog** | Volumetric fog that lies on the ground and thins upward. It collects in valleys and over water, is thicker at dawn, and drifts in patches with the wind. The sun lights it, with shafts where trees and walls shade it, and the sky lights it in the zone's own fog colour. The game's own fog stays as the far wall. Needs the volumetric light. | on |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
@@ -53,7 +53,8 @@ own. Use the window on a client whose options window has no page for them.
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
 | Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
 | Light Density (thousandths), Light Distance (yards), Light Toward the Sun (thousandths) | `[volume] density`, `maxDistance`, `anisotropy` |
-| Lamp Glow, Lamp Distance (%) | `[lamps] strength`, `fogReach` |
+| Lamps, Lamp Glow, Lamp Distance (%) | `[lamps] enabled`, `strength`, `fogReach` |
+| Lantern Light, Torch Light, Indoor Lamps, Lamps by Day (%) | `[lamps] lanternLight`, `torchLight`, `indoors`, `day` |
 | Sun Shadows | `[sunshadows] enabled` |
 | World / Object Shadows, Player / Creature Shadows | `[sunshadows] world`, `units` |
 | Lock Shadow Angle, Shadow Angle (degrees) | `[sunshadows] lock`, `lockTilt` |

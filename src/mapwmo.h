@@ -28,5 +28,17 @@ struct WmoMesh
     std::vector<WmoLight> lights;          // its candles, torches and fires (MODD, by name)
 };
 
+struct M2Model;
+// A doodad model that gives light, by its file name (upper case, without the folder) or, failing that, by the
+// flames it burns (m may be null when the model could not be read): the word it was taken by (FLAME for a flame
+// alone), and how far its light reaches. Null for any other model, and for an unlit candle or a broken
+// lamppost. The buildings' doodads and the map tiles' own doodads (mapterrain.cpp) both go through it.
+const char* LightModelWord(const std::string& file, const M2Model* m, float& reach);
+constexpr int kMaxFlames = 6;   // lights one model may give
+// Where a light model's flames are, in its own space, and their colour: from what M2Load read. Flames within
+// 3 yards of each other are one light (a chandelier's candles); a tower with a fire at each corner gives one at
+// each. With no flame in the file, one light in orange near the model's top. Returns how many.
+int LightFlames(const M2Model* m, bool byWord, float pos[][3], float colour[3]);
+
 // The root file and its groups into one mesh of the opaque triangles. Loader thread only (mpq.cpp).
 bool WmoLoad(const std::string& rootName, WmoMesh& out);

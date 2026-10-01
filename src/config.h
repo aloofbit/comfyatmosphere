@@ -282,14 +282,25 @@ struct SunShadowSettings
 struct LampSettings
 {
     bool  enabled      = true;
-    float strength     = 20.0f;     // the dial, 0..100
+    float strength     = 29.0f;     // the dial, 0..50 on its slider (Lamp Glow)
     float maxIntensity = 10.0f;     // the glow in the air: gain at 100. 4 until 2026-09-28, too faint to see
     float surface      = 7.0f;      // a lamppost's light on the surfaces near it: gain at 100 (0 = none).
                                     // About 1 / the night's own light, so a lamp lights like a torch
+    // Two kinds of light (2026-10-01), each with its own share of the glow and of the light on surfaces. In a
+    // Duskwood camp seven pole torches and a campfire stood within a few yards, and a walkway lamppost beside
+    // it, one light four yards up, looked dim next to them.
+    float torchLight   = 0.74f;     // fires: torches, braziers, campfires, fireplaces, and the game's own lights
+                                    // (those NPCs carry too). The game lights its models with its own lights
+                                    // already, so at 1 a model near one is lit twice. Torch Light, in percent
+    float lanternLight = 0.77f;     // lamps: lampposts, lanterns, candles, chandeliers, and the buildings' own
+                                    // lights. Lantern Light, in percent
+    float indoors      = 0.21f;     // all lamps while you are inside a building, eased over half a second at the
+                                    // door. The Goldshire inn holds 34 lights within 30 yards, and with every one
+                                    // drawn (2026-10-01) the air between them washed out. Indoor Lamps, in percent
     float density      = 0.03f;     // how much the air scatters a lamp's light, per yard
-    float day          = 30.0f;     // % of the night strength by day, by [night] dusk, dawn and fade
+    float day          = 1.0f;      // % of the night strength by day (Lamps by Day), by [night] dusk, dawn and fade
     float maxDistance  = 120.0f;    // yards: a light further away than this adds nothing
-    int   maxLights    = 16;        // the nearest this many are drawn, 1..16
+    int   maxLights    = 32;        // the most lights one screen tile draws, nearest first, 1..32 (lampglow.cpp)
     float keep         = 2.0f;      // seconds a light on screen may go unseen before it fades out. A light
                                     // off screen is kept: the client draws a lamp's sprite only while the
                                     // lamp is on screen
@@ -298,7 +309,7 @@ struct LampSettings
                                     // The client's light sits inside the torch head or the brazier bowl,
                                     // and at 0 the bowl hid it from below or from the side
     bool  sprites      = true;      // also glow around lampposts, found by their glow sprite
-    float fogReach     = 2.4f;      // how far into the fog a lamp still glows: the fade (over the far half of
+    float fogReach     = 2.6f;      // how far into the fog a lamp still glows: the fade (over the far half of
                                     // the fog) stretched by this. Lamp Distance, in percent
     bool  files        = true;      // also the candles, torches and fires the buildings' files place
                                     // (mapwmo.cpp), which the client lights with no light of its own

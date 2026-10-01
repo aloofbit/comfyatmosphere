@@ -112,6 +112,48 @@ int ClientUnits(float (*out)[3], int max)
         return n;
     }
 
+// Every game object (type 5) out of the object manager, by the same walk (2026-10-01). Its fields (the pointer at
+// +0x8) are 1.12's update fields: the scale at 0x4, then GAMEOBJECT_DISPLAYID at 0x8 and POS_X, POS_Y, POS_Z,
+// FACING at 0xF..0x12. In Stormwind's Trade District a torch and two lampposts are game objects: no map file
+// places them, so the lamps had no light for them.
+int ClientGameObjects(ClientObject* out, int max)
+    {
+        const ClientSettings& b = g_cfg.client;
+        if (!b.objMgrAddr || max <= 0)
+            return 0;
+        DWORD mgr = 0;
+        if (!SafeCopy(static_cast<uintptr_t>(b.objMgrAddr + Slide()), &mgr, 4) || !mgr)
+            return 0;
+        DWORD link = 0, obj = 0;
+        if (!SafeCopy(mgr + 0xA4, &link, 4) || !SafeCopy(mgr + 0xAC, &obj, 4))
+            return 0;
+        int n = 0;
+        for (int i = 0; i < 16384 && obj && !(obj & 1) && n < max; ++i)
+        {
+            DWORD type = 0;
+            if (!SafeCopy(obj + 0x14, &type, 4))
+                break;
+            DWORD fields = 0;
+            uint32_t f[0x13];
+            if (type == 5 && SafeCopy(obj + 0x8, &fields, 4) && fields && SafeCopy(fields, f, sizeof(f)))
+            {
+                ClientObject& o = out[n];
+                memcpy(&o.scale, &f[0x4], 4);
+                o.display = f[0x8];
+                memcpy(o.pos, &f[0xF], 12);
+                memcpy(&o.facing, &f[0x12], 4);
+                if (SaneWorld(o.pos) && o.scale > 0.01f && o.scale < 20.0f && o.facing == o.facing && o.display &&
+                    o.display < 1000000)
+                    ++n;
+            }
+            DWORD next = 0;
+            if (!SafeCopy(obj + link + 4, &next, 4))
+                break;
+            obj = next;
+        }
+        return n;
+    }
+
 // The current map's folder name under World\Maps: the buffer the client formats its tile names with
 // ("%s\%s_%d_%d.adt" at 0x0086C368, called with it as the second %s). Letters, digits and underscores.
 bool ClientMapName(char* out, int size)

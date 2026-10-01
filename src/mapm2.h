@@ -20,6 +20,19 @@ struct M2Model
     std::vector<Batch>    batches;
     bool                  alpha = false;   // any batch alpha keyed: the whole model casts as leaves
     bool                  animated = false;   // a bone with 16 or more keyframes: it moves (a gryphon roost)
+    // The flame, for a model that gives light (mapwmo.cpp): where its glow quads and its particle emitters are,
+    // in the model's own space, and their colour. flame 0 = the model has neither (an unlit candle, or a lamp
+    // that glows by its texture alone); haveColour = a colour was read.
+    int                   flame = 0;          // 0 none, 1 particle emitters, 2 glow quads
+    bool                  haveColour = false;
+    std::vector<float>    quadPts;            // each glow quad's centre, x y z
+    std::vector<float>    emitPts;            // each additive emitter's place
+    std::vector<float>    firePts;            // each additive emitter whose texture is a flame: a model with any
+                                              // burns, whatever its name (a pyre, a campfire's wood pile)
+    float                 flameColour[3] = {}; // brightest channel 1
+    float                 middle[3] = {};      // the median vertex: the body of the model, whatever hangs off it
+    float                 top[3] = {};         // the box's centre across, 85% of the way up
+    float                 height = 0.0f;       // the box's height
 };
 
 // The model named as a tile names it (.mdx or .m2); false if it cannot be read.

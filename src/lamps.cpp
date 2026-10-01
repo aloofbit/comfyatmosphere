@@ -86,8 +86,10 @@ namespace
     constexpr unsigned kReadsPerFrame = 400;   // glow draws read per frame; the rest are counted only
 
     // The tracker.
-    constexpr unsigned kTrackReads    = 32;    // sprite draws read per frame
-    constexpr size_t   kMaxSightings  = 128;   // per frame
+    constexpr unsigned kTrackReads    = 128;   // sprite draws read per frame. 32 until 2026-10-01: a lamp whose
+                                               // sprite came after the 32nd in a frame was not read, and
+                                               // could go out while in view
+    constexpr size_t   kMaxSightings  = 256;   // per frame
     constexpr size_t   kMaxTracked    = 256;
     constexpr float    kSame          = 0.2f;  // yards: two sightings in one frame this near are one light
     constexpr float    kFollow[2]     = { 3.0f, 1.0f };   // yards a light may move between frames, by kind
@@ -98,6 +100,11 @@ namespace
     constexpr float    kForget        = 60.0f; // yards past [lamps] maxDistance at which a held light goes
     constexpr double   kFadeIn[2]     = { 0.2, 0.35 };    // seconds, by kind
     constexpr double   kSpriteDelay   = 0.25;  // seconds a sprite must be seen before it glows
+    constexpr double   kSettle        = 3.0;   // seconds over which a client light must be seen in one place to
+                                               // count as fixed
+    constexpr double   kFixedKeep     = 5.0;   // a fixed client light's unseen time counts this many times slower
+    constexpr float    kCatchUp       = 6.0f;  // yards a second a client light may have moved while unseen: an
+    constexpr float    kCatchUpMax    = 15.0f; // NPC walks on between the frames that name its torch
     constexpr unsigned kCacheFrames   = 600;   // the shader and declaration caches are dropped this often,
                                                // so a freed object's address cannot be taken for a new one
 
@@ -903,6 +910,7 @@ namespace
         double lastSeen;
         double unseen;         // seconds on screen and not seen, since it was last seen
         bool   mobile;         // a sprite that moved: a spell effect, never drawn
+        bool   moved;          // a client light that moved: one an NPC carries
         bool   claimed;        // matched a sighting this frame
     };
 
@@ -1022,14 +1030,19 @@ namespace
                 if (nearLight)
                     continue;
             }
+            // A client light may have moved further the longer it went unseen. The client named a walking
+            // guard's torch in 5 to 36 of 60 frames (Darkshire, 2026-10-01): with the reach fixed at 3 yards it
+            // was taken for a new light after each gap, and the old one stayed where the torch had been.
             Tracked* best = nullptr;
-            float bestD = kFollow[s.kind];
+            float bestD = 1e9f;
             for (Tracked& t : g_tracked)
             {
                 if (t.kind != s.kind || t.claimed)
                     continue;
+                const float limit = kFollow[s.kind] + (s.kind == 0 ? (std::min)(kCatchUpMax,
+                                    kCatchUp * static_cast<float>(now - t.lastSeen)) : 0.0f);
                 const float dd = Dist3(t.abs, s.abs);
-                if (dd <= bestD) { bestD = dd; best = &t; }
+                if (dd <= limit && dd < bestD) { bestD = dd; best = &t; }
             }
             if (!best)
             {
@@ -1053,12 +1066,22 @@ namespace
             best->lastSeen = now;
             best->unseen   = 0.0;
             best->claimed  = true;
-            if (best->kind == 1 && Dist3(best->abs, best->origin) > kStill)
-                best->mobile = true;
+            if (Dist3(best->abs, best->origin) > kStill)
+            {
+                if (best->kind == 1)
+                    best->mobile = true;
+                else
+                    best->moved = true;
+            }
         }
         g_sightings.clear();
         // A sprite that moved is kept too, only never drawn: dropped, it would be found again as a new one.
-        // Unseen time counts only on screen, where the client would have named it.
+        // Unseen time counts only on screen, where the client would have named it. A client light that has
+        // been seen in one place for kSettle seconds (a torch on a wall, a brazier) counts it kFixedKeep times
+        // slower: the client names a light only while it draws a model near it, and turning the camera off
+        // those models while the torch stayed in view put it out after [lamps] keep seconds (2026-10-01). A
+        // client light that has moved (an NPC's torch) counts it off screen too: the NPC may have walked off
+        // with it, and kept off screen it stayed where it was last seen until it came back into view.
         const float forget = g_cfg.lamps.maxDistance + kForget;
         for (Tracked& t : g_tracked)
         {
@@ -1068,8 +1091,11 @@ namespace
             for (int i = 0; i < 3; ++i)
                 camRel[i] = t.abs[i] - g_cam[i];
             ScreenUV(camRel, uv);
-            if (uv[0] >= kEdge && uv[0] <= 1.0f - kEdge && uv[1] >= kEdge && uv[1] <= 1.0f - kEdge)
+            const bool onScreen = uv[0] >= kEdge && uv[0] <= 1.0f - kEdge && uv[1] >= kEdge && uv[1] <= 1.0f - kEdge;
+            if (t.kind == 0 && t.moved)
                 t.unseen += dt;
+            else if (onScreen)
+                t.unseen += t.kind == 0 && t.lastSeen - t.born >= kSettle ? dt / kFixedKeep : dt;
             if (Len3(camRel) > forget)
                 t.unseen = 1e9;
         }
@@ -1273,25 +1299,99 @@ void LampsWorldEnded()
         Merge();
 }
 
-// The slots go to what can be seen (2026-09-30): in Darkshire 6 of the 16 went to client lights 60 yards over
-// the street and more to lights behind the camera, and a lamppost 96 yards ahead got the last one. A light
-// within kAlways yards always counts, its glow fills the air round you; past that, only one in front of the
-// camera (within about 70 degrees of where it looks).
-constexpr float kAlways = 25.0f;
-static bool Wanted(const float rel[3], float dist, const float fwd[3])
+// A light is drawn when the sphere its light reaches can show on screen (2026-10-01): its centre within its reach
+// of each side of the view, and of the near plane. Until then a light past 25 yards counted only within about
+// 70 degrees of where the camera looked, and only the nearest 16 were drawn at all. A lamp at the edge of a wide
+// screen, or one just off it whose glow reached into view, went out and came back as the camera turned.
+namespace
 {
-    return dist < kAlways || rel[0] * fwd[0] + rel[1] * fwd[1] + rel[2] * fwd[2] > 0.35f * dist;
+    struct Frustum
+    {
+        float plane[5][4];   // left, right, bottom, top, near: a x + b y + c z + d >= 0 inside, (a b c) of length 1
+    };
+
+    Frustum MakeFrustum(const D3DMATRIX& m)
+    {
+        // Row vectors: clip = p M, so each clip component is p dot a column of M.
+        auto col = [&](int c, float out[4]) { for (int r = 0; r < 4; ++r) out[r] = m.m[r][c]; };
+        float x[4], y[4], z[4], w[4];
+        col(0, x); col(1, y); col(2, z); col(3, w);
+        Frustum f;
+        for (int k = 0; k < 4; ++k)
+        {
+            f.plane[0][k] = w[k] + x[k];
+            f.plane[1][k] = w[k] - x[k];
+            f.plane[2][k] = w[k] + y[k];
+            f.plane[3][k] = w[k] - y[k];
+            f.plane[4][k] = z[k];
+        }
+        for (float* p : f.plane)
+        {
+            const float len = sqrtf(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+            if (len > 1e-9f)
+                for (int k = 0; k < 4; ++k)
+                    p[k] /= len;
+        }
+        return f;
+    }
+
+    bool InView(const Frustum& f, const float p[3], float radius)
+    {
+        for (const float* q : f.plane)
+            if (q[0] * p[0] + q[1] * p[1] + q[2] * p[2] + q[3] < -radius)
+                return false;
+        return true;
+    }
+
+    std::vector<LampLight> g_gathered;
 }
 
-int LampsGather(const float cam[3], const float fwd[3], LampLight* out, int max)
+// A light from the files is a fire when the word it was taken by names one (mapwmo.cpp), or it was taken by
+// its flames (FLAME). A building's own light (BUILDING) counts as a lamp.
+static bool IsFire(const char* what)
+{
+    static const char* const kFires[] = { "TORCH", "BRAZIER", "FIREPLACE", "CAMPFIRE", "FIREPIT", "BONFIRE", "FLAME" };
+    for (const char* f : kFires)
+        if (strcmp(what, f) == 0)
+            return true;
+    return false;
+}
+
+int LampsGather(const float cam[3], const D3DMATRIX& viewProj, LampLight* out, int max)
 {
     if (!g_tracking || max <= 0)
         return 0;
     Merge();
+    const Frustum frustum = MakeFrustum(viewProj);
     const double now   = Now();
     const double keep  = g_cfg.lamps.keep;
     const float  reach = g_cfg.lamps.maxDistance * (std::max)(1.0f, g_cfg.lamps.fogReach);   // Lamp Distance stretches it
-    int n = 0;
+    // The last 15% of the distance fades a light out, so walking away does not put it out at once.
+    auto edge = [&](float dist) { return (std::min)(1.0f, (std::max)(0.0f, (reach - dist) / (0.15f * reach))); };
+    g_gathered.clear();
+    // The lights from the files ([lamps] files): as lampposts are (kind 1). They come first and win: a light the
+    // client shows within 2 yards of one is the same lamp, and is left out. Until 2026-10-01 the client's won,
+    // and a lamppost went dark and lit again as you walked toward it: when the client began to draw its glow
+    // sprite the file's light was dropped at once while the sprite's faded in, and when the client stopped for
+    // a moment the sprite's faded out over [lamps] keep seconds while it still held the file's back.
+    static MapLight file[kLampsMax];
+    const int nf = g_cfg.lamps.files && g_cfg.shadow.mapTerrain ? MapLightsNear(cam, reach + 20.0f, file, kLampsMax) : 0;
+    for (int f = 0; f < nf; ++f)
+    {
+        LampLight l;
+        for (int i = 0; i < 3; ++i)
+            l.pos[i] = file[f].pos[i] - cam[i];
+        l.dist = Len3(l.pos);
+        if (l.dist > reach || !InView(frustum, l.pos, file[f].reach))
+            continue;
+        const float fade = edge(l.dist);
+        for (int i = 0; i < 3; ++i)
+            l.colour[i] = file[f].colour[i] * g_cfg.lamps.spriteGain * fade;
+        l.reach = file[f].reach;
+        l.kind  = 1;
+        l.fire  = IsFire(file[f].what);
+        g_gathered.push_back(l);
+    }
     for (const Tracked& t : g_tracked)
     {
         if (t.mobile)
@@ -1300,76 +1400,36 @@ int LampsGather(const float cam[3], const float fwd[3], LampLight* out, int max)
         for (int i = 0; i < 3; ++i)
             l.pos[i] = t.abs[i] - cam[i];
         l.dist = Len3(l.pos);
-        if (l.dist > reach + t.reach || !Wanted(l.pos, l.dist, fwd))
+        if (l.dist > reach || !InView(frustum, l.pos, t.reach))
+            continue;
+        bool dup = false;
+        for (int f = 0; f < nf && !dup; ++f)
+        {
+            const float dx = t.abs[0] - file[f].pos[0], dy = t.abs[1] - file[f].pos[1], dz = t.abs[2] - file[f].pos[2];
+            dup = dx * dx + dy * dy + dz * dz < 4.0f;
+        }
+        if (dup)
             continue;
         const double age    = now - t.born - (t.kind == 1 ? kSpriteDelay : 0.0);
         const double unseen = t.unseen;
         double fade = std::min(1.0, std::max(0.0, age / kFadeIn[t.kind]));
         if (unseen > kGrace)
             fade *= std::max(0.0, 1.0 - (unseen - kGrace) / std::max(keep - kGrace, 0.01));
+        fade *= edge(l.dist);
         if (fade <= 0.0)
             continue;
         for (int i = 0; i < 3; ++i)
             l.colour[i] = t.colour[i] * static_cast<float>(fade);
         l.reach = t.reach;
         l.kind  = t.kind;
-        // Nearest first; the list is short, so an insertion keeps it sorted.
-        int at = n < max ? n : max;
-        while (at > 0 && out[at - 1].dist > l.dist)
-        {
-            if (at < max)
-                out[at] = out[at - 1];
-            --at;
-        }
-        if (at < max)
-        {
-            out[at] = l;
-            if (n < max)
-                ++n;
-        }
+        l.fire  = t.kind == 0;   // the client's own lights are torches and braziers; its glow sprites, lampposts
+        g_gathered.push_back(l);
     }
-    // The lights from the buildings' files ([lamps] files): as lampposts are (kind 1, lighting the surfaces
-    // near them too), and not where a light the client shows is already within 2 yards: a torch the client
-    // lights would be counted twice.
-    if (g_cfg.lamps.files && g_cfg.shadow.mapTerrain)
-    {
-        static MapLight file[256];
-        const int nf = MapLightsNear(cam, reach + 20.0f, file, 256);
-        for (int f = 0; f < nf; ++f)
-        {
-            bool dup = false;
-            for (const Tracked& t : g_tracked)
-            {
-                const float dx = t.abs[0] - file[f].pos[0], dy = t.abs[1] - file[f].pos[1], dz = t.abs[2] - file[f].pos[2];
-                if (dx * dx + dy * dy + dz * dz < 4.0f) { dup = true; break; }
-            }
-            if (dup)
-                continue;
-            LampLight l;
-            for (int i = 0; i < 3; ++i)
-                l.pos[i] = file[f].pos[i] - cam[i];
-            l.dist = Len3(l.pos);
-            if (l.dist > reach + file[f].reach || !Wanted(l.pos, l.dist, fwd))
-                continue;
-            for (int i = 0; i < 3; ++i)
-                l.colour[i] = file[f].colour[i] * g_cfg.lamps.spriteGain;
-            l.reach = file[f].reach;
-            l.kind  = 1;
-            int at = n < max ? n : max;
-            while (at > 0 && out[at - 1].dist > l.dist)
-            {
-                if (at < max)
-                    out[at] = out[at - 1];
-                --at;
-            }
-            if (at < max)
-            {
-                out[at] = l;
-                if (n < max)
-                    ++n;
-            }
-        }
-    }
+    const int n = (std::min)(max, static_cast<int>(g_gathered.size()));
+    std::partial_sort(g_gathered.begin(), g_gathered.begin() + n, g_gathered.end(),
+                      [](const LampLight& a, const LampLight& b) { return a.dist < b.dist; });
+    for (int i = 0; i < n; ++i)
+        out[i] = g_gathered[i];
     return n;
 }
 
