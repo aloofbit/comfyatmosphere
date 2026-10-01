@@ -617,6 +617,11 @@ but did not light surfaces, since the client lights its models with them. It lig
 ground round a guard or a brazier stayed dark. Every light now lights surfaces, so a model near one is lit
 twice.
 
+Some guards' torches stayed unlit after that (Darkshire, later the same night). The client sent their lights
+at hand height, in 38 to 59 of 60 frames, with a torch's attenuation (0, 0.7, 0.03), but in black, and the
+tracker drops a light darker than 0.02. A black client light with exactly that attenuation now takes the torch's
+colour, (1.40 0.87 0.40).
+
 The gaps also broke the tracker. With 3 yards as the most a light could move between sightings, the guard
 had walked further after each gap, so the torch was taken for a new light and the old one stayed. Off
 screen it never aged out, and the tracker filled to its 256. Now a client light may have moved 6 yards for

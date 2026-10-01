@@ -956,10 +956,17 @@ namespace
         const float camRel[3] = { L.Position.x, L.Position.y, L.Position.z };
         if (Len3(camRel) > g_cfg.lamps.maxDistance + 40.0f)
             return;
-        const float colour[3] = { L.Diffuse.r, L.Diffuse.g, L.Diffuse.b };
-        if (std::max(colour[0], std::max(colour[1], colour[2])) < 0.02f)
-            return;
+        float colour[3] = { L.Diffuse.r, L.Diffuse.g, L.Diffuse.b };
         const float att[3] = { L.Attenuation0, L.Attenuation1, L.Attenuation2 };
+        // Some NPCs' torches come black: in Darkshire (2026-10-01) the guards with a torch the lamps missed were
+        // client lights of colour (0 0 0) at hand height, seen in 38 to 59 of 60 frames, with a torch's
+        // attenuation (0, 0.7, 0.03). A black light with that attenuation takes the torch's colour.
+        if (std::max(colour[0], std::max(colour[1], colour[2])) < 0.02f)
+        {
+            if (fabsf(att[0]) > 0.01f || fabsf(att[1] - 0.7f) > 0.01f || fabsf(att[2] - 0.03f) > 0.005f)
+                return;
+            colour[0] = 1.40f; colour[1] = 0.87f; colour[2] = 0.40f;
+        }
         float reach = Reach(att);
         if (!(reach > 0.0f))
             reach = L.Range > 0.0f ? L.Range : 15.0f;
