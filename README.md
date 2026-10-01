@@ -189,6 +189,22 @@ Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/rel
 3. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
 4. Start the game with `VanillaFixes.exe`.
 
+## Compatibility
+
+Tested on a fresh OctoWoW client with no other mods:
+
+| | Tested with |
+| --- | --- |
+| Client | `WoW.exe` 1.12.1 (build 5875), 4812 KB, hash `c1d1205e0a984ca4` |
+| Launcher | VanillaFixes, with only `comfyfog.dll` in `dlls.txt` |
+| DXVK | v2.7.1-1-gplasync, the `d3d9.dll` that comes with the client |
+| Data | 18 MPQs: the base archives, `patch.MPQ` and `patch-1` to `patch-5` |
+| Addons | ComfyAtmosphere and the client's Blizzard addons |
+| System | Windows 10 (build 19045), NVIDIA GeForce RTX 2080 Super, driver 576.28 |
+
+`/atmos probe` (or F12) writes a report of your client into `comfyfog.log`, under `client report`: the same
+parts, with a hash of each file and every DLL loaded. Compare it with this table.
+
 
 ## Build
 
