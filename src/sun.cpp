@@ -28,6 +28,8 @@
 #include <cstdio>
 #include <cstring>
 
+static bool ClockSun(float dir[3]);   // below SunDirection
+
 namespace
 {
     D3DMATRIX g_view = {}, g_proj = {};
@@ -153,14 +155,22 @@ namespace
         // catches another sky quad for a single frame (logged: 75.8 -> 25.8 -> 75.8 degrees within one
         // second), and every sun-driven pass (shadow map, volume) flashed with it. Real jumps (the time
         // stepped with Ctrl+PageUp) still land, a sixth of a second late; small drift follows at once.
-        static int   pending = 0;
-        static float pendDir[3] = {};
-        if (g_haveSun && d[0] * g_sunDir[0] + d[1] * g_sunDir[1] + d[2] * g_sunDir[2] < 0.9962f)   // > 5 degrees
+        // Before the first sun is believed, the clock's is what it is held against, and the jump has to hold
+        // for 3 seconds: at a login in the Undercity the first reading was 49.8 degrees for two seconds, with the
+        // sun at 28.8 (2026-10-01).
+        static int    pending = 0;
+        static float  pendDir[3] = {};
+        static double pendSince = 0.0;
+        float ref[3];
+        const bool haveRef = g_haveSun ? (memcpy(ref, g_sunDir, sizeof(ref)), true) : ClockSun(ref);
+        if (haveRef && d[0] * ref[0] + d[1] * ref[1] + d[2] * ref[2] < 0.9962f)   // > 5 degrees
         {
             const bool same = d[0] * pendDir[0] + d[1] * pendDir[1] + d[2] * pendDir[2] > 0.9962f;
             pending = same ? pending + 1 : 1;
+            if (pending == 1)
+                pendSince = Now();
             memcpy(pendDir, d, sizeof(d));
-            if (pending < 10)
+            if (g_haveSun ? pending < 10 : Now() - pendSince < 3.0)
                 return;
         }
         pending = 0;
@@ -188,6 +198,24 @@ namespace
     }
 }
 
+// The sun from the game clock (2026-10-01), until the sky's sprite is seen. Logged in indoors (Ironforge, the
+// Undercity) the client draws no sky: there was no sun, nothing drew, and the first sight of the sky set every
+// effect up in one frame, a long stall. Measured from the sprite: azimuth 45 all day, and the height falling
+// about 10 degrees an hour (59.0 at 14:39, 38.8 at 16:39, 28.8 at 17:39). Past 90 the line goes over the top to
+// azimuth 225; no morning was measured. At night, a moon high in the sky, as the client draws them (75 to 83
+// degrees at 01:00). Indoors the direction matters little; outdoors the sprite takes over within frames.
+static bool ClockSun(float dir[3])
+{
+    float hour = 0.0f;
+    if (!ClientHour(hour))
+        return false;
+    float el = NightWeight(hour) >= 0.5f ? 75.0f : 59.0f - 10.1f * (hour - 14.65f);
+    el = el < 3.0f ? 3.0f : (el > 177.0f ? 177.0f : el);
+    const float az = 45.0f * 0.01745329f, e = el * 0.01745329f;
+    dir[0] = cosf(e) * cosf(az); dir[1] = cosf(e) * sinf(az); dir[2] = sinf(e);
+    return true;
+}
+
 bool SunDirection(float dir[3])
 {
     // [sun] fixed = 1 pins the sun for the shadow map and the volumetric light, whatever the game's clock
@@ -205,8 +233,21 @@ bool SunDirection(float dir[3])
         PickQuad();
         SunViewToWorld();
     }
-    if (!g_haveSun)
+    float clock[3];
+    if (!g_haveSun && !ClockSun(clock))
         return false;
+    static int clockLogs = 0;   // 0: not used yet, 1: in use, 2: the sky's sun took over
+    if (!g_haveSun && clockLogs == 0)
+    {
+        clockLogs = 1;
+        Log("sun from the clock until the sky's sun is seen: dir (%.3f %.3f %.3f)", clock[0], clock[1], clock[2]);
+    }
+    else if (g_haveSun && clockLogs == 1)
+    {
+        clockLogs = 2;
+        Log("sun: the sky's sun is seen and takes over from the clock's");
+    }
+    const float* meas = g_haveSun ? g_sunDir : clock;
 
     // The sprite is measured afresh every frame and the measurement is noisy: standing still, with the
     // camera still and the time pinned, the direction wandered in the fifth decimal. Everything here is
@@ -231,18 +272,18 @@ bool SunDirection(float dir[3])
     static int    stepLogs = 0;
     const double  now = Now();
     // Log the measurement's own jumps, to see whether the sky moves its sun in steps.
-    const float rawDot = raw[0] * g_sunDir[0] + raw[1] * g_sunDir[1] + raw[2] * g_sunDir[2];
+    const float rawDot = raw[0] * meas[0] + raw[1] * meas[1] + raw[2] * meas[2];
     if (have && rawDot < 0.9999939f && stepLogs < 60)   // > 0.2 degrees in one frame
     {
         ++stepLogs;
         Log("sun: the sky's sun moved %.2f degrees in one frame, at %.1f s", acosf(rawDot > 1.0f ? 1.0f : rawDot) * 57.29578f,
             now);
     }
-    memcpy(raw, g_sunDir, sizeof(raw));
-    const float dot = stable[0] * g_sunDir[0] + stable[1] * g_sunDir[1] + stable[2] * g_sunDir[2];
+    memcpy(raw, meas, sizeof(raw));
+    const float dot = stable[0] * meas[0] + stable[1] * meas[1] + stable[2] * meas[2];
     if (!have || dot < 0.9962f)
     {
-        memcpy(stable, g_sunDir, sizeof(stable));
+        memcpy(stable, meas, sizeof(stable));
         have = true;
     }
     else
@@ -254,7 +295,7 @@ bool SunDirection(float dir[3])
         float len = 0.0f;
         for (int i = 0; i < 3; ++i)
         {
-            stable[i] += (g_sunDir[i] - stable[i]) * k;
+            stable[i] += (meas[i] - stable[i]) * k;
             len += stable[i] * stable[i];
         }
         len = sqrtf(len);

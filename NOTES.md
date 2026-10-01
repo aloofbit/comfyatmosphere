@@ -1350,7 +1350,21 @@ Now the ground texture's fourth channel holds the floor of the building under th
 Measured with F12: Ironforge 2175 cells with a floor; its lamps at 0.8 to 1.0 times the density (54.6 before),
 a fire in the forge pit 39 yards down at 3.7. The Undercity 2197 to 2324 cells.
 
-Still open: logged in indoors, there is no sun until the sky is seen, and nothing draws.
+## The sun from the clock (2026-10-01)
+
+Logged in indoors (Ironforge, the Undercity), the client draws no sky, so there was no sun sprite and no sun:
+no shadow map, no fog, no light, no lamp glow. The first sight of the sky then set every effect up in one
+frame (shaders, the 4096 maps, the 34 archives, the map files), and the owner felt a long stall at the gate.
+
+`ClockSun` (`sun.cpp`) gives a sun from the game clock until the sprite is seen: azimuth 45, and the height
+from the sprite's own record, 59.0 at 14:39 falling 10.1 degrees an hour (28.6 at 17:39 against 28.8 seen).
+Past 90 the line goes over the top to azimuth 225; no morning was measured. At night, a moon 75 degrees up.
+The effects now set up while the world loads.
+
+The first login with it showed a bad first reading: 49.8 degrees for two seconds, then 28.8, and the
+shadows jumped twice. With no sun yet, the first reading was taken as it came. It is now held against the
+clock's sun: one more than 5 degrees off must hold for 3 seconds (against a sprite already seen, 10 frames,
+as before). The next login had no jump.
 
 ## The framing that matters
 
