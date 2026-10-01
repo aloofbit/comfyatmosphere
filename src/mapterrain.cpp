@@ -18,6 +18,12 @@
 //              Checked against the Northshire tile: neighbouring chunks meet with no gap (the other axis
 //              order is out by 18 yards on average), and the height under a logged player position was
 //              81.51 against the player's 81.5.
+//   Water      (added 2026-09-30) A chunk with a river or the sea (MCNK flags 0x4, 0x8) holds an MCLQ at the
+//              header's +0x60: its tag, a size of 0 (the header's +0x64 gives 812), then a height range
+//              (two floats), 9 x 9 vertices of 8 bytes and 8 x 8 cell flags. A cell is wet unless its flags'
+//              low four bits are 0x0F. The vertex heights of dry cells are FLT_MAX, so the surface is taken
+//              as the range's top: 0 for the sea, 30.88 for a stream in Westfall (checked offline, 34 tiles).
+//              Kept as 128 x 128 cells a tile, the cells of the chunks, for the fog's mist over water.
 //   Holes      A 4 x 4 mask over the 8 x 8 cells, where a cave mouth or a building's cellar goes into the
 //              ground: bit (row / 2) * 4 + (column / 2). A cell in a hole is left out.
 //   Buildings  (added 2026-09-30) Each tile places its WMOs in MODF, 64 bytes each: the name's index
@@ -98,6 +104,7 @@ namespace
         bool                   groundOnly = false;   // read for its ground alone: no doodads, no buildings
         std::vector<float>     v;               // x y z, x and y relative to the tile's corner
         std::vector<float>     grid;            // 129 x 129 outer heights, rows along -x (NaN: no chunk)
+        std::vector<float>     water;           // 128 x 128 cells: the water's surface (NaN: dry)
         std::vector<uint16_t>  idx;
         float                  minZ = 0.0f, maxZ = 0.0f;
         std::vector<Placement> wmos;
@@ -354,6 +361,7 @@ namespace
         m.idx.clear();
         m.wmos.clear();
         m.grid.assign(129 * 129, NAN);
+        m.water.assign(128 * 128, NAN);
         m.minZ = 1e9f;
         m.maxZ = -1e9f;
         unsigned chunks = 0;
@@ -374,6 +382,28 @@ namespace
                 memcpy(&holes, &d[h + 0x3C], 2);
                 float pos[3];
                 memcpy(pos, &d[h + 0x68], 12);
+                // A river or the sea: the wet cells, at the top of the liquid's height range.
+                const uint32_t flags = U32(d, h), ofsL = U32(d, h + 0x60);
+                const size_t lq = o + ofsL;
+                if ((flags & 0x0C) && ofsL && lq + 8 + 8 + 648 + 64 <= o + 8 + size && U32(d, lq) == 0x4D434C51 &&
+                    std::isfinite(pos[0]) && std::isfinite(pos[1]))   // "MCLQ"
+                {
+                    float range[2];
+                    memcpy(range, &d[lq + 8], 8);
+                    if (std::isfinite(range[1]) && fabsf(range[1]) < 10000.0f)
+                    {
+                        const int gx0 = static_cast<int>(floorf((ox - pos[0]) / kUnit + 0.5f));
+                        const int gy0 = static_cast<int>(floorf((oy - pos[1]) / kUnit + 0.5f));
+                        for (int r = 0; r < 8; ++r)
+                            for (int c = 0; c < 8; ++c)
+                            {
+                                const int gx = gx0 + r, gy = gy0 + c;
+                                if ((d[lq + 8 + 8 + 648 + r * 8 + c] & 0x0F) != 0x0F && gx >= 0 && gx < 128 &&
+                                    gy >= 0 && gy < 128)
+                                    m.water[gx * 128 + gy] = range[1];
+                            }
+                    }
+                }
                 const size_t hm = o + ofsH;
                 if (ofsH && hm + 8 + 145 * 4 <= o + 8 + size && U32(d, hm) == 0x4D435654)   // "MCVT"
                 {
@@ -1161,6 +1191,22 @@ bool MapGroundHeight(float x, float y, float& z)
     if (!(h00 == h00 && h01 == h01 && h10 == h10 && h11 == h11))
         return false;
     z = (h00 * (1 - ty) + h01 * ty) * (1 - tx) + (h10 * (1 - ty) + h11 * ty) * tx;
+    return true;
+}
+
+bool MapWaterHeight(float x, float y, float& z)
+{
+    const int a = static_cast<int>(floorf(32.0f - y / kTile)), b = static_cast<int>(floorf(32.0f - x / kTile));
+    auto it = g_tiles.find(Key(a, b));
+    if (it == g_tiles.end() || it->second.pending || it->second.mesh.water.size() != 128 * 128)
+        return false;
+    const int ix = static_cast<int>((CornerX(b) - x) / kUnit), iy = static_cast<int>((CornerY(a) - y) / kUnit);
+    if (ix < 0 || iy < 0 || ix > 127 || iy > 127)
+        return false;
+    const float w = it->second.mesh.water[ix * 128 + iy];
+    if (!(w == w))
+        return false;
+    z = w;
     return true;
 }
 

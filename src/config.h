@@ -26,6 +26,14 @@ struct FogSettings
     float flatten     = 2.0f;      // patches are this many times wider than tall
     float windDeg     = 45.0f;     // the way the wind blows: 0 north, 90 east
     float windSpeed   = 2.0f;      // yards a second
+    // The ground under it (2026-09-30), from the map files: needs [shadow] mapTerrain.
+    float follow      = 0.5f;      // 0 = the fog lies on the ground smoothed over smoothRadius; 1 = on the ground
+                                   // itself, as thick on a hilltop as in the valley below it
+    float smoothRadius = 100.0f;   // yards
+    float lowGround   = 1.5f;      // the fog this much thicker again where the ground lies lowDepth below the
+    float lowDepth    = 25.0f;     // smoothed ground around it (valleys, hollows)
+    float water       = 1.0f;      // this much thicker again over rivers, lakes and the sea
+    float morning     = 1.0f;      // this much thicker at dawn (6:00), half of it at dusk (20:00)
     int   debug       = 0;         // 1 = the transmittance (white = clear), 2 = the sky's light on the fog alone
 };
 

@@ -148,6 +148,12 @@ void LoadSettings(const wchar_t* ini)
     s.fog.flatten      = Clamp(GetF(kFog, L"flatten",      s.fog.flatten,      ini), 0.25f, 8.0f);
     s.fog.windDeg      = GetF(kFog, L"windDeg", s.fog.windDeg, ini);
     s.fog.windSpeed    = Clamp(GetF(kFog, L"windSpeed",    s.fog.windSpeed,    ini), 0.0f, 50.0f);
+    s.fog.follow       = Clamp(GetF(kFog, L"follow",       s.fog.follow,       ini), 0.0f, 1.0f);
+    s.fog.smoothRadius = Clamp(GetF(kFog, L"smoothRadius", s.fog.smoothRadius, ini), 8.0f, 400.0f);
+    s.fog.lowGround    = Clamp(GetF(kFog, L"lowGround",    s.fog.lowGround,    ini), 0.0f, 10.0f);
+    s.fog.lowDepth     = Clamp(GetF(kFog, L"lowDepth",     s.fog.lowDepth,     ini), 1.0f, 500.0f);
+    s.fog.water        = Clamp(GetF(kFog, L"water",        s.fog.water,        ini), 0.0f, 10.0f);
+    s.fog.morning      = Clamp(GetF(kFog, L"morning",      s.fog.morning,      ini), 0.0f, 10.0f);
     s.fog.debug        = GetI(kFog, L"debug", s.fog.debug, ini);
 
     s.sun.fixed        = GetB(kSun, L"fixed",     s.sun.fixed,     ini);

@@ -64,6 +64,9 @@ COMFYATMOSPHERE_MIST_SUN       = "Fog Sunlight";
 COMFYATMOSPHERE_MIST_REACH     = "Fog Reach";
 COMFYATMOSPHERE_MIST_SKY       = "Fog on Sky";
 COMFYATMOSPHERE_MIST_PATCHES   = "Fog Patchiness";
+COMFYATMOSPHERE_MIST_LOW       = "Low Ground Mist";
+COMFYATMOSPHERE_MIST_WATER     = "Water Mist";
+COMFYATMOSPHERE_MIST_MORNING   = "Morning Mist";
 COMFYATMOSPHERE_MIST_WIND      = "Wind Speed";
 COMFYATMOSPHERE_MIST_WIND_DIR  = "Wind Direction";
 
@@ -233,6 +236,42 @@ local ENTRIES = {
 		minval = 0,
 		maxval = 100,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] lowGround. 150 makes a valley 25 yards deep hold 2.5 times the fog.
+		name = "COMFYATMOSPHERE_MIST_LOW",
+		desc = "Extra mist in valleys and hollows. 0 is none.",
+		type = "slider",
+		cvar = "comfyMistLow",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] water. 100 doubles the fog over water.
+		name = "COMFYATMOSPHERE_MIST_WATER",
+		desc = "Extra mist over rivers, lakes and the sea. 0 is none.",
+		type = "slider",
+		cvar = "comfyMistWater",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [fog] morning. 100 doubles the fog at dawn and adds half at dusk.
+		name = "COMFYATMOSPHERE_MIST_MORNING",
+		desc = "Extra mist at dawn, and half as much at dusk. 0 is none.",
+		type = "slider",
+		cvar = "comfyMistMorning",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 400,
+		step = 10,
 		numberLabels = 1,
 	},
 	{
@@ -506,11 +545,12 @@ local ENTRIES = {
 			.. "10 sun rays: the rays alone\n"
 			.. "11 sun rays: the sky kept before the clouds\n"
 			.. "12 fog: how much gets through (white = clear)\n"
-			.. "13 fog: the sky's light on it alone",
+			.. "13 fog: the sky's light on it alone\n"
+			.. "14 fog: where mist collects (low ground, water)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 13,
+		maxval = 14,
 		step = 1,
 		numberLabels = 1,
 	},

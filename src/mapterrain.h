@@ -46,6 +46,8 @@ unsigned MapLightCount();
 bool MapIndoors(const float p[3]);
 // The ground's height from the tiles loaded, at a point; false where no tile is held.
 bool MapGroundHeight(float x, float y, float& z);
+// The surface of a river or the sea at a point (the map files' MCLQ); false where dry or no tile is held.
+bool MapWaterHeight(float x, float y, float& z);
 // The average ground height over a disc of `radius` yards around `at` (37 points); false with too few.
 bool MapGroundBase(const float at[3], float radius, float& z);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay

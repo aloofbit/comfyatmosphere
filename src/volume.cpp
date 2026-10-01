@@ -39,6 +39,13 @@
 // change shape as they go. Patchiness 0 is an even fog; at 1 the thick patches hold twice the fog and the
 // gaps between them none, so the fog on average stays as thick as Fog Density says.
 //
+// The ground under the fog (2026-09-30): a texture of 128 x 128 cells of 8 yards around you, made on the CPU
+// from the map files and remade as you move: the surface (the ground, or water over it), the water, and the
+// surface smoothed over [fog] smoothRadius. The fog lies on a height between the smoothed surface and the
+// surface itself ([fog] follow), so it fills valleys and still thins over hilltops; it is thicker where the
+// surface lies below its surroundings ([fog] lowGround) and over water ([fog] water). [fog] morning
+// thickens it around dawn, and less around dusk.
+//
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
 // shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
@@ -102,6 +109,10 @@ float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (
 float4 gN    : register(c14);       // the patches: where the camera is in the noise (wind included), 1 / tile size in yards
 float4 gM    : register(c15);       // the patches: patchiness, how much flatter they are than wide
 sampler3D sNoise : register(s3);    // the patches: tiling noise, wrapped; r large shapes, g small
+sampler2D sGround : register(s4);   // the ground: surface (r), water (g), smoothed surface (b), from a reference height
+float4 gGr   : register(c16);       // the ground texture: where the camera is in it (uv), 1 / its size in yards,
+                                    // its reference height less the camera's (0 in .z: no texture, gF.z instead)
+float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
 
 // The patches at P (camera-relative): 1 on average; 0..2 at patchiness 1.
 float Patches(float3 P)
@@ -112,10 +123,24 @@ float Patches(float3 P)
     return lerp(1.0, 2.0 * smoothstep(0.3, 0.7, v), gM.x);
 }
 
-// The fog's extinction per yard at height z (camera-relative). Below the ground it is capped at 4 heights deep.
-float FogAt(float z)
+// The fog's extinction per yard at P (camera-relative). Below its base it is capped at 4 heights deep.
+float FogAt(float3 P)
 {
-    return gF.x * exp(min((gF.z - z) * gF.y, 4.0));
+    float base = gF.z, mult = 1.0;
+    [branch] if (gGr.z > 0.0)
+    {
+        float4 g = tex2Dlod(sGround, float4(P.xy * gGr.z + gGr.xy, 0, 0));
+        base = lerp(g.b, g.r, gW.x) + gGr.w;
+        mult = (1.0 + gW.z * saturate((g.b - g.r) * gW.y)) * (1.0 + gW.w * g.g);
+    }
+    return gF.x * mult * exp(min((base - P.z) * gF.y, 4.0));
+}
+
+// How much more fog the ground at P gathers than the plain fog: for debug 7.
+float Collects(float3 P)
+{
+    float4 g = tex2Dlod(sGround, float4(P.xy * gGr.z + gGr.xy, 0, 0));
+    return (gGr.z > 0.0) ? (1.0 + gW.z * saturate((g.b - g.r) * gW.y)) * (1.0 + gW.w * g.g) : 1.0;
 }
 
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
@@ -184,7 +209,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         acc += lit;
         // The fog in this step: w is the step's length as the fog within it lets through, so a thick step
         // does not add more light than it can.
-        float  sf  = FogAt(dir.z * f * len) * saturate((reachEnd - f * len) * fadeK);
+        float  sf  = FogAt(dir * (f * len)) * saturate((reachEnd - f * len) * fadeK);
         [branch] if (sf > 0.0 && gM.x > 0.0)
             sf *= Patches(dir * (f * len));
         float  tr  = exp(-sf * stepLen);
@@ -199,9 +224,11 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float tEnd = min((d >= 0.9999) ? reachEnd : dist, reachEnd);
     [branch] if (gF.x > 0.0 && tEnd > len)
     {
-        float k   = dir.z * gF.y;
-        float fa  = FogAt(dir.z * len), fb = FogAt(dir.z * tEnd);
-        float tau = abs(k) > 1e-5 ? (fa - fb) / k : fa * (tEnd - len);
+        // Taken as exponential between its two ends, which it is over flat ground.
+        float fa  = FogAt(dir * len), fb = FogAt(dir * tEnd);
+        float r   = fa / max(fb, 1e-12);
+        float tau = (abs(r - 1.0) < 1e-3 || fa <= 0.0) ? 0.5 * (fa + fb) * (tEnd - len)
+                                                        : (fa - fb) * (tEnd - len) / log(r);
         tau *= saturate((reachEnd - 0.5 * (len + tEnd)) * fadeK);
         float a   = 1.0 - exp(-max(tau, 0.0));
         sun += gG.x * gG.y * a * T;
@@ -209,6 +236,9 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         T   *= 1.0 - a;
     }
 
+    if (gP.x > 6.5)
+        return float4(saturate((Collects(dir * min(dist, gG.z)) - 1.0) / max(gW.z + gW.w, 1e-3)), 0.0, 0.0, 1.0);
+                                                                          // debug 7: where the mist collects
     if (gP.x > 5.5)
         return float4(tex2Dlod(sShadow, float4(uv, 0, 0)).r, 0.0, 0.0, 1.0);   // debug 6: the shadow map
     if (gP.x > 4.5)
@@ -388,6 +418,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     std::vector<uint32_t>     g_noiseData;
     IDirect3DVolumeTexture9*  g_noise = nullptr;
     bool                      g_noiseFailed = false;
+    // The ground under the fog: 128 x 128 cells of 8 yards around you (see the top of the file).
+    constexpr int   kGround     = 128;
+    constexpr float kGroundCell = 8.0f;
+    IDirect3DTexture9* g_ground = nullptr;
+    bool   g_groundFailed = false;
+    bool   g_groundValid  = false;
+    float  g_groundAt[3]  = {};      // its centre, and the reference height its values are from
+    double g_groundBuilt  = 0.0;
+    int    g_groundMissing = 0;      // cells no tile covered when it was made
+    int    g_groundWet     = 0;
+    float  g_groundSmooth  = 0.0f;   // the smoothRadius it was made with
     double g_wind[3] = {};      // how far the wind has carried the patches, yards (kept small: wrapped by the tile)
     double g_windLast = 0.0;
     bool                    g_shadersTried = false;
@@ -518,6 +559,137 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                        &g_noiseData[(z * kNoise + y) * kNoise], kNoise * 4);
         g_noise->lpVtbl->UnlockBox(g_noise, 0);
         return true;
+    }
+
+    unsigned short FloatToHalf(float f)
+    {
+        uint32_t x;
+        memcpy(&x, &f, 4);
+        const uint32_t sign = (x >> 16) & 0x8000u;
+        int e = static_cast<int>((x >> 23) & 0xFF) - 127 + 15;
+        uint32_t m = x & 0x7FFFFFu;
+        if (e <= 0)
+            return static_cast<unsigned short>(sign);                 // too small: 0
+        if (e >= 31)
+            return static_cast<unsigned short>(sign | 0x7BFFu);       // too large: the largest
+        return static_cast<unsigned short>(sign | ((static_cast<uint32_t>(e) << 10) + ((m + 0x1000u) >> 13)));
+    }
+
+    // Box blur of a kGround x kGround grid, radius r cells, separable.
+    void Blur(std::vector<float>& g, int r)
+    {
+        if (r <= 0)
+            return;
+        std::vector<float> t(g.size());
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            for (int j = 0; j < kGround; ++j)
+                for (int i = 0; i < kGround; ++i)
+                {
+                    float s = 0.0f;
+                    int n = 0;
+                    for (int k = -r; k <= r; ++k)
+                    {
+                        const int ii = pass ? i : (std::min)((std::max)(i + k, 0), kGround - 1);
+                        const int jj = pass ? (std::min)((std::max)(j + k, 0), kGround - 1) : j;
+                        s += g[jj * kGround + ii];
+                        ++n;
+                    }
+                    t[j * kGround + i] = s / n;
+                }
+            g.swap(t);
+        }
+    }
+
+    // Makes the ground texture around `at` when it is missing, when you have moved a quarter of its width
+    // from its centre, or, while some of it had no tile, every second (tiles load on their own thread).
+    void UpdateGround(IDirect3DDevice9* dev, const float at[3], float fallback)
+    {
+        if (g_groundFailed || !g_cfg.shadow.mapTerrain)
+        {
+            g_groundValid = false;
+            return;
+        }
+        const double now = Now();
+        const float half = 0.5f * kGround * kGroundCell;
+        const float dx = at[0] - g_groundAt[0], dy = at[1] - g_groundAt[1];
+        const bool moved = dx * dx + dy * dy > (0.25f * half) * (0.25f * half);
+        if (g_groundValid && !moved && g_groundSmooth == g_cfg.fog.smoothRadius &&
+            !(g_groundMissing > 0 && now - g_groundBuilt > 1.0))
+            return;
+        if (!g_ground && (FAILED(dev->lpVtbl->CreateTexture(dev, kGround, kGround, 1, 0, D3DFMT_A16B16G16R16F,
+                                                             D3DPOOL_MANAGED, &g_ground, nullptr)) || !g_ground))
+        {
+            g_ground = nullptr;
+            g_groundFailed = true;
+            Log("fog: could not create the ground texture: the fog lies on the average ground around you");
+            return;
+        }
+        const double t0 = Now();
+        std::vector<float> surf(kGround * kGround), wet(kGround * kGround, 0.0f);
+        int missing = 0, nWet = 0;
+        for (int j = 0; j < kGround; ++j)
+            for (int i = 0; i < kGround; ++i)
+            {
+                const float x = at[0] + (i + 0.5f - 0.5f * kGround) * kGroundCell;
+                const float y = at[1] + (j + 0.5f - 0.5f * kGround) * kGroundCell;
+                float z, w;
+                if (!MapGroundHeight(x, y, z))
+                {
+                    z = fallback;
+                    ++missing;
+                }
+                if (MapWaterHeight(x, y, w) && w > z)
+                {
+                    z = w;
+                    wet[j * kGround + i] = 1.0f;
+                    ++nWet;
+                }
+                surf[j * kGround + i] = z;
+            }
+        std::vector<float> smooth = surf;
+        Blur(smooth, static_cast<int>(g_cfg.fog.smoothRadius / kGroundCell + 0.5f));
+        Blur(wet, 2);   // a soft shore
+        D3DLOCKED_RECT lr = {};
+        if (FAILED(g_ground->lpVtbl->LockRect(g_ground, 0, &lr, nullptr, 0)))
+            return;
+        for (int j = 0; j < kGround; ++j)
+        {
+            auto* row = reinterpret_cast<unsigned short*>(static_cast<char*>(lr.pBits) + j * lr.Pitch);
+            for (int i = 0; i < kGround; ++i)
+            {
+                const int k = j * kGround + i;
+                row[i * 4 + 0] = FloatToHalf(surf[k] - at[2]);
+                row[i * 4 + 1] = FloatToHalf(wet[k]);
+                row[i * 4 + 2] = FloatToHalf(smooth[k] - at[2]);
+                row[i * 4 + 3] = FloatToHalf(1.0f);
+            }
+        }
+        g_ground->lpVtbl->UnlockRect(g_ground, 0);
+        memcpy(g_groundAt, at, sizeof(g_groundAt));
+        g_groundValid   = missing < kGround * kGround;
+        g_groundBuilt   = now;
+        g_groundMissing = missing;
+        g_groundWet     = nWet;
+        g_groundSmooth  = g_cfg.fog.smoothRadius;
+        if (g_logNext || g_cfg.trace)
+            Log("fog: ground texture made around (%.0f %.0f) in %.1f ms: %d of %d cells had no tile, %d wet",
+                at[0], at[1], 1000.0 * (Now() - t0), missing, kGround * kGround, nWet);
+    }
+
+    // Dawn and dusk ([fog] morning): the fog thicker by up to `morning` at 6:00 and half of that at 20:00.
+    float MorningScale()
+    {
+        float hour = 0.0f;
+        if (g_cfg.fog.morning <= 0.0f || !ClientHour(hour))
+            return 1.0f;
+        auto bump = [hour](float at, float width)
+        {
+            float d = fabsf(hour - at);
+            d = (std::min)(d, 24.0f - d);
+            return expf(-(d / width) * (d / width));
+        };
+        return 1.0f + g_cfg.fog.morning * (bump(6.0f, 2.0f) + 0.5f * bump(20.0f, 1.5f));
     }
 
     void ReleaseDefaultPool()
@@ -1011,7 +1183,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     float cam[3] = {};
     const bool camRead = ClientCamera(cam);
     const float groundRel = camRead ? FogGround(cam) : -2.0f;
-    pc[48] = fogOn ? fs.density : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
+    const float morning = fogOn ? MorningScale() : 1.0f;
+    pc[48] = fogOn ? fs.density * morning : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
     pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = fs.reach; pc[55] = 0.0f;
     // The patches: the wind carries them; they rise slowly too, so they change shape as they go. Where the
     // camera is in the tiling noise is worked out here in doubles, so far from the world's origin the
@@ -1037,6 +1210,31 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         pn[4] = patches ? fs.patchiness : 0.0f;
         pn[5] = fs.flatten;
     }
+    // The ground under the fog, around you (or the camera).
+    float gr[8] = {};
+    if (fogOn && camRead)
+    {
+        float pl[3];
+        const float* at = ClientPlayer(pl) ? pl : cam;
+        UpdateGround(dev, at, g_fogBase);
+        if (g_groundValid)
+        {
+            const float span = kGround * kGroundCell;
+            gr[0] = (cam[0] - g_groundAt[0]) / span + 0.5f;
+            gr[1] = (cam[1] - g_groundAt[1]) / span + 0.5f;
+            gr[2] = 1.0f / span;
+            gr[3] = g_groundAt[2] - cam[2];
+        }
+    }
+    gr[4] = fs.follow; gr[5] = 1.0f / fs.lowDepth; gr[6] = fs.lowGround; gr[7] = fs.water;
+    d->SetPixelShaderConstantF(dev, 16, gr, 2);
+    d->SetTexture(dev, 4, reinterpret_cast<IDirect3DBaseTexture9*>(gr[2] > 0.0f ? g_ground : nullptr));
+    d->SetSamplerState(dev, 4, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 4, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 4, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    d->SetSamplerState(dev, 4, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    d->SetSamplerState(dev, 4, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    d->SetSamplerState(dev, 4, D3DSAMP_SRGBTEXTURE, 0);
     d->SetPixelShaderConstantF(dev, 0, pc, 14);
     d->SetPixelShaderConstantF(dev, 14, pn, 2);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
@@ -1075,6 +1273,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 1, nullptr);
     d->SetTexture(dev, 2, nullptr);
     d->SetTexture(dev, 3, nullptr);
+    d->SetTexture(dev, 4, nullptr);
     d->SetVertexShader(dev, nullptr);
     if (g_trace > 0)
     {
@@ -1343,6 +1542,11 @@ bool VolumeDraw(IDirect3DDevice9* dev)
             Log("fog: patches %s: patchiness %.2f, %.0f yd across, %.2f as tall, wind %.1f yd/s toward %.0f deg; "
                 "the camera at (%.3f %.3f %.3f) in the noise", patches ? "on" : g_noiseFailed ? "off (no texture)" : "off",
                 fs.patchiness, fs.scale, 1.0f / fs.flatten, fs.windSpeed, fs.windDeg, pn[0], pn[1], pn[2]);
+            Log("fog: ground %s around (%.0f %.0f): %d cells with no tile, %d wet; follow %.2f, low ground x%.2f "
+                "(full at %.0f yd below the %.0f yd average), water x%.2f; dawn and dusk x%.2f now",
+                g_groundValid ? "texture" : g_groundFailed ? "off (no texture)" : "off (no tiles)", g_groundAt[0],
+                g_groundAt[1], g_groundMissing, g_groundWet, fs.follow, 1.0f + fs.lowGround, fs.lowDepth,
+                fs.smoothRadius, 1.0f + fs.water, morning);
         }
         else
             Log("fog: off ([fog] enabled %d, density %.4f)", fs.enabled ? 1 : 0, fs.density);
@@ -1358,6 +1562,12 @@ bool VolumeActive()
 
 void VolumeReset()
 {
+    if (g_ground)
+    {
+        g_ground->lpVtbl->Release(g_ground);
+        g_ground = nullptr;
+    }
+    g_groundValid = false;
     if (g_noise)
     {
         g_noise->lpVtbl->Release(g_noise);
