@@ -12,6 +12,7 @@
 #include "client.h"
 #include "config.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -54,8 +55,34 @@ bool ClientCamera(float cam[3])
         return SaneWorld(cam) && !(cam[0] == 0.0f && cam[1] == 0.0f && cam[2] == 0.0f);
     }
 
+static bool ClientPlayerRaw(float pos[3]);
+
 // The local player out of the object manager: the same walk as comfygrass's FindLocalPlayerObject.
-bool ClientPlayer(float pos[3])
+//
+// On a ship or a zeppelin (2026-10-02) the client keeps the position relative to the ship: at Theramore, the
+// camera at (-4002.7 -4729.0 10.2) and the player at (-1.4 -10.3 6.1). The fog took its ground from the
+// terrain near the map's centre, far over the deck, and filled the ship. The camera is in world coordinates
+// and never more than 50 yards from the player, so a player more than kOffShip yards across from it is on a
+// ship, and the camera's position is given instead (*onShip set). The ship's own place is not read.
+bool ClientPlayer(float pos[3], bool* onShip)
+    {
+        constexpr float kOffShip = 200.0f;
+        if (onShip)
+            *onShip = false;
+        float cam[3];
+        if (!ClientPlayerRaw(pos))
+            return false;
+        if (ClientCamera(cam) && hypotf(pos[0] - cam[0], pos[1] - cam[1]) > kOffShip)
+        {
+            memcpy(pos, cam, sizeof(cam));
+            if (onShip)
+                *onShip = true;
+        }
+        return true;
+    }
+
+// The position as the player object holds it: in the world, or relative to a ship.
+static bool ClientPlayerRaw(float pos[3])
     {
         const ClientSettings& b = g_cfg.client;
         if (!b.objMgrAddr || !b.playerPosOff)

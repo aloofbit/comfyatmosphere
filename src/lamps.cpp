@@ -1123,13 +1123,14 @@ namespace
     void Report()
     {
         float player[3] = {};
-        const bool havePlayer = ClientPlayer(player);
+        bool onShip = false;
+        const bool havePlayer = ClientPlayer(player, &onShip);
         float hour = 0.0f;
         const bool haveHour = ClientHour(hour);
         Log("lamps: --- report of probe %llu, %u frames ---", g_probeNumber, kWindow);
         Log("lamps: camera (%.1f %.1f %.1f)%s, player (%.1f %.1f %.1f)%s, game time %02d:%02d%s",
             g_cam[0], g_cam[1], g_cam[2], g_haveCam ? "" : " (not read)", player[0], player[1], player[2],
-            havePlayer ? "" : " (not read)", static_cast<int>(hour), static_cast<int>(hour * 60.0f) % 60,
+            !havePlayer ? " (not read)" : onShip ? " (on a ship: the camera's)" : "", static_cast<int>(hour), static_cast<int>(hour * 60.0f) % 60,
             haveHour ? "" : " (no clock)");
         Log("lamps: %u world draws in the window", g_nDraws);
 

@@ -1468,6 +1468,24 @@ both would take a second units' map, 64 MB and a pass more. In that test the swi
 measured from the unit a part stands at, not from each part's first bone: by the bones, an NPC's legs left
 the box before its body.
 
+## Fog on ships (2026-10-02)
+
+Players reported fog on boats. On a ship or a zeppelin the client keeps the player's position relative to the
+ship. F12 at Theramore, on the dock and then on the deck:
+
+| Where | Camera | Player as read | The fog's ground from |
+| --- | --- | --- | --- |
+| The dock | (-3996.4 -4727.4 8.8) | (-4002.6 -4728.9 5.1) | the map files |
+| The deck | (-4002.7 -4729.0 10.2) | (-1.4 -10.3 6.1) | your feet, under the map's ground |
+
+On the deck the ground texture was made around (-1 -10), near the map's centre, and the terrain there stood far
+over the deck's height. The fog took the Ironforge rule and filled the ship.
+
+`ClientPlayer` now gives the camera's position when the player is more than 200 yards across from the camera
+(the camera stays within 50 yards of the player), and says so (`onShip`). The see-through distance check leaves
+the ship case off, as it was. The ship's own place and facing are not read, so other units on a ship
+(`ClientUnits`) are still relative to it.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

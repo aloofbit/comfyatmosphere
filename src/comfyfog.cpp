@@ -746,8 +746,10 @@ namespace
         if (!g_inPass)
         {
             // [depth] seeThroughNear: the camera this near your character means the client may be fading it.
+            // On a ship the player is not read (ClientPlayer), so this is left off, as before.
             float cam[3], pl[3];
-            g_ownDist = ClientCamera(cam) && ClientPlayer(pl)
+            bool onShip = false;
+            g_ownDist = ClientCamera(cam) && ClientPlayer(pl, &onShip) && !onShip
                 ? sqrtf((cam[0] - pl[0]) * (cam[0] - pl[0]) + (cam[1] - pl[1]) * (cam[1] - pl[1]) +
                         (cam[2] - pl[2]) * (cam[2] - pl[2]))
                 : 1e9f;
