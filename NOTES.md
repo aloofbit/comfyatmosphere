@@ -1453,6 +1453,21 @@ cobbles at the feet for a body. What stayed:
   64 came in with the map files' ground that day, and the notes give no reason. Past about 29 yards the far
   map (0.12 yards a texel) takes over.
 
+**A player's legs lighter than the body in its shadow, now and then (2026-10-01).** A probe showed one of the
+player's parts, 631 vertices, without "at a unit": its first bone stood 0.54 yards across the ground from the
+player, past the half yard `atUnit` takes, and the idle animation moved it back and forth across that line.
+Since the units left the near map such a part fell back to the world's map, without the extra darkness. A
+unit's parts share its vertex buffer and shader, so one part at a unit now makes every entry with that pair a
+unit.
+
+Tried the same day and dropped: `[shadow] unitRange`, a narrower box for the units' map (24 yards either side
+at 4096, 0.012 yards a texel), with the characters within 16 yards in it and the others back in the near map.
+Sharp, but a character past 16 yards lost the extra darkness: a horse beside a house had a shadow no darker
+than the house's shade, where it had shown before. With nearRange 32 the units' map is sharp enough. Keeping
+both would take a second units' map, 64 MB and a pass more. In that test the switch between the maps was
+measured from the unit a part stands at, not from each part's first bone: by the bones, an NPC's legs left
+the box before its body.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

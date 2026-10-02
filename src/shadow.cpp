@@ -2592,11 +2592,19 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             for (Entry& e : kv.second)
                 if (e.rec.vs && !e.unit && atUnit(e))
                     e.unit = true;
+    // A unit's parts share its vertex buffer and shader, so one part at a unit makes them all units
+    // (2026-10-01). A player's legs, 631 vertices, had their first bone 0.54 yards across the ground from the
+    // player, past the half yard atUnit takes; as the idle animation moved it across that line they went
+    // to the near map and back, and the shadow's legs came out lighter than its body now and then.
     g_unitModels.clear();
     for (const auto& kv : g_cache)
         for (const Entry& e : kv.second)
             if (e.rec.vs && e.unit)
                 g_unitModels.insert(ModelKey(e.rec.vb[0], e.rec.vs));
+    for (auto& kv : g_cache)
+        for (Entry& e : kv.second)
+            if (e.rec.vs && !e.unit && g_unitModels.count(ModelKey(e.rec.vb[0], e.rec.vs)))
+                e.unit = true;
     auto isLeaf = [&](const Entry& e) {
         // Terrain casts as leaves do ([shadow] terrainLeaves): hills and mountains let part of the sun
         // through, as the owner wanted, where buildings stop it all (2026-09-29).
