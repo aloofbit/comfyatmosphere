@@ -1536,6 +1536,11 @@ namespace
     D3DMATRIX             g_mapAbsToSun = {};      // absolute world -> shadow clip, as the map was last drawn
     IDirect3DTexture9*    g_nearTex   = nullptr;   // the near map: [shadow] nearRange either side
     IDirect3DTexture9*    g_midTex    = nullptr;   // the middle map: [shadow] midRange, solid only
+    // The terrain's map (2026-10-02): hills and mountains alone, under the far map's camera, so the leaf maps
+    // hold leaves alone and a tree's shade still shows inside a mountain's. With terrainLeaves and leaves only.
+    IDirect3DTexture9*    g_terrTex   = nullptr;
+    IDirect3DSurface9*    g_terrSurf  = nullptr;
+    bool                  g_terrValid = false;
     IDirect3DSurface9*    g_midSurf   = nullptr;
     bool                  g_midValid  = false;
     D3DMATRIX             g_midVP     = {};        // camera-relative world -> middle map clip, for the reader
@@ -1690,6 +1695,9 @@ namespace
         SafeRelease(g_midSurf);
         SafeRelease(g_midTex);
         g_midValid = false;
+        SafeRelease(g_terrSurf);
+        SafeRelease(g_terrTex);
+        g_terrValid = false;
         SafeRelease(g_nearLeafSurf);
         SafeRelease(g_nearLeafTex);
         SafeRelease(g_farLeafSurf);
@@ -1712,9 +1720,11 @@ namespace
         const bool wantNear = g_cfg.shadow.nearRange > 0.0f;
         const bool wantLeaves = g_cfg.shadow.leaves;
         const bool wantMid = g_cfg.shadow.midRange > 0.0f;
+        const bool wantTerr = wantLeaves && g_cfg.shadow.terrainLeaves;
         if (g_size == size && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr) &&
             wantLeaves == (g_farLeafSurf != nullptr) && (wantLeaves && wantNear) == (g_nearLeafSurf != nullptr) &&
-            wantNear == (g_unitSurf != nullptr) && wantMid == (g_midSurf != nullptr))
+            wantNear == (g_unitSurf != nullptr) && wantMid == (g_midSurf != nullptr) &&
+            wantTerr == (g_terrSurf != nullptr))
             return true;
         ReleaseResources();
         auto* d = dev->lpVtbl;
@@ -1741,6 +1751,12 @@ namespace
             hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_midTex, nullptr);
             if (SUCCEEDED(hr))
                 hr = g_midTex->lpVtbl->GetSurfaceLevel(g_midTex, 0, &g_midSurf);
+        }
+        if (SUCCEEDED(hr) && wantTerr)
+        {
+            hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_terrTex, nullptr);
+            if (SUCCEEDED(hr))
+                hr = g_terrTex->lpVtbl->GetSurfaceLevel(g_terrTex, 0, &g_terrSurf);
         }
         // The units' map at the near map's size since 2026-10-01 (half until then): a character's shade on
         // itself now comes from it, and half the size stepped about on the body.
@@ -1791,6 +1807,8 @@ namespace
             colourKind, g_unitSurf ? ", and one of the units" : "");
         if (g_midSurf)
             Log("shadow: and a middle map, solid only, %ux%u", size, size);
+        if (g_terrSurf)
+            Log("shadow: and a terrain map, the far map's camera, %ux%u", size, size);
         return true;
     }
 
@@ -2681,26 +2699,30 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const bool doUnits = doNear && g_unitSurf && g_unitColour && g_cfg.sunShadows.units &&
                          g_cfg.sunShadows.unitStrength > 0.0f;
     UINT unitDrawn = 0;
-    // Passes: far solid, far leaves, near solid, near leaves, middle (solid), units. The middle map is the
-    // sun shadows' alone, as the near one is; it holds the units too, since the units' map is the near one's.
-    double passTime[6] = {};
-    unsigned long long bytesNow[6] = {};
-    for (int pass = 0; pass < 6; ++pass)
+    // Passes: far solid, far leaves, near solid, near leaves, middle (solid), units, terrain. The middle map
+    // is the sun shadows' alone, as the near one is; it holds the units too, since the units' map is the near
+    // one's. The terrain's map is the far map's camera, drawn when the far map is.
+    const bool doTerr = doLeaves && s.terrainLeaves && g_terrSurf;
+    double passTime[7] = {};
+    unsigned long long bytesNow[7] = {};
+    for (int pass = 0; pass < 7; ++pass)
     {
     const bool unitPass = pass == 5;
     const bool midPass  = pass == 4;
-    const bool nearPass = pass >= 2 && !midPass;   // the near map's camera: near solid, near leaves, units
+    const bool terrPass = pass == 6;
+    const bool nearPass = pass == 2 || pass == 3 || unitPass;   // the near map's camera
     const bool leafPass = pass == 1 || pass == 3;
-    if ((pass < 2 && !drawFar) || (nearPass && !doNear) || (midPass && !doMid) || (leafPass && !doLeaves) ||
-        (unitPass && !doUnits))
+    if (((pass < 2 || terrPass) && !drawFar) || (nearPass && !doNear) || (midPass && !doMid) ||
+        (leafPass && !doLeaves) || (unitPass && !doUnits) || (terrPass && !doTerr))
         continue;
     const double passStart = Now();
     const float mapRange = nearPass ? s.nearRange : midPass ? s.midRange : s.range;
     const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
     const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
     if (unitPass)
-        d->SetRenderTarget(dev, 0, g_unitColour);   // the last pass: the restore puts the client's back
-    d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
+        d->SetRenderTarget(dev, 0, g_unitColour);   // the restore puts the client's back
+    d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : terrPass ? g_terrSurf
+                                            : nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
                                             : midPass ? g_midSurf : (leafPass ? g_farLeafSurf : g_depthSurf));
     d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
     d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : midPass ? &midProj : &sunProj);
@@ -2718,21 +2740,22 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // left out of them when its shadows are off; units are left out of every map when theirs are.
     const bool worldHere = (!(nearPass || midPass) || g_cfg.sunShadows.world) && !unitPass;
     const bool unitsHere = g_cfg.sunShadows.units;
-    // The ground from the files goes where the client's terrain would: the leaf map with terrainLeaves.
-    if (worldHere && s.mapTerrain && (doLeaves ? leafPass == s.terrainLeaves : !leafPass))
+    // The ground from the files goes where the client's terrain would: the terrain's map, or else the leaf
+    // map with terrainLeaves.
+    if (worldHere && s.mapTerrain && (doTerr ? terrPass : !terrPass && (doLeaves ? leafPass == s.terrainLeaves : !leafPass)))
     {
         const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam);
         if (nearPass) nearTiles = n; else if (midPass) midTiles = n; else farTiles = n;
     }
     // The buildings from the files: solid.
-    if (worldHere && s.mapTerrain && !leafPass)
+    if (worldHere && s.mapTerrain && !leafPass && !terrPass)
     {
         const unsigned n = MapBuildingsDraw(dev, passCut, cam);
         if (nearPass) nearWmos = n; else if (midPass) midWmos = n; else farWmos = n;
     }
     // The doodads from the files: the solid models here, the trees and bushes with the leaves (or here as
     // well, without leaf maps).
-    if (worldHere && s.mapTerrain)
+    if (worldHere && s.mapTerrain && !terrPass)
     {
         unsigned n = 0;
         if (!leafPass)
@@ -2748,8 +2771,11 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         const Rec&   r = e.rec;
         if (e.lastSeen < now && pass < 2)
             ++unseen;
+        // The client's terrain goes to the terrain's map when there is one, and nothing else does.
+        if (terrPass != (doTerr && r.terrain != 0))
+            continue;
         // With leaf maps, the leaves go there and everything else to the solid map.
-        if (doLeaves && isLeaf(e) != leafPass)
+        if (!terrPass && doLeaves && isLeaf(e) != leafPass)
             continue;
         // With the units' map drawn, the units stay out of the near solid map (2026-10-01): a character's
         // shadow then comes from one map, with one outline. In both, its shadow was drawn twice with two
@@ -2971,7 +2997,10 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             (bytesNow[0] + bytesNow[1]) / 1048576.0,
             (bytesNow[2] + bytesNow[3] + bytesNow[4] + bytesNow[5]) / 1048576.0);
     if (drawFar)
+    {
         g_farLeafValid = doLeaves;
+        g_terrValid    = doTerr;
+    }
     g_nearLeafValid = doLeaves && doNear;
     g_unitValid = doUnits;
     if (doNear)
@@ -3154,6 +3183,11 @@ bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
 IDirect3DTexture9* ShadowFarLeaves()
 {
     return (g_cfg.shadow.enabled && g_valid && g_farLeafValid) ? g_farLeafTex : nullptr;
+}
+
+IDirect3DTexture9* ShadowFarTerrain()
+{
+    return (g_cfg.shadow.enabled && g_valid && g_terrValid) ? g_terrTex : nullptr;
 }
 
 bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range)

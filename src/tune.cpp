@@ -46,6 +46,7 @@ namespace
         { "sunshadows.softness", "Shadow Softness" },
         { "shadow.mapEvery",     "Shadow Redraw" },
         { "shadow.nearRange",    "Near Shadow Distance" },
+        { "sunshadows.leafShade", "Tree Shadow Strength" },
         { "sunshadows.enabled",  "Sun Shadows" },
         { "sunshadows.world",    "World / Object Shadows" },
         { "sunshadows.units",    "Player / Creature Shadows" },

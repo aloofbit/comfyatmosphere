@@ -262,6 +262,8 @@ void LoadSettings(const wchar_t* ini)
     s.sunShadows.sunOffset  = Clamp(GetF(kSunShadows, L"sunOffset",  s.sunShadows.sunOffset,  ini), 0.0f, 2.0f);
     s.sunShadows.baked      = Clamp(GetF(kSunShadows, L"baked",      s.sunShadows.baked,      ini), 0.0f, 1.0f);
     s.sunShadows.leafShade  = Clamp(GetF(kSunShadows, L"leafShade",  s.sunShadows.leafShade,  ini), 0.0f, 1.0f);
+    s.sunShadows.terrainShade = Clamp(GetF(kSunShadows, L"terrainShade", s.sunShadows.terrainShade, ini), 0.0f, 1.0f);
+    s.sunShadows.terrainBias  = Clamp(GetF(kSunShadows, L"terrainBias",  s.sunShadows.terrainBias,  ini), 0.0f, 20.0f);
     s.sunShadows.sunlight   = Clamp(GetF(kSunShadows, L"sunlight",   s.sunShadows.sunlight,   ini), 0.0f, 0.5f);
     s.sunShadows.softness   = Clamp(GetF(kSunShadows, L"softness",   s.sunShadows.softness,   ini), 0.0f, 8.0f);
     s.sunShadows.debug      = GetI(kSunShadows, L"debug", s.sunShadows.debug, ini);

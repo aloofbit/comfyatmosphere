@@ -21,6 +21,7 @@ bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& r
 bool ShadowMid(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
 IDirect3DTexture9* ShadowNearLeaves();   // the near map's leaves (alpha-tested draws), same camera; or null
 IDirect3DTexture9* ShadowFarLeaves();    // the far map's leaves, same camera as the far map; or null
+IDirect3DTexture9* ShadowFarTerrain();   // hills and mountains alone, same camera as the far map; or null
 IDirect3DTexture9* ShadowNearUnits();    // players and creatures alone, the near map's camera and size; or null
 bool ShadowIsUnitDraw(IDirect3DDevice9* dev);   // the draw about to be made is a model the cache has at a unit
 // This frame's replay, for the volume trace: how it ended (0 = drawn) and how many entries it drew.

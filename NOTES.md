@@ -1599,6 +1599,28 @@ The sun shadow shader passed MSVC's 16 KB limit for one string literal, so it is
 
 The Near Shadow Distance control (16 to 128 yards) sets `[shadow] nearRange`.
 
+## A tree's shade inside a hill's (2026-10-02)
+
+The owner wanted a tree's shadow to show inside a mountain's shadow, as a fence's does. A fence casts in the
+solid maps (full shade) and a hill in the leaf maps (part shade), and the shade was the larger of the two, so
+the fence showed darker. Trees cast in the leaf maps with the terrain, and a map keeps only what is nearest
+the sun: inside a hill's shadow the tree was not in the map at all.
+
+- **A terrain map.** With `[shadow] terrainLeaves` and leaf maps, hills and mountains (the client's terrain
+  draws and the ground from the map files) go into a map of their own under the far map's camera, drawn
+  when the far map is. 64 MB. The leaf maps hold leaves alone.
+- **The shades multiply:** lit = solid x (1 - leafShade x leaf) x (1 - terrainShade x terrain). A tree alone
+  and a hill alone are as before; a tree inside a hill's shade comes out at 0.84 against 0.6.
+- `[sunshadows] terrainShade` (0.6) is the hills' share, `leafShade` the trees', set by the Tree Shadow
+  Strength control.
+- **The volumetric light** reads the terrain map too, with the leaves' share, so the shafts are as before.
+- **Faint bands on the ground near you.** The ground's own hill shade had come from the near leaf map
+  (0.016 yards a texel) and now came from the terrain map (0.122). The terrain lookup's slack is at least
+  `[sunshadows] terrainBias` (1.5 yards): a hill shades from yards away. The owner: looks better.
+
+Not done, by choice: a lamp post's shade inside a building's. Both are solid; in real light there is none.
+Buildings in a map of their own would do it, at another 64 MB.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

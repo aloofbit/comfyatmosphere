@@ -284,6 +284,10 @@ struct SunShadowSettings
     float baked      = 0.0f;      // 0..1: how much of the terrain's own baked shadow is kept while these
                                   // draw (terrainshade.cpp). It points one way at every hour. Back in
                                   // full as they fade at dusk
+    float terrainShade = 0.6f;    // 0..1: the share of the sun that hills and mountains stop, with
+                                  // [shadow] terrainLeaves (2026-10-02; leafShade until then)
+    float terrainBias  = 1.5f;    // yards: the least slack in the terrain map's depth test. A hill shades
+                                  // from yards away; less, and the ground shades itself in faint bands
     float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
                                   // everything solid shades the rest, so characters no longer float
     float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the

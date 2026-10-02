@@ -99,6 +99,7 @@ O main(float3 pos : POSITION, float2 uv : TEXCOORD0)
 sampler2D sDepth  : register(s0);   // the scene's depth (INTZ)
 sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the solid things
 sampler2D sLeaf   : register(s2);   // the leaves' map, the same camera
+sampler2D sTerr   : register(s5);   // hills and mountains alone, the same camera (when gG.w is 1)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -112,7 +113,8 @@ float4 gP    : register(c9);        // debug stage, max distance, density, shado
 float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset, leafShade (0 = no leaf map)
 float4 gF    : register(c12);       // fog: per yard at the ground, 1 / height, the ground's height (camera-relative), sky distance
-float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (/4pi), share of the far part in sun, reach
+float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (/4pi), share of the far part in sun, reach,
+                                    // 1 if there is a terrain map
 float4 gN    : register(c14);       // the patches: where the camera is in the noise (wind included), 1 / tile size in yards
 float4 gM    : register(c15);       // the patches: patchiness, how much flatter they are than wide
 sampler3D sNoise : register(s3);    // the patches: tiling noise, wrapped; r large shapes, g small
@@ -211,6 +213,10 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // canopy was lit almost evenly.
         [branch] if (gL.w > 0.0)
             hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
+        // Hills and mountains, in a map of their own since 2026-10-02; until then in the leaves' map. The same
+        // share, so the light is as it was.
+        [branch] if (gG.w > 0.5)
+            hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sTerr, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
         // The map ends at a hard line, and a caster crossing it used to gain or lose its shade in one
         // frame: flashes in the distance as you walked. Shadowing fades out over the last tenth of the
         // map instead, so a caster dissolves in and out.
@@ -1252,12 +1258,21 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 2, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
     IDirect3DTexture9* leaves = fogOnly ? nullptr : ShadowFarLeaves();
+    IDirect3DTexture9* terrMap = (fogOnly || !leaves) ? nullptr : ShadowFarTerrain();
+    d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
+    d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
+    d->SetSamplerState(dev, 5, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
+    d->SetSamplerState(dev, 5, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 5, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    d->SetSamplerState(dev, 5, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    d->SetSamplerState(dev, 5, D3DSAMP_SRGBTEXTURE, 0);
 
     // --- march --------------------------------------------------------------------------------------
     d->SetRenderTarget(dev, 0, g_a.surf);
     d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
     d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(shadow));
     d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(leaves ? leaves : shadow));
+    d->SetTexture(dev, 5, reinterpret_cast<IDirect3DBaseTexture9*>(terrMap));
     d->SetVertexShader(dev, g_vsMarch);
     d->SetPixelShader(dev, g_psMarch);
     const float half[4] = { -1.0f / g_a.w, 1.0f / g_a.h, 0.0f, 0.0f };
@@ -1291,7 +1306,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     g_fogCamOk   = camRead;
     memcpy(g_fogCam, cam, sizeof(g_fogCam));
     pc[48] = fogOn ? fs.density * morning : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
-    pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = fs.reach; pc[55] = 0.0f;
+    pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = fs.reach; pc[55] = terrMap ? 1.0f : 0.0f;
     // The patches: the wind carries them; they rise slowly too, so they change shape as they go. Where the
     // camera is in the tiling noise is worked out here in doubles, so far from the world's origin the
     // shader still gets small numbers.
@@ -1380,6 +1395,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 2, nullptr);
     d->SetTexture(dev, 3, nullptr);
     d->SetTexture(dev, 4, nullptr);
+    d->SetTexture(dev, 5, nullptr);
     d->SetVertexShader(dev, nullptr);
     if (g_trace > 0)
     {

@@ -51,6 +51,7 @@ COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
 COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
 COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
+COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
 COMFYATMOSPHERE_SUN_TINT       = "Sunlight Warmth";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
@@ -501,6 +502,18 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- A percentage: comfyfog.dll divides it by 100 for [sunshadows] leafShade.
+		name = "COMFYATMOSPHERE_TREE_SHADE",
+		desc = "How dark the shadows of trees and bushes are. They still show inside the shadow of a hill or a mountain.",
+		type = "slider",
+		cvar = "comfyTreeShade",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides it by 100 for [sunshadows] sunlight.
 		name = "COMFYATMOSPHERE_SUNLIGHT",
 		desc = "Makes what the sun reaches brighter, by up to this many percent. 0 leaves it as the game draws it.",
@@ -763,7 +776,7 @@ local WINDOW_SECTIONS = {
 	             "comfyIndoorLamps", "comfyLampsDay" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
-	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfySunGlide", "comfySunlight", "comfyShadeTint",
+	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfySunGlide", "comfyTreeShade", "comfySunlight", "comfyShadeTint",
 	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery",
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",

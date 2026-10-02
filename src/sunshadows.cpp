@@ -81,6 +81,7 @@ sampler2D sFarL   : register(s4);   // the far map's leaves
 sampler2D sUnit   : register(s5);   // the units alone, the near map's camera and size
 sampler2D sBody   : register(s6);   // the screen: 1 where a player or a creature shows (bodymask.cpp)
 sampler2D sMid    : register(s7);   // the middle map, solid only ([shadow] midRange)
+sampler2D sTerr   : register(s8);   // hills and mountains alone, the far map's camera
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -115,6 +116,8 @@ float4 gM1   : register(c29);
 float4 gM2   : register(c30);
 float4 gM3   : register(c31);
 float4 gMB   : register(c32);       // middle map: depth bias, normal offset, one texel, 1 if there is one
+float4 gTr   : register(c33);       // the terrain: terrainShade, 1 if there is a map of it, its least depth bias
+                                    // (map units)
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -262,9 +265,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         }
     }
     // The far map, fading out over its last tenth, where it ends. Its solid map only where the near and
-    // middle maps leave some of the shade to it; its leaves wherever the near map does.
-    float litF = 1.0, leafF = 1.0;
-    [branch] if (wn < 1.0 && gCh.w > 0.5)
+    // middle maps leave some of the shade to it; its leaves wherever the near map does; the terrain's map,
+    // under the same camera, everywhere.
+    float litF = 1.0, leafF = 1.0, terr = 0.0;
+    [branch] if (gCh.w > 0.5 && (wn < 1.0 || gTr.y > 0.5))
     {
         float3 Qf = P + N * (gB.y * graze * offK) + gSun.xyz * gT.y;
         float4 sf = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
@@ -274,14 +278,18 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // More slack with distance ([sunshadows] lodBias): the ground the client draws far off is coarser
         // than the terrain in the map.
         float  bF = gB.x + gLod.x * max(length(P) - gLod.y, 0.0);
-        [branch] if (wm < 1.0)
+        [branch] if (wn < 1.0 && wm < 1.0)
             litF = lerp(1.0, Lit(sShadow, sf, g, bF, gB.z), fade);
-        [branch] if (gCh.z > 0.5)
+        [branch] if (wn < 1.0 && gCh.z > 0.5)
             leafF = lerp(1.0, Lit5(sFarL, sf, g, bF, gB.z), fade);
+        [branch] if (gTr.y > 0.5)
+            terr = 1.0 - lerp(1.0, Lit5(sTerr, sf, g, max(bF, gTr.z), gB.z), fade);
     }
-    // Solid things stop the sun; leaves stop leafShade of it.
+    // Solid things stop the sun; leaves stop leafShade of it, and hills terrainShade. They multiply
+    // (2026-10-02): a tree's shade shows inside a mountain's, as a fence's does. The larger of the two was
+    // taken until then, and with trees and terrain in one map a tree under a mountain's shade added nothing.
     float leaf  = 1.0 - lerp(leafF, leafN, wn);
-    float shade = max(1.0 - lerp(lerp(litF, litM, wm), litN, wn), gCh.x * leaf);
+    float shade = 1.0 - lerp(lerp(litF, litM, wm), litN, wn) * (1.0 - gCh.x * leaf) * (1.0 - gTr.x * terr);
     if (gL.y > 2.5)
         return float4(body, body, body, 1.0);                              // debug 3: the bodies it finds
     // The units' own shade, darkened again on top of the world's. The map holds no ground, so it needs none
@@ -524,6 +532,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     D3DMATRIX midVP = {};
     float midRange = 0.0f;
     const bool haveMid = ShadowMid(midTex, midVP, midRange);
+    IDirect3DTexture9* terrMap = ShadowFarTerrain();
     IDirect3DTexture9* nearLeaf = haveNear ? ShadowNearLeaves() : nullptr;
     IDirect3DTexture9* farLeaf  = ShadowFarLeaves();
     IDirect3DTexture9* unitMap  = haveNear ? ShadowNearUnits() : nullptr;
@@ -638,9 +647,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     IDirect3DTexture9* bodyMask = BodyMaskTexture();
     d->SetTexture(dev, 6, reinterpret_cast<IDirect3DBaseTexture9*>(bodyMask ? bodyMask : depth));
     d->SetTexture(dev, 7, reinterpret_cast<IDirect3DBaseTexture9*>(haveMid ? midTex : shadow));
+    d->SetTexture(dev, 8, reinterpret_cast<IDirect3DBaseTexture9*>(terrMap ? terrMap : shadow));
     d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    for (DWORD st = 0; st < 8; ++st)
+    for (DWORD st = 0; st < 9; ++st)
     {
         d->SetSamplerState(dev, st, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, st, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -650,7 +660,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     // Off a map reads as far: lit.
-    for (DWORD st = 1; st < 8; ++st)
+    for (DWORD st = 1; st < 9; ++st)
     {
         if (st == 6)
             continue;   // the body mask, clamped above
@@ -664,7 +674,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[132] = {};
+    float pc[136] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -751,7 +761,12 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
             pc[112 + r * 4 + c] = midVP.m[r][c];
     pc[128] = (biasTex * midTex_ + ss.minGap) / span; pc[129] = offYards; pc[130] = 1.0f / size;
     pc[131] = haveMid ? 1.0f : 0.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 33);
+    pc[132] = ss.terrainShade;
+    pc[133] = terrMap ? 1.0f : 0.0f;
+    // The terrain's slack: at least [sunshadows] terrainBias yards. A hill shades from yards away, and at the
+    // far map's texel the ground near you shaded itself in faint bands (2026-10-02).
+    pc[134] = ss.terrainBias / span;
+    d->SetPixelShaderConstantF(dev, 0, pc, 34);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -770,6 +785,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 5, nullptr);
     d->SetTexture(dev, 6, nullptr);
     d->SetTexture(dev, 7, nullptr);
+    d->SetTexture(dev, 8, nullptr);
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
