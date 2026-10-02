@@ -1533,6 +1533,22 @@ march, and the march needs the shadow map, which is most of the light's cost. No
 - The Fog box turns on `[depth]` and no longer depends on the Volumetric Light box. The benchmark has a step
   for the fog alone.
 
+## Stripes on walls the sun grazes (2026-10-02)
+
+In Stormwind the faces of a plinth and the wall under it, turned nearly edge-on to the sun (sun height 29
+degrees), were shaded in fine stripes and a checker, with Shadow Softness at 0. That is the map's depth
+test on a surface the sun grazes: the surface and its own depth in the map are within the bias, and the
+answer flips from texel to texel. The bias follows the sun's height for flat ground only.
+
+- `[sunshadows] slope = 1` (each tap's depth along the surface's plane) did not change it.
+- `[sunshadows] normalBias = 2` cleared it: each point moves 2 texels of the map along its facing, up to
+  4 times that where the sun grazes, before the test.
+
+normalBias was 0 since 2026-09-29 because the facing comes from the depth, per triangle on a model, and
+the offset put the triangles on the character. The body mask (2026-10-01) now marks the players and
+creatures, and they take none of the offset. With `[sunshadows] units = 0` there is no mask, and they take
+all of it. normalBias is 2 by default.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

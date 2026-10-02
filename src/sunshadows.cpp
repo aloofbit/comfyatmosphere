@@ -30,7 +30,8 @@
 // each triangle's flat facing, where the client lights it with smooth normals, and every use of it put
 // the triangles on the character: blocks, facets, a copy of the nose, speckle, patches where the arm
 // shades the body. NOTES.md has the steps. The facing is still rebuilt for [sunshadows] normalBias and
-// slope, both 0 by default: only when either is above 0.
+// slope, only when either is above 0. normalBias is 2 since 2026-10-02, off the bodies the mask finds:
+// walls the sun grazes shaded themselves in stripes without it.
 //
 // It draws only while the volumetric light does, since the map is built for it. It follows the sun's
 // height as the light does (the map follows the moon at night), and at night [sunshadows] night.
@@ -207,13 +208,23 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         graze = 1.0 + 3.0 * sqrt(saturate(1.0 - ndl * ndl));
     }
 
+    // On a player or a creature, as the client drew it (bodymask.cpp): 1 on a body, 0 elsewhere, between at
+    // the edge of one (2026-10-01).
+    // With no mask every pixel takes a body's slack (the safe side: no shade of a surface on itself) and
+    // nothing is scaled.
+    float body  = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).r : 0.0;
+    float bodyS = gBody.y > 0.5 ? body : 1.0;
+    // The normal offset stays off the bodies (2026-10-02): a body's facing from the depth is per triangle,
+    // and the offset put its triangles on the character. Walls and the ground take all of it.
+    float offK = 1.0 - body;
+
     // The near map where it reaches, blended into the far one over the band from 80% to 90% of its
     // half-width. The far map is read only where the near map does not cover all of the shade.
     float wn = 0.0, litN = 1.0, leafN = 1.0;
     float4 sn = 0.0;
     [branch] if (gNB.w > 0.5)
     {
-        float3 Qn = P + N * (gNB.y * graze) + gSun.xyz * gT.y;
+        float3 Qn = P + N * (gNB.y * graze * offK) + gSun.xyz * gT.y;
         sn = Qn.x * gN0 + Qn.y * gN1 + Qn.z * gN2 + gN3;
         float2 en = abs(sn.xy);
         wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
@@ -229,7 +240,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float litF = 1.0, leafF = 1.0;
     [branch] if (wn < 1.0 && gCh.w > 0.5)
     {
-        float3 Qf = P + N * (gB.y * graze) + gSun.xyz * gT.y;
+        float3 Qf = P + N * (gB.y * graze * offK) + gSun.xyz * gT.y;
         float4 sf = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
         float2 ef = abs(sf.xy);
         float  fade = saturate((1.0 - max(ef.x, ef.y)) * 10.0);
@@ -244,12 +255,6 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // Solid things stop the sun; leaves stop leafShade of it.
     float leaf  = 1.0 - lerp(leafF, leafN, wn);
     float shade = max(1.0 - lerp(litF, litN, wn), gCh.x * leaf);
-    // On a player or a creature, as the client drew it (bodymask.cpp): 1 on a body, 0 elsewhere, between at
-    // the edge of one (2026-10-01).
-    // With no mask every pixel takes a body's slack (the safe side: no shade of a surface on itself) and
-    // nothing is scaled.
-    float body  = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).r : 0.0;
-    float bodyS = gBody.y > 0.5 ? body : 1.0;
     if (gL.y > 2.5)
         return float4(body, body, body, 1.0);                              // debug 3: the bodies it finds
     // The units' own shade, darkened again on top of the world's. The map holds no ground, so it needs none
