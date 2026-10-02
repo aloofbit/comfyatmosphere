@@ -420,6 +420,37 @@ struct SkySettings
     bool clouds = false;   // false: the sky's cloud layer is not drawn
 };
 
+// The water (water.cpp, 2026-10-02): foam where it is shallow, drawn over each water chunk the client draws.
+struct WaterSettings
+{
+    bool  enabled   = true;
+    float foam      = 0.8f;      // 0..1: how white the foam is
+    float foamWidth = 1.0f;      // yards of depth: the foam thins out to nothing at this depth
+    float foamReach = 4.0f;      // yards out from the waterline: the same across the water, for a gentle beach
+    float foamScale = 0.6f;      // yards: the size of a bubble in the foam
+    float foamSpeed = 1.0f;      // how fast the foam moves and the bands roll in to the shore
+    float ripples   = 0.4f;      // 0..1: the rings round anyone standing in the water
+    float wetSand   = 0.45f;     // 0..1: how much darker the sand is where the water reaches
+    // The surface (2026-10-02): the water drawn by us in place of the game's: its colour by the real depth, the
+    // sky in it, the sun's glint, small waves, whitecaps far out.
+    float surface   = 1.0f;      // 0..1: how much of our water is drawn over the game's (0 = the game's alone)
+    float clarity   = 1.0f;      // how clear the water is: the light it absorbs is divided by this
+    DWORD deepColor = 0x0E5A58;  // the colour deep water turns, by day
+    DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
+    float glint     = 1.0f;      // 0..3: the sun's glint on the waves
+    float waves     = 1.0f;      // 0..3: how choppy the small waves are
+    float waveHeight = 1.0f;     // yards: how tall the swell rises, out where the water is 1.5 yards deep or more
+    float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
+    float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water
+    float refraction = 0.25f;    // yards: how far the waves bend what lies under the water
+    bool  gameWake  = false;     // the game's own wake and splash round a unit in the water; off, the ripples
+                                 // take their place
+    DWORD foamColor = 0xEEF4F6;  // the foam's colour by day; the night darkens it
+    float fadeEnd   = 150.0f;    // yards: the foam fades out over the last 40% of this distance
+    int   debug     = 0;         // 1 = the depth under the water (blue shallow, red at 4 x foamWidth);
+                                 // 2 = the foam alone, white on black; 3 = the wet sand alone
+};
+
 // The benchmark (bench.cpp): Alt + the probe key runs each feature in turn and logs what it costs.
 struct BenchSettings
 {
@@ -431,6 +462,7 @@ struct BenchSettings
 struct Settings
 {
     SkySettings  sky;
+    WaterSettings water;
     RaysSettings rays;
     BenchSettings bench;
     DepthSettings depth;

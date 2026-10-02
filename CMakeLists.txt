@@ -35,6 +35,7 @@ add_library(comfyfog SHARED
     src/mapwmo.cpp
     src/mapm2.cpp
     src/report.cpp
+    src/water.cpp
 )
 
 # version.h: comfyfog's version from git, for the client report (cmake/version.cmake).

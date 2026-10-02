@@ -237,6 +237,12 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
     }
 }
 
+bool BodyMarkLive(DWORD& bit)
+{
+    bit = kBit;
+    return g_started && !g_skipFrame;
+}
+
 void BodyMaskProbe()
 {
     g_probeFrames = 3;

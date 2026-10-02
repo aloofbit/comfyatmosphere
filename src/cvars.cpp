@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -149,6 +149,8 @@ namespace
         "comfySunShadowsBody",
         "comfyShadowNear",
         "comfyTreeShade",
+        "comfyWaveHeight",
+        "comfyWaveSize",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -282,6 +284,8 @@ namespace
         case kMaster:         snprintf(out, cap, "%d", s.master ? 1 : 0); break;
         case kSunlight:       snprintf(out, cap, "%.0f", s.sunShadows.sunlight * 100.0f); break;   // percent
         case kTreeShade:      snprintf(out, cap, "%.0f", s.sunShadows.leafShade * 100.0f); break;  // percent
+        case kWaveHeight:     snprintf(out, cap, "%.0f", s.water.waveHeight * 10.0f); break;       // tenths of a yard
+        case kWaveSize:       snprintf(out, cap, "%.0f", s.water.waveScale * 100.0f); break;       // percent
         // Thousandths: density 0.015 is 15, anisotropy 0.025 is 25. Distance in yards.
         case kVolumeDensity:  snprintf(out, cap, "%.0f", s.volume.density * 1000.0f); break;
         case kVolumeDistance: snprintf(out, cap, "%.0f", s.volume.maxDistance); break;
@@ -345,6 +349,8 @@ namespace
         if (c[kMaster].seen)         s.master          = c[kMaster].value != 0.0f;
         if (c[kSunlight].seen)       s.sunShadows.sunlight = Clamp(c[kSunlight].value * 0.01f, 0.0f, 0.5f);
         if (c[kTreeShade].seen)      s.sunShadows.leafShade = Clamp(c[kTreeShade].value * 0.01f, 0.0f, 1.0f);
+        if (c[kWaveHeight].seen)     s.water.waveHeight = Clamp(c[kWaveHeight].value * 0.1f, 0.0f, 3.0f);
+        if (c[kWaveSize].seen)       s.water.waveScale = Clamp(c[kWaveSize].value * 0.01f, 0.25f, 4.0f);
         if (c[kVolumeDensity].seen)  s.volume.density  = Clamp(c[kVolumeDensity].value * 0.001f, 0.0f, 0.05f);
         if (c[kVolumeDistance].seen) s.volume.maxDistance = Clamp(c[kVolumeDistance].value, 20.0f, 1000.0f);
         if (c[kVolumeDirection].seen) s.volume.anisotropy = Clamp(c[kVolumeDirection].value * 0.001f, 0.0f, 0.95f);

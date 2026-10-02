@@ -50,6 +50,7 @@ namespace
     const wchar_t* kSun     = L"sun";
     const wchar_t* kClient  = L"client";
     const wchar_t* kSky     = L"sky";
+    const wchar_t* kWater   = L"water";
     const wchar_t* kDepth   = L"depth";
     const wchar_t* kShadow  = L"shadow";
     const wchar_t* kVolume  = L"volume";
@@ -169,6 +170,28 @@ void LoadSettings(const wchar_t* ini)
     s.client.mapNameAddr  = GetX(kClient, L"mapNameAddr",  s.client.mapNameAddr,  ini);
 
     s.sky.clouds        = GetB(kSky, L"clouds", s.sky.clouds, ini);
+    s.water.enabled     = GetB(kWater, L"enabled", s.water.enabled, ini);
+    s.water.foam        = Clamp(GetF(kWater, L"foam",      s.water.foam,      ini), 0.0f, 1.0f);
+    s.water.foamWidth   = Clamp(GetF(kWater, L"foamWidth", s.water.foamWidth, ini), 0.1f, 10.0f);
+    s.water.foamReach   = Clamp(GetF(kWater, L"foamReach", s.water.foamReach, ini), 0.5f, 50.0f);
+    s.water.ripples     = Clamp(GetF(kWater, L"ripples",   s.water.ripples,   ini), 0.0f, 1.0f);
+    s.water.wetSand     = Clamp(GetF(kWater, L"wetSand",   s.water.wetSand,   ini), 0.0f, 1.0f);
+    s.water.surface     = Clamp(GetF(kWater, L"surface",   s.water.surface,   ini), 0.0f, 1.0f);
+    s.water.clarity     = Clamp(GetF(kWater, L"clarity",   s.water.clarity,   ini), 0.1f, 10.0f);
+    s.water.deepColor   = GetX(kWater, L"deepColor", s.water.deepColor, ini) & 0xFFFFFF;
+    s.water.skyColor    = GetX(kWater, L"skyColor",  s.water.skyColor,  ini) & 0xFFFFFF;
+    s.water.glint       = Clamp(GetF(kWater, L"glint",     s.water.glint,     ini), 0.0f, 3.0f);
+    s.water.waves       = Clamp(GetF(kWater, L"waves",     s.water.waves,     ini), 0.0f, 3.0f);
+    s.water.waveHeight  = Clamp(GetF(kWater, L"waveHeight", s.water.waveHeight, ini), 0.0f, 3.0f);
+    s.water.waveScale   = Clamp(GetF(kWater, L"waveScale", s.water.waveScale, ini), 0.25f, 4.0f);
+    s.water.whitecaps   = Clamp(GetF(kWater, L"whitecaps", s.water.whitecaps, ini), 0.0f, 1.0f);
+    s.water.refraction  = Clamp(GetF(kWater, L"refraction", s.water.refraction, ini), 0.0f, 2.0f);
+    s.water.gameWake    = GetB(kWater, L"gameWake", s.water.gameWake, ini);
+    s.water.foamScale   = Clamp(GetF(kWater, L"foamScale", s.water.foamScale, ini), 0.05f, 10.0f);
+    s.water.foamSpeed   = Clamp(GetF(kWater, L"foamSpeed", s.water.foamSpeed, ini), 0.0f, 10.0f);
+    s.water.foamColor   = GetX(kWater, L"foamColor", s.water.foamColor, ini) & 0xFFFFFF;
+    s.water.fadeEnd     = Clamp(GetF(kWater, L"fadeEnd",   s.water.fadeEnd,   ini), 10.0f, 2000.0f);
+    s.water.debug       = GetI(kWater, L"debug", s.water.debug, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
     s.depth.seeThrough  = GetB(kDepth, L"seeThrough", s.depth.seeThrough, ini);
     s.depth.seeThroughNear = Clamp(GetF(kDepth, L"seeThroughNear", s.depth.seeThroughNear, ini), 0.0f, 50.0f);

@@ -49,6 +49,8 @@ namespace
         { "shadow.mapEvery",     "Shadow Redraw" },
         { "shadow.nearRange",    "Near Shadow Distance" },
         { "sunshadows.leafShade", "Tree Shadow Strength" },
+        { "water.waveHeight",    "Wave Height" },
+        { "water.waveScale",     "Wave Size" },
         { "sunshadows.enabled",  "Sun Shadows" },
         { "sunshadows.world",    "World / Object Shadows" },
         { "sunshadows.units",    "Player / Creature Shadows" },

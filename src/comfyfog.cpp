@@ -35,6 +35,7 @@
 #include "terrainshade.h"
 #include "mapterrain.h"
 #include "volume.h"
+#include "water.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -380,7 +381,7 @@ namespace
     char        g_orderLast = 0;
     unsigned    g_orderRun = 0, g_orderIndex = 0, g_orderFirstB = 0, g_orderOAfterB = 0;
     std::string g_orderAfter;   // the first depth-writing draws after the first blended one
-    std::string g_orderBlended; // every blended draw, with or without depth writes: the water, a stealthed unit
+    std::vector<std::string> g_orderBlendedList;   // the last blended fixed-function draws: the water, the wake
     unsigned    g_orderBCount = 0;
     std::vector<std::string> g_orderModels;   // the last model draws of the frame, with colour and depth state
 
@@ -428,8 +429,11 @@ namespace
             if (g_orderModels.size() > 30)
                 g_orderModels.erase(g_orderModels.begin());
         }
-        if ((k == 'B' || k == 'W') && !g_vshader && ++g_orderBCount <= 20)
+        // The last 30 are kept (2026-10-02): the game's wake on the water is among the few drawn after it, and
+        // the first 20 were all buildings.
+        if ((k == 'B' || k == 'W') && !g_vshader)
         {
+            ++g_orderBCount;
             DWORD src = 0, dst = 0, fvf = 0, fog = 0;
             dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
             dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
@@ -444,7 +448,9 @@ namespace
                      g_orderIndex, k, call, pc, nv, g_vshader ? " vs" : " ff", ps, tex, fvf, src, dst, fog ? " fog" : "",
                      atest ? " atest" : "",
                      g_world.m[3][0], g_world.m[3][1], g_world.m[3][2]);
-            g_orderBlended += t;
+            g_orderBlendedList.push_back(t);
+            if (g_orderBlendedList.size() > 30)
+                g_orderBlendedList.erase(g_orderBlendedList.begin());
             if (tex) tex->lpVtbl->Release(tex);
             if (ps) ps->lpVtbl->Release(ps);
         }
@@ -491,9 +497,14 @@ namespace
                 g_orderRuns.c_str());
             if (!g_orderAfter.empty())
                 Log("order: the first depth-writing draws after it:%s", g_orderAfter.c_str());
-            if (!g_orderBlended.empty())
-                Log("order: %u blended fixed-function draws (B no depth writes, W with):%s", g_orderBCount,
-                    g_orderBlended.c_str());
+            if (!g_orderBlendedList.empty())
+            {
+                std::string all;
+                for (const std::string& b : g_orderBlendedList)
+                    all += b;
+                Log("order: %u blended fixed-function draws (B no depth writes, W with), the last 30:%s", g_orderBCount,
+                    all.c_str());
+            }
             for (const std::string& m : g_orderModels)
                 Log("order: model draw %s", m.c_str());
             g_orderRec = false;
@@ -504,7 +515,7 @@ namespace
             g_orderRec = true;
             g_orderRuns.clear();
             g_orderAfter.clear();
-            g_orderBlended.clear();
+            g_orderBlendedList.clear();
             g_orderModels.clear();
             g_orderBCount = 0;
             g_orderLast = 0;
@@ -728,6 +739,7 @@ namespace
             SunShadowsReset();
             BodyMaskReset();
             TerrainShadeReset();
+            WaterReset();
             MapTerrainRelease();
             g_waterPs.clear();
             g_fog       = ClientFog();
@@ -866,6 +878,7 @@ namespace
         VolumeFrameEnd();
         LampsFrameEnd();
         BodyMarkFrameEnd(dev);
+        WaterFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_worldEnded = false;
@@ -932,6 +945,7 @@ namespace
             LampGlowProbe();
             SunShadowsProbe();
             BodyMaskProbe();
+            WaterProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -959,6 +973,7 @@ namespace
         SunShadowsReset();
         BodyMaskReset();
         TerrainShadeReset();
+        WaterReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -1520,38 +1535,47 @@ namespace
         return true;
     }
 
-    // The water writes depth ([fog] waterDepth, 2026-09-30). The client draws it blended with depth writes
-    // off, so every pass that reads depth saw what lay under it: in Stormwind harbour the open sea showed
-    // through the fog that covered the ships in front of it. Measured there: the sea is a run of about 400
-    // draws, one per chunk, each fixed-function, 81 vertices (a 9 x 9 grid), vertex format 0x212, through
-    // the client's water pixel shader, alpha blended. That shader is learnt from the 81-vertex draws, so
-    // water in buildings, whose grids have other sizes, is taken too. Depth writes go on for the draw and
-    // off after it: what the client draws later behind the surface is then hidden by it, as under murky
-    // water.
-    bool IsWaterDraw(IDirect3DDevice9* dev, UINT nv)
+    // A water draw. Measured in Stormwind harbour (2026-09-30): the sea is a run of about 400 draws, one per
+    // chunk, each fixed-function, 81 vertices (a 9 x 9 grid), vertex format 0x212, through the client's water
+    // pixel shader, alpha blended, with depth writes off. That shader is learnt from the 81-vertex draws, so
+    // water in buildings, whose grids have other sizes, is taken too. kLiquidOther: a blended fixed-function
+    // draw through another pixel shader, for the probe (lava or slime, if they have a shader of their own).
+    enum LiquidKind { kNotLiquid, kLiquidOther, kWater };
+
+    LiquidKind WaterKind(IDirect3DDevice9* dev, UINT nv)
     {
-        if (!g_cfg.depth.waterDepth || g_inPass || g_skyPhase || g_worldEnded || g_vshader || !VolumeActive())
-            return false;
-        DWORD blend = 0, zwrite = 1, fvf = 0;
+        if (g_inPass || g_skyPhase || g_worldEnded || g_vshader)
+            return kNotLiquid;
+        DWORD blend = 0, zwrite = 1;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
         if (zwrite)
-            return false;
+            return kNotLiquid;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
-        dev->lpVtbl->GetFVF(dev, &fvf);
-        if (!blend || fvf != 0x212)
-            return false;
+        if (!blend)
+            return kNotLiquid;
         IDirect3DPixelShader9* ps = nullptr;
         dev->lpVtbl->GetPixelShader(dev, &ps);
         if (!ps)
-            return false;
+            return kNotLiquid;
         ps->lpVtbl->Release(ps);
-        if (nv == 81)
+        DWORD fvf = 0;
+        dev->lpVtbl->GetFVF(dev, &fvf);
+        if (fvf == 0x212 && nv == 81)
         {
             if (g_waterPs.size() < 16 && g_waterPs.insert(ps).second)
-                Log("water: pixel shader %p draws the water; it writes depth now ([fog] waterDepth)", ps);
-            return true;
+                Log("water: pixel shader %p draws the water", ps);
+            return kWater;
         }
-        return g_waterPs.count(ps) != 0;
+        return g_waterPs.count(ps) != 0 && fvf == 0x212 ? kWater : kLiquidOther;
+    }
+
+    // The water writes depth ([depth] waterDepth, 2026-09-30). The client draws it with depth writes off, so
+    // every pass that reads depth saw what lay under it: in Stormwind harbour the open sea showed through the
+    // fog that covered the ships in front of it. Depth writes go on for the draw and off after it: what the
+    // client draws later behind the surface is then hidden by it, as under murky water.
+    bool WaterWritesDepth()
+    {
+        return g_cfg.depth.waterDepth && VolumeActive();
     }
 
     // Whether the see-through rules below may take this draw (2026-10-02): another player's or a creature's
@@ -1622,6 +1646,14 @@ namespace
             ++g_depthOnlySkipped;
             return S_OK;
         }
+        // The game's own wake on the water ([water] gameWake, water.cpp): hidden, it is not drawn, recorded for
+        // the shadows or marked as a body.
+        if (!g_vshader && !g_inPass && !g_skyPhase && !g_worldEnded && g_cfg.master && g_cfg.water.enabled)
+        {
+            const WaterChunk draw = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll };
+            if (WaterGameWake(dev, draw) && !g_cfg.water.gameWake)
+                return S_OK;
+        }
         NoteSkySun(dev, prim, pc, nv);
         const bool cloud = IsCloudDraw(dev, prim, nv);
         if (cloud)
@@ -1653,12 +1685,29 @@ namespace
             dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
             return hr;
         }
-        if (IsWaterDraw(dev, nv))
+        const LiquidKind liquid = WaterKind(dev, nv);
+        if (liquid != kNotLiquid)
         {
-            dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
-            const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
-            dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
-            return hr;
+            const WaterChunk chunk = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll };
+            WaterProbeDraw(dev, chunk, g_frameDraws, liquid == kWater);
+            if (liquid == kWater)
+            {
+                // The foam (water.cpp): the depth under the water is copied before the first draw, and the foam
+                // drawn over each chunk after the client's.
+                g_inPass = true;
+                WaterBeforeDraw(dev, chunk);
+                g_inPass = false;
+                const bool depth = WaterWritesDepth();
+                if (depth)
+                    dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
+                const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+                if (depth)
+                    dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
+                g_inPass = true;
+                WaterAfterDraw(dev, chunk, g_oDrawIdxPrim);
+                g_inPass = false;
+                return hr;
+            }
         }
         return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
     }

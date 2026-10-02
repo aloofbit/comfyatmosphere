@@ -52,6 +52,8 @@ COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
 COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
+COMFYATMOSPHERE_WAVE_HEIGHT    = "Wave Height";
+COMFYATMOSPHERE_WAVE_SIZE      = "Wave Size";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
 COMFYATMOSPHERE_SUN_TINT       = "Sunlight Warmth";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
@@ -514,6 +516,28 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] waveHeight.
+		name = "COMFYATMOSPHERE_WAVE_HEIGHT",
+		desc = "How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water.",
+		type = "slider",
+		cvar = "comfyWaveHeight",
+		minval = 0,
+		maxval = 30,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] waveScale.
+		name = "COMFYATMOSPHERE_WAVE_SIZE",
+		desc = "How long the waves are, in percent. 200 is twice as long as 100.",
+		type = "slider",
+		cvar = "comfyWaveSize",
+		minval = 50,
+		maxval = 400,
+		step = 25,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides it by 100 for [sunshadows] sunlight.
 		name = "COMFYATMOSPHERE_SUNLIGHT",
 		desc = "Makes what the sun reaches brighter, by up to this many percent. 0 leaves it as the game draws it.",
@@ -781,6 +805,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
+	{ "Water", { "comfyWaveHeight", "comfyWaveSize" } },
 };
 local WINDOW_MASTER = "comfyAtmosphere";
 -- Left out of this window: Debug View has the debug window (/atmos debug, the Debug button below).
