@@ -1055,6 +1055,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         dev->lpVtbl->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
     }
 
+    // The sun's light on the fog when the fog draws alone: [volume] strength 25 times maxIntensity 3.0.
+    constexpr float kFogOnlyGain = 0.75f;
+
     bool FogOn()
     {
         return g_cfg.fog.enabled && g_cfg.fog.density > 0.0f;
@@ -1128,18 +1131,31 @@ bool VolumeDraw(IDirect3DDevice9* dev)
 
     const VolumeSettings& v = g_cfg.volume;
     const bool fogOn = FogOn();
-    if (!v.enabled || !g_on || g_failed || (v.strength <= 0.0f && !v.debug && !fogOn))
+    if (!VolumeActive())
         return false;
+    // The fog alone (Volumetric Light off, 2026-10-02): no shadow map is drawn, and every point of the fog is
+    // taken as in the sun.
+    const bool fogOnly = !VolumeLightActive();
     ++g_st.calls;
 
     IDirect3DTexture9* depth  = DepthWorldTexture();
-    IDirect3DTexture9* shadow = ShadowTexture();
+    IDirect3DTexture9* shadow = fogOnly ? nullptr : ShadowTexture();
     float sunDir[3];
-    D3DMATRIX view, proj, shadowVP;
+    D3DMATRIX view, proj, shadowVP = {};
     // The camera the depth was drawn with (see ShadowWorldCamera); sun.cpp's can be the sky's.
     const bool worldCam = ShadowWorldCamera(view, proj);
     const bool haveCam  = worldCam || SunCamera(view, proj);
-    unsigned* skip = !depth ? &g_st.noDepth : !shadow ? &g_st.noShadow : !ShadowMatrix(shadowVP) ? &g_st.noMatrix :
+    // With the fog alone, the matrix puts every point well off the map (x and y at 4), where the shader
+    // takes it as lit and reads no texel.
+    bool haveMatrix = true;
+    if (fogOnly)
+    {
+        shadowVP.m[3][0] = shadowVP.m[3][1] = 4.0f;
+        shadowVP.m[3][3] = 1.0f;
+    }
+    else
+        haveMatrix = shadow && ShadowMatrix(shadowVP);
+    unsigned* skip = !depth ? &g_st.noDepth : (!fogOnly && !shadow) ? &g_st.noShadow : !haveMatrix ? &g_st.noMatrix :
                      !SunDirection(sunDir) ? &g_st.noSun : !haveCam ? &g_st.noCam : nullptr;
     if (skip)
     {
@@ -1235,7 +1251,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 2, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
-    IDirect3DTexture9* leaves = ShadowFarLeaves();
+    IDirect3DTexture9* leaves = fogOnly ? nullptr : ShadowFarLeaves();
 
     // --- march --------------------------------------------------------------------------------------
     d->SetRenderTarget(dev, 0, g_a.surf);
@@ -1256,7 +1272,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         }
     pc[32] = sunDir[0]; pc[33] = sunDir[1]; pc[34] = sunDir[2]; pc[35] = v.anisotropy;
     // density / 4pi: the shader's Henyey-Greenstein term is left unnormalised to save the multiply.
-    pc[36] = static_cast<float>(v.debug); pc[37] = v.maxDistance; pc[38] = v.density * 0.0795775f; pc[39] = v.bias / span;
+    pc[36] = static_cast<float>(v.debug); pc[37] = v.maxDistance; pc[38] = fogOnly ? 0.0f : v.density * 0.0795775f; pc[39] = v.bias / span;
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
     pc[40] = minZ; pc[41] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f; pc[42] = 0.0f; pc[43] = 0.0f;
@@ -1530,7 +1546,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // --- composite onto the world -------------------------------------------------------------------
     // debug replaces the world with the glow alone, white, to see its shape.
     const DWORD col = g_cfg.volume.color;
-    const float gain = v.debug ? 1.0f : (v.strength * 0.01f) * v.maxIntensity * sunset;
+    // With the fog alone the light's dial is off the page, so the sun on the fog is what the light's
+    // defaults give it (strength 25 x 3.0); Fog Sunlight sets it from there.
+    const float gain = v.debug ? 1.0f : (fogOnly ? kFogOnlyGain : (v.strength * 0.01f) * v.maxIntensity) * sunset;
     const float cc[4] = { v.debug ? gain : ((col >> 16) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col >>  8) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, cover ? 1.0f : 0.0f };
@@ -1621,9 +1639,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
 
     if (logThis)
     {
-        Log("volume: drawn at %ux%u (%.2f ms CPU to issue), gain %.2f, density %.3f, max distance %.0f yards, "
-            "sun (%.2f %.2f %.2f)", g_a.w, g_a.h, 1000.0 * (Now() - t0), gain, v.density, v.maxDistance,
-            sunDir[0], sunDir[1], sunDir[2]);
+        Log("volume: drawn at %ux%u (%.2f ms CPU to issue)%s, gain %.2f, density %.3f, max distance %.0f yards, "
+            "sun (%.2f %.2f %.2f)", g_a.w, g_a.h, 1000.0 * (Now() - t0), fogOnly ? ", the fog alone (no shadow map)" : "",
+            gain, fogOnly ? 0.0f : v.density, v.maxDistance, sunDir[0], sunDir[1], sunDir[2]);
         if (fogOn)
         {
             Log("fog: %.4f a yard at the ground, height %.0f yd, the ground at %.1f (%.1f yd under the camera, from "
@@ -1688,10 +1706,15 @@ void VolumeStatsText(std::string& out)
     out += line;
 }
 
-bool VolumeActive()
+bool VolumeLightActive()
 {
     const VolumeSettings& v = g_cfg.volume;
     return v.enabled && g_on && !g_failed && (v.strength > 0.0f || v.debug || FogOn());
+}
+
+bool VolumeActive()
+{
+    return VolumeLightActive() || (!g_cfg.volume.enabled && g_on && !g_failed && FogOn());
 }
 
 void VolumeReset()

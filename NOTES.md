@@ -24,7 +24,7 @@ measurement showed.
 
 | Piece | File | Keys |
 | --- | --- | --- |
-| Fog: carried by the volumetric light's march, on the ground from the map files | `volume.cpp` | none; `[fog]` in the ini |
+| Fog: carried by the volumetric light's march, or the march alone without the light; on the ground from the map files | `volume.cpp` | none; `[fog]` in the ini |
 | Sun direction and world camera, for the shadow map and the light | `sun.cpp` | none |
 | Sun rays: radial blur of the bright sky toward the sun | `rays.cpp` | Ctrl+F11 toggle |
 | Volumetric light: fog lit by the sun, shaded by the shadow map | `volume.cpp` (+ `depth.cpp`, `shadow.cpp`) | Alt+F11 toggle |
@@ -1511,6 +1511,27 @@ A building light near one of the building's doodads gave way to the flame within
 2.5 to 15 yards under it. That rule is now `BuildingLightBy` (`mapwmo.cpp`), and it also takes a building
 light up to 4 yards straight over a flame as the same lamp. `MapLightsNear` applies it to the game objects'
 flames, each time it gathers. The owner: fixed.
+
+## Fog without the volumetric light (2026-10-02)
+
+Players found it confusing that the Fog box needed Volumetric Light on. The fog was part of the light's
+march, and the march needs the shadow map, which is most of the light's cost. Now the fog draws alone:
+
+- `VolumeLightActive()` is the old `VolumeActive()`: the light draws, and the shadow map is built for it.
+  `VolumeActive()` is the march, for the light or for the fog alone (`[volume] enabled = 0`, fog on). The
+  shadow map, the sun shadows, the body mask and the lamps' glow follow the light; the depth swap, the
+  water's depth and the see-through rules follow the march.
+- **The camera.** The march needs the world camera and depth slice, which the shadow code finds by vote from
+  the client's draws. The frames that do not redraw the map already voted and recorded nothing else.
+  `ShadowSetPhase(false, true)` runs that path alone, and `ShadowVotesEnded` settles the votes at the end of
+  the world.
+- **No shadow map.** The matrix puts every point at x and y 4, off the map, where the shader takes it as lit
+  and reads no texel. The air of `[volume] density` adds nothing, and there is no leaf map.
+- **The sun on the fog** is scaled by Volumetric Light Strength when the light draws. Alone it is 0.75, what
+  the defaults give (strength 25 x maxIntensity 3.0), so it looks as it did at the default strength, without
+  the shafts. Fog Sunlight sets it from there.
+- The Fog box turns on `[depth]` and no longer depends on the Volumetric Light box. The benchmark has a step
+  for the fog alone.
 
 ## The framing that matters
 

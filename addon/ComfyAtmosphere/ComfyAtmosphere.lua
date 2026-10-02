@@ -157,12 +157,12 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- The fog rides on the light's march, so it needs Volumetric Light on.
+		-- The fog rides on the light's march. Without the light the march runs for the fog alone, with no
+		-- shadow map (2026-10-02).
 		name = "COMFYATMOSPHERE_MIST",
-		desc = "Fog that lies on the ground and thins higher up. The sun lights it, with shafts where trees and walls shade it. Needs Volumetric Light on.",
+		desc = "Fog that lies on the ground and thins higher up. The sun lights it. With Volumetric Light on, it shows shafts where trees and walls shade it.",
 		type = "checkbutton",
 		cvar = "comfyMist",
-		dependency = { "comfyVolume", "1" },
 	},
 	{
 		-- Ten-thousandths a yard: comfyfog.dll divides by 10000 for [fog] density (40 is 0.004).

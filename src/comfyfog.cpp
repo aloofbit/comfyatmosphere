@@ -511,8 +511,8 @@ namespace
             g_orderRun = g_orderIndex = g_orderFirstB = g_orderOAfterB = 0;
         }
         BodyMarkWorldEnded(dev);                // the body mask, from the stencil, before anything is rebound
-        DepthWorldEnded(dev, VolumeActive());   // a multisampled depth buffer is resolved only for the light
-        if (VolumeActive())          // the map costs more than the light does; it is only for the light
+        DepthWorldEnded(dev, VolumeActive());   // a multisampled depth buffer is resolved only for the pass
+        if (VolumeLightActive())     // the map costs more than the light does; it is only for the light
         {
             BenchSectionBegin(dev, kBenchShadow);
             ShadowWorldEnded(dev);
@@ -521,6 +521,11 @@ namespace
         }
         else
         {
+            if (VolumeActive())      // the fog alone: the world camera, and no map
+            {
+                ShadowVotesEnded();
+                g_volumePending = true;
+            }
             ShadowNoReplay();        // so the cost report does not keep showing the last one
         }
         LampsWorldEnded();
@@ -760,7 +765,7 @@ namespace
             DepthBeginScene(dev);
             if (!g_worldEnded)
             {
-                ShadowSetPhase(VolumeActive());
+                ShadowSetPhase(VolumeLightActive(), VolumeActive());
                 LampsSetTracking(LampGlowWantsLights());
             }
         }

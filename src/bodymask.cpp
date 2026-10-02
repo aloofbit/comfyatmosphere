@@ -73,7 +73,7 @@ namespace
     bool Wanted()
     {
         const SunShadowSettings& ss = g_cfg.sunShadows;
-        return g_cfg.shadow.enabled && ss.enabled && ss.units && !g_failed && VolumeActive();
+        return g_cfg.shadow.enabled && ss.enabled && ss.units && !g_failed && VolumeLightActive();
     }
 
     void Release()

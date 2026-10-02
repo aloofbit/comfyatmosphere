@@ -10,7 +10,9 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
                 UINT numVertices, UINT startIndex, UINT primCount);     // before a client draw is forwarded
 void ShadowWorldEnded(IDirect3DDevice9* dev);                           // replay into the shadow map
 void ShadowFrameEnd();                                                  // at Present: drop anything unreplayed
-void ShadowSetPhase(bool recording);                                    // the world phase begins / ends
+// The world phase begins / ends. votesOnly: no map, only the world camera and depth slice (the fog alone).
+void ShadowSetPhase(bool recording, bool votesOnly = false);
+void ShadowVotesEnded();                                                // the end of a votesOnly world phase
 IDirect3DTexture9* ShadowTexture();                                     // the sun's depth, or null
 bool ShadowMatrix(D3DMATRIX& camRelToShadowClip);                       // camera-relative world -> shadow clip
 // The near map ([shadow] nearRange either side of the player), for the sun shadows; false if there is none.

@@ -227,6 +227,8 @@ namespace
     // the cache up to date; the others only vote on the world camera, which the light needs every frame.
     // Decided at the end of the frame before, so the recording knows from the first draw.
     bool               g_fullFrame   = true;
+    // The fog alone (2026-10-02): the frame only votes on the world camera, and no map is drawn.
+    bool               g_votesOnly   = false;
     unsigned           g_mapTick     = 0;
     constexpr size_t   kMaxFrame     = 6000;
 
@@ -1802,9 +1804,10 @@ namespace
     char g_inherited[200] = {};
 }
 
-void ShadowSetPhase(bool recording)
+void ShadowSetPhase(bool recording, bool votesOnly)
 {
-    g_recording = recording && g_cfg.shadow.enabled && !g_failed;
+    g_votesOnly = !recording && votesOnly;
+    g_recording = ((recording && g_cfg.shadow.enabled) || g_votesOnly) && !g_failed;
     if (recording && !g_haveCamAtBegin)
         g_haveCamAtBegin = ClientCamera(g_camAtBegin);
     if (recording)
@@ -1915,7 +1918,7 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         ++g_rejDynamic;
         return;
     }
-    if (!g_fullFrame)
+    if (!g_fullFrame || g_votesOnly)
     {
         // A frame that does not redraw the map: the same votes as below, from the same draws, and nothing
         // else. Recording every draw and merging it into the cache on every frame cost 1.4 ms of CPU a
@@ -2152,6 +2155,15 @@ unsigned ShadowCopies(unsigned& failed)
 {
     failed = g_copyFailed;
     return static_cast<unsigned>(g_copies.size());
+}
+
+void ShadowVotesEnded()
+{
+    const bool logThis = g_logNext;
+    g_logNext = false;
+    g_recording = false;
+    g_votesOnly = false;
+    SettleVotes(logThis);
 }
 
 void ShadowNoReplay()
@@ -3016,6 +3028,7 @@ void ShadowFrameEnd()
     ++g_frameId;
     g_haveCamAtBegin = false;
     g_recording = false;
+    g_votesOnly = false;
     ReleaseFrame();
     g_sliceCount = 0;
     g_camCount   = 0;

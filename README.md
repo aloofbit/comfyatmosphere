@@ -41,7 +41,7 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 | **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. The rays come from the sun only, and fade when a mountain or a wall covers it. Cheap. | on |
 | **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files, with the colour of each flame. Needs the volumetric light. | on |
 | **Night** | Nights are darker. Lamps still light the ground near them, and buildings stay as the game lights them. Night comes from the game clock. The rays and the light at night follow the moons. | on |
-| **Fog** | Volumetric fog that lies on the ground and thins upward. It collects in valleys and over water, is thicker at dawn, and drifts in patches with the wind. The sun lights it, with shafts where trees and walls shade it, and the sky lights it in the zone's own fog colour. The game's own fog stays as the far wall. Needs the volumetric light. | on |
+| **Fog** | Volumetric fog that lies on the ground and thins upward. It collects in valleys and over water, is thicker at dawn, and drifts in patches with the wind. The sun lights it, and the sky lights it in the zone's own fog colour. With the volumetric light on, it shows shafts where trees and walls shade the sun; without it, it costs much less. The game's own fog stays as the far wall. | on |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
 
 All settings are in `comfyfog.ini`. **F11 reloads it in game.**
@@ -128,9 +128,10 @@ the values from `comfyfog.ini` back.
 - **Sun Shadows** use the volumetric light's shadow map, so they need Volumetric Light on. While both are
   on, the game's round shadow under each character is off (the CVar `shadowLOD`). At logout it is set
   back, so it returns if the mod is removed.
-- **Fog** is carried by the volumetric light, so it needs Volumetric Light on. It lies on the ground from
-  the map files (`[shadow] mapTerrain`). **Fog Reach** sets how far it gathers: lower lets you see further
-  across open land and the sea. **Fog on Sky** sets how much it covers the sky; 0 leaves the horizon clear.
+- **Fog** works with Volumetric Light on or off. With the light on, it shows shafts where trees and walls
+  shade the sun. With the light off, the sun lights all of it, and the shadow map is not drawn, which
+  gives back most of the light's cost. It lies on the ground from the map files (`[shadow] mapTerrain`).
+  **Fog Reach** sets how far it gathers: lower lets you see further across open land and the sea. **Fog on Sky** sets how much it covers the sky; 0 leaves the horizon clear.
 - **Night Darkness** makes the world darker at night, and **Moonlight Colour** makes the night bluer. They
   need Volumetric Light on. Inside buildings they do nothing.
 - **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns

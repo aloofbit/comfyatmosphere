@@ -405,6 +405,9 @@ namespace
             if (on)
                 s.depth.enabled = s.shadow.enabled = true;
         }
+        // The fog reads the depth buffer, and draws without the light since 2026-10-02.
+        if (c[kFog].seen && c[kFog].value != 0.0f)
+            s.depth.enabled = true;
 
         // Last: the quality level replaces the values it covers, whichever of the ini and the controls
         // set it.

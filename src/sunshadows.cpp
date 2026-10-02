@@ -474,11 +474,11 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const bool logThis = g_logNext;
     g_logNext = false;
     const SunShadowSettings& ss = g_cfg.sunShadows;
-    if (!ss.enabled || g_failed || (ss.strength <= 0.0f && ss.sunlight <= 0.0f && !ss.debug) || !VolumeActive())
+    if (!ss.enabled || g_failed || (ss.strength <= 0.0f && ss.sunlight <= 0.0f && !ss.debug) || !VolumeLightActive())
     {
         if (logThis)
             Log("sunshadows: not drawn: %s", !ss.enabled ? "off" : g_failed ? "failed earlier" :
-                !VolumeActive() ? "the volumetric light is not drawing" : "strength and sunlight 0");
+                !VolumeLightActive() ? "the volumetric light is not drawing" : "strength and sunlight 0");
         return false;
     }
 

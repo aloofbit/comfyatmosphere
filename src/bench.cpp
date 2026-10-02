@@ -44,16 +44,18 @@ namespace
     struct Step
     {
         const char* name;
-        bool rays, light;
+        bool rays, light, fog;
     };
 
     const Step kSteps[] = {
-        { "rays + light",  true,  true  },
-        { "rays",          true,  false },
-        { "nothing",       false, false },
+        { "rays + light + fog", true,  true,  true  },
+        { "rays + fog alone",   true,  false, true  },
+        { "rays",               true,  false, false },
+        { "nothing",            false, false, false },
     };
     constexpr int kLightStep = 0;
-    constexpr int kRaysStep  = 1;
+    constexpr int kFogStep   = 1;
+    constexpr int kRaysStep  = 2;
     constexpr int kStepCount = sizeof(kSteps) / sizeof(kSteps[0]);
 
     struct Result
@@ -186,12 +188,16 @@ namespace
         if (st.rays && g_cfg.rays.strength <= 0.0f)
             g_cfg.rays.strength = 35.0f;
 
-        // The light needs the depth buffer and the shadow map, and they cost nothing without it.
+        // The light needs the depth buffer and the shadow map, and they cost nothing without it. The fog
+        // alone needs the depth buffer only.
         g_cfg.volume.enabled = st.light;
-        g_cfg.depth.enabled  = st.light;
+        g_cfg.depth.enabled  = st.light || st.fog;
         g_cfg.shadow.enabled = st.light;
         if (st.light && g_cfg.volume.strength <= 0.0f)
             g_cfg.volume.strength = 30.0f;
+        g_cfg.fog.enabled = st.fog;
+        if (st.fog && g_cfg.fog.density <= 0.0f)
+            g_cfg.fog.density = 0.0025f;
 
         g_step = i;
         g_stepStart = Now();
@@ -273,6 +279,9 @@ namespace
         Log("bench: keeping the cache: %.2f ms merging the frame's draws in, %.2f ms evicting; %.0f%% of the "
             "entries seen again had not moved and were not copied", all.mergeMs, all.cacheMs - all.mergeMs,
             100.0 * all.stillShare);
+        const Result& fog = g_results[kFogStep];
+        Log("bench: the fog alone, a frame: GPU %.2f ms, CPU %.2f ms (no shadow map)", fog.gpuMs[kBenchVolume],
+            fog.cpuMs[kBenchVolume]);
         Log("bench: the rays, a frame: GPU %.2f ms, CPU %.2f ms", all.gpuMs[kBenchRays], all.cpuMs[kBenchRays]);
         Log("bench: the fog around lamps, a frame: GPU %.2f ms, CPU %.2f ms, drawn in %u of %u frames",
             all.gpuMs[kBenchLamps], all.cpuMs[kBenchLamps], all.ran[kBenchLamps], all.frames);

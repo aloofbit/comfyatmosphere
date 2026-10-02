@@ -393,7 +393,7 @@ static bool LampsOn()
 bool LampGlowActive()
 {
     const NightSettings& n = g_cfg.night;
-    return !g_failed && (LampsOn() || n.darkness > 0.0f || n.tint > 0.0f) && VolumeActive();
+    return !g_failed && (LampsOn() || n.darkness > 0.0f || n.tint > 0.0f) && VolumeLightActive();
 }
 
 bool LampGlowWantsLights()
