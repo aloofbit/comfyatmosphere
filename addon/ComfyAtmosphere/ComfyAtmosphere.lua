@@ -56,6 +56,7 @@ COMFYATMOSPHERE_SUN_TINT       = "Sunlight Warmth";
 COMFYATMOSPHERE_SHADOW_RESOLUTION = "Shadow Resolution";
 COMFYATMOSPHERE_SHADOW_SOFTNESS = "Shadow Softness";
 COMFYATMOSPHERE_SHADOW_EVERY   = "Shadow Redraw";
+COMFYATMOSPHERE_SHADOW_NEAR    = "Near Shadow Distance";
 COMFYATMOSPHERE_RAYS           = "Sun Rays";
 COMFYATMOSPHERE_RAYS_STRENGTH  = "Sun Rays Strength";
 COMFYATMOSPHERE_RAYS_SOFTEN    = "Sun Rays Softness";
@@ -570,6 +571,18 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- Yards, [shadow] nearRange: the sharpest of the three shadow maps reaches this far either side of you.
+		name = "COMFYATMOSPHERE_SHADOW_NEAR",
+		desc = "How far around you, in yards, shadows have the sharpest edges. Higher reaches further, and the edges near you are coarser.",
+		type = "slider",
+		cvar = "comfyShadowNear",
+		dependency = { "comfyVolume", "1" },
+		minval = 16,
+		maxval = 128,
+		step = 8,
+		numberLabels = 1,
+	},
+	{
 		name = "COMFYATMOSPHERE_RAYS",
 		desc = "Rays of light from the sun, through gaps in the trees and clouds.",
 		type = "checkbutton",
@@ -751,7 +764,8 @@ local WINDOW_SECTIONS = {
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
 	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfySunGlide", "comfySunlight", "comfyShadeTint",
-	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery" } },
+	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery",
+	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
 };

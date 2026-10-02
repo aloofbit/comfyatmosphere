@@ -110,6 +110,9 @@ struct ShadowSettings
     float range   = 250.0f;    // yards covered either side of the player
     float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
+    float midRange  = 100.0f;  // the middle map, for the sun shadows past the near one: yards either side
+                               // (0 = none). The far map's slack lost a merlon's shade on the wall behind
+                               // it past the near map (2026-10-02)
     float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
     // The ground from the map files reaches further toward the sun than the rest (2026-09-30): in Lakeshire the
     // ridge the sun set behind was 790 yards off along the sun, past `depth`, and only its lower slopes were in
@@ -268,10 +271,11 @@ struct SunShadowSettings
                                   // both maps alike, where bias is in texels of each
     float sunOffset  = 0.06f;     // yards each point is moved toward the sun before the test, against
                                   // the same. Values tuned in game with /atmos (2026-09-29)
-    float normalBias = 2.0f;      // texels each point is moved along its rebuilt facing, up to 4 times
-                                  // that where the sun grazes the surface: walls the sun grazes shaded
-                                  // themselves in stripes without it. The facing is per triangle on a
-                                  // model, so the bodies the mask finds take none of it (2026-10-02)
+    float normalBias = 2.0f;      // texels of the finest map each point is moved along its rebuilt facing,
+                                  // up to 4 times that where the sun grazes the surface, and only where it
+                                  // grazes it or is behind it: walls the sun grazes shaded themselves in
+                                  // stripes without it. The facing is per triangle on a model, so the bodies
+                                  // the mask finds take none of it (2026-10-02)
     float slope      = 0.0f;      // 0..1: how much of the surface's slope (from the same facing) sets each
                                   // tap's depth. Against stripes on sloped ground at a high softness; on
                                   // a model it made patches where the arm shades the body

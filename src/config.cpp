@@ -179,6 +179,7 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
     s.shadow.nearRange  = Clamp(GetF(kShadow, L"nearRange", s.shadow.nearRange, ini), 0.0f, 200.0f);
+    s.shadow.midRange   = Clamp(GetF(kShadow, L"midRange", s.shadow.midRange, ini), 0.0f, 250.0f);
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
     s.shadow.horizonDepth = Clamp(GetF(kShadow, L"horizonDepth", s.shadow.horizonDepth, ini), 0.0f, 5000.0f);
     s.shadow.horizon    = GetB(kShadow, L"horizon", s.shadow.horizon, ini);

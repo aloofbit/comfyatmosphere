@@ -45,6 +45,7 @@ namespace
         { "shadow.size",         "Shadow Resolution" },
         { "sunshadows.softness", "Shadow Softness" },
         { "shadow.mapEvery",     "Shadow Redraw" },
+        { "shadow.nearRange",    "Near Shadow Distance" },
         { "sunshadows.enabled",  "Sun Shadows" },
         { "sunshadows.world",    "World / Object Shadows" },
         { "sunshadows.units",    "Player / Creature Shadows" },

@@ -1576,6 +1576,29 @@ merlon on the wall behind it, an eave) is lost in the far map's slack (bias 3.3 
 texels, up to 4 times that where the sun grazes: 0.6 to 1.4 yards). At `nearRange = 128` it appeared, and
 everything near you was four times as jagged.
 
+## Shade lost past the near map, and a middle map (2026-10-02)
+
+Past the near map's 32 yards, a merlon's shade on its own shaded side and on the wall behind it was gone,
+and filled in as you walked within reach. Two causes, found with the Near Shadow Distance slider and
+`normalBias` 0 against 2, one F11 at a time:
+
+- **The normal offset was in texels of each map.** 2 texels, up to 4 times that where the sun grazes, is
+  0.12 yards on the near map, 0.39 on a 100-yard map and close to 1 on the far map. Near the top of a
+  merlon's shaded side, a point moved that far out sees the sun over the merlon. The offset is now one
+  distance on every map: `normalBias` texels of the finest map present (0.03 yards by default). It also
+  applies only where the sun is within about 20 degrees of the surface or behind it: on a bridge's deck,
+  facing a sun 47 degrees up, it had lifted each point off the deck and cut the parapet's shade to a strip.
+- **The far map's bias is 3.3 of its texels, 0.4 yards.** With the offset fixed and no middle map, the
+  merlons still lost their shade. `[shadow] midRange` (100) adds a third map, solid only, 0.049 yards a
+  texel at size 4096, held on its own grid like the near one; shadows read the near map, then the middle
+  one out to 90 yards, then the far one. Its leaves come from the far leaf map. 64 MB; in the probe 1
+  building, 5 doodads and 114 of the game's draws, 0.12 ms. With it the merlons filled in; set to 0 they
+  were lost again.
+
+The sun shadow shader passed MSVC's 16 KB limit for one string literal, so it is now two, joined.
+
+The Near Shadow Distance control (16 to 128 yards) sets `[shadow] nearRange`.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

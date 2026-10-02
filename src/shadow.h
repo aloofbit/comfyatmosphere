@@ -17,6 +17,8 @@ IDirect3DTexture9* ShadowTexture();                                     // the s
 bool ShadowMatrix(D3DMATRIX& camRelToShadowClip);                       // camera-relative world -> shadow clip
 // The near map ([shadow] nearRange either side of the player), for the sun shadows; false if there is none.
 bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
+// The middle map ([shadow] midRange either side), solid only; false if there is none.
+bool ShadowMid(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
 IDirect3DTexture9* ShadowNearLeaves();   // the near map's leaves (alpha-tested draws), same camera; or null
 IDirect3DTexture9* ShadowFarLeaves();    // the far map's leaves, same camera as the far map; or null
 IDirect3DTexture9* ShadowNearUnits();    // players and creatures alone, the near map's camera and size; or null

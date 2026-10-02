@@ -1535,6 +1535,11 @@ namespace
     D3DMATRIX             g_shadowVP  = {};        // camera-relative world -> shadow clip, for the reader
     D3DMATRIX             g_mapAbsToSun = {};      // absolute world -> shadow clip, as the map was last drawn
     IDirect3DTexture9*    g_nearTex   = nullptr;   // the near map: [shadow] nearRange either side
+    IDirect3DTexture9*    g_midTex    = nullptr;   // the middle map: [shadow] midRange, solid only
+    IDirect3DSurface9*    g_midSurf   = nullptr;
+    bool                  g_midValid  = false;
+    D3DMATRIX             g_midVP     = {};        // camera-relative world -> middle map clip, for the reader
+    D3DMATRIX             g_midAbsToSun = {};      // absolute world -> middle map clip, as it was last drawn
     IDirect3DSurface9*    g_nearSurf  = nullptr;
     bool                  g_nearValid = false;
     IDirect3DTexture9*    g_nearLeafTex  = nullptr;   // the near map's leaves (alpha-tested draws)
@@ -1682,6 +1687,9 @@ namespace
         SafeRelease(g_nearSurf);
         SafeRelease(g_nearTex);
         g_nearValid = false;
+        SafeRelease(g_midSurf);
+        SafeRelease(g_midTex);
+        g_midValid = false;
         SafeRelease(g_nearLeafSurf);
         SafeRelease(g_nearLeafTex);
         SafeRelease(g_farLeafSurf);
@@ -1703,9 +1711,10 @@ namespace
     {
         const bool wantNear = g_cfg.shadow.nearRange > 0.0f;
         const bool wantLeaves = g_cfg.shadow.leaves;
+        const bool wantMid = g_cfg.shadow.midRange > 0.0f;
         if (g_size == size && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr) &&
             wantLeaves == (g_farLeafSurf != nullptr) && (wantLeaves && wantNear) == (g_nearLeafSurf != nullptr) &&
-            wantNear == (g_unitSurf != nullptr))
+            wantNear == (g_unitSurf != nullptr) && wantMid == (g_midSurf != nullptr))
             return true;
         ReleaseResources();
         auto* d = dev->lpVtbl;
@@ -1725,6 +1734,13 @@ namespace
                 if (SUCCEEDED(hr))
                     hr = g_nearLeafTex->lpVtbl->GetSurfaceLevel(g_nearLeafTex, 0, &g_nearLeafSurf);
             }
+        }
+        // The middle map: solid only. Leaves at that distance still come from the far map's leaf map.
+        if (SUCCEEDED(hr) && wantMid)
+        {
+            hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_midTex, nullptr);
+            if (SUCCEEDED(hr))
+                hr = g_midTex->lpVtbl->GetSurfaceLevel(g_midTex, 0, &g_midSurf);
         }
         // The units' map at the near map's size since 2026-10-01 (half until then): a character's shade on
         // itself now comes from it, and half the size stepped about on the body.
@@ -1773,6 +1789,8 @@ namespace
         Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)%s", size, size,
             g_nearLeafSurf ? "s, far and near, each solid and leaves," : g_nearSurf ? "s, far and near," : "",
             colourKind, g_unitSurf ? ", and one of the units" : "");
+        if (g_midSurf)
+            Log("shadow: and a middle map, solid only, %ux%u", size, size);
         return true;
     }
 
@@ -2427,6 +2445,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         Mul(toAbs, g_mapAbsToSun, g_shadowVP);
         if (g_nearValid)
             Mul(toAbs, g_nearAbsToSun, g_nearVP);
+        if (g_midValid)
+            Mul(toAbs, g_midAbsToSun, g_midVP);
         g_replayOutcome = 0;
         g_replaySeconds = Now() - t0;
         return;
@@ -2450,20 +2470,17 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         Mul(toAbs, g_mapAbsToSun, g_shadowVP);
     }
 
-    // The near map: the same sun camera, narrower.
-    const bool doNear = s.nearRange > 0.0f && g_nearSurf;
-    D3DMATRIX nearProj, nearVP, nearAbsToSun, nearCutAbsToSun;
-    if (doNear)
+    // The near and middle maps: the same sun camera, narrower. Each is held on whole texels of its own grid
+    // ([shadow] nearSnap, 2026-10-02). They share the far map's centre, which snap holds on the far map's
+    // texels only (7.8 of the near map's), so the near map slid under the world with every step: each
+    // caster's outline fell on other texels, and shadow edges hopped as you walked and stood still when you
+    // only turned. Where the world's origin lands in the map's clip space is kept on a whole texel, worked
+    // out in doubles (cam is thousands of yards out).
+    auto narrowMap = [&](float range, D3DMATRIX& proj, D3DMATRIX& vp, D3DMATRIX& absToSun, D3DMATRIX& cutToSun)
     {
-        OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, 1.0f, mapDepth * 2.0f, nearProj);
+        OrthoLH(range * 2.0f, range * 2.0f, 1.0f, mapDepth * 2.0f, proj);
         D3DMATRIX p, v;
-        OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, cutNear, cutFar, p);
-        // Held on whole texels of its own grid ([shadow] nearSnap, 2026-10-02). It shares the far map's
-        // centre, which snap holds on the far map's texels only (7.8 of the near map's), so the near map
-        // slid under the world with every step: each caster's outline fell on other texels, and shadow
-        // edges hopped as you walked and stood still when you only turned. Where the world's origin lands
-        // in the map's clip space is kept on a whole texel, worked out in doubles (cam is thousands of
-        // yards out).
+        OrthoLH(range * 2.0f, range * 2.0f, cutNear, cutFar, p);
         if (s.nearSnap)
         {
             const double texelClip = 2.0 / (s.size > 0 ? s.size : 1);
@@ -2472,17 +2489,27 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 const double viewAt = -(static_cast<double>(cam[0]) * sunView.m[0][a] +
                                         static_cast<double>(cam[1]) * sunView.m[1][a] +
                                         static_cast<double>(cam[2]) * sunView.m[2][a]) + sunView.m[3][a];
-                const double clipAt = viewAt * nearProj.m[a][a] + nearProj.m[3][a];
+                const double clipAt = viewAt * proj.m[a][a] + proj.m[3][a];
                 const double shift  = floor(clipAt / texelClip + 0.5) * texelClip - clipAt;
-                nearProj.m[3][a] += static_cast<float>(shift);
-                p.m[3][a]        += static_cast<float>(shift);
+                proj.m[3][a] += static_cast<float>(shift);
+                p.m[3][a]    += static_cast<float>(shift);
             }
         }
-        Mul(sunView, nearProj, nearVP);
-        Mul(fromAbs, nearVP, nearAbsToSun);
+        Mul(sunView, proj, vp);
+        Mul(fromAbs, vp, absToSun);
         Mul(sunView, p, v);
-        Mul(fromAbs, v, nearCutAbsToSun);
-    }
+        Mul(fromAbs, v, cutToSun);
+    };
+    const bool doNear = s.nearRange > 0.0f && g_nearSurf;
+    D3DMATRIX nearProj, nearVP, nearAbsToSun, nearCutAbsToSun;
+    if (doNear)
+        narrowMap(s.nearRange, nearProj, nearVP, nearAbsToSun, nearCutAbsToSun);
+    // The middle map ([shadow] midRange, 2026-10-02): past the near map, a shadow cast from under a yard
+    // away (a merlon on the wall behind it, an eave) was lost in the far map's slack, up to 1.4 yards.
+    const bool doMid = s.midRange > 0.0f && g_midSurf;
+    D3DMATRIX midProj, midVP, midAbsToSun, midCutAbsToSun;
+    if (doMid)
+        narrowMap(s.midRange, midProj, midVP, midAbsToSun, midCutAbsToSun);
 
     auto* d = dev->lpVtbl;
 
@@ -2648,29 +2675,35 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     };
     UINT leafDrawn = 0;
     unsigned farTiles = 0, nearTiles = 0, farWmos = 0, nearWmos = 0, farDoodads = 0, nearDoodads = 0;
+    unsigned midTiles = 0, midWmos = 0, midDoodads = 0;
+    UINT midDrawn = 0;
     // The fifth pass draws the units alone into their own map, under the near map's camera.
     const bool doUnits = doNear && g_unitSurf && g_unitColour && g_cfg.sunShadows.units &&
                          g_cfg.sunShadows.unitStrength > 0.0f;
     UINT unitDrawn = 0;
-    double passTime[5] = {};
-    unsigned long long bytesNow[5] = {};
-    for (int pass = 0; pass < 5; ++pass)
+    // Passes: far solid, far leaves, near solid, near leaves, middle (solid), units. The middle map is the
+    // sun shadows' alone, as the near one is; it holds the units too, since the units' map is the near one's.
+    double passTime[6] = {};
+    unsigned long long bytesNow[6] = {};
+    for (int pass = 0; pass < 6; ++pass)
     {
-    const bool unitPass = pass == 4;
-    const bool nearPass = pass >= 2;
-    const bool leafPass = (pass & 1) != 0;
-    if ((!nearPass && !drawFar) || (nearPass && !doNear) || (leafPass && !doLeaves) || (unitPass && !doUnits))
+    const bool unitPass = pass == 5;
+    const bool midPass  = pass == 4;
+    const bool nearPass = pass >= 2 && !midPass;   // the near map's camera: near solid, near leaves, units
+    const bool leafPass = pass == 1 || pass == 3;
+    if ((pass < 2 && !drawFar) || (nearPass && !doNear) || (midPass && !doMid) || (leafPass && !doLeaves) ||
+        (unitPass && !doUnits))
         continue;
     const double passStart = Now();
-    const float mapRange = nearPass ? s.nearRange : s.range;
-    const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : fromAbsToSun;
-    const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : cutAbsToSun;
+    const float mapRange = nearPass ? s.nearRange : midPass ? s.midRange : s.range;
+    const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
+    const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
     if (unitPass)
         d->SetRenderTarget(dev, 0, g_unitColour);   // the last pass: the restore puts the client's back
     d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
-                                            : (leafPass ? g_farLeafSurf : g_depthSurf));
+                                            : midPass ? g_midSurf : (leafPass ? g_farLeafSurf : g_depthSurf));
     d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
-    d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : &sunProj);
+    d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : midPass ? &midProj : &sunProj);
 
     // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
     // the map: 2000 to 5000 draws a frame, 6 to 9 ms of CPU, which the game feels. An entry whose
@@ -2679,23 +2712,23 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // far from the geometry (trees measured at 85 to 95 yards away).
     // The near map's margin is 16 yards, not 40 (2026-09-29): 40 around a 32-yard map was a box more than
     // twice its size, and 2,000 draws; 16 still takes in a big tree's crown beside it.
-    const float sideReach = mapRange + (nearPass ? s.nearMargin : 40.0f);   // the map is `range` either side
+    const float sideReach = mapRange + (nearPass || midPass ? s.nearMargin : 40.0f);   // `range` either side
     const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
     // [sunshadows] world and units (2026-09-30): the near maps are the sun shadows' alone, so the world is
     // left out of them when its shadows are off; units are left out of every map when theirs are.
-    const bool worldHere = (!nearPass || g_cfg.sunShadows.world) && !unitPass;
+    const bool worldHere = (!(nearPass || midPass) || g_cfg.sunShadows.world) && !unitPass;
     const bool unitsHere = g_cfg.sunShadows.units;
     // The ground from the files goes where the client's terrain would: the leaf map with terrainLeaves.
     if (worldHere && s.mapTerrain && (doLeaves ? leafPass == s.terrainLeaves : !leafPass))
     {
         const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam);
-        if (nearPass) nearTiles = n; else farTiles = n;
+        if (nearPass) nearTiles = n; else if (midPass) midTiles = n; else farTiles = n;
     }
     // The buildings from the files: solid.
     if (worldHere && s.mapTerrain && !leafPass)
     {
         const unsigned n = MapBuildingsDraw(dev, passCut, cam);
-        if (nearPass) nearWmos = n; else farWmos = n;
+        if (nearPass) nearWmos = n; else if (midPass) midWmos = n; else farWmos = n;
     }
     // The doodads from the files: the solid models here, the trees and bushes with the leaves (or here as
     // well, without leaf maps).
@@ -2706,14 +2739,14 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             n += MapDoodadsDraw(dev, passCut, cam, false, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
         if (leafPass || !doLeaves)
             n += MapDoodadsDraw(dev, passCut, cam, true, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
-        if (nearPass) nearDoodads += n; else farDoodads += n;
+        if (nearPass) nearDoodads += n; else if (midPass) midDoodads += n; else farDoodads += n;
     }
     IDirect3DPixelShader9* passPs = nullptr;   // the UV alpha mask bound, if any (UvOutput)
     for (auto& kv : g_cache)
     for (const Entry& e : kv.second)
     {
         const Rec&   r = e.rec;
-        if (e.lastSeen < now && !nearPass)
+        if (e.lastSeen < now && pass < 2)
             ++unseen;
         // With leaf maps, the leaves go there and everything else to the solid map.
         if (doLeaves && isLeaf(e) != leafPass)
@@ -2738,13 +2771,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             const float sr = sideReach + e.spread, ar = alongReach + e.spread;   // a batch: any of its models
             if (side2 > sr * sr || along > ar || along < -ar)
             {
-                if (!nearPass)
+                if (pass < 2)
                     ++skipped;
                 continue;
             }
             // Small models far off stay out of the far map ([shadow] minTriangles): a flower or a stone
             // 60 yards away is a few texels, and each costs a draw (about 1 microsecond) all the same.
-            if (!nearPass && r.primCount < static_cast<UINT>(s.minTriangles) &&
+            if (pass < 2 && r.primCount < static_cast<UINT>(s.minTriangles) &&
                 dx * dx + dy * dy > 60.0f * 60.0f)
             {
                 ++skipped;
@@ -2795,13 +2828,15 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         else
             d->DrawPrimitive(dev, r.prim, r.baseVertex, r.primCount);
         if (logThis)
-            g_replayed[&e] |= nearPass ? 2 : 1;
+            g_replayed[&e] |= (nearPass || midPass) ? 2 : 1;
         if (r.vb[1])
             d->SetStreamSource(dev, 1, nullptr, 0, 0);
         if (unitPass)
             ++unitDrawn;
         else if (leafPass)
             ++leafDrawn;
+        else if (midPass)
+            ++midDrawn;
         else if (nearPass)
             ++nearDrawn;
         else
@@ -2810,13 +2845,16 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (passPs)
         d->SetPixelShader(dev, nullptr);   // the next pass draws the files' terrain and buildings first
     passTime[pass] = Now() - passStart;
-    }   // the two maps
+    }   // the maps
     if (logThis)
     {
         Log("shadow: %s; far map %u tiles, %u buildings and %u doodad draws, near map %u, %u and %u; the "
             "game's draws the files cover: %u refused this frame, %u kept from before evicted; leaves cut at "
             "alpha %d ([shadow] leafAlpha)", MapTerrainInfo(), farTiles, farWmos, farDoodads, nearTiles, nearWmos,
             nearDoodads, g_nFilesRefused, g_nFilesEvicted, s.leafAlpha);
+        if (doMid)
+            Log("shadow: middle map, %.0f yards either side: %u tiles, %u buildings and %u doodad draws, %u of the "
+                "game's draws, in %.2f ms", s.midRange, midTiles, midWmos, midDoodads, midDrawn, 1000.0 * passTime[4]);
         // The models the cache keeps: those at units (characters, creatures) and the others (the server's
         // objects, animated doodads, the furniture inside buildings, anything past the tiles loaded).
         {
@@ -2929,8 +2967,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         Log("shadow: time: far map %.2f + %.2f ms (solid + leaves)%s, near map %.2f + %.2f ms, units %.2f ms; "
             "%u leaf draws, %u unit draws; model constants uploaded %.1f MB (far) + %.1f MB (near)",
             1000.0 * passTime[0], 1000.0 * passTime[1], drawFar ? "" : " (not redrawn this time)",
-            1000.0 * passTime[2], 1000.0 * passTime[3], 1000.0 * passTime[4], leafDrawn, unitDrawn,
-            (bytesNow[0] + bytesNow[1]) / 1048576.0, (bytesNow[2] + bytesNow[3] + bytesNow[4]) / 1048576.0);
+            1000.0 * passTime[2], 1000.0 * passTime[3], 1000.0 * passTime[5], leafDrawn, unitDrawn,
+            (bytesNow[0] + bytesNow[1]) / 1048576.0,
+            (bytesNow[2] + bytesNow[3] + bytesNow[4] + bytesNow[5]) / 1048576.0);
     if (drawFar)
         g_farLeafValid = doLeaves;
     g_nearLeafValid = doLeaves && doNear;
@@ -2944,6 +2983,16 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     else
     {
         g_nearValid = false;
+    }
+    if (doMid)
+    {
+        g_midVP       = midVP;
+        g_midAbsToSun = midAbsToSun;
+        g_midValid    = true;
+    }
+    else
+    {
+        g_midValid = false;
     }
 
     // --- restore ------------------------------------------------------------------------------------
@@ -3114,6 +3163,16 @@ bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& r
     tex = g_nearTex;
     camRelToShadowClip = g_nearVP;
     range = g_cfg.shadow.nearRange;
+    return true;
+}
+
+bool ShadowMid(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range)
+{
+    if (!g_cfg.shadow.enabled || !g_valid || !g_midValid || !g_midTex)
+        return false;
+    tex = g_midTex;
+    camRelToShadowClip = g_midVP;
+    range = g_cfg.shadow.midRange;
     return true;
 }
 

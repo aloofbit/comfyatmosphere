@@ -107,6 +107,7 @@ own. Use the window on a client whose options window has no page for them.
 | Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
 | Shadow Softness | `[sunshadows] softness` |
 | Shadow Redraw | `[shadow] mapEvery` |
+| Near Shadow Distance (yards) | `[shadow] nearRange` |
 | Sun Rays, Sun Rays Strength | `[rays] enabled`, `strength` |
 | Sun Rays Softness, Sun Rays Smoothing | `[rays] soften`, `smooth` (in percent) |
 | Night Strength | `[night] strength` |

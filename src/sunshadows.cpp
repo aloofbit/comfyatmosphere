@@ -71,7 +71,7 @@ O main(float3 pos : POSITION, float2 uv : TEXCOORD0)
 }
 )HLSL";
 
-    // Blended as scene x this.
+    // Blended as scene x this. In two literals: MSVC takes at most 16 KB in one.
     const char* kPsHlsl = R"HLSL(
 sampler2D sDepth  : register(s0);   // the scene's depth (INTZ)
 sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the far map
@@ -80,6 +80,7 @@ sampler2D sNearL  : register(s3);   // the near map's leaves
 sampler2D sFarL   : register(s4);   // the far map's leaves
 sampler2D sUnit   : register(s5);   // the units alone, the near map's camera and size
 sampler2D sBody   : register(s6);   // the screen: 1 where a player or a creature shows (bodymask.cpp)
+sampler2D sMid    : register(s7);   // the middle map, solid only ([shadow] midRange)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -109,6 +110,11 @@ float4 gU    : register(c25);       // units' map: extra strength, depth bias (m
 float4 gU2   : register(c26);       // units' map: 1 / unitGap (map units), yards down per map unit, unitDrop and
                                     // unitDrop + 3 (yards)
 float4 gBody : register(c27);       // the bodies: bodyShade (0..1), 1 if there is a mask, sunOffset (map units)
+float4 gM0   : register(c28);       // rows of the middle map's view-projection
+float4 gM1   : register(c29);
+float4 gM2   : register(c30);
+float4 gM3   : register(c31);
+float4 gMB   : register(c32);       // middle map: depth bias, normal offset, one texel, 1 if there is one
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -187,6 +193,7 @@ float3 Near(float2 uv, float raw, float3 P, float2 o)
     float a = Raw(uv + o), b = Raw(uv - o);
     return abs(a - raw) < abs(raw - b) ? PointAt(uv + o, a) - P : P - PointAt(uv - o, b);
 }
+)HLSL" R"HLSL(
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
     float  raw = Raw(uv);
@@ -194,7 +201,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         return gL.y > 0.5 ? 1.0 : 0.5;                                     // the sky: no change
     float3 P   = PointAt(uv, raw);
     // The facing, for normalBias and slope only: from the neighbours a pixel away, nearer in depth on
-    // each axis. The offset along it grows as the sun grazes the surface.
+    // each axis. The offset along it grows as the sun grazes the surface, and is only there where the sun
+    // is within about 20 degrees of the surface or behind it (2026-10-02): on a bridge's deck, facing a
+    // sun 47 degrees up, it lifted each point off the deck and cut the parapet's shade to a strip. A face
+    // the sun reaches well has no stripes to stop.
     float3 N     = float3(0.0, 0.0, 1.0);
     float  graze = 1.0;
     [branch] if (gT.z > 0.5)
@@ -205,7 +215,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         N = N / max(length(N), 1e-8);
         N = dot(N, P) > 0.0 ? -N : N;
         float ndl = dot(N, gSun.xyz);
-        graze = 1.0 + 3.0 * sqrt(saturate(1.0 - ndl * ndl));
+        graze = (1.0 + 3.0 * sqrt(saturate(1.0 - ndl * ndl))) * (1.0 - smoothstep(0.1, 0.35, ndl));
     }
 
     // On a player or a creature, as the client drew it (bodymask.cpp): 1 on a body, 0 elsewhere, between at
@@ -236,7 +246,23 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                 leafN = Lit5(sNearL, sn, g, gNB.x, gNB.z);
         }
     }
-    // The far map, fading out over its last tenth, where it ends.
+    // The middle map ([shadow] midRange, 2026-10-02) where the near map does not cover all of the shade,
+    // blended into the far one the same way. Solid only: the leaves there come from the far leaf map.
+    float wm = 0.0, litM = 1.0;
+    [branch] if (wn < 1.0 && gMB.w > 0.5)
+    {
+        float3 Qm = P + N * (gMB.y * graze * offK) + gSun.xyz * gT.y;
+        float4 sm = Qm.x * gM0 + Qm.y * gM1 + Qm.z * gM2 + gM3;
+        float2 em = abs(sm.xy);
+        wm = saturate((0.9 - max(em.x, em.y)) * 10.0);
+        [branch] if (wm > 0.0)
+        {
+            float2 g = Slope(N, gM0, gM1, gM2, gG.z) * gT.x;
+            litM = Lit(sMid, sm, g, gMB.x, gMB.z);
+        }
+    }
+    // The far map, fading out over its last tenth, where it ends. Its solid map only where the near and
+    // middle maps leave some of the shade to it; its leaves wherever the near map does.
     float litF = 1.0, leafF = 1.0;
     [branch] if (wn < 1.0 && gCh.w > 0.5)
     {
@@ -248,13 +274,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // More slack with distance ([sunshadows] lodBias): the ground the client draws far off is coarser
         // than the terrain in the map.
         float  bF = gB.x + gLod.x * max(length(P) - gLod.y, 0.0);
-        litF = lerp(1.0, Lit(sShadow, sf, g, bF, gB.z), fade);
+        [branch] if (wm < 1.0)
+            litF = lerp(1.0, Lit(sShadow, sf, g, bF, gB.z), fade);
         [branch] if (gCh.z > 0.5)
             leafF = lerp(1.0, Lit5(sFarL, sf, g, bF, gB.z), fade);
     }
     // Solid things stop the sun; leaves stop leafShade of it.
     float leaf  = 1.0 - lerp(leafF, leafN, wn);
-    float shade = max(1.0 - lerp(litF, litN, wn), gCh.x * leaf);
+    float shade = max(1.0 - lerp(lerp(litF, litM, wm), litN, wn), gCh.x * leaf);
     if (gL.y > 2.5)
         return float4(body, body, body, 1.0);                              // debug 3: the bodies it finds
     // The units' own shade, darkened again on top of the world's. The map holds no ground, so it needs none
@@ -493,6 +520,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     D3DMATRIX nearVP = {};
     float nearRange = 0.0f;
     const bool haveNear = ShadowNear(nearTex, nearVP, nearRange);
+    IDirect3DTexture9* midTex = nullptr;
+    D3DMATRIX midVP = {};
+    float midRange = 0.0f;
+    const bool haveMid = ShadowMid(midTex, midVP, midRange);
     IDirect3DTexture9* nearLeaf = haveNear ? ShadowNearLeaves() : nullptr;
     IDirect3DTexture9* farLeaf  = ShadowFarLeaves();
     IDirect3DTexture9* unitMap  = haveNear ? ShadowNearUnits() : nullptr;
@@ -606,9 +637,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 5, reinterpret_cast<IDirect3DBaseTexture9*>(unitMap ? unitMap : shadow));
     IDirect3DTexture9* bodyMask = BodyMaskTexture();
     d->SetTexture(dev, 6, reinterpret_cast<IDirect3DBaseTexture9*>(bodyMask ? bodyMask : depth));
+    d->SetTexture(dev, 7, reinterpret_cast<IDirect3DBaseTexture9*>(haveMid ? midTex : shadow));
     d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    for (DWORD st = 0; st < 7; ++st)
+    for (DWORD st = 0; st < 8; ++st)
     {
         d->SetSamplerState(dev, st, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, st, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -618,8 +650,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     // Off a map reads as far: lit.
-    for (DWORD st = 1; st < 6; ++st)
+    for (DWORD st = 1; st < 8; ++st)
     {
+        if (st == 6)
+            continue;   // the body mask, clamped above
         d->SetSamplerState(dev, st, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
         d->SetSamplerState(dev, st, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
         d->SetSamplerState(dev, st, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
@@ -630,7 +664,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[112] = {};
+    float pc[132] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -658,17 +692,26 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float tanSun  = sunDir[2] / (std::max)(horiz, 1e-3f);
     const float biasTex = (std::min)((std::max)(ss.bias, (ss.softness + 1.5f) / (std::max)(tanSun, 0.1f) * 1.2f),
                                      20.0f);
-    pc[40] = (biasTex * farTex + ss.minGap) / span; pc[41] = ss.normalBias * farTex; pc[42] = 1.0f / size; pc[43] = ss.softness;
+    // The normal offset is one distance on every map (2026-10-02): normalBias texels of the finest map. In
+    // texels of each map it grew 3 times on the middle map and 8 on the far one, and moved a point near the
+    // top of a merlon's shaded side clear of the merlon: its shade went missing past the near map.
+    const float midRangeNow = haveMid ? midRange : 0.0f;
+    float finest = farTex;
+    if (haveNear) finest = (std::min)(finest, nearRange * 2.0f / size);
+    if (haveMid)  finest = (std::min)(finest, midRangeNow * 2.0f / size);
+    const float offYards = ss.normalBias * finest;
+    pc[40] = (biasTex * farTex + ss.minGap) / span; pc[41] = offYards; pc[42] = 1.0f / size; pc[43] = ss.softness;
     pc[44] = sunlight; pc[45] = static_cast<float>(ss.debug);
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
             pc[48 + r * 4 + c] = nearVP.m[r][c];
-    pc[64] = (biasTex * nearTex_ + ss.minGap) / span; pc[65] = ss.normalBias * nearTex_; pc[66] = 1.0f / size;
+    pc[64] = (biasTex * nearTex_ + ss.minGap) / span; pc[65] = offYards; pc[66] = 1.0f / size;
     pc[67] = haveNear ? 1.0f : 0.0f;
     // The largest slope, 8 yards of depth a yard, in each map's units: depth (0..1 over span) per uv
     // (0..1 over the map's width).
     pc[68] = 8.0f * g_cfg.shadow.range * 2.0f / span;
     pc[69] = 8.0f * nearRange * 2.0f / span;
+    pc[70] = 8.0f * midRange * 2.0f / span;
     pc[72] = ss.slope;
     pc[73] = ss.sunOffset;
     pc[74] = (ss.slope > 0.0f || ss.normalBias > 0.0f) ? 1.0f : 0.0f;
@@ -701,7 +744,14 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[108] = ss.bodyShade * 0.01f;
     pc[109] = bodyMask ? 1.0f : 0.0f;
     pc[110] = ss.sunOffset / span;                              // undone off a body, in the units' map
-    d->SetPixelShaderConstantF(dev, 0, pc, 28);
+    // The middle map: its texel, and the same bias and normal offset in texels of it.
+    const float midTex_ = midRange * 2.0f / size;
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            pc[112 + r * 4 + c] = midVP.m[r][c];
+    pc[128] = (biasTex * midTex_ + ss.minGap) / span; pc[129] = offYards; pc[130] = 1.0f / size;
+    pc[131] = haveMid ? 1.0f : 0.0f;
+    d->SetPixelShaderConstantF(dev, 0, pc, 33);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -719,6 +769,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 4, nullptr);
     d->SetTexture(dev, 5, nullptr);
     d->SetTexture(dev, 6, nullptr);
+    d->SetTexture(dev, 7, nullptr);
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
@@ -739,10 +790,12 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
 
     if (logThis)
         Log("sunshadows: drawn, strength %.2f (sun height x night %.2f), sun (%.2f %.2f %.2f); far map %.3f yd a "
-            "texel, near map %s %.3f yd a texel; bias %.1f texels (set %.1f, by the sun's height), sunOffset %.2f "
-            "yd, normalBias %.1f texels, slope %.2f, softness %.1f; units' map %s, %.2f more (fades in over %.2f yd)",
-            strength, sunset, sunDir[0], sunDir[1], sunDir[2], farTex, haveNear ? "on," : "off,", nearTex_, biasTex,
-            ss.bias, ss.sunOffset, ss.normalBias, ss.slope, ss.softness, unitMap ? "on" : "off", pc[100], ss.unitGap);
+            "texel, near map %s %.3f yd a texel, middle map %s %.3f yd a texel; bias %.1f texels (set %.1f, by the "
+            "sun's height), sunOffset %.2f yd, normalBias %.1f texels (%.3f yd on every map), slope %.2f, softness %.1f; units' map %s, %.2f "
+            "more (fades in over %.2f yd)",
+            strength, sunset, sunDir[0], sunDir[1], sunDir[2], farTex, haveNear ? "on," : "off,", nearTex_,
+            haveMid ? "on," : "off,", midTex_, biasTex, ss.bias, ss.sunOffset, ss.normalBias, offYards, ss.slope, ss.softness,
+            unitMap ? "on" : "off", pc[100], ss.unitGap);
     return true;
 }
 

@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kKnobs };
+                kShadowsBody, kShadowNear, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -147,6 +147,7 @@ namespace
         "comfyIndoorLamps",
         "comfyLampsDay",
         "comfySunShadowsBody",
+        "comfyShadowNear",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -274,6 +275,7 @@ namespace
                               break;
         case kShadowSoftness: snprintf(out, cap, "%.0f", s.sunShadows.softness); break;
         case kShadowEvery:    snprintf(out, cap, "%d", s.shadow.mapEvery); break;
+        case kShadowNear:     snprintf(out, cap, "%.0f", s.shadow.nearRange); break;   // yards
         case kSunShadows:     snprintf(out, cap, "%d", s.sunShadows.enabled ? 1 : 0); break;
         case kSunShadowStrength: snprintf(out, cap, "%.0f", s.sunShadows.strength); break;
         case kMaster:         snprintf(out, cap, "%d", s.master ? 1 : 0); break;
@@ -335,6 +337,7 @@ namespace
             s.shadow.size = 512 << static_cast<int>(Clamp(c[kShadowResolution].value, 1.0f, 3.0f) + 0.5f);
         if (c[kShadowSoftness].seen) s.sunShadows.softness = Clamp(c[kShadowSoftness].value, 0.0f, 8.0f);
         if (c[kShadowEvery].seen)    s.shadow.mapEvery = static_cast<int>(Clamp(c[kShadowEvery].value, 1.0f, 8.0f) + 0.5f);
+        if (c[kShadowNear].seen)     s.shadow.nearRange = Clamp(c[kShadowNear].value, 16.0f, 128.0f);
         if (c[kSunShadows].seen)     s.sunShadows.enabled = c[kSunShadows].value != 0.0f;
         if (c[kSunShadowStrength].seen) s.sunShadows.strength = Clamp(c[kSunShadowStrength].value, 0.0f, 100.0f);
         if (c[kMaster].seen)         s.master          = c[kMaster].value != 0.0f;
