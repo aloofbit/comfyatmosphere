@@ -44,6 +44,7 @@ COMFYATMOSPHERE_SUN_SHADOWS    = "Sun Shadows";
 COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_NIGHT  = "Night Shadows";
 COMFYATMOSPHERE_SHADOWS_UNIT_STRENGTH = "Character Shadow Strength";
+COMFYATMOSPHERE_SHADOWS_BODY   = "Character Backside Shadow";
 COMFYATMOSPHERE_SUN_GLIDE      = "Sun Smoothing";
 COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
 COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
@@ -475,6 +476,18 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- Percent: comfyfog.dll takes it as [sunshadows] bodyShade.
+		name = "COMFYATMOSPHERE_SHADOWS_BODY",
+		desc = "How dark the shade is on the body of a player or creature, on its side away from the sun. 100 is the darkest. 0 is off: the body keeps only the game's own lighting. The shadow it casts does not change.",
+		type = "slider",
+		cvar = "comfySunShadowsBody",
+		dependency = { "comfySunShadowsUnits", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- Seconds: comfyfog.dll takes it as [sun] glide.
 		name = "COMFYATMOSPHERE_SUN_GLIDE",
 		desc = "Seconds the shadows, sun rays and light take to follow the sun as it moves. Higher is steadier. Lower follows the time of day sooner. 0 follows at once, with a small wander.",
@@ -657,11 +670,12 @@ local ENTRIES = {
 			.. "11 sun rays: the sky kept before the clouds\n"
 			.. "12 fog: how much gets through (white = clear)\n"
 			.. "13 fog: the sky's light on it alone\n"
-			.. "14 fog: where mist collects (low ground, water)",
+			.. "14 fog: where mist collects (low ground, water)\n"
+			.. "15 sun shadows: the bodies it finds",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 14,
+		maxval = 15,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -736,7 +750,7 @@ local WINDOW_SECTIONS = {
 	             "comfyIndoorLamps", "comfyLampsDay" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
-	               "comfySunShadowsUnitStrength", "comfySunGlide", "comfySunlight", "comfyShadeTint",
+	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfySunGlide", "comfySunlight", "comfyShadeTint",
 	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
@@ -1199,6 +1213,7 @@ local DEBUG_VIEWS = {
 	"fog: how much gets through (white = clear)",
 	"fog: the sky's light on it alone",
 	"fog: where mist collects (low ground, water)",
+	"sun shadows: the bodies it finds",
 };
 
 local PANEL_BACKDROP = {

@@ -50,6 +50,7 @@
 #include "shadow.h"
 #include "sun.h"
 #include "sunshadows.h"
+#include "bodymask.h"
 #include "volume.h"
 
 #include <cmath>
@@ -76,7 +77,8 @@ sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the
 sampler2D sNear   : register(s2);   // the near map, the same way
 sampler2D sNearL  : register(s3);   // the near map's leaves
 sampler2D sFarL   : register(s4);   // the far map's leaves
-sampler2D sUnit   : register(s5);   // the units alone, the near map's camera
+sampler2D sUnit   : register(s5);   // the units alone, the near map's camera and size
+sampler2D sBody   : register(s6);   // the screen: 1 where a player or a creature shows (bodymask.cpp)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -105,6 +107,7 @@ float4 gSuC  : register(c24);       // the sunlight's colour (brightness 1), how
 float4 gU    : register(c25);       // units' map: extra strength, depth bias (map units), one texel (uv), 1 if there is one
 float4 gU2   : register(c26);       // units' map: 1 / unitGap (map units), yards down per map unit, unitDrop and
                                     // unitDrop + 3 (yards)
+float4 gBody : register(c27);       // the bodies: bodyShade (0..1), 1 if there is a mask, sunOffset (map units)
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -241,6 +244,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // Solid things stop the sun; leaves stop leafShade of it.
     float leaf  = 1.0 - lerp(leafF, leafN, wn);
     float shade = max(1.0 - lerp(litF, litN, wn), gCh.x * leaf);
+    // On a player or a creature, as the client drew it (bodymask.cpp): 1 on a body, 0 elsewhere, between at
+    // the edge of one (2026-10-01).
+    // With no mask every pixel takes a body's slack (the safe side: no shade of a surface on itself) and
+    // nothing is scaled.
+    float body  = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).r : 0.0;
+    float bodyS = gBody.y > 0.5 ? body : 1.0;
+    if (gL.y > 2.5)
+        return float4(body, body, body, 1.0);                              // debug 3: the bodies it finds
     // The units' own shade, darkened again on top of the world's. The map holds no ground, so it needs none
     // of the ground's slack. The extra fades in over unitGap from the unit along the sun instead: a unit
     // adds little to its own back, and the shadow stays on its feet. Where the centre sees no unit (the
@@ -265,7 +276,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                     * step(d4, 0.99999);
         float  wsum = dot(w4, 1.0);
         float  du   = wsum > 1e-4 ? dot(w4, d4) / wsum : 1.0;
-        float  away = du >= 0.99999 ? 1.0 : smoothstep(0.0, 1.0, saturate((sn.z - du) * gU2.x));
+        float  away = du >= 0.99999 ? 1.0 : lerp(1.0, smoothstep(0.0, 1.0, saturate((sn.z - du) * gU2.x)), bodyS);
         [branch] if (du >= 0.99999)
         {
             float o = gU.z * max(gB.w, 0.5);
@@ -273,7 +284,15 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                      min(tex2Dlod(sUnit, float4(uu + float2(-o,  o), 0, 0)).r, tex2Dlod(sUnit, float4(uu + float2(o,  o), 0, 0)).r));
         }
         float below = du >= 0.99999 ? 0.0 : (sn.z - du) * gU2.y;
-        unit = (1.0 - Lit5(sUnit, sn, float2(0.0, 0.0), gU.y, gU.z)) * wn * away * (1.0 - smoothstep(gU2.z, gU2.w, below));
+        // The units' shade, from their map alone: the near map leaves them out while this map is drawn, so
+        // a character's shadow has one outline (2026-10-01). On a body it takes the near map's slack and
+        // sunOffset, against a surface shading itself. Off a body it takes a quarter of a texel and no
+        // sunOffset: the map holds no ground, so the ground cannot shade itself in it, and the shadow
+        // reaches the feet, where the near map's slack (5.5 texels with a low sun) left a gap.
+        float4 su = float4(sn.xy, sn.z + gBody.z * (1.0 - bodyS), sn.w);
+        float  us = 1.0 - Lit5(sUnit, su, float2(0.0, 0.0), lerp(gU.y * 0.25, gNB.x, bodyS), gU.z);
+        shade = max(shade, us * wn);
+        unit = us * wn * away * (1.0 - smoothstep(gU2.z, gU2.w, below));
         // Nor on a surface in the shade of the world behind the unit (2026-10-01): the underside of a bridge's
         // deck, a yard under the player standing on it, and the side of the bridge under its edge. The facing
         // comes from the depth, which on a model gives each triangle's flat facing (see the top of this file):
@@ -297,6 +316,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                             (1.0 - smoothstep(-0.02, 0.03, dot(Nu, gSun.xyz))) * smoothstep(1.5, 2.5, along));
             unit *= 1.0 - off;
         }
+    }
+    // Character Backside Shadow ([sunshadows] bodyShade, 2026-10-01): the shade on a body, scaled.
+    {
+        float k = lerp(1.0, gBody.x, body);
+        shade *= k;
+        unit  *= k;
     }
     if (gL.y > 1.5)
         return float4(1.0 - leaf, 1.0 - leaf, 1.0 - leaf, 1.0);            // debug 2: the leaves alone
@@ -574,7 +599,11 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(nearLeaf ? nearLeaf : (haveNear ? nearTex : shadow)));
     d->SetTexture(dev, 4, reinterpret_cast<IDirect3DBaseTexture9*>(farLeaf ? farLeaf : shadow));
     d->SetTexture(dev, 5, reinterpret_cast<IDirect3DBaseTexture9*>(unitMap ? unitMap : shadow));
-    for (DWORD st = 0; st < 6; ++st)
+    IDirect3DTexture9* bodyMask = BodyMaskTexture();
+    d->SetTexture(dev, 6, reinterpret_cast<IDirect3DBaseTexture9*>(bodyMask ? bodyMask : depth));
+    d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    for (DWORD st = 0; st < 7; ++st)
     {
         d->SetSamplerState(dev, st, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, st, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -596,7 +625,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[108] = {};
+    float pc[112] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -655,16 +684,19 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[89] = ss.lodStart;
     UnitColour(ss.shadeColor, &pc[92]); pc[95] = ss.debug ? 0.0f : ss.shadeTint * keep;
     UnitColour(ss.sunColor, &pc[96]);   pc[99] = ss.debug ? 0.0f : ss.sunTint * keep;
-    // The units' map: half the near map's size, so twice its texel.
-    const float unitTex = nearRange * 4.0f / size;
+    // The units' map: the near map's size and texel (half its size until 2026-10-01).
+    const float unitTex = nearRange * 2.0f / size;
     pc[100] = ss.debug ? 0.0f : ss.unitStrength * 0.01f * sunset * keep;
     pc[101] = unitTex / span;                                   // one texel: no ground in this map
-    pc[102] = 2.0f / size;
+    pc[102] = 1.0f / size;                                      // one texel (uv): the near map's size
     pc[103] = unitMap ? 1.0f : 0.0f;
     pc[104] = ss.unitGap > 0.0f ? span / ss.unitGap : 1e6f;
     pc[105] = span * sunDir[2];                                 // yards straight down per map unit along the sun
     pc[106] = ss.unitDrop; pc[107] = ss.unitDrop + 3.0f;
-    d->SetPixelShaderConstantF(dev, 0, pc, 27);
+    pc[108] = ss.bodyShade * 0.01f;
+    pc[109] = bodyMask ? 1.0f : 0.0f;
+    pc[110] = ss.sunOffset / span;                              // undone off a body, in the units' map
+    d->SetPixelShaderConstantF(dev, 0, pc, 28);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -681,6 +713,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 3, nullptr);
     d->SetTexture(dev, 4, nullptr);
     d->SetTexture(dev, 5, nullptr);
+    d->SetTexture(dev, 6, nullptr);
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)

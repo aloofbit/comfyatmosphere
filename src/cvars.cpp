@@ -91,7 +91,8 @@ namespace
                 kVolumeDistance, kVolumeDirection, kShadowsWorld, kShadowsUnits, kShadowsLock, kShadowsTilt,
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
-                kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay, kKnobs };
+                kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
+                kShadowsBody, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -145,6 +146,7 @@ namespace
         "comfyLanternLight",
         "comfyIndoorLamps",
         "comfyLampsDay",
+        "comfySunShadowsBody",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -168,6 +170,7 @@ namespace
         { "fog: how much gets through (white = clear)",       0, 0, 0, 0, 1 },
         { "fog: the sky's light on it alone",                 0, 0, 0, 0, 2 },
         { "fog: where mist collects (low ground, water)",     7, 0, 0, 0, 0 },
+        { "sun shadows: the bodies it finds",                 0, 3, 0, 0, 0 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;
@@ -308,6 +311,7 @@ namespace
         case kLanternLight:   snprintf(out, cap, "%.0f", s.lamps.lanternLight * 100.0f); break;
         case kIndoorLamps:    snprintf(out, cap, "%.0f", s.lamps.indoors * 100.0f); break;
         case kLampsDay:       snprintf(out, cap, "%.0f", s.lamps.day); break;               // percent already
+        case kShadowsBody:    snprintf(out, cap, "%.0f", s.sunShadows.bodyShade); break;    // percent already
         case kFogReach:       snprintf(out, cap, "%.0f", s.fog.reach); break;         // yards
         case kFogSky:         snprintf(out, cap, "%.0f", s.fog.skyDistance); break;
         case kFogPatches:     snprintf(out, cap, "%.0f", s.fog.patchiness * 100.0f); break;
@@ -366,6 +370,7 @@ namespace
         if (c[kLanternLight].seen)   s.lamps.lanternLight = Clamp(c[kLanternLight].value * 0.01f, 0.0f, 2.0f);
         if (c[kIndoorLamps].seen)    s.lamps.indoors = Clamp(c[kIndoorLamps].value * 0.01f, 0.0f, 1.0f);
         if (c[kLampsDay].seen)       s.lamps.day = Clamp(c[kLampsDay].value, 0.0f, 100.0f);
+        if (c[kShadowsBody].seen)    s.sunShadows.bodyShade = Clamp(c[kShadowsBody].value, 0.0f, 100.0f);
         if (c[kFogReach].seen)       s.fog.reach      = Clamp(c[kFogReach].value, 20.0f, 5000.0f);
         if (c[kFogSky].seen)         s.fog.skyDistance = Clamp(c[kFogSky].value, 0.0f, 5000.0f);
         if (c[kFogPatches].seen)     s.fog.patchiness = Clamp(c[kFogPatches].value * 0.01f, 0.0f, 1.0f);

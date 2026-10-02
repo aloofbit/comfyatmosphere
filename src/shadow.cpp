@@ -458,9 +458,15 @@ namespace
                static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(vs));
     }
 
+    // The models the cache has at a unit, by vertex buffer and shader, rebuilt at each replay: the body
+    // mark (bodymask.cpp) asks it about each draw as the client makes it (2026-10-01). A model's place is
+    // known only once the frame is merged, so a unit that has just come into view is marked a frame late.
+    std::unordered_set<unsigned long long> g_unitModels;
+
     void ClearCache()
     {
         g_leafModels.clear();
+        g_unitModels.clear();
         for (auto& kv : g_cache)
             for (Entry& e : kv.second)
                 ReleaseRec(e.rec);
@@ -1534,9 +1540,10 @@ namespace
     IDirect3DTexture9*    g_farLeafTex   = nullptr;   // the far map's leaves
     IDirect3DSurface9*    g_farLeafSurf  = nullptr;
     bool                  g_nearLeafValid = false, g_farLeafValid = false;
-    // The units' map (2026-09-30): players and creatures alone, under the near map's camera, at half its size,
-    // so the sun shadows can darken their shade more than the world's. Half size needs a colour target of
-    // its own.
+    // The units' map (2026-09-30): players and creatures alone, under the near map's camera, so the sun
+    // shadows can darken their shade more than the world's. Half the near map's size until 2026-10-01, with a
+    // colour target of its own; now its size, sharing the maps' colour target (g_unitColour holds a reference
+    // to g_colour).
     IDirect3DTexture9*    g_unitTex    = nullptr;
     IDirect3DSurface9*    g_unitSurf   = nullptr;
     IDirect3DSurface9*    g_unitColour = nullptr;
@@ -1717,15 +1724,13 @@ namespace
                     hr = g_nearLeafTex->lpVtbl->GetSurfaceLevel(g_nearLeafTex, 0, &g_nearLeafSurf);
             }
         }
+        // The units' map at the near map's size since 2026-10-01 (half until then): a character's shade on
+        // itself now comes from it, and half the size stepped about on the body.
         if (SUCCEEDED(hr) && wantNear)
         {
-            const UINT half = size / 2;
-            hr = d->CreateTexture(dev, half, half, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_unitTex, nullptr);
+            hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_unitTex, nullptr);
             if (SUCCEEDED(hr))
                 hr = g_unitTex->lpVtbl->GetSurfaceLevel(g_unitTex, 0, &g_unitSurf);
-            if (SUCCEEDED(hr) &&
-                FAILED(d->CreateRenderTarget(dev, half, half, kNULL, D3DMULTISAMPLE_NONE, 0, FALSE, &g_unitColour, nullptr)))
-                hr = d->CreateRenderTarget(dev, half, half, D3DFMT_R5G6B5, D3DMULTISAMPLE_NONE, 0, FALSE, &g_unitColour, nullptr);
         }
         if (SUCCEEDED(hr) && wantLeaves)
         {
@@ -1757,10 +1762,15 @@ namespace
             ReleaseResources();
             return false;
         }
+        if (g_unitSurf)
+        {
+            g_unitColour = g_colour;   // the same size: one colour target serves every map
+            g_unitColour->lpVtbl->AddRef(g_unitColour);
+        }
         g_size = size;
         Log("shadow: %ux%u INTZ depth map%s ready (colour target %s)%s", size, size,
             g_nearLeafSurf ? "s, far and near, each solid and leaves," : g_nearSurf ? "s, far and near," : "",
-            colourKind, g_unitSurf ? ", and a half-size map of the units" : "");
+            colourKind, g_unitSurf ? ", and one of the units" : "");
         return true;
     }
 
@@ -2582,6 +2592,11 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             for (Entry& e : kv.second)
                 if (e.rec.vs && !e.unit && atUnit(e))
                     e.unit = true;
+    g_unitModels.clear();
+    for (const auto& kv : g_cache)
+        for (const Entry& e : kv.second)
+            if (e.rec.vs && e.unit)
+                g_unitModels.insert(ModelKey(e.rec.vb[0], e.rec.vs));
     auto isLeaf = [&](const Entry& e) {
         // Terrain casts as leaves do ([shadow] terrainLeaves): hills and mountains let part of the sun
         // through, as the owner wanted, where buildings stop it all (2026-09-29).
@@ -2663,7 +2678,10 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         // With leaf maps, the leaves go there and everything else to the solid map.
         if (doLeaves && isLeaf(e) != leafPass)
             continue;
-        if (e.unit ? !unitsHere : !worldHere)
+        // With the units' map drawn, the units stay out of the near solid map (2026-10-01): a character's
+        // shadow then comes from one map, with one outline. In both, its shadow was drawn twice with two
+        // outlines, a lighter one and a darker one, and the near map's slack kept the darker one off the feet.
+        if (e.unit ? (!unitsHere || (nearPass && !leafPass && !unitPass && doUnits)) : !worldHere)
             continue;
         if (unitPass && !(r.vs && e.unit))
             continue;
@@ -3024,6 +3042,23 @@ IDirect3DTexture9* ShadowNearLeaves()
 IDirect3DTexture9* ShadowNearUnits()
 {
     return (g_cfg.shadow.enabled && g_valid && g_nearValid && g_unitValid) ? g_unitTex : nullptr;
+}
+
+bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
+{
+    if (g_unitModels.empty())
+        return false;
+    IDirect3DVertexShader9* vs = nullptr;
+    dev->lpVtbl->GetVertexShader(dev, &vs);
+    if (!vs)
+        return false;
+    IDirect3DVertexBuffer9* vb = nullptr;
+    UINT offset = 0, stride = 0;
+    dev->lpVtbl->GetStreamSource(dev, 0, &vb, &offset, &stride);
+    const bool unit = vb && g_unitModels.count(ModelKey(vb, vs)) != 0;
+    SafeRelease(vb);
+    SafeRelease(vs);
+    return unit;
 }
 
 IDirect3DTexture9* ShadowFarLeaves()

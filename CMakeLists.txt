@@ -23,6 +23,7 @@ add_library(comfyfog SHARED
     src/rays.cpp
     src/bench.cpp
     src/sun.cpp
+    src/bodymask.cpp
     src/cover.cpp
     src/lamps.cpp
     src/lampglow.cpp

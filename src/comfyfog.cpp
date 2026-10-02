@@ -18,6 +18,7 @@
 #include <d3d9.h>
 
 #include "bench.h"
+#include "bodymask.h"
 #include "client.h"
 #include "common.h"
 #include "cover.h"
@@ -508,6 +509,7 @@ namespace
             g_orderLast = 0;
             g_orderRun = g_orderIndex = g_orderFirstB = g_orderOAfterB = 0;
         }
+        BodyMarkWorldEnded(dev);                // the body mask, from the stencil, before anything is rebound
         DepthWorldEnded(dev, VolumeActive());   // a multisampled depth buffer is resolved only for the light
         if (VolumeActive())          // the map costs more than the light does; it is only for the light
         {
@@ -718,6 +720,7 @@ namespace
             LampsReset();
             LampGlowReset();
             SunShadowsReset();
+            BodyMaskReset();
             TerrainShadeReset();
             MapTerrainRelease();
             g_waterPs.clear();
@@ -851,6 +854,7 @@ namespace
         ShadowFrameEnd();
         VolumeFrameEnd();
         LampsFrameEnd();
+        BodyMarkFrameEnd(dev);
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_worldEnded = false;
@@ -940,6 +944,7 @@ namespace
         LampsReset();
         LampGlowReset();
         SunShadowsReset();
+        BodyMaskReset();
         TerrainShadeReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
@@ -1465,6 +1470,8 @@ namespace
         NoteLampDraw(dev, false, sv, VertsForPrims(prim, pc));
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
+        if (!g_inPass && !g_skyPhase && !g_worldEnded)
+            BodyMarkDraw(dev);
         return g_oDrawPrim(dev, prim, sv, pc);
     }
 
@@ -1605,6 +1612,8 @@ namespace
         NoteLampDraw(dev, true, static_cast<UINT>(bvi) + mvi, nv);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexed", prim, pc, true, static_cast<UINT>(bvi) + mvi, nv);
+        if (!g_inPass && !g_skyPhase && !g_worldEnded)
+            BodyMarkDraw(dev);   // the stencil mark of a body (bodymask.cpp)
         if (IsSeeThroughModel(dev))
         {
             ++g_seeThroughDraws;

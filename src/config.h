@@ -49,7 +49,7 @@ struct SunSettings
     // Seconds the sun's direction takes to follow the sky (a time constant; 2026-09-30, the Sun Smoothing
     // control). The sky's sun is measured afresh each frame and wanders a little; this averages that out.
     // The shadows, the rays and the volumetric light all follow it. 0 = at once, with the wander.
-    float glide     = 10.0f;
+    float glide     = 3.0f; 
 };
 
 // Where the client keeps the camera and the player (verified for this WoW.exe by comfygrass). Shadows
@@ -105,7 +105,7 @@ struct ShadowSettings
                               // microseconds a caster); it gives the sun shadows sharper edges. The
                               // Shadow Resolution control sets it: 1024, 2048 or 4096
     float range   = 250.0f;    // yards covered either side of the player
-    float nearRange = 64.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
+    float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
     float depth   = 700.0f;   // yards toward and away from the sun: far enough for a ridge to shade you
     // The ground from the map files reaches further toward the sun than the rest (2026-09-30): in Lakeshire the
@@ -243,13 +243,15 @@ struct SunShadowSettings
     // so much of the street that a player's shadow was lost in it: a shaded pixel is shaded once, whatever
     // shades it. Players and creatures are drawn a second time into a map of their own, and their shade
     // darkens by unitStrength more, on top of the world's, inside a building's shade too.
-    float unitStrength = 30.0f;   // 0..100: the extra, as Sun Shadow Strength is
+    float unitStrength = 45.0f;   // 0..100: the extra, as Sun Shadow Strength is
     float unitGap    = 0.5f;      // yards along the sun over which the extra fades in from the unit, so a
-                                  // character darkens its own back and arms little and the shadow stays
-                                  // on its feet. Until 2026-09-30 a hard gap, on top of the world's slack:
-                                  // with a low sun the dark shadow started 1.6 yards from the feet
+                                  // character darkens its own back and arms little. Until 2026-09-30 a hard
+                                  // gap, on top of the world's slack: with a low sun the dark shadow started
+                                  // 1.6 yards from the feet. Since 2026-10-01 on a body only (bodymask.cpp)
     float unitDrop   = 4.0f;      // yards under the unit past which the extra fades out, over 3 more: on the
                                   // water under a bridge, already in the bridge's shade (2026-10-01)
+    float bodyShade  = 30.0f;     // 0..100: the shade on a player's or creature's own body, as a share
+                                  // (Character Backside Shadow). 100 = all of it, 0 = none (2026-10-01)
     float bias       = 3.0f;      // texels of slack in the depth test at the least; more as the sun gets
                                   // lower (see sunshadows.cpp). Against a surface shading itself
                                   // in bands (of each map: at 2048, a quarter of a yard is 1 texel of the
@@ -296,11 +298,11 @@ struct LampSettings
                                     // already, so at 1 a model near one is lit twice. Torch Light, in percent
     float lanternLight = 0.69f;     // lamps: lampposts, lanterns, candles, chandeliers, and the buildings' own
                                     // lights. Lantern Light, in percent
-    float indoors      = 0.21f;     // all lamps while you are inside a building, eased over half a second at the
+    float indoors      = 0.29f;     // all lamps while you are inside a building, eased over half a second at the
                                     // door. The Goldshire inn holds 34 lights within 30 yards, and with every one
                                     // drawn (2026-10-01) the air between them washed out. Indoor Lamps, in percent
     float density      = 0.03f;     // how much the air scatters a lamp's light, per yard
-    float day          = 1.0f;      // % of the night strength by day (Lamps by Day), by [night] dusk, dawn and fade
+    float day          = 51.0f;     // % of the night strength by day (Lamps by Day), by [night] dusk, dawn and fade
     float maxDistance  = 120.0f;    // yards: a light further away than this adds nothing
     int   maxLights    = 32;        // the most lights one screen tile draws, nearest first, 1..32 (lampglow.cpp)
     float keep         = 2.0f;      // seconds a light on screen may go unseen before it fades out. A light

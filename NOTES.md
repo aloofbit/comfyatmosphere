@@ -1423,6 +1423,36 @@ filtered. On the character's shaded side the three changed in steps a texel wide
 Debug View 5. The depth is now blended from the four texels around the point, by where it falls between
 them, leaving out texels with no unit (2084 instruction slots).
 
+**A character's own shade, and its shadow at the feet (2026-10-01).** Older than v0.8.6: v0.8.5 did it too.
+Standing still, the shade on a character's back stepped about with the idle animation's sway; walking, it
+flickered. With Character Shadow Strength at 0 it was steady, which leaves the units' map undrawn. That map
+was half the near map's size, and a character was in both maps: the near map gave its normal shadow, the
+units' map the extra darkness, with two outlines that did not agree. The owner saw a lighter and a darker
+shadow, and the near map's slack (5.5 texels with a low sun, plus sunOffset) kept the darker one off the feet.
+
+Tried the same day and rolled back: `[sunshadows] selfGap` (no shade of a unit on itself near its front),
+which left the sides of the legs white and the ground at the feet patchy; capping the extra at the near map's
+shade, steadier but still flickering; and a body as an upright cylinder about each unit, which took the
+cobbles at the feet for a body. What stayed:
+
+- **One map per job.** While the units' map is drawn, the units stay out of the near solid map. The units'
+  map is the near map's size (64 MB more video memory at 4096), and a unit's shadow comes from it alone, with
+  one outline: `shade = max(world, units)`, and the extra darkness on top from the same answer.
+- **The body mask** (`bodymask.cpp`). While the world is drawn, every depth-writing draw writes bit 0x80 of
+  the stencil that comes with the INTZ depth: set for a model the cache has at a unit (`ShadowIsUnitDraw`,
+  by vertex buffer and shader), cleared for anything else, so a tree in front of a character clears it.
+  When the world ends, one quad turns the bit into a mask of the screen's size, resolved when the depth is
+  multisampled. Debug View 15 shows it. Where it is 1, the units' map is read with the near map's slack and
+  sunOffset, against a surface shading itself; where it is 0, with a quarter of a texel and no sunOffset,
+  since that map holds no ground, so the shadow reaches the feet. `unitGap` applies on a body only. Without
+  a mask every pixel takes a body's slack. The client was not seen to use the stencil in the world; a frame
+  where it does gets no mask, and the log says so once.
+- **Character Backside Shadow** (`[sunshadows] bodyShade`, 0..100) scales the shade on the mask alone.
+- **`[shadow] nearRange` 32**, from 64. At 64 the near map's texel was 0.031 yards at 4096, and a character's
+  shadow about 16 texels wide; the crisp shadows of the first day (2026-09-29) were 4096 over 32, 0.016. The
+  64 came in with the map files' ground that day, and the notes give no reason. Past about 29 yards the far
+  map (0.12 yards a texel) takes over.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

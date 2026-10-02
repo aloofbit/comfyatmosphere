@@ -76,6 +76,7 @@ namespace
         { "sunshadows.strength", "Sun Shadow Strength" },
         { "sunshadows.night",    "Night Shadows" },
         { "sunshadows.unitStrength", "Character Shadow Strength" },
+        { "sunshadows.bodyShade", "Character Backside Shadow" },
         { "sun.glide",           "Sun Smoothing" },
         { "sunshadows.sunlight", "Sunlight" },
         { "rays.enabled",        "Sun Rays" },
