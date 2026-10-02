@@ -1500,6 +1500,18 @@ attack times, the bounding radius, the combat reach and the two display ids). Mo
 zoomed from fully in to fully out on the Warhorse: solid. Not tested: a Tauren or a druid form unmounted, and
 the larger Turtle mounts. On a ship the guard is off, since the camera distance is not known there.
 
+## A light over Ironforge's braziers (2026-10-02)
+
+The braziers in Ironforge had a glow in the air over them. F12 showed two lights at each: the brazier's fire,
+0.7 yards over its base, and a lamp 2.7 yards over the fire, at the same x and y to 0.1 yards. The braziers are
+game objects (display 197, DWARVENBRAZIER02); Ironforge.wmo places no brazier. Its 209 lights include pairs
+spaced as the braziers are, colour (250 177 22), the lamp's colour.
+
+A building light near one of the building's doodads gave way to the flame within 2.5 yards, and lit the floor
+2.5 to 15 yards under it. That rule is now `BuildingLightBy` (`mapwmo.cpp`), and it also takes a building
+light up to 4 yards straight over a flame as the same lamp. `MapLightsNear` applies it to the game objects'
+flames, each time it gathers. The owner: fixed.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

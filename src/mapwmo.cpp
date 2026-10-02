@@ -280,19 +280,12 @@ namespace
                 WmoLight L = {};
                 for (int j = 0; j < 3; ++j)
                     L.pos[j] = pos[j] + r[j];
-                // The building's own light at the same lamp (a lantern's sits 2 yards under the top of its
-                // model) gives way to the flame. Until 2026-10-01 it was the other way round, and most of
-                // Stormwind's torches showed as their building lights: (0.26 0.19 0.10), reaching 5 yards.
-                // One 2.5 to 15 yards straight under the flame is there to light the floor: each Undercity
-                // lantern has one 10 yards under it, and its glow hung in the air under the lantern. It keeps
-                // its light on surfaces and draws no glow.
                 for (size_t k = 0; k < own; ++k)
                 {
-                    const float dx = out.lights[k].pos[0] - L.pos[0], dy = out.lights[k].pos[1] - L.pos[1],
-                                dz = out.lights[k].pos[2] - L.pos[2];
-                    if (dx * dx + dy * dy + dz * dz < 2.5f * 2.5f)
+                    const BuildingLightIs is = BuildingLightBy(out.lights[k].pos, L.pos);
+                    if (is == BuildingLightIs::SameLamp)
                         replaced[k] = true;
-                    else if (dx * dx + dy * dy < 2.5f * 2.5f && dz < 0.0f && dz > -15.0f)
+                    else if (is == BuildingLightIs::Floor)
                         out.lights[k].fill = true;
                 }
                 memcpy(L.colour, info.colour, sizeof(L.colour));
@@ -309,6 +302,24 @@ namespace
                 kept.push_back(out.lights[k]);
         out.lights.swap(kept);
     }
+}
+
+// The building's own light at the same lamp (a lantern's sits 2 yards under the top of its model) gives way to
+// the flame. Until 2026-10-01 it was the other way round, and most of Stormwind's torches showed as their building
+// lights: (0.26 0.19 0.10), reaching 5 yards. So does one up to 4 yards straight over the flame (2026-10-02):
+// Ironforge has a light 2.7 yards over each brazier's flame, (250 177 22), and it glowed in the air over the
+// brazier. One 2.5 to 15 yards straight under the flame is there to light the floor: each Undercity lantern has
+// one 10 yards under it, and its glow hung in the air under the lantern. It keeps its light on surfaces and draws
+// no glow.
+BuildingLightIs BuildingLightBy(const float building[3], const float flame[3])
+{
+    const float dx = building[0] - flame[0], dy = building[1] - flame[1], dz = building[2] - flame[2];
+    const float across = dx * dx + dy * dy;
+    if (across + dz * dz < 2.5f * 2.5f || (across < 1.0f && dz > 0.0f && dz < 4.0f))
+        return BuildingLightIs::SameLamp;
+    if (across < 2.5f * 2.5f && dz < 0.0f && dz > -15.0f)
+        return BuildingLightIs::Floor;
+    return BuildingLightIs::Other;
 }
 
 const char* LightModelWord(const std::string& file, const M2Model* m, float& reach)

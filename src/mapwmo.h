@@ -54,4 +54,9 @@ constexpr int kMaxFlames = 6;   // lights one model may give
 int LightFlames(const M2Model* m, bool byWord, float pos[][3], float colour[3]);
 
 // The root file and its groups into one mesh of the opaque triangles. Loader thread only (mpq.cpp).
+// What a building's own light (MOLT) is to a flame near it: the same lamp, which the flame replaces; a light
+// for the floor under it (fill); or neither. Both in one space.
+enum class BuildingLightIs { Other, SameLamp, Floor };
+BuildingLightIs BuildingLightBy(const float building[3], const float flame[3]);
+
 bool WmoLoad(const std::string& rootName, WmoMesh& out);

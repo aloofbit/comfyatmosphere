@@ -1307,24 +1307,50 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
 
 // Nearest first. Until 2026-10-01 they came in the files' order and stopped at max. Stormwind's building
 // alone holds up to 1351 (606 of its own, 745 lit doodads), so the candles beside you could be left out.
+// A building's own light near a game object's flame gives way to it, or becomes the floor's, as it does near
+// one of the building's doodads (BuildingLightBy, 2026-10-02). Ironforge's braziers are game objects: the
+// server spawns them, and the building's light over each one glowed in the air.
 int MapLightsNear(const float at[3], float radius, MapLight* out, int max)
 {
-    static std::vector<std::pair<float, const MapLight*>> inReach;
+    static std::vector<std::pair<float, MapLight>> inReach;
+    static std::vector<const MapLight*> flames;
     inReach.clear();
+    flames.clear();
+    const float flameReach = radius + 20.0f;   // a flame just out of reach still replaces a light in it
+    for (const MapLight& L : g_objLights)
+    {
+        const float dx = L.pos[0] - at[0], dy = L.pos[1] - at[1], dz = L.pos[2] - at[2];
+        if (dx * dx + dy * dy + dz * dz <= flameReach * flameReach)
+            flames.push_back(&L);
+    }
     for (const std::vector<MapLight>* list : { &g_fileLights, &g_objLights })
         for (const MapLight& L : *list)
         {
             const float dx = L.pos[0] - at[0], dy = L.pos[1] - at[1], dz = L.pos[2] - at[2];
             const float d2 = dx * dx + dy * dy + dz * dz;
-            if (d2 <= radius * radius)
-                inReach.emplace_back(d2, &L);
+            if (d2 > radius * radius)
+                continue;
+            MapLight kept = L;
+            if (list == &g_fileLights && strcmp(L.what, "BUILDING") == 0)
+            {
+                bool same = false;
+                for (const MapLight* f : flames)
+                {
+                    const BuildingLightIs is = BuildingLightBy(L.pos, f->pos);
+                    same = same || is == BuildingLightIs::SameLamp;
+                    kept.fill = kept.fill || is == BuildingLightIs::Floor;
+                }
+                if (same)
+                    continue;
+            }
+            inReach.emplace_back(d2, kept);
         }
     const int n = (std::min)(max, static_cast<int>(inReach.size()));
     std::partial_sort(inReach.begin(), inReach.begin() + n, inReach.end(),
-                      [](const std::pair<float, const MapLight*>& a, const std::pair<float, const MapLight*>& b)
+                      [](const std::pair<float, MapLight>& a, const std::pair<float, MapLight>& b)
                       { return a.first < b.first; });
     for (int i = 0; i < n; ++i)
-        out[i] = *inReach[i].second;
+        out[i] = inReach[i].second;
     return n;
 }
 
