@@ -1549,6 +1549,33 @@ the offset put the triangles on the character. The body mask (2026-10-01) now ma
 creatures, and they take none of the offset. With `[sunshadows] units = 0` there is no mask, and they take
 all of it. normalBias is 2 by default.
 
+## Shadow edges that flowed as you walked (2026-10-02)
+
+Shadow edges hopped as you walked and stood still when you only turned. Then, with snap on, the jagged
+edges of every shadow crawled even standing still. Three faults, in the order found:
+
+- **The near map was never on its own grid.** `[shadow] snap` held the shared centre on whole texels of the
+  far map (0.122 yards); the near map's are 0.0156, 7.8 to one. So the near map slid under the world with
+  every step, with snap on or off, and each caster's outline fell on other texels. `[shadow] nearSnap`
+  (on) adds the sub-texel shift to the near map's projection: where the world's origin lands in its clip
+  space is kept on a whole texel, worked out in doubles.
+- **The sun turned the grids.** Both snaps measure from the world's origin, about 8,800 yards from
+  Stormwind. The maps face the sun, and the sun glides a little every frame ([sun] glide) as the clock
+  runs: about a millionth of a radian, which about the origin moved the grid under the player by a sixth
+  of a near-map texel a frame. Without snap the grid turns about the player and the same turn does not
+  show. That is why snap never helped before. `ShadowSunDirection` now hands out a held direction, moved on
+  in steps of `[shadow] sunStep` (0.05 degrees). The sky, the rays and the light keep the gliding sun.
+- **snap is on by default.** With the held sun, the far map stands still in the world too.
+
+The cost is the step the 2026-09-29 sun fix removed: a low sun makes long shadows, and a step of 0.05
+degrees moves their tips at once. Near noon that is a few hundredths of a yard; near dawn and dusk it was
+measured at some ten pixels. Not yet seen with this build; `sunStep = 0` turns it off.
+
+Found along the way, and next: past the near map's 32 yards a shadow cast from under a yard away (a
+merlon on the wall behind it, an eave) is lost in the far map's slack (bias 3.3 texels plus normalBias 2
+texels, up to 4 times that where the sun grazes: 0.6 to 1.4 yards). At `nearRange = 128` it appeared, and
+everything near you was four times as jagged.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

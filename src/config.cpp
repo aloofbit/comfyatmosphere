@@ -202,6 +202,8 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.mapEvery < 1) s.shadow.mapEvery = 1;
     if (s.shadow.mapEvery > 8) s.shadow.mapEvery = 8;
     s.shadow.snap       = GetB(kShadow, L"snap", s.shadow.snap, ini);
+    s.shadow.nearSnap   = GetB(kShadow, L"nearSnap", s.shadow.nearSnap, ini);
+    s.shadow.sunStep    = Clamp(GetF(kShadow, L"sunStep", s.shadow.sunStep, ini), 0.0f, 5.0f);
     s.shadow.keepMargin = Clamp(GetF(kShadow, L"keepMargin", s.shadow.keepMargin, ini), 0.0f, 1000.0f);
     s.shadow.cacheTime  = Clamp(GetF(kShadow, L"cacheTime", s.shadow.cacheTime, ini), 0.0f, 600.0f);
     s.shadow.staleTime  = Clamp(GetF(kShadow, L"staleTime", s.shadow.staleTime, ini), 0.0f, 600.0f);

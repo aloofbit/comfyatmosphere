@@ -142,8 +142,12 @@ struct ShadowSettings
     bool  horizon       = true;   // keep the far-horizon draws: distant terrain can shade you too. They
                                   // are drawn with a camera of their own, which only matters for the
                                   // shader models, so those are still left out.
-    bool  snap          = false;  // hold the map on whole texels of its own grid: steadier standing
-                                  // still, but it steps as you walk, which reads worse
+    bool  snap          = true;   // hold the far map on whole texels of its own grid, so shadow edges do
+                                  // not crawl as you walk. On since 2026-10-02, with the held sun (sunStep)
+    bool  nearSnap      = true;   // hold the near map on whole texels of its own grid, so shadow edges
+                                  // near you do not hop as you walk (2026-10-02)
+    float sunStep       = 0.05f;  // degrees: the maps' sun is held, and moved on in steps of this, so the
+                                  // grids stand still between steps (2026-10-02). 0 = every frame
     float keepMargin    = 100.0f; // yards past range a caster out of view is kept, across the ground from
                                   // the player: while it can still cast into the map (see shadow.cpp)
     float staleTime     = 8.0f;   // with mapTerrain: seconds a cache entry not drawn is kept at most; 0 = no

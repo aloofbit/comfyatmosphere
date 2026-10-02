@@ -384,9 +384,10 @@ bool ShadowSunDirection(float dir[3])
     static bool     have = false;
     static unsigned frame = ~0u;
     static double   last = 0.0;
+    static float    held[3] = { 0.0f, 0.0f, 1.0f };   // what is handed out: see below
     if (have && frame == g_sunFrame)
     {
-        memcpy(dir, cur, sizeof(cur));
+        memcpy(dir, held, sizeof(held));
         return true;
     }
     float target[3];
@@ -416,7 +417,22 @@ bool ShadowSunDirection(float dir[3])
     }
     have = true;
     last = now;
-    memcpy(dir, cur, sizeof(cur));
+    // Held, and moved on in steps of [shadow] sunStep degrees (2026-10-02). The maps are turned to face the
+    // sun, and the sun moves a little every frame as the game's clock runs. With the maps held on whole
+    // texels of a grid fixed in the world ([shadow] snap, nearSnap), a turn of a millionth of a radian about
+    // the world's origin, thousands of yards off, moved the grid under the player by a sixth of a texel a
+    // frame: the jagged shadow edges crawled while standing still. Held, the grids stand still between
+    // steps, and a step moves the tip of a 10-yard shadow a few hundredths of a yard.
+    static bool  haveHeld = false;
+    const float  hold = g_cfg.shadow.sunStep * 0.01745329f;
+    float hd = held[0] * cur[0] + held[1] * cur[1] + held[2] * cur[2];
+    hd = hd > 1.0f ? 1.0f : hd < -1.0f ? -1.0f : hd;
+    if (!haveHeld || hold <= 0.0f || acosf(hd) >= hold)
+    {
+        memcpy(held, cur, sizeof(held));
+        haveHeld = true;
+    }
+    memcpy(dir, held, sizeof(held));
     return true;
 }
 

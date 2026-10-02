@@ -2456,10 +2456,30 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (doNear)
     {
         OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, 1.0f, mapDepth * 2.0f, nearProj);
-        Mul(sunView, nearProj, nearVP);
-        Mul(fromAbs, nearVP, nearAbsToSun);
         D3DMATRIX p, v;
         OrthoLH(s.nearRange * 2.0f, s.nearRange * 2.0f, cutNear, cutFar, p);
+        // Held on whole texels of its own grid ([shadow] nearSnap, 2026-10-02). It shares the far map's
+        // centre, which snap holds on the far map's texels only (7.8 of the near map's), so the near map
+        // slid under the world with every step: each caster's outline fell on other texels, and shadow
+        // edges hopped as you walked and stood still when you only turned. Where the world's origin lands
+        // in the map's clip space is kept on a whole texel, worked out in doubles (cam is thousands of
+        // yards out).
+        if (s.nearSnap)
+        {
+            const double texelClip = 2.0 / (s.size > 0 ? s.size : 1);
+            for (int a = 0; a < 2; ++a)
+            {
+                const double viewAt = -(static_cast<double>(cam[0]) * sunView.m[0][a] +
+                                        static_cast<double>(cam[1]) * sunView.m[1][a] +
+                                        static_cast<double>(cam[2]) * sunView.m[2][a]) + sunView.m[3][a];
+                const double clipAt = viewAt * nearProj.m[a][a] + nearProj.m[3][a];
+                const double shift  = floor(clipAt / texelClip + 0.5) * texelClip - clipAt;
+                nearProj.m[3][a] += static_cast<float>(shift);
+                p.m[3][a]        += static_cast<float>(shift);
+            }
+        }
+        Mul(sunView, nearProj, nearVP);
+        Mul(fromAbs, nearVP, nearAbsToSun);
         Mul(sunView, p, v);
         Mul(fromAbs, v, nearCutAbsToSun);
     }
