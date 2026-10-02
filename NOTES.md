@@ -1647,6 +1647,29 @@ Charger went see-through. With every effect off they were right.
 
 Other players' mounts can still flicker the same way; only the player's own models get the 3-yard rule.
 
+## Frame drops while turning, and wow-test-tool (2026-10-02)
+
+The benchmark stands still, and the owner's frame rate dropped when the camera turned. `/atmos framelog
+[seconds]` times every frame and our CPU in it (recording, cache, replay), with the copies and new cache
+entries, then logs the slowest frames and our CPU in the slowest 5% against the rest. It ends with
+`framelog: done`.
+
+`comfy-wow/tools/wow-test-tool` runs such tests: it starts the client, presses VanillaFixes' OK, types the
+login, picks a character by reading the screen, sends commands into the game through a ComfyTest addon and
+Nampower's ImportFile/ExportFile, and turns the camera with real mouse input (an addon's TurnLeftStart is
+blocked in this client). ComfyTest also times frames itself, so a run without comfyfog.dll compares.
+
+Measured in the Wetlands, 6 s each, ComfyTest's timer:
+
+| | standing | turning | turning, slowest 1% |
+| --- | --- | --- | --- |
+| with the mod | 109.7 fps | 94.7 fps | 18.0 ms |
+| without | 120.3 fps (a cap) | 107.3 fps | 14.7 ms |
+
+Turning costs frames without the mod too. The mod adds about 1.2 ms a frame while turning and 3.3 ms to the
+slowest frames: not found yet. In Stormwind every turning run read about 60 fps with the effects on and off
+alike, which looks like a limit of the client's while the mouse turns the camera.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

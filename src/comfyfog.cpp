@@ -830,6 +830,7 @@ namespace
             static unsigned frames = 0, sumDrawn = 0, sumSkipped = 0;
             const double now = Now();
             BenchFrame(dev, last > 0.0 ? now - last : 0.0);
+            FrameLogFrame(last > 0.0 ? now - last : 0.0);
             if (last > 0.0)
             {
                 const double dt = now - last;

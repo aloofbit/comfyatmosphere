@@ -9,6 +9,7 @@
 //   /atmos save                     write them into comfyfog.ini, keeping its comments
 //   /atmos probe                    log the next frame, as F12 does
 //   /atmos bench                    run the benchmark, as Alt+F12 does
+//   /atmos framelog [seconds]       time every frame for that long (10), then log the slowest
 //
 // The ComfyAtmosphere addon puts the command text in the CVar comfyTune, with a number in front; cvars.cpp
 // reads it and registers the answer as new CVars, which the addon prints (see cvars.cpp).
@@ -22,6 +23,7 @@
 
 #include <windows.h>
 
+#include "bench.h"
 #include "common.h"
 #include "config.h"
 #include "tune.h"
@@ -393,6 +395,12 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     {
         BenchArm();
         out.push_back("The benchmark starts on the next frame. Stand still and face the sun.");
+    }
+    else if ((w.size() == 1 || w.size() == 2) && Same(w[0], "framelog"))
+    {
+        const double seconds = w.size() == 2 ? atof(w[1].c_str()) : 10.0;
+        FrameLogStart(seconds > 0.5 && seconds <= 120.0 ? seconds : 10.0);
+        out.push_back("Every frame is timed now. The slowest go to comfyfog.log when it ends.");
     }
     else if (w.size() == 1 && Same(w[0], "reset"))
     {

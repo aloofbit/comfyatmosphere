@@ -455,6 +455,123 @@ void BenchSectionEnd(IDirect3DDevice9* dev, BenchSection s, bool drew)
     (void)dev;
 }
 
+namespace
+{
+    struct FrameRow
+    {
+        double at, ms, record, cache, replay;
+        unsigned added, evicted, copies, entries;
+    };
+    bool                  g_flOn = false;
+    double                g_flStart = 0.0, g_flLength = 0.0;
+    std::vector<FrameRow> g_flRows;
+    unsigned              g_flCopies = 0;
+
+    void FrameLogReport()
+    {
+        const size_t n = g_flRows.size();
+        if (n < 2)
+        {
+            Log("framelog: done: too few frames (%u)", static_cast<unsigned>(n));
+            return;
+        }
+        double sum = 0.0, sumOurs = 0.0, sumRec = 0.0, sumCache = 0.0, sumRep = 0.0;
+        unsigned added = 0, copies = 0;
+        for (const FrameRow& r : g_flRows)
+        {
+            sum += r.ms;
+            sumRec += r.record; sumCache += r.cache; sumRep += r.replay;
+            sumOurs += r.record + r.cache + r.replay;
+            added += r.added; copies += r.copies;
+        }
+        std::vector<size_t> order(n);
+        for (size_t i = 0; i < n; ++i) order[i] = i;
+        std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_flRows[a].ms > g_flRows[b].ms; });
+        const size_t onePct = (std::max)(static_cast<size_t>(1), n / 100);
+        double low = 0.0;
+        for (size_t i = 0; i < onePct; ++i) low += g_flRows[order[i]].ms;
+        low /= onePct;
+        const size_t fivePct = (std::max)(static_cast<size_t>(1), n / 20);
+        double oursSlow = 0.0;
+        for (size_t i = 0; i < fivePct; ++i)
+        {
+            const FrameRow& r = g_flRows[order[i]];
+            oursSlow += r.record + r.cache + r.replay;
+        }
+        oursSlow /= fivePct;
+        const double oursRest = n > fivePct ? (sumOurs - oursSlow * fivePct) / (n - fivePct) : 0.0;
+        Log("framelog: %u frames over %.1f s: %.2f ms a frame (%.1f fps), slowest 1%% %.2f ms, worst %.2f ms",
+            static_cast<unsigned>(n), g_flRows.back().at, sum / n, 1000.0 * n / sum, low, g_flRows[order[0]].ms);
+        Log("framelog: our CPU a frame %.2f ms (recording %.2f, cache %.2f, replay %.2f); %u new cache entries, "
+            "%u copies of streamed geometry", sumOurs / n, sumRec / n, sumCache / n, sumRep / n, added, copies);
+        Log("framelog: our CPU in the slowest 5%% of frames %.2f ms, in the rest %.2f ms", oursSlow, oursRest);
+        Log("framelog: the slowest frames:");
+        for (size_t i = 0; i < (std::min)(n, static_cast<size_t>(10)); ++i)
+        {
+            const FrameRow& r = g_flRows[order[i]];
+            Log("framelog:   %6.2f ms at %5.2f s; ours %.2f (recording %.2f, cache %.2f, replay %.2f); %u added, "
+                "%u evicted, %u copies, %u entries", r.ms, r.at, r.record + r.cache + r.replay, r.record, r.cache,
+                r.replay, r.added, r.evicted, r.copies, r.entries);
+        }
+        Log("framelog: done");
+    }
+}
+
+void FrameLogStart(double seconds)
+{
+    if (g_running)
+    {
+        Log("framelog: not started: the benchmark is running");
+        return;
+    }
+    g_flRows.clear();
+    g_flRows.reserve(4096);
+    g_flStart = Now();
+    g_flLength = seconds;
+    g_flOn = true;
+    ShadowTiming(true);
+    double r, c, p;
+    unsigned d, e, f, rp, failed;
+    ShadowTakeTimes(r, c, p, d, e, f, rp);   // start from nothing
+    g_flCopies = ShadowCopies(failed);
+    Log("framelog: started, %.1f s", seconds);
+}
+
+void FrameLogFrame(double frameSeconds)
+{
+    if (!g_flOn || frameSeconds <= 0.0)
+        return;
+    FrameRow row = {};
+    row.at = Now() - g_flStart;
+    row.ms = 1000.0 * frameSeconds;
+    unsigned d, e, f, rp;
+    ShadowTakeTimes(row.record, row.cache, row.replay, d, e, f, rp);
+    row.record *= 1000.0; row.cache *= 1000.0; row.replay *= 1000.0;
+    int outcome = 0;
+    unsigned drawn = 0, counts[5] = {};
+    const char* info = nullptr;
+    ShadowLastReplay(outcome, drawn, row.entries, counts, info);
+    row.added = counts[1];
+    row.evicted = counts[2] + counts[3] + counts[4];
+    unsigned failed = 0;
+    const unsigned copies = ShadowCopies(failed);
+    row.copies = copies > g_flCopies ? copies - g_flCopies : 0;
+    g_flCopies = copies;
+    g_flRows.push_back(row);
+    if (row.at >= g_flLength)
+    {
+        g_flOn = false;
+        ShadowTiming(false);
+        FrameLogReport();
+        CVarsNotice("Frame log done. The results are in comfyfog.log.");
+    }
+}
+
+bool FrameLogRunning()
+{
+    return g_flOn;
+}
+
 void BenchReset()
 {
     BenchCancel("device reset", true);

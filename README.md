@@ -166,6 +166,7 @@ add to. On another client, use `/atmos options`.
 | `/atmos stats` | Show or hide the stats panel (below) |
 | `/atmos probe` | Log one frame to `comfyfog.log`, as F12 does |
 | `/atmos bench` | Run the benchmark, as Alt+F12 does |
+| `/atmos framelog [seconds]` | Time every frame for that long (10), then log the slowest frames and our share of each |
 | `/atmos <section>` | Every value in a section |
 | `/atmos <section>.<key>` | One value, and where it came from |
 | `/atmos <section>.<key> <value>` | Set it. The key alone will do when no other section has it |
