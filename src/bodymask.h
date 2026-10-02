@@ -8,3 +8,4 @@ void BodyMarkWorldEnded(IDirect3DDevice9* dev);   // the world is drawn: build t
 void BodyMarkFrameEnd(IDirect3DDevice9* dev);     // at Present: a world that never ended gets its states back
 IDirect3DTexture9* BodyMaskTexture();             // this frame's mask (r = 1 on a body), or null
 void BodyMaskReset();                             // before Reset: drop every D3DPOOL_DEFAULT object
+void BodyMaskProbe();                             // log the next three frames' model draws near the player

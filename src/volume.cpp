@@ -1137,8 +1137,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
 
     const VolumeSettings& v = g_cfg.volume;
     const bool fogOn = FogOn();
-    if (!VolumeActive())
-        return false;
+    if (!VolumeActive() || (v.strength <= 0.0f && !v.debug && !fogOn))
+        return false;   // nothing to draw: no glow and no fog
     // The fog alone (Volumetric Light off, 2026-10-02): no shadow map is drawn, and every point of the fog is
     // taken as in the sun.
     const bool fogOnly = !VolumeLightActive();
@@ -1724,8 +1724,10 @@ void VolumeStatsText(std::string& out)
 
 bool VolumeLightActive()
 {
+    // The box alone (2026-10-02): the shadow map is the sun shadows' and the lamps' too. Until then it also
+    // needed Strength above 0 or the fog on, and at Strength 0 with the fog off the sun shadows went.
     const VolumeSettings& v = g_cfg.volume;
-    return v.enabled && g_on && !g_failed && (v.strength > 0.0f || v.debug || FogOn());
+    return v.enabled && g_on && !g_failed;
 }
 
 bool VolumeActive()

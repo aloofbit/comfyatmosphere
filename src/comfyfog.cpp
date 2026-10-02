@@ -930,6 +930,7 @@ namespace
             LampsProbe(dev);
             LampGlowProbe();
             SunShadowsProbe();
+            BodyMaskProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -1552,6 +1553,24 @@ namespace
         return g_waterPs.count(ps) != 0;
     }
 
+    // Whether the see-through rules below may take this draw (2026-10-02): another player's or a creature's
+    // model, never the player's own and never the world's. The client draws more than stealthed units as a
+    // depth pass and a blended colour pass: a doodad fading in at distance (a Stormwind banner lost its lion
+    // to its own back faces, a statue went see-through), and the player's mount as the camera nears it, out
+    // to 15.6 yards measured, past the 15 seeThroughNearMounted allowed. A unit is a model the shadow cache
+    // has at one (ShadowIsUnitDraw); the player's own is a model placed (ShadowDrawPosition) within 4 yards
+    // of the player.
+    bool SeeThroughUnit(IDirect3DDevice9* dev)
+    {
+        if (!ShadowIsUnitDraw(dev))
+            return false;
+        float p[3], pl[3];
+        if (!ShadowDrawPosition(dev, p) || !ClientPlayer(pl))
+            return true;
+        const float dx = p[0] - pl[0], dy = p[1] - pl[1], dz = p[2] - pl[2];
+        return dx * dx + dy * dy + dz * dz > 16.0f;
+    }
+
     // A see-through model ([depth] seeThrough, 2026-09-30): a model (vertex shader) drawn alpha blended with
     // depth writes on. Measured on a stealthed lion: its batches (874, 338, 24 and 14 triangles, one texture)
     // were the only blended model draws writing depth in the frame, and absent with it off screen. Written,
@@ -1572,7 +1591,7 @@ namespace
             return false;
         dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
         dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
-        return src == D3DBLEND_SRCALPHA && dst == D3DBLEND_INVSRCALPHA;
+        return src == D3DBLEND_SRCALPHA && dst == D3DBLEND_INVSRCALPHA && SeeThroughUnit(dev);
     }
 
     // The first of a see-through model's two passes ([depth] seeThrough, 2026-09-30): the client draws a
@@ -1591,7 +1610,7 @@ namespace
         if (cw != 0)
             return false;
         dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
-        return zwrite != 0;
+        return zwrite != 0 && SeeThroughUnit(dev);
     }
 
     HRESULT STDMETHODCALLTYPE hkDrawIndexedPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi,

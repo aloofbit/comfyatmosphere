@@ -1621,6 +1621,32 @@ the sun: inside a hill's shadow the tree was not in the map at all.
 Not done, by choice: a lamp post's shade inside a building's. Both are solid; in real light there is none.
 Buildings in a map of their own would do it, at another 64 MB.
 
+## Banners, a statue and the Charger (2026-10-02)
+
+Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's
+Charger went see-through. With every effect off they were right.
+
+- **The see-through rule took more than stealthed units.** `[depth] seeThrough` turns depth writes off for a
+  blended model writing depth and skips a depth-only model pass. The client draws more than a stealthed unit
+  that way: a doodad fading in at distance (the banner's back faces then drew over its front) and the
+  player's mount as the camera nears it, out to 15.6 yards measured, past the 15 of
+  `seeThroughNearMounted`. The rule now takes another unit's model only (`SeeThroughUnit`): a model the
+  shadow cache has at a unit, and not the player's own.
+- **No sun shadows at Strength 0 with the fog off.** The shadow map was drawn only while the light drew
+  something. It is now drawn while the Volumetric Light box is ticked; the glow pass is skipped when it has
+  nothing to draw.
+- **The Charger in blotches when zoomed out.** Zoomed in, the client fades the mount; zoomed out it is drawn
+  solid, and the sun shadows shade it with its own shadow. On a body that takes the body's slack, but the
+  body mask flickered on the horse (debug view 15): a model counted as a unit's only when one of its parts
+  had its root bone within half a yard of a unit (`atUnit`), and the Charger's parts are 1.9 to 2.7 yards
+  from the player. `ShadowDrawPosition` places a draw as the cache does (c31..c33.w through c2..c5 with the
+  last Merge's camera taken out), and a model within 3 yards of the player is always a unit, in the cache
+  and in `ShadowIsUnitDraw`. A first try read c31..c33.w as camera-relative and never matched: the
+  probe's body mask lines (F12, three frames, every depth-writing model draw within 6 yards, marked or
+  not) showed 0 draws near the player. After the fix: 18 of 18 marked, three frames running.
+
+Other players' mounts can still flicker the same way; only the player's own models get the 3-yard rule.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

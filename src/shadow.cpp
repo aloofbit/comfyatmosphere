@@ -936,6 +936,11 @@ namespace
     constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
 
 
+    // The last Merge's camera, to place a draw as it is made (ShadowDrawPosition, 2026-10-02).
+    D3DMATRIX g_placeCamOut = {};
+    float     g_placeCamModels[3] = {};
+    bool      g_havePlace = false;
+
     void Merge(const D3DMATRIX& camVP, const D3DMATRIX& camVPInv, const float cam[3], const float camModels[3],
                double now)
     {
@@ -953,6 +958,9 @@ namespace
         Translation(camModels[0], camModels[1], camModels[2], toAbs);
         D3DMATRIX camOut;
         Mul(camVPInv, toAbs, camOut);   // camera clip -> absolute world
+        g_placeCamOut = camOut;
+        memcpy(g_placeCamModels, camModels, sizeof(g_placeCamModels));
+        g_havePlace = true;
         g_newInfo[0] = 0; g_newInfoLen = 0; g_newInfoCount = 0;
         g_dropInfo[0] = 0; g_dropInfoLen = 0; g_dropInfoCount = 0;
         g_overInfo[0] = 0; g_overInfoLen = 0; g_overInfoCount = 0;
@@ -2644,7 +2652,14 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // the answer.
     auto atUnit = [&](const Entry& e) {
         // A unit within half a yard across the ground and 4 up or down, found through this cell and those
-        // around it: a character's reference point is its root bone, at the unit's feet.
+        // around it: a character's reference point is its root bone, at the unit's feet. The player's own
+        // models within 3 yards (2026-10-02): a Charger's parts have their root bones 2 to 2.7 yards off.
+        if (havePlayer)
+        {
+            const float ox = e.pos[0] - pl[0], oy = e.pos[1] - pl[1], oz = e.pos[2] - pl[2];
+            if (ox * ox + oy * oy + oz * oz < 9.0f)
+                return true;
+        }
         if (unitCells.empty())
             return false;
         const long long cx = static_cast<long long>(floorf(e.pos[0] * 0.5f));
@@ -3163,10 +3178,37 @@ IDirect3DTexture9* ShadowNearUnits()
     return (g_cfg.shadow.enabled && g_valid && g_nearValid && g_unitValid) ? g_unitTex : nullptr;
 }
 
+bool ShadowDrawPosition(IDirect3DDevice9* dev, float pos[3])
+{
+    // As Merge places a shader draw: its first bone's origin (c31..c33.w) through A, which is c2..c5 with the
+    // world camera taken out, or for a model whose c2..c5 hold the projection alone, the view's inverse and the
+    // camera's position. The camera is the last Merge's, a frame old at most.
+    if (!g_havePlace)
+        return false;
+    float c[16], b[12];
+    if (FAILED(dev->lpVtbl->GetVertexShaderConstantF(dev, 2, c, 4)) ||
+        FAILED(dev->lpVtbl->GetVertexShaderConstantF(dev, 31, b, 3)))
+        return false;
+    D3DMATRIX m, a;
+    FromRegisters(c, m);
+    if (IsProjection(m) && g_haveWorldCam)
+    {
+        a = {};
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                a.m[i][j] = g_worldView.m[j][i];
+        a.m[3][0] = g_placeCamModels[0]; a.m[3][1] = g_placeCamModels[1]; a.m[3][2] = g_placeCamModels[2];
+        a.m[3][3] = 1.0f;
+    }
+    else
+        Mul(m, g_placeCamOut, a);
+    for (int j = 0; j < 3; ++j)
+        pos[j] = b[3] * a.m[0][j] + b[7] * a.m[1][j] + b[11] * a.m[2][j] + a.m[3][j];
+    return true;
+}
+
 bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
 {
-    if (g_unitModels.empty())
-        return false;
     IDirect3DVertexShader9* vs = nullptr;
     dev->lpVtbl->GetVertexShader(dev, &vs);
     if (!vs)
@@ -3174,9 +3216,31 @@ bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
     IDirect3DVertexBuffer9* vb = nullptr;
     UINT offset = 0, stride = 0;
     dev->lpVtbl->GetStreamSource(dev, 0, &vb, &offset, &stride);
-    const bool unit = vb && g_unitModels.count(ModelKey(vb, vs)) != 0;
+    bool unit = vb && !g_unitModels.empty() && g_unitModels.count(ModelKey(vb, vs)) != 0;
     SafeRelease(vb);
     SafeRelease(vs);
+    // The player's own models, always (2026-10-02): a model placed (ShadowDrawPosition) within 3 yards of the
+    // player. A paladin's Charger was a unit's only on the frames where one of its parts had its root bone
+    // within half a yard of the player (atUnit), 2 to 2.7 yards off for most of them (a signpost beside the
+    // player was 4): the body mask flickered on it, and off the mask it took the world's slack and shaded
+    // itself in blotches. The player is read once a frame.
+    if (!unit)
+    {
+        static unsigned frame = 0;
+        static bool     have  = false;
+        static float    pl[3];
+        if (frame != g_frameId)
+        {
+            frame = g_frameId;
+            have  = ClientPlayer(pl);
+        }
+        float p[3];
+        if (have && ShadowDrawPosition(dev, p))
+        {
+            const float dx = p[0] - pl[0], dy = p[1] - pl[1], dz = p[2] - pl[2];
+            unit = dx * dx + dy * dy + dz * dz < 9.0f;
+        }
+    }
     return unit;
 }
 

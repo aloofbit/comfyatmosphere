@@ -26,11 +26,13 @@
 #include <d3d9.h>
 
 #include "bodymask.h"
+#include "client.h"
 #include "common.h"
 #include "config.h"
 #include "shadow.h"
 #include "volume.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace
@@ -57,6 +59,9 @@ namespace
     bool  g_anyUnit   = false;   // this world: at least one draw was marked
     DWORD g_ref = 0, g_writeMask = 0;   // what is set now, so a state is set only when it changes
     unsigned g_clientStencilFrames = 0;
+    // The probe (2026-10-02): for a few frames, every depth-writing model draw near the player, marked or not.
+    int      g_probeFrames = 0, g_probeLines = 0, g_probeFrame = 0;
+    unsigned g_probeMarked = 0, g_probeUnmarked = 0;
 
     // The mask.
     IDirect3DSurface9*     g_msSurf  = nullptr;   // multisampled target, when the depth buffer is
@@ -194,6 +199,32 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
     const DWORD ref = zw && ShadowIsUnitDraw(dev) ? kBit : 0;
     if (ref)
         g_anyUnit = true;
+    if (g_probeFrames > 0 && zw)
+    {
+        IDirect3DVertexShader9* vs = nullptr;
+        d->GetVertexShader(dev, &vs);
+        float p[3], pl[3];
+        if (vs && ShadowDrawPosition(dev, p) && ClientPlayer(pl))
+        {
+            const float dx = p[0] - pl[0], dy = p[1] - pl[1], dz = p[2] - pl[2];
+            const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (dist < 6.0f)
+            {
+                ++(ref ? g_probeMarked : g_probeUnmarked);
+                IDirect3DVertexBuffer9* vb = nullptr;
+                UINT off = 0, stride = 0;
+                d->GetStreamSource(dev, 0, &vb, &off, &stride);
+                DWORD cw = 0, blend = 0;
+                d->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &cw);
+                d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+                if (g_probeLines++ < 80)
+                    Log("bodymask: frame %d: model draw %s, root bone %.2f yd from you, vs %p vb %p offset %u, colour "
+                        "writes 0x%X, blend %u", g_probeFrame, ref ? "MARKED" : "not marked", dist, vs, vb, off, cw, blend);
+                if (vb) vb->lpVtbl->Release(vb);
+            }
+        }
+        if (vs) vs->lpVtbl->Release(vs);
+    }
     if (writeMask != g_writeMask)
     {
         d->SetRenderState(dev, D3DRS_STENCILWRITEMASK, writeMask);
@@ -206,10 +237,26 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
     }
 }
 
+void BodyMaskProbe()
+{
+    g_probeFrames = 3;
+    g_probeFrame = 0;
+}
+
 void BodyMarkWorldEnded(IDirect3DDevice9* dev)
 {
     auto* d = dev->lpVtbl;
     g_valid = false;
+    if (g_probeFrames > 0)
+    {
+        Log("bodymask: frame %d ended: %s; near you %u model draws marked, %u not", g_probeFrame,
+            g_skipFrame ? "skipped (the client's stencil)" : g_started ? (g_anyUnit ? "mask built" : "no unit drawn, no mask")
+                        : "the mark never began", g_probeMarked, g_probeUnmarked);
+        --g_probeFrames;
+        ++g_probeFrame;
+        g_probeLines = 0;
+        g_probeMarked = g_probeUnmarked = 0;
+    }
     const bool started = g_started, any = g_anyUnit;
     g_started = false;
     g_skipFrame = false;
