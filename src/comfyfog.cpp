@@ -368,6 +368,7 @@ namespace
     unsigned g_depthOnlySkipped = 0, g_depthOnlyLast = 0;   // IsDepthOnlyModel's, the same way
     bool     g_ownFaded = false;   // the camera within [depth] seeThroughNear of your character (hkBeginScene)
     float    g_ownDist  = 1e9f;    // ... how far, in yards
+    bool     g_ownMounted = false; // ... and whether you ride a mount: [depth] seeThroughNearMounted applies
 
     // The order of the world's draws, for one frame after each probe (2026-09-30): can our fog go in before
     // the blended draws? Grass drawn blended leaves the sky's depth behind it, and the fog painted full
@@ -753,7 +754,9 @@ namespace
                 ? sqrtf((cam[0] - pl[0]) * (cam[0] - pl[0]) + (cam[1] - pl[1]) * (cam[1] - pl[1]) +
                         (cam[2] - pl[2]) * (cam[2] - pl[2]))
                 : 1e9f;
-            g_ownFaded = g_ownDist < g_cfg.depth.seeThroughNear;
+            bool mounted = false;
+            g_ownMounted = ClientPlayerMounted(mounted) && mounted;
+            g_ownFaded = g_ownDist < (g_ownMounted ? g_cfg.depth.seeThroughNearMounted : g_cfg.depth.seeThroughNear);
             DepthBeginScene(dev);
             if (!g_worldEnded)
             {
@@ -911,8 +914,9 @@ namespace
             else
                 Log("night: no game clock at [client] clockAddr, so the rays and the light keep their day strength");
             Log("depth: last frame, %u see-through model draws had their depth writes turned off and %u depth-only "
-                "model passes were skipped ([depth] seeThrough %d); the camera %.1f yd from you, so %s",
+                "model passes were skipped ([depth] seeThrough %d); the camera %.1f yd from you%s, so %s",
                 g_seeThroughLast, g_depthOnlyLast, g_cfg.depth.seeThrough ? 1 : 0, g_ownDist,
+                g_ownMounted ? " (mounted)" : "",
                 g_ownFaded ? "off (your character may be faded)" : "on");
             DepthProbe();
             ShadowProbe();

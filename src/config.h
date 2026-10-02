@@ -93,6 +93,9 @@ struct DepthSettings
     // character and draws it as it draws a stealthed unit, a depth pass and then a see-through one; without
     // the depth pass the inside of the head showed through the back of it (the eyes, from behind).
     float seeThroughNear = 4.0f;
+    // The same while you ride a mount (2026-10-02): the client fades the larger model from farther off. At 8.9
+    // yards a Warhorse was faded, and the far side of it showed through.
+    float seeThroughNearMounted = 15.0f;
     bool  waterDepth = true;   // the water writes depth, so the shadows and the light see its surface
 };
 

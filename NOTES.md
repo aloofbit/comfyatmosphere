@@ -1486,6 +1486,20 @@ over the deck's height. The fog took the Ironforge rule and filled the ship.
 the ship case off, as it was. The ship's own place and facing are not read, so other units on a ship
 (`ClientUnits`) are still relative to it.
 
+## A see-through mount (2026-10-02)
+
+Players saw through the paladin's Warhorse. The client fades your own character when the camera comes near
+it, and draws it as it draws a stealthed unit; `[depth] seeThrough` then turns its depth writes off. The guard
+of *Your own face through the back of your head* turns that off within `seeThroughNear` (4 yards). Mounted,
+the client fades the larger model from farther off: F12 showed 71 see-through draws with the camera 8.9 yards
+from you.
+
+`ClientPlayerMounted` reads UNIT_FIELD_MOUNTDISPLAYID, update field 0x85 (OBJECT_END 6, the auras to 0x7C, the
+attack times, the bounding radius, the combat reach and the two display ids). Mounted, the guard reaches
+`[depth] seeThroughNearMounted` (15 yards). The F12 line `depth: last frame` adds "(mounted)". The owner,
+zoomed from fully in to fully out on the Warhorse: solid. Not tested: a Tauren or a druid form unmounted, and
+the larger Turtle mounts. On a ship the guard is off, since the camera distance is not known there.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

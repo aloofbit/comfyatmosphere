@@ -81,33 +81,53 @@ bool ClientPlayer(float pos[3], bool* onShip)
         return true;
     }
 
-// The position as the player object holds it: in the world, or relative to a ship.
-static bool ClientPlayerRaw(float pos[3])
+// The local player's object in the object manager, or 0.
+static DWORD PlayerObject()
     {
         const ClientSettings& b = g_cfg.client;
-        if (!b.objMgrAddr || !b.playerPosOff)
-            return false;
+        if (!b.objMgrAddr)
+            return 0;
         DWORD mgr = 0;
         if (!SafeCopy(static_cast<uintptr_t>(b.objMgrAddr + Slide()), &mgr, 4) || !mgr)
-            return false;
+            return 0;
         DWORD guid[2] = {}, link = 0, obj = 0;
         if (!SafeCopy(mgr + 0xC0, guid, 8) || (!guid[0] && !guid[1]))
-            return false;
+            return 0;
         if (!SafeCopy(mgr + 0xA4, &link, 4) || !SafeCopy(mgr + 0xAC, &obj, 4))
-            return false;
+            return 0;
         for (int n = 0; n < 16384 && obj && !(obj & 1); ++n)
         {
             DWORD g[2] = {};
             if (!SafeCopy(obj + 0x30, g, 8))
-                return false;
+                return 0;
             if (g[0] == guid[0] && g[1] == guid[1])
-                return SafeCopy(obj + b.playerPosOff, pos, 12) && SaneWorld(pos);
+                return obj;
             DWORD next = 0;
             if (!SafeCopy(obj + link + 4, &next, 4))
-                return false;
+                return 0;
             obj = next;
         }
-        return false;
+        return 0;
+    }
+
+// The position as the player object holds it: in the world, or relative to a ship.
+static bool ClientPlayerRaw(float pos[3])
+    {
+        const DWORD obj = g_cfg.client.playerPosOff ? PlayerObject() : 0;
+        return obj && SafeCopy(obj + g_cfg.client.playerPosOff, pos, 12) && SaneWorld(pos);
+    }
+
+// Whether the local player rides a mount (2026-10-02): UNIT_FIELD_MOUNTDISPLAYID, update field 0x85 (OBJECT_END
+// 6, the auras to 0x7C, then the attack times, the bounding radius, the combat reach and the two display ids),
+// read through the fields pointer at +0x8 as ClientGameObjects reads a game object's.
+bool ClientPlayerMounted(bool& mounted)
+    {
+        const DWORD obj = PlayerObject();
+        DWORD fields = 0, display = 0;
+        if (!obj || !SafeCopy(obj + 0x8, &fields, 4) || !fields || !SafeCopy(fields + 0x85 * 4, &display, 4))
+            return false;
+        mounted = display != 0;
+        return true;
     }
 
 // Every unit (creature, NPC) and player out of the object manager: the same walk, keeping each object of

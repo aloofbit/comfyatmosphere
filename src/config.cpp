@@ -172,6 +172,8 @@ void LoadSettings(const wchar_t* ini)
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
     s.depth.seeThrough  = GetB(kDepth, L"seeThrough", s.depth.seeThrough, ini);
     s.depth.seeThroughNear = Clamp(GetF(kDepth, L"seeThroughNear", s.depth.seeThroughNear, ini), 0.0f, 50.0f);
+    s.depth.seeThroughNearMounted = Clamp(GetF(kDepth, L"seeThroughNearMounted", s.depth.seeThroughNearMounted, ini),
+                                          0.0f, 50.0f);
     s.depth.waterDepth  = GetB(kDepth, L"waterDepth", s.depth.waterDepth, ini);
     s.shadow.enabled    = GetB(kShadow, L"enabled", s.shadow.enabled, ini);
     s.shadow.size       = GetI(kShadow, L"size", s.shadow.size, ini);
