@@ -382,6 +382,8 @@ float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - Mi
 float4 gT    : register(c5);        // the glow's size, and one texel
 float4 gC    : register(c6);        // the sun's colour x gain; a = 1 when sCover is bound
 float4 gA    : register(c7);        // the sky's colour on the fog; a = fog debug (1 transmittance, 2 sky light)
+float4 gDisc0 : register(c8);       // the way to the sun (by night the larger moon), 1 when known
+float4 gDisc1 : register(c9);       // the way to the other moon, 1 by night when known
 float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
 {
     float4 s  = tex2Dlod(sGlow, float4((base + o + 0.5) * gT.zw, 0, 0));
@@ -404,6 +406,16 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                 + Tap(base, float2(0, 1), f, dist, wsum) + Tap(base, float2(1, 1), f, dist, wsum);
     float3 m    = sum / wsum;
     float  T    = saturate(m.b);
+    // The sun and the moons through the fog on the sky (2026-10-04): the fog dims what lies behind it, and the
+    // discs went with it, a low moon most (the sky near the horizon takes the full reach). Round each disc the
+    // fog lets the light through, 4 degrees in full, gone by 9, so the disc keeps its brightness in a foggy sky.
+    if (d > 0.9999)
+    {
+        const float3 vd = normalize(wp.xyz / max(wp.w, 1e-6));
+        const float  k  = max(smoothstep(0.98769, 0.99756, dot(vd, gDisc0.xyz)) * gDisc0.w,
+                              smoothstep(0.98769, 0.99756, dot(vd, gDisc1.xyz)) * gDisc1.w);
+        T = lerp(T, 1.0, k);
+    }
     if (gA.w > 1.5)
         return float4(gA.rgb * m.g, 1.0);                                  // fog debug 2: the sky light alone
     if (gA.w > 0.5)
@@ -1630,7 +1642,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     }
     else
     {
-        float kc[32];
+        float kc[40] = {};
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c)
                 kc[r * 4 + c] = inv.m[r][c];
@@ -1642,6 +1654,16 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         kc[29] = ((fogCol >>  8) & 0xFF) / 255.0f * amb;
         kc[30] = ((fogCol      ) & 0xFF) / 255.0f * amb;
         kc[31] = static_cast<float>(fogDebug);
+        // c8, c9: the sun (or the larger moon) and the other moon, for their discs through the fog.
+        float disc[3];
+        if (SunDirection(disc))
+        {
+            kc[32] = disc[0]; kc[33] = disc[1]; kc[34] = disc[2]; kc[35] = 1.0f;
+        }
+        if (SunSecondDirection(disc))
+        {
+            kc[36] = disc[0]; kc[37] = disc[1]; kc[38] = disc[2]; kc[39] = 1.0f;
+        }
         d->SetTexture(dev, 1, reinterpret_cast<IDirect3DBaseTexture9*>(depth));
         for (DWORD st = 0; st < 2; ++st)
         {
@@ -1652,7 +1674,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         }
         d->SetVertexShader(dev, g_vsMarch);
         d->SetPixelShader(dev, g_psComp);
-        d->SetPixelShaderConstantF(dev, 0, kc, 8);
+        d->SetPixelShaderConstantF(dev, 0, kc, 10);
         ClipQuad(dev, wd.Width, wd.Height);
         d->SetTexture(dev, 1, nullptr);
         d->SetVertexShader(dev, nullptr);
