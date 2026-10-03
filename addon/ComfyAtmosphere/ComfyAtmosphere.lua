@@ -60,6 +60,7 @@ COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
 COMFYATMOSPHERE_WATER_BEND     = "Underwater Distortion";
 COMFYATMOSPHERE_WATER_COVER    = "Underwater Cover";
 COMFYATMOSPHERE_WATER_WAKE     = "Wake";
+COMFYATMOSPHERE_WATER_RIPPLE_DEPTH = "Ripple Depth";
 COMFYATMOSPHERE_WATER_FOAM     = "Foam";
 COMFYATMOSPHERE_WATER_SWASH    = "Swash";
 COMFYATMOSPHERE_WATER_GLINT    = "Sun Glint";
@@ -694,6 +695,18 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleDepth.
+		name = "COMFYATMOSPHERE_WATER_RIPPLE_DEPTH",
+		desc = "How deep the rings round anyone in the water look. 100 is as it was; their white line stays the same.",
+		type = "slider",
+		cvar = "comfyWaterRippleDepth",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides it by 100 for [water] cover.
 		name = "COMFYATMOSPHERE_WATER_COVER",
 		desc = "How much the water hides a character standing in it. 0 shows the legs as clear as the sand beside them.",
@@ -1005,7 +1018,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake", "comfyWaterRippleDepth",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",

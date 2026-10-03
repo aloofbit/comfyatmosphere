@@ -434,6 +434,7 @@ struct WaterSettings
     float foamScale = 0.6f;      // yards: the size of a bubble in the foam
     float foamSpeed = 1.0f;      // how fast the foam moves and the bands roll in to the shore
     float ripples   = 0.4f;      // 0..1: the rings round anyone standing in the water
+    float rippleDepth = 1.0f;    // 0..4: how deep the rings' waves look, their foam line left as it is (Ripple Depth)
     float wetSand   = 0.45f;     // 0..1: how much darker the sand is where the water reaches
     // The surface (2026-10-02): the water drawn by us in place of the game's: its colour by the real depth, the
     // sky in it, the sun's glint, small waves, whitecaps far out.

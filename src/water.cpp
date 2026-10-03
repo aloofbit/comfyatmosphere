@@ -183,7 +183,8 @@ float4 gSunC : register(c166);     // the sun's colour; whitecaps
 float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest first: camera-relative feet, age
                                     // in seconds (negative: no point)
 float4 gMoon2 : register(c203);    // the way to the other moon, its glint's strength (0 by day)
-float4 gGlint : register(c204);    // 1 / the glint's size squared; z the swash's highest climb (yards); w the
+float4 gGlint : register(c204);    // 1 / the glint's size squared; y the ripples' depth (Ripple Depth); z the
+                                   // swash's highest climb (yards); w the
                                    // edge line's width (yards along the ground)
 float4 gI0   : register(c205);     // rows of inverse(view x projection): clip -> camera-relative world
 float4 gI1   : register(c206);
@@ -544,6 +545,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         }
     }
     ring = saturate(ring * gReach.y) * (0.3 + 0.7 * soft) * (depth > -0.05 ? 1.0 : 0.0);
+    ringSlope *= gGlint.y;   // Ripple Depth (2026-10-03): the rings' waves, not their foam line
 
 )HLSL"
     R"HLSL(
@@ -1512,6 +1514,7 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[332] = moon2[0]; k[333] = moon2[1]; k[334] = moon2[2];
         k[335] = second ? w.moonGlint * 0.6f * moon2Vis : 0.0f;
         k[336] = 1.0f / (w.glintSize * w.glintSize);
+        k[337] = w.rippleDepth;   // c204.y
         k[338] = w.swashHeight;
         k[339] = w.edgeWidth;
         k[356] = w.brightness;   // c209
@@ -1946,9 +1949,10 @@ namespace
         DWORD bit = 0;
         if (BodyMarkLive(bit))
         {
+            // Where no body or model is marked (either bit of the mask).
             d->SetRenderState(dev, D3DRS_STENCILENABLE, TRUE);
-            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
-            d->SetRenderState(dev, D3DRS_STENCILREF, bit);
+            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
+            d->SetRenderState(dev, D3DRS_STENCILREF, 0);
             d->SetRenderState(dev, D3DRS_STENCILMASK, bit);
             d->SetRenderState(dev, D3DRS_STENCILWRITEMASK, 0);
         }
@@ -2222,9 +2226,11 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     {
         for (int i = 0; i < kStencilCount; ++i)
             d->GetRenderState(dev, kStencil[i], &oldSt[i]);
+        // Where no body or model is marked: bit holds both marks (bodymask.cpp), and a model, a reed in the
+        // shallows, is skipped as a body is (2026-10-03).
         d->SetRenderState(dev, D3DRS_STENCILENABLE, TRUE);
-        d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
-        d->SetRenderState(dev, D3DRS_STENCILREF, bit);
+        d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
+        d->SetRenderState(dev, D3DRS_STENCILREF, 0);
         d->SetRenderState(dev, D3DRS_STENCILMASK, bit);
         d->SetRenderState(dev, D3DRS_STENCILWRITEMASK, 0);
     }
@@ -2300,9 +2306,9 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         {
             float body[4] = { g_psc[192], 1.0f, g_cfg.water.cover, cityW };
             d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
-            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
+            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);   // marked: a body or a model
             draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
-            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
+            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
             body[1] = 0.0f;
             d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
         }

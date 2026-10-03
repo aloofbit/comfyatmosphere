@@ -31,6 +31,7 @@
 #include "config.h"
 #include "shadow.h"
 #include "volume.h"
+#include "water.h"
 
 #include <cmath>
 #include <cstring>
@@ -40,6 +41,11 @@ namespace
     const char* kOneHlsl = "float4 main() : COLOR { return float4(1.0, 1.0, 1.0, 1.0); }\n";
 
     constexpr DWORD kBit = 0x80;
+    // Any model (2026-10-03): every depth-writing draw through a vertex shader, the M2s (reeds, trees, doodads
+    // and the units too). Terrain and buildings are fixed-function draws and never carry it. The water's shore
+    // skips it: a reed in the shallows wrote its own depth, read as ground at the waterline, and took the edge
+    // line where it met the water.
+    constexpr DWORD kModelBit = 0x40;
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -78,7 +84,8 @@ namespace
     bool Wanted()
     {
         const SunShadowSettings& ss = g_cfg.sunShadows;
-        return g_cfg.shadow.enabled && ss.enabled && ss.units && !g_failed && VolumeLightActive();
+        // Or for the water alone (2026-10-03): it skips the marked bodies and models at the shore.
+        return !g_failed && ((g_cfg.shadow.enabled && ss.enabled && ss.units && VolumeLightActive()) || WaterWanted());
     }
 
     void Release()
@@ -195,9 +202,13 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_STENCILENABLE, TRUE);
     DWORD zw = 0;
     d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
-    const DWORD writeMask = zw ? kBit : 0;
-    const DWORD ref = zw && ShadowIsUnitDraw(dev) ? kBit : 0;
-    if (ref)
+    const DWORD writeMask = zw ? kBit | kModelBit : 0;
+    IDirect3DVertexShader9* mvs = nullptr;
+    if (zw)
+        d->GetVertexShader(dev, &mvs);
+    const DWORD ref = zw && ShadowIsUnitDraw(dev) ? kBit | kModelBit : (mvs ? kModelBit : 0);
+    if (mvs) mvs->lpVtbl->Release(mvs);
+    if (ref & kBit)
         g_anyUnit = true;
     if (g_probeFrames > 0 && zw)
     {
@@ -239,7 +250,7 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
 
 bool BodyMarkLive(DWORD& bit)
 {
-    bit = kBit;
+    bit = kBit | kModelBit;
     return g_started && !g_skipFrame;
 }
 

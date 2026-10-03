@@ -175,6 +175,7 @@ void LoadSettings(const wchar_t* ini)
     s.water.foamWidth   = Clamp(GetF(kWater, L"foamWidth", s.water.foamWidth, ini), 0.1f, 10.0f);
     s.water.foamReach   = Clamp(GetF(kWater, L"foamReach", s.water.foamReach, ini), 0.5f, 50.0f);
     s.water.ripples     = Clamp(GetF(kWater, L"ripples",   s.water.ripples,   ini), 0.0f, 1.0f);
+    s.water.rippleDepth = Clamp(GetF(kWater, L"rippleDepth", s.water.rippleDepth, ini), 0.0f, 4.0f);
     s.water.wetSand     = Clamp(GetF(kWater, L"wetSand",   s.water.wetSand,   ini), 0.0f, 1.0f);
     s.water.surface     = Clamp(GetF(kWater, L"surface",   s.water.surface,   ini), 0.0f, 1.0f);
     s.water.clarity     = Clamp(GetF(kWater, L"clarity",   s.water.clarity,   ini), 0.1f, 10.0f);

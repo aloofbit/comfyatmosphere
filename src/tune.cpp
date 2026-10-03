@@ -64,6 +64,7 @@ namespace
         { "water.edgeLine",      "Edge Line" },
         { "water.edgeWidth",     "Edge Line Width" },
         { "water.brightness",    "Water Brightness" },
+        { "water.rippleDepth",   "Ripple Depth" },
         { "water.waveHeight",    "Wave Height" },
         { "water.waveScale",     "Wave Size" },
         { "sunshadows.enabled",  "Sun Shadows" },
