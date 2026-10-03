@@ -156,6 +156,8 @@ float4 gSky  : register(c165);     // the sky high up; the waves' strength
 float4 gSunC : register(c166);     // the sun's colour; whitecaps
 float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest first: camera-relative feet, age
                                     // in seconds (negative: no point)
+float4 gMoon2 : register(c203);    // the way to the other moon, its glint's strength (0 by day)
+float4 gGlint : register(c204);    // 1 / the glint's size squared
 float4 gWake : register(c202);     // trails in use, the wake's strength, 1 with the swash, its height (yards)
 float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
 float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none); 1 on a body
@@ -605,8 +607,13 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  F    = 0.02 + gWave.w * pow(1.0 - cosv, 5.0);
     float3 R    = reflect(dir, N);
     float3 sky  = lerp(gFogC.rgb, gSky.rgb, saturate(R.z * 2.5 + 0.35));
+    // The glint of the sun, or by night of the larger moon, and of the other moon (2026-10-03). Glint Size
+    // widens both: the powers fall with its square, so a size of 2 spreads the glint twice as wide.
     float  sd   = saturate(dot(R, gSun.xyz));
-    float3 glint = gSunC.rgb * gSun.w * (pow(sd, 700.0) * 8.0 + pow(sd, 60.0) * 0.25);
+    float  sd2  = saturate(dot(R, gMoon2.xyz));
+    float  gp1  = 700.0 * gGlint.x, gp2 = 60.0 * gGlint.x;
+    float3 glint = gSunC.rgb * (gSun.w * (pow(sd, gp1) * 8.0 + pow(sd, gp2) * 0.25) +
+                                gMoon2.w * (pow(sd2, gp1) * 8.0 + pow(sd2, gp2) * 0.25));
     float3 water = lerp(body, sky, F) + glint;
     // The ripples lit as the swell is not: brighter on the side of a ring facing the sun, darker behind it, so
     // they show from any side and not only in the glint (2026-10-02).
@@ -796,7 +803,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     bool               g_copied = false;        // tried this frame
     bool               g_copyOk = false;
     bool               g_copyFailLogged = false;
-    float              g_psc[83 * 4];           // this frame's pixel constants: c120 to c202
+    float              g_psc[85 * 4];           // this frame's pixel constants: c120 to c204
 
     // The ripples, in the world. A unit in the water starts one where it stands about once a second, and one
     // each time it has moved a yard and a half: walking leaves a trail. Until 2026-10-02 the rings were drawn
@@ -1284,7 +1291,15 @@ float4 main(float2 vpos : VPOS) : COLOR
         float sun[3] = { 0.0f, 0.0f, 1.0f };
         const bool haveSun = SunDirection(sun);
         k[168] = sun[0]; k[169] = sun[1]; k[170] = sun[2];
-        k[171] = haveSun ? w.glint * (night > 0.5f ? 0.3f : 1.0f) : 0.0f;
+        // By night the light is the larger moon (sun.cpp), with a glint of its own strength (Moon Glint).
+        const bool moonUp = night > 0.5f;
+        k[171] = haveSun ? (moonUp ? w.moonGlint : w.glint) : 0.0f;
+        // The other moon (c203): smaller in the sky (a quad of 1.0 against 1.8), so a smaller glint.
+        float moon2[3] = { 0.0f, 0.0f, 1.0f };
+        const bool second = moonUp && SunSecondDirection(moon2);
+        k[332] = moon2[0]; k[333] = moon2[1]; k[334] = moon2[2];
+        k[335] = second ? w.moonGlint * 0.6f : 0.0f;
+        k[336] = 1.0f / (w.glintSize * w.glintSize);
         // The colour deep water turns (Water Colour): green, teal and blue, mixed by the slider. The light it
         // absorbs follows it, so shallow water leans the same way: green water keeps more of its green.
         static const float kPalette[3][3] = { { 0.13f, 0.30f, 0.16f }, { 0.06f, 0.33f, 0.32f }, { 0.05f, 0.22f, 0.45f } };
@@ -1310,9 +1325,13 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[181] = ((w.skyColor >> 8) & 0xFF) / 255.0f * day;
         k[182] = (w.skyColor & 0xFF) / 255.0f * day;
         k[183] = w.waves;
-        const float sunC[3] = { 1.0f, 0.92f, 0.78f }, moonC[3] = { 0.55f, 0.6f, 0.75f };
+        // The moon's colour is the Moonlight Colour's hue ([night] moonColor), at 0.75 in its brightest channel.
+        const DWORD mc = g_cfg.night.moonColor;
+        const float mrgb[3] = { ((mc >> 16) & 0xFF) / 255.0f, ((mc >> 8) & 0xFF) / 255.0f, (mc & 0xFF) / 255.0f };
+        const float mmax = (std::max)((std::max)(mrgb[0], mrgb[1]), (std::max)(mrgb[2], 1e-3f));
+        const float sunC[3] = { 1.0f, 0.92f, 0.78f };
         for (int i = 0; i < 3; ++i)
-            k[184 + i] = night > 0.5f ? moonC[i] : sunC[i];
+            k[184 + i] = moonUp ? mrgb[i] / mmax * 0.75f : sunC[i];
         k[187] = w.whitecaps;
         k[188] = 1.0f / w.waveScale;
         k[191] = w.reflection;
@@ -1767,7 +1786,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
     d->SetVertexShaderConstantF(dev, kVsReg, vc, 11);
-    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 83);
+    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 85);
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);

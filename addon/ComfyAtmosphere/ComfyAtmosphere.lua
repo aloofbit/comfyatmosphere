@@ -61,6 +61,9 @@ COMFYATMOSPHERE_WATER_COVER    = "Underwater Cover";
 COMFYATMOSPHERE_WATER_WAKE     = "Wake";
 COMFYATMOSPHERE_WATER_FOAM     = "Foam";
 COMFYATMOSPHERE_WATER_SWASH    = "Swash";
+COMFYATMOSPHERE_WATER_GLINT    = "Sun Glint";
+COMFYATMOSPHERE_WATER_MOON_GLINT = "Moon Glint";
+COMFYATMOSPHERE_WATER_GLINT_SIZE = "Glint Size";
 COMFYATMOSPHERE_WAVE_HEIGHT    = "Wave Height";
 COMFYATMOSPHERE_WAVE_SIZE      = "Wave Size";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
@@ -604,6 +607,42 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] glint.
+		name = "COMFYATMOSPHERE_WATER_GLINT",
+		desc = "How bright the sun's reflection on the waves is. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterGlint",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] moonGlint.
+		name = "COMFYATMOSPHERE_WATER_MOON_GLINT",
+		desc = "How bright the two moons' reflections on the waves are at night. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterMoonGlint",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] glintSize.
+		name = "COMFYATMOSPHERE_WATER_GLINT_SIZE",
+		desc = "How wide the sun's and moons' reflections spread. 200 is twice as wide as 100.",
+		type = "slider",
+		cvar = "comfyWaterGlintSize",
+		dependency = { "comfyWater", "1" },
+		minval = 25,
+		maxval = 400,
+		step = 25,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides it by 100 for [water] wake.
 		name = "COMFYATMOSPHERE_WATER_WAKE",
 		desc = "The wake behind anyone moving through the water. 0 is off.",
@@ -926,6 +965,7 @@ local WINDOW_SECTIONS = {
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
 	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake",
+	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",
 	             "comfyWaveSize" } },
 };

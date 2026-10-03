@@ -441,7 +441,9 @@ struct WaterSettings
     float colour    = 25.0f;     // 0..100: the colour deep water turns, green (0), teal (50) or blue (100)
     float reflection = 0.15f;    // 0..1: how much of the sky the water shows at a glancing look
     DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
-    float glint     = 1.0f;      // 0..3: the sun's glint on the waves
+    float glint     = 1.0f;      // 0..3: the sun's glint on the waves (Sun Glint)
+    float moonGlint = 0.6f;      // 0..3: the moons' glint on the waves by night (Moon Glint)
+    float glintSize = 1.0f;      // 0.25..4: how wide the glint spreads: 2 = twice as wide (Glint Size)
     float waves     = 1.0f;      // 0..3: how choppy the small waves are
     float waveHeight = 1.0f;     // yards: how tall the swell rises, out where the water is 6.5 yards deep or more
     float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
