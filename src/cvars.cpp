@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -157,13 +157,16 @@ namespace
         "comfyWaterReflect",
         "comfyWaterBend",
         "comfyWaterCover",
+        "comfyWaterWake",
+        "comfyWaterFoam",
+        "comfyWaterSwash",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
     // options window instead of an ini edit and F11. 0 leaves the ini's own debug values alone. The panel
     // cannot draw a dropdown (it builds a page from a table of tick boxes and sliders), so the names are
     // in the slider's tooltip and in the log.
-    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays, fog; };
+    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays, fog, water = 0; };
     const DebugViewInfo kDebugViews[] = {
         { "off",                                              0, 0, 0, 0, 0 },
         { "volumetric light: the glow alone",                 1, 0, 0, 0, 0 },
@@ -181,6 +184,12 @@ namespace
         { "fog: the sky's light on it alone",                 0, 0, 0, 0, 2 },
         { "fog: where mist collects (low ground, water)",     7, 0, 0, 0, 0 },
         { "sun shadows: the bodies it finds",                 0, 3, 0, 0, 0 },
+        { "water: the depth under it (blue shallow, red deep)", 0, 0, 0, 0, 0, 1 },
+        { "water: the foam alone",                            0, 0, 0, 0, 0, 2 },
+        { "water: the wet sand alone",                        0, 0, 0, 0, 0, 3 },
+        { "water: what lies under it, bent and tinted",       0, 0, 0, 0, 0, 4 },
+        { "water: ripples (red, green) and the wake (blue)",  0, 0, 0, 0, 0, 5 },
+        { "water: the game's own water drawn (red), other liquid (magenta), ours off", 0, 0, 0, 0, 0, 6 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;
@@ -298,6 +307,9 @@ namespace
         case kWaterReflect:   snprintf(out, cap, "%.0f", s.water.reflection * 100.0f); break;  // percent
         case kWaterBend:      snprintf(out, cap, "%.0f", s.water.refraction * 200.0f); break;  // 100 = half a yard
         case kWaterCover:     snprintf(out, cap, "%.0f", s.water.cover * 100.0f); break;       // percent
+        case kWaterWake:      snprintf(out, cap, "%.0f", s.water.wake * 100.0f); break;        // percent
+        case kWaterFoam:      snprintf(out, cap, "%.0f", s.water.foam * 100.0f); break;        // percent
+        case kWaterSwash:     snprintf(out, cap, "%.0f", s.water.swash * 100.0f); break;       // percent
         // Thousandths: density 0.015 is 15, anisotropy 0.025 is 25. Distance in yards.
         case kVolumeDensity:  snprintf(out, cap, "%.0f", s.volume.density * 1000.0f); break;
         case kVolumeDistance: snprintf(out, cap, "%.0f", s.volume.maxDistance); break;
@@ -369,6 +381,9 @@ namespace
         if (c[kWaterReflect].seen)   s.water.reflection = Clamp(c[kWaterReflect].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterBend].seen)      s.water.refraction = Clamp(c[kWaterBend].value * 0.005f, 0.0f, 0.5f);
         if (c[kWaterCover].seen)     s.water.cover     = Clamp(c[kWaterCover].value * 0.01f, 0.0f, 1.0f);
+        if (c[kWaterWake].seen)      s.water.wake      = Clamp(c[kWaterWake].value * 0.01f, 0.0f, 1.0f);
+        if (c[kWaterFoam].seen)      s.water.foam      = Clamp(c[kWaterFoam].value * 0.01f, 0.0f, 1.0f);
+        if (c[kWaterSwash].seen)     s.water.swash     = Clamp(c[kWaterSwash].value * 0.01f, 0.0f, 1.0f);
         if (c[kVolumeDensity].seen)  s.volume.density  = Clamp(c[kVolumeDensity].value * 0.001f, 0.0f, 0.05f);
         if (c[kVolumeDistance].seen) s.volume.maxDistance = Clamp(c[kVolumeDistance].value, 20.0f, 1000.0f);
         if (c[kVolumeDirection].seen) s.volume.anisotropy = Clamp(c[kVolumeDirection].value * 0.001f, 0.0f, 0.95f);
@@ -417,6 +432,7 @@ namespace
                 s.lamps.debug      = d.lamps;
                 s.rays.debugView   = d.rays;
                 s.fog.debug        = d.fog;
+                s.water.debug      = d.water;
             }
             if (v != g_debugViewLogged)
             {

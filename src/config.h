@@ -443,9 +443,12 @@ struct WaterSettings
     DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
     float glint     = 1.0f;      // 0..3: the sun's glint on the waves
     float waves     = 1.0f;      // 0..3: how choppy the small waves are
-    float waveHeight = 1.0f;     // yards: how tall the swell rises, out where the water is 6.5 yards deep or more
+    float waveHeight = 1.0f;     // the swell out where the water is 6.5 yards deep or more: as light only, the grid is not lifted
     float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
     float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water
+    float swash     = 0.6f;      // 0..1: the film of water running up the beach and back (Swash)
+    float swashHeight = 0.06f;   // yards of height the swash climbs above the water at most
+    float wake      = 0.6f;      // 0..1: the wake behind anyone moving through the water (Wake)
     float cover     = 0.5f;      // 0..1: how much the water covers a body in it (Underwater Cover)
     float refraction = 0.125f;   // yards: how far the waves bend what lies under the water (Underwater Distortion:
                                  // 0..100 is 0..0.5 yards)

@@ -19,6 +19,10 @@ struct WaterChunk
 bool WaterWanted();   // the foam draws this frame
 // Before the client's draw of a water chunk: the first call of a frame copies the depth under the water.
 void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c);
+// Whether the client's own draw of the chunk is left out this frame: our pass covers it entirely (see water.cpp).
+bool WaterHidesGame();
+// A pixel shader of one flat colour, for the debug view of the game's own liquid: red for water, magenta else.
+IDirect3DPixelShader9* WaterFlatShader(IDirect3DDevice9* dev, bool water);
 // After it: the foam over it. `draw` is the device's DrawIndexedPrimitive below our hook.
 void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw);
 // The probe: each water draw of the frame (water), and each other blended fixed-function draw through a

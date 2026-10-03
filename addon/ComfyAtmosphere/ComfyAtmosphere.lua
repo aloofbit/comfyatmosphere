@@ -58,6 +58,9 @@ COMFYATMOSPHERE_WATER_CLARITY  = "Water Clarity";
 COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
 COMFYATMOSPHERE_WATER_BEND     = "Underwater Distortion";
 COMFYATMOSPHERE_WATER_COVER    = "Underwater Cover";
+COMFYATMOSPHERE_WATER_WAKE     = "Wake";
+COMFYATMOSPHERE_WATER_FOAM     = "Foam";
+COMFYATMOSPHERE_WATER_SWASH    = "Swash";
 COMFYATMOSPHERE_WAVE_HEIGHT    = "Wave Height";
 COMFYATMOSPHERE_WAVE_SIZE      = "Wave Size";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
@@ -577,6 +580,42 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] foam.
+		name = "COMFYATMOSPHERE_WATER_FOAM",
+		desc = "How white the foam is: at the shore, on the ripples and in the wake. Lower lets the water show through it. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterFoam",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] swash.
+		name = "COMFYATMOSPHERE_WATER_SWASH",
+		desc = "A thin film of water that runs up the beach and slides back, with foam on its edge. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterSwash",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] wake.
+		name = "COMFYATMOSPHERE_WATER_WAKE",
+		desc = "The wake behind anyone moving through the water. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterWake",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides it by 100 for [water] cover.
 		name = "COMFYATMOSPHERE_WATER_COVER",
 		desc = "How much the water hides a character standing in it. 0 shows the legs as clear as the sand beside them.",
@@ -591,7 +630,7 @@ local ENTRIES = {
 	{
 		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] waveHeight.
 		name = "COMFYATMOSPHERE_WAVE_HEIGHT",
-		desc = "How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water.",
+		desc = "How strong the swell is out on deep water. It is drawn as light on the surface. They calm toward the shore. 0 is calm water.",
 		type = "slider",
 		cvar = "comfyWaveHeight",
 		dependency = { "comfyWater", "1" },
@@ -796,11 +835,17 @@ local ENTRIES = {
 			.. "12 fog: how much gets through (white = clear)\n"
 			.. "13 fog: the sky's light on it alone\n"
 			.. "14 fog: where mist collects (low ground, water)\n"
-			.. "15 sun shadows: the bodies it finds",
+			.. "15 sun shadows: the bodies it finds\n"
+			.. "16 water: the depth under it (blue shallow, red deep)\n"
+			.. "17 water: the foam alone\n"
+			.. "18 water: the wet sand alone\n"
+			.. "19 water: what lies under it, bent and tinted\n"
+			.. "20 water: ripples (red, green) and the wake (blue)\n"
+			.. "21 water: the game's own water drawn (red), other liquid (magenta), ours off",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 15,
+		maxval = 21,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -880,7 +925,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake",
 	             "comfyWaveHeight",
 	             "comfyWaveSize" } },
 };
@@ -1343,6 +1388,12 @@ local DEBUG_VIEWS = {
 	"fog: the sky's light on it alone",
 	"fog: where mist collects (low ground, water)",
 	"sun shadows: the bodies it finds",
+	"water: the depth under it (blue shallow, red deep)",
+	"water: the foam alone",
+	"water: the wet sand alone",
+	"water: what lies under it, bent and tinted",
+	"water: ripples (red, green) and the wake (blue)",
+	"water: the game's own water drawn (red), other liquid (magenta), ours off",
 };
 
 local PANEL_BACKDROP = {

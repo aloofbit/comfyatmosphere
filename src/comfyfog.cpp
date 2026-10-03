@@ -1694,6 +1694,31 @@ namespace
         {
             const WaterChunk chunk = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll };
             WaterProbeDraw(dev, chunk, g_frameDraws, liquid == kWater);
+            // [water] debug 6 (Debug View 21): the game's own liquid draws as they really reach the screen, in a
+            // flat colour, and none of ours: red for water, magenta for any other blended liquid-like draw. A
+            // chunk our pass hides from the game is not drawn at all, so it shows the bed.
+            if (g_cfg.water.debug == 6 && g_cfg.master && g_cfg.water.enabled)
+            {
+                if (liquid == kWater)
+                {
+                    g_inPass = true;
+                    WaterBeforeDraw(dev, chunk);
+                    g_inPass = false;
+                    if (WaterHidesGame())
+                        return S_OK;
+                }
+                IDirect3DPixelShader9* flat = WaterFlatShader(dev, liquid == kWater);
+                IDirect3DPixelShader9* old = nullptr;
+                dev->lpVtbl->GetPixelShader(dev, &old);
+                g_inPass = true;
+                if (flat)
+                    dev->lpVtbl->SetPixelShader(dev, flat);
+                const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+                dev->lpVtbl->SetPixelShader(dev, old);
+                g_inPass = false;
+                if (old) old->lpVtbl->Release(old);
+                return hr;
+            }
             if (liquid == kWater)
             {
                 // The foam (water.cpp): the depth under the water is copied before the first draw, and the foam
@@ -1704,7 +1729,7 @@ namespace
                 const bool depth = WaterWritesDepth();
                 if (depth)
                     dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
-                const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+                const HRESULT hr = WaterHidesGame() ? S_OK : g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
                 if (depth)
                     dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
                 g_inPass = true;
