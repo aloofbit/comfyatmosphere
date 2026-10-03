@@ -181,6 +181,7 @@ void LoadSettings(const wchar_t* ini)
     s.water.colour      = Clamp(GetF(kWater, L"colour",    s.water.colour,    ini), 0.0f, 100.0f);
     s.water.reflection  = Clamp(GetF(kWater, L"reflection", s.water.reflection, ini), 0.0f, 1.0f);
     s.water.skyColor    = GetX(kWater, L"skyColor",  s.water.skyColor,  ini) & 0xFFFFFF;
+    s.water.brightness  = Clamp(GetF(kWater, L"brightness", s.water.brightness, ini), 0.25f, 2.0f);
     s.water.glint       = Clamp(GetF(kWater, L"glint",     s.water.glint,     ini), 0.0f, 3.0f);
     s.water.moonGlint   = Clamp(GetF(kWater, L"moonGlint", s.water.moonGlint, ini), 0.0f, 3.0f);
     s.water.glintSize   = Clamp(GetF(kWater, L"glintSize", s.water.glintSize, ini), 0.25f, 4.0f);

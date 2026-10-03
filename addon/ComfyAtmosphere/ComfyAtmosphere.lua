@@ -55,6 +55,7 @@ COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
 COMFYATMOSPHERE_WATER          = "Water Effects";
 COMFYATMOSPHERE_WATER_COLOUR   = "Water Colour";
 COMFYATMOSPHERE_WATER_CLARITY  = "Water Clarity";
+COMFYATMOSPHERE_WATER_BRIGHT   = "Water Brightness";
 COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
 COMFYATMOSPHERE_WATER_BEND     = "Underwater Distortion";
 COMFYATMOSPHERE_WATER_COVER    = "Underwater Cover";
@@ -549,6 +550,18 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] brightness.
+		name = "COMFYATMOSPHERE_WATER_BRIGHT",
+		desc = "How light or dark the water is. The glint and the foam keep their brightness.",
+		type = "slider",
+		cvar = "comfyWaterBright",
+		dependency = { "comfyWater", "1" },
+		minval = 25,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides it by 100 for [water] clarity.
 		name = "COMFYATMOSPHERE_WATER_CLARITY",
 		desc = "How far you see into the water. 200 is twice as far as 100.",
@@ -990,7 +1003,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",

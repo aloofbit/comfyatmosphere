@@ -80,7 +80,7 @@ float4 gW2 : register(c246);
 float4 gW3 : register(c247);
 float4 gUp : register(c248);   // (view x projection)'s third row: a yard up, in clip space
 float4 gSw : register(c249);   // the camera's x and y in the world, seconds, the swell's height (0: none)
-float4 gSs : register(c250);   // 1 / waveScale
+float4 gSs : register(c250);   // 1 / waveScale; 1 for water in a building (no depth in its vertices, no swell)
 // The swell: three long trains of waves, each its own way and length (24, 17 and 11 yards x waveScale),
 // at the speed of waves on deep water. 0 to 1: the surface only ever rises, so the game's flat water under
 // it never shows through a trough.
@@ -124,7 +124,9 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
 {
     O o;
     float3 rel = (p.x * gW0 + p.y * gW1 + p.z * gW2 + gW3).xyz;
-    float  amp = gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
+    // In a building (gSs.y) uv is the texture's, not the map's depth: no swell, and a nominal depth.
+    const bool city = gSs.y > 0.5;
+    float  amp = city ? 0.0 : gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
     // The open sea settles (2026-10-03): far out, real water reads as flat, and the grid's big triangles of
     // swell were the part that looked wrong. Gone between 80 and 220 yards; the light follows (amp).
     amp *= 1.0 - smoothstep(80.0, 220.0, length(rel));
@@ -132,7 +134,7 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3 + h * gUp;
     o.rel = rel + float3(0.0, 0.0, h);
     o.amp = amp;
-    o.gd  = uv.y * 148.0;   // the water's depth at the vertex, as the map files give it
+    o.gd  = city ? 3.0 : uv.y * 148.0;   // the water's depth at the vertex, as the map files give it
     o.z0  = rel.z;          // the flat water's height, camera-relative, before the swell lifts it
     return o;
 }
@@ -169,9 +171,11 @@ float4 gI0   : register(c205);     // rows of inverse(view x projection): clip -
 float4 gI1   : register(c206);
 float4 gI2   : register(c207);
 float4 gI3   : register(c208);
+float4 gBright : register(c209);   // the water's brightness (Water Brightness)
 float4 gWake : register(c202);     // trails in use, the wake's strength, 1 with the swash, its height (yards)
 float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
-float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none); 1 on a body
+float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none); 1 on a body;
+                                   // cover; w 1 for water in a building
 float4 gWave : register(c167);     // 1 / waveScale; the part drawn (0 all, 1 the sand, 2 the water); 1 when
                                    // the screen copy is there; the sky reflection's strength
 
@@ -316,7 +320,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // From 40 yards out the map's depth takes over from the depth copy's, by 90 all of it: the far terrain is
     // in a slice of its own (farSlice), and where it met the near terrain the water's colour jumped along a
     // straight line (2026-10-02). So both sides agree well before they meet. Not on a body.
-    const float mapK = farSlice ? 1.0 : smoothstep(40.0, 90.0, dist) * (gSw2.y > 0.5 ? 0.0 : 1.0);
+    // Not in a building (gSw2.w): the map has no depth for its water, and the depth copy's is the real one.
+    const float mapK = farSlice ? 1.0 : smoothstep(40.0, 90.0, dist) * (gSw2.y > 0.5 || gSw2.w > 0.5 ? 0.0 : 1.0);
     depth = lerp(depth, gd, mapK);
     // Two parts (2026-10-02): the water, depth tested and writing depth, and the sand beside it, not tested.
     // Each pixel belongs to one: where our water is drawn (wv > 0), the water part.
@@ -501,7 +506,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  sS    = 0.5 + 0.5 * sin(sPh);
     float  crest = sS * sS;
     // None on a body under the water: it has no shore (2026-10-03).
-    float2 shoreSlope = onBody ? 0.0 : gdir * (gSw2.x * sEnv * sS * cos(sPh) * 1.6);
+    float2 shoreSlope = onBody || gSw2.w > 0.5 ? 0.0 : gdir * (gSw2.x * sEnv * sS * cos(sPh) * 1.6);
     float  brk = crest * crest * sEnv * smoothstep(3.0, 0.5, reach) * (0.4 + 0.6 * lace) * (gSw2.x > 0.0 ? 1.0 : 0.0);
     foam = max(foam, brk * 0.7);
 
@@ -527,7 +532,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         float  ph2 = sin(A2.x * 0.21 + A2.y * 0.17) * 1.7 + sin(A2.x * 0.07 - A2.y * 0.09) * 2.3;
         float  sg  = 0.5 + 0.5 * sin(gScr.z * 0.55 + ph2);
         float  upS = min(gWake.w * slope, gGlint.z) * sg * sg * gWake.z;   // along the ground, as the wet pass
-        depthS = onBody ? depth : depth + upS;
+        // No swash in a building: it climbed the canals' stone walls.
+        depthS = onBody || gSw2.w > 0.5 ? depth : depth + upS;
         reachS = depthS / slope;
     }
     // One shoreline (2026-10-03): the water itself runs up the sand to the moving edge, waves, sky and glint and
@@ -690,7 +696,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  gp1  = 700.0 * gGlint.x, gp2 = 60.0 * gGlint.x;
     float3 glint = gSunC.rgb * (gSun.w * (pow(sd, gp1) * 8.0 + pow(sd, gp2) * 0.25) +
                                 gMoon2.w * (pow(sd2, gp1) * 8.0 + pow(sd2, gp2) * 0.25));
-    float3 water = lerp(body, sky, F);
+    // Water Brightness (2026-10-03): the bed through the water and the sky in it, not the glint or the foam.
+    float3 water = lerp(body, sky, F) * gBright.x;
     // The ripples lit as the swell is not: brighter on the side of a ring facing the sun, darker behind it, so
     // they show from any side and not only in the glint (2026-10-02).
     float2 sunXY = gSun.xy / max(length(gSun.xy), 0.2);
@@ -918,7 +925,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     bool               g_copied = false;        // tried this frame
     bool               g_copyOk = false;
     bool               g_copyFailLogged = false;
-    float              g_psc[89 * 4];           // this frame's pixel constants: c120 to c208
+    float              g_psc[90 * 4];           // this frame's pixel constants: c120 to c209
 
     // The ripples, in the world. A unit in the water starts one where it stands about once a second, and one
     // each time it has moved a yard and a half: walking leaves a trail. Until 2026-10-02 the rings were drawn
@@ -1448,6 +1455,7 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[336] = 1.0f / (w.glintSize * w.glintSize);
         k[338] = w.swashHeight;
         k[339] = w.edgeWidth;
+        k[356] = w.brightness;   // c209
         // The colour deep water turns (Water Colour): green, teal and blue, mixed by the slider. The light it
         // absorbs follows it, so shallow water leans the same way: green water keeps more of its green.
         static const float kPalette[3][3] = { { 0.13f, 0.30f, 0.16f }, { 0.06f, 0.33f, 0.32f }, { 0.05f, 0.22f, 0.45f } };
@@ -1901,6 +1909,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     vc[38] = g_psc[10];   // seconds
     vc[39] = g_sceneOk && g_cfg.water.surface > 0.0f ? g_cfg.water.waveHeight : 0.0f;
     vc[40] = 1.0f / g_cfg.water.waveScale;
+    vc[41] = c.city ? 1.0f : 0.0f;
 
     IDirect3DVertexShader9* oldVs = nullptr;
     IDirect3DPixelShader9*  oldPs = nullptr;
@@ -1934,7 +1943,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
     d->SetVertexShaderConstantF(dev, kVsReg, vc, 11);
-    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 89);
+    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 90);
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -1973,6 +1982,9 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     // did nothing.
     float mode[4] = { g_psc[188], surface ? 1.0f : 0.0f, g_psc[190], g_psc[191] };
     d->SetPixelShaderConstantF(dev, kPsReg + 47, mode, 1);
+    const float cityW = c.city ? 1.0f : 0.0f;
+    const float sw2[4] = { g_psc[192], g_psc[193], g_psc[194], cityW };
+    d->SetPixelShaderConstantF(dev, kPsReg + 48, sw2, 1);
     draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
     if (surface)
     {
@@ -1997,7 +2009,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         // The depth test keeps it off what stands above the surface.
         if (skipBodies)
         {
-            float body[4] = { g_psc[192], 1.0f, g_cfg.water.cover, 0.0f };
+            float body[4] = { g_psc[192], 1.0f, g_cfg.water.cover, cityW };
             d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
             d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
             draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
@@ -2243,8 +2255,95 @@ void WaterFrameEnd()
     g_sceneOk = false;
 }
 
+namespace
+{
+    // Liquid textures already judged (WaterTextureIsWater). Cleared with the device.
+    std::map<IDirect3DBaseTexture9*, bool> g_liquidTex;
+
+    float Unpack565(uint16_t c, int ch)
+    {
+        return ch == 0 ? ((c >> 11) & 31) / 31.0f : ch == 1 ? ((c >> 5) & 63) / 63.0f : (c & 31) / 31.0f;
+    }
+
+    // The average colour of a texture's smallest level: one pixel, or a compressed block's two end colours.
+    bool TextureColour(IDirect3DTexture9* t, float rgb[3])
+    {
+        const DWORD levels = t->lpVtbl->GetLevelCount(t);
+        if (levels == 0)
+            return false;
+        D3DSURFACE_DESC desc = {};
+        if (FAILED(t->lpVtbl->GetLevelDesc(t, levels - 1, &desc)))
+            return false;
+        D3DLOCKED_RECT lr = {};
+        if (FAILED(t->lpVtbl->LockRect(t, levels - 1, &lr, nullptr, D3DLOCK_READONLY)) || !lr.pBits)
+            return false;
+        const uint8_t* p = static_cast<const uint8_t*>(lr.pBits);
+        bool ok = true;
+        switch (desc.Format)
+        {
+        case D3DFMT_DXT1: case D3DFMT_DXT2: case D3DFMT_DXT3: case D3DFMT_DXT4: case D3DFMT_DXT5:
+        {
+            const uint8_t* b = desc.Format == D3DFMT_DXT1 ? p : p + 8;   // the colour half of the block
+            uint16_t c0, c1;
+            memcpy(&c0, b, 2);
+            memcpy(&c1, b + 2, 2);
+            for (int ch = 0; ch < 3; ++ch)
+                rgb[ch] = 0.5f * (Unpack565(c0, ch) + Unpack565(c1, ch));
+            break;
+        }
+        case D3DFMT_A8R8G8B8: case D3DFMT_X8R8G8B8:
+            rgb[0] = p[2] / 255.0f; rgb[1] = p[1] / 255.0f; rgb[2] = p[0] / 255.0f;
+            break;
+        case D3DFMT_R5G6B5:
+        {
+            uint16_t c;
+            memcpy(&c, p, 2);
+            for (int ch = 0; ch < 3; ++ch)
+                rgb[ch] = Unpack565(c, ch);
+            break;
+        }
+        default:
+            ok = false;
+        }
+        t->lpVtbl->UnlockRect(t, levels - 1);
+        return ok;
+    }
+}
+
+// Water in a building comes in the same draws as its lava and slime (2026-10-03, Stormwind's canals): the
+// texture tells them apart. Blue at least as strong as red, and green not far over blue: water; red over blue
+// is lava, green far over blue slime. Each texture is judged once, and logged.
+bool WaterTextureIsWater(IDirect3DDevice9* dev)
+{
+    IDirect3DBaseTexture9* base = nullptr;
+    if (FAILED(dev->lpVtbl->GetTexture(dev, 0, &base)) || !base)
+        return false;
+    auto it = g_liquidTex.find(base);
+    if (it != g_liquidTex.end())
+    {
+        base->lpVtbl->Release(base);
+        return it->second;
+    }
+    bool water = false;
+    float rgb[3] = {};
+    if (base->lpVtbl->GetType(base) == D3DRTYPE_TEXTURE &&
+        TextureColour(reinterpret_cast<IDirect3DTexture9*>(base), rgb))
+    {
+        water = rgb[2] >= rgb[0] && rgb[1] <= rgb[2] * 1.5f;
+        Log("water: a building's liquid, texture %p, colour %.2f %.2f %.2f: %s", base, rgb[0], rgb[1], rgb[2],
+            water ? "water, ours" : "not water, the game's");
+    }
+    else
+        Log("water: a building's liquid, texture %p: its colour could not be read, left to the game", base);
+    if (g_liquidTex.size() < 512)
+        g_liquidTex[base] = water;
+    base->lpVtbl->Release(base);
+    return water;
+}
+
 void WaterReset()
 {
+    g_liquidTex.clear();
     g_trails.clear();
     SafeRelease(g_foamTex);
     g_foamTexState = 0;

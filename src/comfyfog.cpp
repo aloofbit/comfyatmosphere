@@ -1546,7 +1546,10 @@ namespace
     // pixel shader, alpha blended, with depth writes off. That shader is learnt from the 81-vertex draws, so
     // water in buildings, whose grids have other sizes, is taken too. kLiquidOther: a blended fixed-function
     // draw through another pixel shader, for the probe (lava or slime, if they have a shader of their own).
-    enum LiquidKind { kNotLiquid, kLiquidOther, kWater };
+    // kCityWater (2026-10-03): water in a building, Stormwind's canals: vertex format 0x152, grids of 192 to 288
+    // vertices, through another pixel shader, blended, depth writes off. The same draws carry a building's
+    // lava and slime, so its texture has to look like water.
+    enum LiquidKind { kNotLiquid, kLiquidOther, kWater, kCityWater };
 
     LiquidKind WaterKind(IDirect3DDevice9* dev, UINT nv)
     {
@@ -1572,7 +1575,11 @@ namespace
                 Log("water: pixel shader %p draws the water", ps);
             return kWater;
         }
-        return g_waterPs.count(ps) != 0 && fvf == 0x212 ? kWater : kLiquidOther;
+        if (g_waterPs.count(ps) != 0 && fvf == 0x212)
+            return kWater;
+        if (fvf == 0x152 && WaterTextureIsWater(dev))
+            return kCityWater;
+        return kLiquidOther;
     }
 
     // The water writes depth ([depth] waterDepth, 2026-09-30). The client draws it with depth writes off, so
@@ -1692,18 +1699,20 @@ namespace
             return hr;
         }
         const LiquidKind liquid = WaterKind(dev, nv);
-        if (!g_inPass && !g_skyPhase && !g_worldEnded && (liquid == kWater || WaterProbing()))
-            WaterProbeTexture(dev, "Indexed", nv, pc, g_frameDraws, liquid == kWater);
+        const bool isWater = liquid == kWater || liquid == kCityWater;
+        if (!g_inPass && !g_skyPhase && !g_worldEnded && (isWater || WaterProbing()))
+            WaterProbeTexture(dev, "Indexed", nv, pc, g_frameDraws, isWater);
         if (liquid != kNotLiquid)
         {
-            const WaterChunk chunk = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll };
-            WaterProbeDraw(dev, chunk, g_frameDraws, liquid == kWater);
+            const WaterChunk chunk = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll,
+                                       liquid == kCityWater };
+            WaterProbeDraw(dev, chunk, g_frameDraws, isWater);
             // [water] debug 6 (Debug View 21): the game's own liquid draws as they really reach the screen, in a
             // flat colour, and none of ours: red for water, magenta for any other blended liquid-like draw. A
             // chunk our pass hides from the game is not drawn at all, so it shows the bed.
             if (g_cfg.water.debug == 6 && g_cfg.master && g_cfg.water.enabled)
             {
-                if (liquid == kWater)
+                if (isWater)
                 {
                     g_inPass = true;
                     WaterBeforeDraw(dev, chunk);
@@ -1711,7 +1720,7 @@ namespace
                     if (WaterHidesGame())
                         return S_OK;
                 }
-                IDirect3DPixelShader9* flat = WaterFlatShader(dev, liquid == kWater);
+                IDirect3DPixelShader9* flat = WaterFlatShader(dev, isWater);
                 IDirect3DPixelShader9* old = nullptr;
                 dev->lpVtbl->GetPixelShader(dev, &old);
                 g_inPass = true;
@@ -1723,7 +1732,7 @@ namespace
                 if (old) old->lpVtbl->Release(old);
                 return hr;
             }
-            if (liquid == kWater)
+            if (isWater)
             {
                 // The foam (water.cpp): the depth under the water is copied before the first draw, and the foam
                 // drawn over each chunk after the client's.

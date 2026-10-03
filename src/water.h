@@ -14,6 +14,7 @@ struct WaterChunk
     const D3DMATRIX* world;   // camera-relative
     const D3DMATRIX* view;    // rotation only
     const D3DMATRIX* proj;
+    bool             city = false;   // water in a building (a WMO's liquid): no depth in its vertices, no swell
 };
 
 bool WaterWanted();   // the foam draws this frame
@@ -21,6 +22,9 @@ bool WaterWanted();   // the foam draws this frame
 void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c);
 // Whether the client's own draw of the chunk is left out this frame: our pass covers it entirely (see water.cpp).
 bool WaterHidesGame();
+// Whether the liquid texture bound at stage 0 is water's: blue or grey, not lava's red or slime's green.
+// Read once a texture, from its smallest level.
+bool WaterTextureIsWater(IDirect3DDevice9* dev);
 // A pixel shader of one flat colour, for the debug view of the game's own liquid: red for water, magenta else.
 IDirect3DPixelShader9* WaterFlatShader(IDirect3DDevice9* dev, bool water);
 // After it: the foam over it. `draw` is the device's DrawIndexedPrimitive below our hook.

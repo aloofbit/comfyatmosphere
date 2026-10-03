@@ -63,6 +63,7 @@ namespace
         { "water.glintSize",     "Glint Size" },
         { "water.edgeLine",      "Edge Line" },
         { "water.edgeWidth",     "Edge Line Width" },
+        { "water.brightness",    "Water Brightness" },
         { "water.waveHeight",    "Wave Height" },
         { "water.waveScale",     "Wave Size" },
         { "sunshadows.enabled",  "Sun Shadows" },
