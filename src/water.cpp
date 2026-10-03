@@ -66,7 +66,7 @@ namespace
     constexpr DWORD kSceneSampler = 14;
     constexpr UINT  kVsReg = 240;          // vertex constants for the foam; the client's are saved around it
     constexpr UINT  kPsReg = 120;          // pixel constants above any ps_2_0 shader (c31) and our passes (c71)
-    constexpr int   kRings = 32;           // ripples held at once
+    constexpr int   kRings = 16;           // ripples held at once (32 until 2026-10-02: the frame rate)
     constexpr float kRingLife = 2.6f;      // seconds a ripple spreads before it is gone
 
     const char* kVsHlsl = R"HLSL(
@@ -116,13 +116,14 @@ float2 SwellSlope(float2 p, float t, float inv)
 }
 struct O { float4 pos : POSITION; float3 rel : TEXCOORD0; float amp : TEXCOORD1; float gd : TEXCOORD2; };
 // uv.y is the water's depth at the vertex, from the map files: 0.0549 at 8.1 yards and 0.1176 at 17.4 in the
-// probe, depth / 148. The swell dies out in the last 1.5 yards to the shore, so it never climbs onto the sand
-// (3 until 2026-10-02: the edge looked flat).
+// probe, depth / 148. The swell lifts only water 2.5 yards deep and more, in full from 6.5: the grid has a
+// point every 4.2 yards, and lifted next to a steep bank its triangles stood up over the bank as straight lines
+// (a pond in Tirisfal, 2026-10-02). Nearer the shore the waves are light only.
 O main(float3 p : POSITION, float2 uv : TEXCOORD0)
 {
     O o;
     float3 rel = (p.x * gW0 + p.y * gW1 + p.z * gW2 + gW3).xyz;
-    float  amp = gSw.w * saturate((uv.y * 148.0 - 0.3) / 1.5);
+    float  amp = gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
     float  h   = amp * Swell(rel.xy + gSw.xy, gSw.z, gSs.x);
     o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3 + h * gUp;
     o.rel = rel + float3(0.0, 0.0, h);
@@ -144,8 +145,9 @@ float4 gCol  : register(c124);     // the foam's colour, the distance it is gone
 float4 gFogC : register(c125);     // the game's fog colour, 1 / the distance it fades over
 float4 gFog  : register(c126);     // the game's fog start, 1 / (end - start), 1 when known
 float4 gCam  : register(c127);     // the camera in the world
-float4 gReach : register(c128);    // 1 / foamReach, ripples' strength, wet sand's darkness
-float4 gRing[32] : register(c130); // the ripples: where each began (feet, camera-relative); w its age in
+float4 gReach : register(c128);    // 1 / foamReach, ripples' strength, wet sand's darkness, rings in use
+float4 gRingD[16] : register(c146); // each ripple's way: the way its maker walked (x, y), 0 standing still
+float4 gRing[16] : register(c130); // the ripples: where each began (feet, camera-relative); w its age in
                                    // seconds plus 8 x its speed in tenths of a yard a second, negative for none
 float4 gSun  : register(c162);     // the way to the sun, its glint's strength
 float4 gDeep : register(c163);     // the colour deep water turns, how much of our water is drawn
@@ -352,20 +354,48 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // The strongest ring at each point, not their sum: summed, a walker's overlapping rings filled the V of
     // its wake solid white (2026-10-02).
     float  ring = 0.0;
-    [unroll] for (int i = 0; i < 32; ++i)
+    // The rings are waves in the surface too (2026-10-02): a small rise and a trough behind it, as light only,
+    // so the glint and the sky in the water move where someone walks. ringSlope is their slope, summed.
+    float2 ringSlope = 0.0;
+    // The noise that makes each ring uneven, once for all of them: per ring it is shifted by the ring's slot.
+    // Two noise reads a ring for 32 rings took the game to a frame a minute (2026-10-02).
+    float2 wpos  = rel.xy + gCam.xy;
+    float  rn1   = ValueNoise(wpos * 1.3);
+    float  rn2   = ValueNoise(wpos * 0.8 + 11.0);
+    // Only the slots in use (gReach.w), the live rings first: not unrolled, the same count for every pixel.
+    [loop] for (int i = 0; i < (int)gReach.w; ++i)
     {
         float4 g   = gRing[i];
-        [branch] if (g.w >= 0.0)                                  // the same for every pixel: an empty slot is free
         {
             float  sub = surf - g.z;                              // how deep the feet were
             float  on  = (sub > 0.05 ? 1.0 : 0.0) * (sub < 3.0 ? 1.0 : 0.0);
             float  sp  = floor(g.w * 0.125);
             float  age = g.w - sp * 8.0;
             float  ph  = saturate(age * (1.0 / 2.6));
-            // Broken by the soft noise, so they are not perfect circles.
-            float  d   = length(rel.xy - g.xy) + (soft - 0.5) * 0.2;
-            float  x   = (d - (0.45 + age * sp * 0.1)) / (0.025 + 0.035 * ph);
-            ring = max(ring, on * exp(-x * x) * (1.0 - ph) * (1.0 - ph));
+            // How much of the body is in the water sets the ring's size (2026-10-02): feet alone small, waist
+            // deep the largest, all under small again. A body is about two yards tall.
+            float  size = smoothstep(0.05, 0.9, sub) * (1.0 - 0.75 * smoothstep(1.1, 2.0, sub));
+            // Not a perfect circle: its edge wanders and its strength comes and goes along it, each ring its own
+            // way (a noise in the world, shifted by the ring's slot).
+            float  shift = frac(i * 0.618);
+            float  d   = length(rel.xy - g.xy) + (frac(rn1 + shift) - 0.5) * (0.15 + 0.5 * ph);
+            float  rad = (0.3 + age * sp * 0.065) * (0.45 + 0.55 * size);
+            float  x   = (d - rad) / (0.025 + 0.035 * ph);
+            float  fade = on * (1.0 - ph) * (1.0 - ph) * size * (0.35 + 0.65 * frac(rn2 + shift * 1.7));
+            // A walker's ring fades out fast on the side behind it, where it came from, and lasts ahead and to the
+            // sides (2026-10-02). Standing still, the way is 0 and the ring is even.
+            float2 way  = gRingD[i].xy;
+            float2 outw = (rel.xy - g.xy) / max(d, 1e-3);
+            float  back = saturate(-dot(outw, way));
+            fade *= 1.0 - back * saturate(0.4 + ph * 1.5);
+            ring = max(ring, fade * exp(-x * x));
+            // The wave: one crest and the trough after it, wider than the foam's line, its slope along the way
+            // out from where it began.
+            float  wv2 = 0.18 + 0.25 * ph;
+            float  y   = (d - rad) / wv2;
+            float  dh  = (1.0 - 2.0 * y * y) * exp(-y * y) / wv2;   // the slope of y * exp(-y^2)
+            float2 out2 = (rel.xy - g.xy) / max(d, 1e-3);
+            ringSlope += out2 * (dh * fade * 0.065);
         }
     }
     ring = saturate(ring * gReach.y) * (0.3 + 0.7 * soft) * (depth > -0.05 ? 1.0 : 0.0);
@@ -437,7 +467,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float3 dir = rel / max(dist, 1e-3);
     // The waves calm with distance: past a few dozen yards a pixel covers many of them, and they shimmered.
     float3 N   = WaveNormal(rel.xy + gCam.xy, t, gSky.w / (1.0 + dist / 60.0),
-                            swS + shoreSlope);
+                            swS + shoreSlope + ringSlope * gReach.y * 2.5);
     // What lies under, bent by the waves; not where that would take something in front of the water.
     float2 ruv = uv + N.xy * (gAbs.w * saturate(depth) / max(dist, 2.0)) * float2(1.0, -1.0);
     float  rr  = tex2Dlod(sUnder, float4(ruv, 0, 0)).r;
@@ -475,6 +505,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  sd   = saturate(dot(R, gSun.xyz));
     float3 glint = gSunC.rgb * gSun.w * (pow(sd, 700.0) * 8.0 + pow(sd, 60.0) * 0.25);
     float3 water = lerp(body, sky, F) + glint;
+    // The ripples lit as the swell is not: brighter on the side of a ring facing the sun, darker behind it, so
+    // they show from any side and not only in the glint (2026-10-02).
+    float2 sunXY = gSun.xy / max(length(gSun.xy), 0.2);
+    water *= 1.0 + clamp(dot(ringSlope * gReach.y * 2.5, sunXY) * 3.0, -0.2, 0.3);
     water = lerp(water, gFogC.rgb, fogF);
     // The foam on it, lit as the water is: brighter on a slope toward the sun, darker on the back of a wave,
     // a little of the glint; and where it is thin, the water shows through it.
@@ -594,6 +628,7 @@ float4 main(float2 vpos : VPOS) : COLOR
         float  pos[3];
         double born;
         float  speed;   // yards a second the ring spreads at
+        float  dir[2];  // the way its maker walked; 0 standing still
     };
     std::vector<Ring> g_rings;
     // Last frame's units, to tell how fast each moves: a unit is the one nearest its place last frame.
@@ -852,7 +887,7 @@ float4 main(float2 vpos : VPOS) : COLOR
             if (dx * dx + dy * dy > 60.0f * 60.0f || !MaybeInWater(p))
                 continue;
             // How fast it moves: from its place last frame, the nearest within a yard.
-            float speed = 0.0f;
+            float speed = 0.0f, way[2] = { 0.0f, 0.0f };
             if (dt > 1e-3 && dt < 0.25)
             {
                 float best = 1.0f;
@@ -864,6 +899,9 @@ float4 main(float2 vpos : VPOS) : COLOR
                     {
                         best = d2;
                         speed = sqrtf(d2) / static_cast<float>(dt);
+                        const float l = sqrtf(d2);
+                        way[0] = l > 1e-4f ? -ex / l : 0.0f;
+                        way[1] = l > 1e-4f ? -ey / l : 0.0f;
                     }
                 }
             }
@@ -885,7 +923,9 @@ float4 main(float2 vpos : VPOS) : COLOR
                 if (g_rings.size() >= static_cast<size_t>(kRings))
                     g_rings.erase(g_rings.begin());   // the oldest
                 const float spread = speed > 1.0f ? (std::max)(kRingStill, (std::min)(speed / 3.0f, 3.0f)) : kRingStill;
-                g_rings.push_back({ { p[0], p[1], p[2] }, now, spread });
+                const bool walking = speed > 1.0f;
+                g_rings.push_back({ { p[0], p[1], p[2] }, now, spread,
+                                    { walking ? way[0] : 0.0f, walking ? way[1] : 0.0f } });
             }
         }
         memcpy(g_lastUnits, units, sizeof(float) * 3 * n);
@@ -900,11 +940,15 @@ float4 main(float2 vpos : VPOS) : COLOR
                 o[0] = r.pos[0] - cam[0]; o[1] = r.pos[1] - cam[1]; o[2] = r.pos[2] - cam[2];
                 // The age, with the speed in tenths of a yard a second above it: speed x 10 x 8 + age (age < 8).
                 o[3] = floorf(r.speed * 10.0f + 0.5f) * 8.0f + static_cast<float>(now - r.born);
+                float* w = out + kRings * 4 + i * 4;
+                w[0] = r.dir[0]; w[1] = r.dir[1]; w[2] = w[3] = 0.0f;
             }
             else
             {
                 o[0] = o[1] = o[2] = 0.0f;
                 o[3] = -1.0f;
+                float* w = out + kRings * 4 + i * 4;
+                w[0] = w[1] = w[2] = w[3] = 0.0f;
             }
         }
     }
@@ -958,6 +1002,7 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[33] = w.ripples;
         k[34] = w.wetSand;
         RingsUpdate(cam, k + 40);
+        k[35] = static_cast<float>((std::min)(static_cast<int>(g_rings.size()), kRings));
 
         // The surface (c162 to c167). By night the sky, the water and the sun's light dim.
         const float day = 1.0f - 0.8f * night;
