@@ -110,7 +110,7 @@ float4 gSh2  : register(c6);
 float4 gSh3  : register(c7);
 float4 gSun  : register(c8);        // direction to the sun, phase anisotropy g
 float4 gP    : register(c9);        // debug stage, max distance, density, shadow bias
-float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ)
+float4 gZ    : register(c10);       // the world viewport's MinZ, 1 / (MaxZ - MinZ); the game's fog start and end
 float4 gL    : register(c11);       // steps along the ray, 1 / steps, this frame's noise offset, leafShade (0 = no leaf map)
 float4 gF    : register(c12);       // fog: per yard at the ground, 1 / height, the ground's height (camera-relative), sky distance
 float4 gG    : register(c13);       // fog: its sun scattering per unit of fog (/4pi), share of the far part in sun, reach,
@@ -163,7 +163,13 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // Undo the viewport's squeeze; past the world's slice is sky or far horizon, so it clamps to
     // slightly short of far: exactly the far plane reconstructs with w = 0 in some frames, and the NaN that
     // makes, once the client's glow has blurred it over the image, turned whole frames black.
-    float  d    = min(saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y), 0.99999);
+    float  raw  = tex2Dlod(sDepth, float4(uv, 0, 0)).r;
+    float  d    = min(saturate((raw - gZ.x) * gZ.y), 0.99999);
+    // The far horizon: drawn by a camera of its own (467 to 2112 yards here) into 0.955..0.96, past the
+    // world's slice and short of the sky's clear 1. Its distance cannot be read with the world's camera, and it
+    // is land, not sky: it takes the fog's full reach (2026-10-03). Taken for sky, its fog went by its height on
+    // the screen once the sky's fog grew toward the horizon, and changed along the ridgeline.
+    const bool farLand = raw > gZ.x + 1.0 / gZ.y + 1e-5 && raw < 0.99;
     if (gP.x > 2.5 && gP.x < 3.5)
         return float4(d, 0.0, 0.0, 1.0);                                  // debug 3: the depth it reads
     float2 ndc  = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -171,7 +177,14 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float3 P    = wp.xyz / max(wp.w, 1e-6);
     float  dist = length(P);
     float3 dir  = P / max(dist, 1e-4);
-    float  len  = min(dist, gP.y);
+    // Into the game's fog (2026-10-03): a point going into it is the game's fog colour, and the game shows no
+    // more of it. Its line of sight is carried on through our fog as far land's is, from halfway into the
+    // game's fog to its end: the fog in front of it is then the fog above it, and it fades out as in the game.
+    // A line stopped at a ridge 170 yards out gathered less fog and glow than the line above it to 200, and
+    // a range of spires the game hides stood out as a dark second ridgeline.
+    float  carry = (gZ.w > gZ.z + 1.0 && d < 0.9999) ? smoothstep(lerp(gZ.z, gZ.w, 0.5), gZ.w, dist) : 0.0;
+    float  distM = lerp(dist, max(dist, gG.z), carry);
+    float  len  = min(distM, gP.y);
     float3 e    = dir * len;
     if (gP.x > 3.5 && gP.x < 4.5)
         return float4(len / gP.y, 0.0, 0.0, 1.0);                         // debug 4: distance marched
@@ -198,7 +211,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // skyDistance 6 degrees up. With 75 yards on the sky and 200 on the sea just below it, the sea's fog, lit
     // from behind by a low moon, glowed as a bright line along the horizon with a hard edge above it.
     float  skyEnd   = gF.w > 0.0 ? lerp(gG.z, min(gF.w, gG.z), smoothstep(0.0, 0.1, dir.z)) : 0.0;
-    float  reachEnd = (d >= 0.9999) ? skyEnd : gG.z;
+    float  reachEnd = (d >= 0.9999 && !farLand) ? skyEnd : gG.z;
     float  fadeK    = 1.0 / max(0.4 * reachEnd, 1.0);
 
     float  stepLen = len * gL.y;
@@ -242,7 +255,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 
     // Past maxDistance, the rest of the line of sight up to the reach: the integral of the height fog in
     // closed form, taken as lit by the sun (gG.y), with the fade-out taken at its middle.
-    float tEnd = min((d >= 0.9999) ? reachEnd : dist, reachEnd);
+    float tEnd = min((d >= 0.9999) ? reachEnd : distM, reachEnd);
     [branch] if (gF.x > 0.0 && tEnd > len)
     {
         // Taken as exponential between its two ends, which it is over flat ground.
@@ -1295,6 +1308,15 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
     pc[40] = minZ; pc[41] = (maxZ - minZ) > 1e-6f ? 1.0f / (maxZ - minZ) : 1.0f; pc[42] = 0.0f; pc[43] = 0.0f;
+    // The game's fog start and end (c10.zw): a line of sight into it is carried on to the reach.
+    {
+        float gs = 0.0f, ge = 0.0f;
+        if (WorldFog(gs, ge) && ge > gs + 1.0f)
+        {
+            pc[42] = gs;
+            pc[43] = ge;
+        }
+    }
     const float steps = static_cast<float>(v.steps);
     // The noise offset turns by the golden ratio each frame, for the temporal pass to average. Without
     // that pass it stays put: noise that changes every frame and is never averaged shimmers.
