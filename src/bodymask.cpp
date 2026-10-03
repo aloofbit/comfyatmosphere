@@ -63,6 +63,7 @@ namespace
     bool  g_started   = false;   // this world: the mark is on
     bool  g_skipFrame = false;   // this world: the client had the stencil on, nothing is marked
     bool  g_anyUnit   = false;   // this world: at least one draw was marked
+    bool  g_anyModel  = false;   // this world: at least one model was marked (kModelBit)
     DWORD g_ref = 0, g_writeMask = 0;   // what is set now, so a state is set only when it changes
     unsigned g_clientStencilFrames = 0;
     // The probe (2026-10-02): for a few frames, every depth-writing model draw near the player, marked or not.
@@ -210,6 +211,8 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
     if (mvs) mvs->lpVtbl->Release(mvs);
     if (ref & kBit)
         g_anyUnit = true;
+    if (ref & kModelBit)
+        g_anyModel = true;
     if (g_probeFrames > 0 && zw)
     {
         IDirect3DVertexShader9* vs = nullptr;
@@ -274,10 +277,11 @@ void BodyMarkWorldEnded(IDirect3DDevice9* dev)
         g_probeLines = 0;
         g_probeMarked = g_probeUnmarked = 0;
     }
-    const bool started = g_started, any = g_anyUnit;
+    const bool started = g_started, any = g_anyUnit || g_anyModel;
     g_started = false;
     g_skipFrame = false;
     g_anyUnit = false;
+    g_anyModel = false;
     if (!started)
         return;
     IDirect3DSurface9* ds = nullptr;
@@ -318,6 +322,12 @@ void BodyMarkWorldEnded(IDirect3DDevice9* dev)
         const float w = static_cast<float>(g_w) - 0.5f, h = static_cast<float>(g_h) - 0.5f;
         const QuadVertex q[4] = { { -0.5f, -0.5f, 0, 1 }, { w, -0.5f, 0, 1 }, { -0.5f, h, 0, 1 }, { w, h, 0, 1 } };
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+        // Green: every model, units included (2026-10-03). The sun shadows leave cast shade off ground and
+        // walls that face away from the sun, and not off models, whose facing from the depth is noise.
+        d->SetRenderState(dev, D3DRS_STENCILREF,          kModelBit);
+        d->SetRenderState(dev, D3DRS_STENCILMASK,         kModelBit);
+        d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_GREEN);
+        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
         if (g_msSurf)
             d->StretchRect(dev, g_msSurf, nullptr, g_texSurf, nullptr, D3DTEXF_NONE);
         d->SetRenderTarget(dev, 0, rt);
@@ -339,6 +349,7 @@ void BodyMarkFrameEnd(IDirect3DDevice9* dev)
     g_started = false;
     g_skipFrame = false;
     g_anyUnit = false;
+    g_anyModel = false;
 }
 
 IDirect3DTexture9* BodyMaskTexture()
@@ -353,4 +364,5 @@ void BodyMaskReset()
     g_started = false;
     g_skipFrame = false;
     g_anyUnit = false;
+    g_anyModel = false;
 }

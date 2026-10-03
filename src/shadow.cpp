@@ -2004,6 +2004,54 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         r.terrain = TerrainShadeIsTerrain(ps);
         SafeRelease(ps);
     }
+    // Once for each coarse size (2026-10-03): which vertices the client's coarser terrain meshes use, as
+    // (row, column) in units of the outer grid from the range's first vertex. [shadow] terrainLow takes it
+    // that the coarsest uses every other outer vertex alone.
+    static UINT coarseLogged[4] = {};
+    if (r.terrain && indexed && r.ib && r.vb[0] && prim == D3DPT_TRIANGLELIST && primCount < 256)
+    {
+        UINT* slot = nullptr;
+        for (UINT& c : coarseLogged)
+            if (c == primCount) { slot = nullptr; break; }
+            else if (!c && !slot) slot = &c;
+        if (slot)
+        {
+            *slot = primCount;
+            D3DINDEXBUFFER_DESC id = {};
+            r.ib->lpVtbl->GetDesc(r.ib, &id);
+            const UINT isz = id.Format == D3DFMT_INDEX32 ? 4u : 2u;
+            void* ip = nullptr;
+            void* vp = nullptr;
+            char line[4096];
+            int len = 0;
+            if (SUCCEEDED(r.ib->lpVtbl->Lock(r.ib, startIndex * isz, primCount * 3 * isz, &ip,
+                                             D3DLOCK_READONLY | D3DLOCK_NOSYSLOCK)) && ip)
+            {
+                const UINT first = baseVertex + minIndex;
+                if (SUCCEEDED(r.vb[0]->lpVtbl->Lock(r.vb[0], r.vbOffset[0] + first * r.vbStride[0],
+                                                    numVertices * r.vbStride[0], &vp,
+                                                    D3DLOCK_READONLY | D3DLOCK_NOSYSLOCK)) && vp)
+                {
+                    const auto at = [&](UINT i) { return reinterpret_cast<const float*>(static_cast<const char*>(vp) + i * r.vbStride[0]); };
+                    const float* o = at(0);
+                    for (UINT k = 0; k < primCount * 3 && len < static_cast<int>(sizeof(line)) - 40; ++k)
+                    {
+                        const UINT ix = isz == 4 ? static_cast<const uint32_t*>(ip)[k] : static_cast<const uint16_t*>(ip)[k];
+                        const UINT rel = ix - minIndex;
+                        if (rel >= numVertices)
+                            continue;
+                        const float* p = at(rel);
+                        len += _snprintf_s(line + len, sizeof(line) - len, _TRUNCATE, "%s(%.1f %.1f)", k % 3 ? "" : " ",
+                                           (o[0] - p[0]) / 4.16667f, (o[1] - p[1]) / 4.16667f);
+                    }
+                    r.vb[0]->lpVtbl->Unlock(r.vb[0]);
+                }
+                r.ib->lpVtbl->Unlock(r.ib);
+            }
+            Log("shadow: client terrain mesh of %u triangles, %u vertices (stride %u):%s", primCount, numVertices,
+                r.vbStride[0], len ? line : " (not read)");
+        }
+    }
     d->GetRenderState(dev, D3DRS_ALPHATESTENABLE, &r.alphaTest);
     d->GetRenderState(dev, D3DRS_ALPHAREF, &r.alphaRef);
     d->GetRenderState(dev, D3DRS_ALPHAFUNC, &r.alphaFunc);
@@ -2759,7 +2807,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // map with terrainLeaves.
     if (worldHere && s.mapTerrain && (doTerr ? terrPass : !terrPass && (doLeaves ? leafPass == s.terrainLeaves : !leafPass)))
     {
-        const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam);
+        const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam, s.terrainLow);
         if (nearPass) nearTiles = n; else if (midPass) midTiles = n; else farTiles = n;
     }
     // The buildings from the files: solid.

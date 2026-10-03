@@ -233,6 +233,7 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.leaves     = GetB(kShadow, L"leaves", s.shadow.leaves, ini);
     s.shadow.terrainLeaves = GetB(kShadow, L"terrainLeaves", s.shadow.terrainLeaves, ini);
     s.shadow.mapTerrain    = GetB(kShadow, L"mapTerrain", s.shadow.mapTerrain, ini);
+    s.shadow.terrainLow    = GetB(kShadow, L"terrainLow", s.shadow.terrainLow, ini);
     s.shadow.leafAlpha     = static_cast<int>(Clamp(GetF(kShadow, L"leafAlpha", static_cast<float>(s.shadow.leafAlpha), ini), 1.0f, 255.0f));
     if (s.shadow.minTriangles < 0) s.shadow.minTriangles = 0;
     if (s.shadow.farEvery < 1) s.shadow.farEvery = 1;

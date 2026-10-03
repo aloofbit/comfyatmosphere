@@ -129,6 +129,7 @@ struct ShadowSettings
                                   // drawn into it (the far map: 40)
     bool  terrainLeaves = true;   // terrain (hills, mountains) casts part shade, as leaves do
     bool  mapTerrain    = true;   // the ground from the map files, at full detail (mapterrain.cpp)
+    bool  terrainLow    = true;   // that ground cast from under the client's coarse far mesh (2026-10-03)
     int   leafAlpha     = 224;    // the alpha test that cuts the leaves of the doodads from the files, 1..255.
                                   // 224 is the client's own for every Elwynn tree; it goes lower only on
                                   // doodads fading in or out at the edge of the view (probe, 2026-09-30)

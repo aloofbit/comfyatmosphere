@@ -10,8 +10,9 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
 // Whether the ground at this point comes from the files: the client's own draw of it is then not needed.
 bool MapTerrainCovers(float x, float y);
 // Draw every tile that can reach the map into the bound depth target. absToClip: absolute world -> the
-// map's clip space; cam: the camera, which the world matrix is relative to. Returns the tiles drawn.
-unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3]);
+// map's clip space; cam: the camera, which the world matrix is relative to; low: the copy under the
+// client's coarse far mesh ([shadow] terrainLow). Returns the tiles drawn.
+unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3], bool low);
 // The buildings (WMOs) the tiles place, the same way; their opaque parts only.
 unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3]);
 // Whether a fixed-function draw placed here (its world matrix's translation) is a building drawn from the

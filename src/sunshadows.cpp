@@ -238,6 +238,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // the sun reaches well has no stripes to stop.
     float3 N     = float3(0.0, 0.0, 1.0);
     float  graze = 1.0;
+    float  ndl   = 1.0;
     [branch] if (gT.z > 0.5)
     {
         float3 dx = Near(uv, raw, P, float2(gZ.z, 0.0));
@@ -245,7 +246,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         N = cross(dy, dx);
         N = N / max(length(N), 1e-8);
         N = dot(N, P) > 0.0 ? -N : N;
-        float ndl = dot(N, gSun.xyz);
+        ndl = dot(N, gSun.xyz);
         graze = (1.0 + 3.0 * sqrt(saturate(1.0 - ndl * ndl))) * (1.0 - smoothstep(0.1, 0.35, ndl));
     }
 
@@ -253,7 +254,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // the edge of one (2026-10-01).
     // With no mask every pixel takes a body's slack (the safe side: no shade of a surface on itself) and
     // nothing is scaled.
-    float body  = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).r : 0.0;
+    float2 bodyM = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).rg : float2(0.0, 1.0);
+    float body  = bodyM.x;
     float bodyS = gBody.y > 0.5 ? body : 1.0;
     // The normal offset stays off the bodies (2026-10-02): a body's facing from the depth is per triangle,
     // and the offset put its triangles on the character. Walls and the ground take all of it.
@@ -295,7 +297,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The far map, fading out over its last tenth, where it ends. Its solid map only where the near and
     // middle maps leave some of the shade to it; its leaves wherever the near map does; the terrain's map,
     // under the same camera, everywhere.
-    float litF = 1.0, leafF = 1.0, terr = 0.0;
+    float litF = 1.0, leafF = 1.0, terr = 0.0, through = 0.0, throughS = 0.0;
     [branch] if (gCh.w > 0.5 && (wn < 1.0 || gTr.y > 0.5))
     {
         float3 Qf = P + N * (gB.y * graze * offK) + gSun.xyz * gT.y;
@@ -312,12 +314,49 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             leafF = lerp(1.0, Lit5(sFarL, sf, g, bF, gB.z), fade);
         [branch] if (gTr.y > 0.5)
             terr = 1.0 - lerp(1.0, Lit5(sTerr, sf, g, max(bF, gTr.z), gB.z), fade);
+        // A tree's shade through a hill (2026-10-03): with the sun low behind a ridge, the trees on its crest
+        // printed their shapes on the shaded face, through the ground. Along the sun's line the order is
+        // the tree, then the hill, then the point: the hill's shade alone. A tree in a valley under a far
+        // hill (the hill, then the tree) keeps its shade. The depths are the nearest of five taps, so the
+        // soft edge of the tree's shade goes with it. The terrain's shade on the point already says the hill
+        // lies between it and the sun, so the margin is small: 0.1 of terrainBias (0.15 yards), full at
+        // twice that. With the whole of terrainBias the foot of a trunk on the crest still showed: the
+        // ground there is that close behind it. Solid things (a trunk drawn by the game) the same way.
+        [branch] if (terr > 0.0)
+        {
+            float2 uvf = float2(sf.x * 0.5 + 0.5, 0.5 - sf.y * 0.5);
+            float  o   = gB.z * max(gB.w, 0.5) * 2.0;
+            float  dT  = tex2Dlod(sTerr, float4(uvf, 0, 0)).r;
+            float  m   = 1.0 / (gTr.z * 0.1);
+            [branch] if (gCh.z > 0.5)
+            {
+                float dL = min(min(tex2Dlod(sFarL, float4(uvf, 0, 0)).r,
+                                   min(tex2Dlod(sFarL, float4(uvf + float2(-o, -o), 0, 0)).r,
+                                       tex2Dlod(sFarL, float4(uvf + float2( o, -o), 0, 0)).r)),
+                               min(tex2Dlod(sFarL, float4(uvf + float2(-o,  o), 0, 0)).r,
+                                   tex2Dlod(sFarL, float4(uvf + float2( o,  o), 0, 0)).r));
+                through = saturate((dT - dL) * m - 1.0) * terr;
+            }
+            float dS = min(min(tex2Dlod(sShadow, float4(uvf, 0, 0)).r,
+                               min(tex2Dlod(sShadow, float4(uvf + float2(-o, -o), 0, 0)).r,
+                                   tex2Dlod(sShadow, float4(uvf + float2( o, -o), 0, 0)).r)),
+                           min(tex2Dlod(sShadow, float4(uvf + float2(-o,  o), 0, 0)).r,
+                               tex2Dlod(sShadow, float4(uvf + float2( o,  o), 0, 0)).r));
+            throughS = saturate((dT - dS) * m - 1.0) * terr;
+        }
     }
     // Solid things stop the sun; leaves stop leafShade of it, and hills terrainShade. They multiply
     // (2026-10-02): a tree's shade shows inside a mountain's, as a fence's does. The larger of the two was
     // taken until then, and with trees and terrain in one map a tree under a mountain's shade added nothing.
-    float leaf  = 1.0 - lerp(leafF, leafN, wn);
-    float shade = 1.0 - lerp(lerp(litF, litM, wm), litN, wn) * (1.0 - gCh.x * leaf) * (1.0 - gTr.x * terr);
+    // Ground and walls that face away from the sun (2026-10-03) get none of it, so nothing casts on them.
+    // A ray from such a face runs just under the surface and stays inside the terrain's slack a long way,
+    // so the hill was not found between them and the sun, and the trunks of the trees on the crest beyond
+    // shaded the face. Not on models (green in the mask): the facing of a leaf card from the depth is noise.
+    float away = saturate(-ndl * 5.0) * (1.0 - bodyM.y);
+    through  = max(through, away);
+    throughS = max(throughS, away);
+    float leaf  = (1.0 - lerp(leafF, leafN, wn)) * (1.0 - through);
+    float shade = 1.0 - lerp(lerp(lerp(litF, litM, wm), litN, wn), 1.0, throughS) * (1.0 - gCh.x * leaf) * (1.0 - gTr.x * terr);
     if (gL.y > 2.5)
         return float4(body, body, body, 1.0);                              // debug 3: the bodies it finds
     // The units' own shade, darkened again on top of the world's. The map holds no ground, so it needs none

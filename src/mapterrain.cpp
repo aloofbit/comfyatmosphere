@@ -103,6 +103,7 @@ namespace
         bool                   found = false;   // the file exists and was read
         bool                   groundOnly = false;   // read for its ground alone: no doodads, no buildings
         std::vector<float>     v;               // x y z, x and y relative to the tile's corner
+        std::vector<float>     vLow;            // the same, never above the client's coarse mesh ([shadow] terrainLow)
         std::vector<float>     grid;            // 129 x 129 outer heights, rows along -x (NaN: no chunk)
         std::vector<float>     water;           // 128 x 128 cells: the water's surface (NaN: dry)
         std::vector<uint16_t>  idx;
@@ -137,6 +138,7 @@ namespace
         Mesh                    mesh;
         IDirect3DVertexBuffer9* vb = nullptr;
         IDirect3DIndexBuffer9*  ib = nullptr;
+        IDirect3DVertexBuffer9* vbLow = nullptr;      // mesh.vLow, with ib
         IDirect3DVertexBuffer9* dSolidVb = nullptr;   // the doodads
         IDirect3DIndexBuffer9*  dSolidIb = nullptr;
         IDirect3DVertexBuffer9* dLeafVb = nullptr;
@@ -384,6 +386,7 @@ namespace
     {
         const float ox = CornerX(m.b), oy = CornerY(m.a);
         m.v.clear();
+        m.vLow.clear();
         m.idx.clear();
         m.wmos.clear();
         m.grid.assign(129 * 129, NAN);
@@ -440,6 +443,33 @@ namespace
                         ok = ok && std::isfinite(f);
                     if (ok)
                     {
+                        // The client draws a chunk past about 100 yards with every other outer vertex alone
+                        // (41 vertices, 64 triangles): 4 x 4 cells of 8.3 yards, each 4 triangles meeting at
+                        // the outer vertex in its middle. On a mountain that coarse ground lies yards under
+                        // the true surface in places, and the true surface in the shadow map shaded it in
+                        // blocks (2026-10-03). The low copy takes each vertex down to the coarse mesh where
+                        // it is above it. Each fine triangle lies inside one coarse triangle, so the low
+                        // copy is under both meshes everywhere: neither shades itself.
+                        const auto outer = [&](int r, int c) { return height[r * 17 + c]; };
+                        const auto coarse = [&](float r, float c) {
+                            const int   i = (std::min)(static_cast<int>(r * 0.5f), 3), j = (std::min)(static_cast<int>(c * 0.5f), 3);
+                            const float u = r - 2.0f * i, w = c - 2.0f * j;   // 0..2 in the coarse cell
+                            const float hm = outer(2 * i + 1, 2 * j + 1);
+                            // The triangle from the middle (1,1) to the side of the cell nearest the point.
+                            int ar, ac, br, bc;
+                            if (u <= w && u <= 2.0f - w)      { ar = 0; ac = 0; br = 0; bc = 2; }
+                            else if (w >= u && w >= 2.0f - u) { ar = 0; ac = 2; br = 2; bc = 2; }
+                            else if (u >= w && u >= 2.0f - w) { ar = 2; ac = 2; br = 2; bc = 0; }
+                            else                              { ar = 2; ac = 0; br = 0; bc = 0; }
+                            // Barycentric weights over (a, b, middle).
+                            const float ha = outer(2 * i + ar, 2 * j + ac), hb = outer(2 * i + br, 2 * j + bc);
+                            const float e0r = static_cast<float>(br - ar), e0c = static_cast<float>(bc - ac);
+                            const float e1r = 1.0f - ar, e1c = 1.0f - ac;
+                            const float pr = u - ar, pc = w - ac;
+                            const float den = e0r * e1c - e0c * e1r;
+                            const float wb = (pr * e1c - pc * e1r) / den, wm = (e0r * pc - e0c * pr) / den;
+                            return ha + (hb - ha) * wb + (hm - ha) * wm;
+                        };
                         const size_t first = m.v.size() / 3;
                         for (int k = 0; k < 145; ++k)
                         {
@@ -457,6 +487,9 @@ namespace
                             m.v.push_back(pos[0] - r * kUnit - ox);
                             m.v.push_back(pos[1] - c * kUnit - oy);
                             m.v.push_back(z);
+                            m.vLow.push_back(pos[0] - r * kUnit - ox);
+                            m.vLow.push_back(pos[1] - c * kUnit - oy);
+                            m.vLow.push_back(pos[2] + (std::min)(height[k], coarse(r, c)));
                             m.minZ = (std::min)(m.minZ, z);
                             m.maxZ = (std::max)(m.maxZ, z);
                         }
@@ -681,6 +714,7 @@ namespace
     {
         SafeRelease(t.vb);
         SafeRelease(t.ib);
+        SafeRelease(t.vbLow);
         SafeRelease(t.dSolidVb);
         SafeRelease(t.dSolidIb);
         SafeRelease(t.dLeafVb);
@@ -1226,6 +1260,14 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
             Log("map terrain: could not make the buffers for tile %d_%d", t.mesh.a, t.mesh.b);
             t.mesh.found = false;   // the client's own draws cast there instead
             continue;
+        }
+        // The low copy shares the index buffer. Without it the tile casts from the full mesh.
+        {
+            IDirect3DIndexBuffer9* ib = nullptr;
+            if (!Upload(dev, t.mesh.vLow, t.mesh.idx.data(), static_cast<UINT>(t.mesh.idx.size() * 2), D3DFMT_INDEX16,
+                        t.vbLow, ib))
+                SafeRelease(t.vbLow);
+            SafeRelease(ib);
         }
         ++uploads;
     }
@@ -1782,7 +1824,7 @@ bool MapBuildingNearest(const float from[3], float pos[3], float rot[3][3], char
     return true;
 }
 
-unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float cam[3])
+unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float cam[3], bool low)
 {
     auto* d = dev->lpVtbl;
     unsigned drawn = 0;
@@ -1810,7 +1852,7 @@ unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float c
         w.m[3][1] = y1 - cam[1];
         w.m[3][2] = -cam[2];
         d->SetTransform(dev, D3DTS_WORLD, &w);
-        d->SetStreamSource(dev, 0, t.vb, 0, 12);
+        d->SetStreamSource(dev, 0, low && t.vbLow ? t.vbLow : t.vb, 0, 12);
         d->SetIndices(dev, t.ib);
         d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(t.mesh.v.size() / 3), 0,
                                 static_cast<UINT>(t.mesh.idx.size() / 3));

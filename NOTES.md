@@ -1621,6 +1621,36 @@ the sun: inside a hill's shadow the tree was not in the map at all.
 Not done, by choice: a lamp post's shade inside a building's. Both are solid; in real light there is none.
 Buildings in a map of their own would do it, at another 64 MB.
 
+## Blocks on far mountains, and trees through a ridge (2026-10-03)
+
+With Sun Shadow Strength at 100, mountains showed blocky dark patches that got better as you came close and
+came back as you went away. `terrainBias` 6 (from 1.5) took them away, so the cause was slack, but it also
+let tree shade show through a ridge.
+
+- **The client's coarse meshes.** A one-time log of the client's terrain draws (`client terrain mesh` lines)
+  shows them: 64 triangles over 41 vertices (every other outer vertex: corners at even places, the 4 x 4
+  cell middles at odd ones), and 68 to 76 triangles over the 145, the same mesh with the edges toward a finer
+  chunk joined through the full outer vertices. On a mountain that mesh lies yards under the true surface,
+  which the terrain map holds, so the ground shaded itself in 8-yard blocks.
+- **A low copy of the ground.** `mapterrain.cpp` builds a second vertex buffer for each tile, each vertex
+  taken down to the coarse mesh where it is above it (`[shadow] terrainLow`, 1). Each full-detail triangle
+  lies inside one coarse triangle, and inside one of the joined edge triangles, so the copy is under every
+  mesh the client draws. The hills cast from it.
+- **Trees through a ridge.** With the sun low behind a ridge, the trees on the crest printed their shapes,
+  trunks down, on the face toward the camera. The shades multiply (see above), and nothing asked whether the
+  hill lay between the tree and the point. Two parts:
+  - Where the hill shades a point, the leaf and solid depths (the nearest of five taps) are compared with the
+    terrain's along the sun: tree, then hill, then the point, and the tree's shade goes. A tree in a valley
+    under a far hill (hill, then tree) keeps it. The margin is 0.1 of terrainBias: with all of it, the foot
+    of a trunk on the crest still showed.
+  - That alone left the stumps. A face turned from the sun was not in the hill's shade at all: a ray from it
+    runs just under the surface and stays inside the slack a long way. Ground and walls that face away from
+    the sun (N.L below 0, full at -0.2) now take no cast shade. Models are left out, since the facing of a
+    leaf card from the depth is noise: the body mask has a green channel now, every model (stencil 0x40),
+    and it is built whenever a model is drawn, not only a unit.
+
+The owner: that fixed it.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's
