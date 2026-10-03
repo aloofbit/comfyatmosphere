@@ -194,7 +194,11 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // drawn with it, past the world's depth slice) the nearer of that and [fog] skyDistance. Over the last
     // 40% of it the fog fades out; past it the game's own fog is the far wall. At the ground the fog is as
     // thick all the way out, and at sea level the view ended a few hundred yards out.
-    float  reachEnd = (d >= 0.9999) ? min(gF.w, gG.z) : gG.z;
+    // Near the horizon the sky takes as much as the ground (2026-10-03): from the full reach at the horizon to
+    // skyDistance 6 degrees up. With 75 yards on the sky and 200 on the sea just below it, the sea's fog, lit
+    // from behind by a low moon, glowed as a bright line along the horizon with a hard edge above it.
+    float  skyEnd   = gF.w > 0.0 ? lerp(gG.z, min(gF.w, gG.z), smoothstep(0.0, 0.1, dir.z)) : 0.0;
+    float  reachEnd = (d >= 0.9999) ? skyEnd : gG.z;
     float  fadeK    = 1.0 / max(0.4 * reachEnd, 1.0);
 
     float  stepLen = len * gL.y;
