@@ -52,6 +52,7 @@ COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
 COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
+COMFYATMOSPHERE_WATER          = "Water Effects";
 COMFYATMOSPHERE_WAVE_HEIGHT    = "Wave Height";
 COMFYATMOSPHERE_WAVE_SIZE      = "Wave Size";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
@@ -516,11 +517,19 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- comfyfog.dll takes it as [water] enabled.
+		name = "COMFYATMOSPHERE_WATER",
+		desc = "The water's colour, waves and sun glint, the foam and wet sand at the shore, and ripples round anyone in the water. Off, the game draws its own water.",
+		type = "checkbutton",
+		cvar = "comfyWater",
+	},
+	{
 		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] waveHeight.
 		name = "COMFYATMOSPHERE_WAVE_HEIGHT",
 		desc = "How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water.",
 		type = "slider",
 		cvar = "comfyWaveHeight",
+		dependency = { "comfyWater", "1" },
 		minval = 0,
 		maxval = 30,
 		step = 1,
@@ -532,6 +541,7 @@ local ENTRIES = {
 		desc = "How long the waves are, in percent. 200 is twice as long as 100.",
 		type = "slider",
 		cvar = "comfyWaveSize",
+		dependency = { "comfyWater", "1" },
 		minval = 50,
 		maxval = 400,
 		step = 25,
@@ -805,7 +815,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
-	{ "Water", { "comfyWaveHeight", "comfyWaveSize" } },
+	{ "Water", { "comfyWater", "comfyWaveHeight", "comfyWaveSize" } },
 };
 local WINDOW_MASTER = "comfyAtmosphere";
 -- Left out of this window: Debug View has the debug window (/atmos debug, the Debug button below).
