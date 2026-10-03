@@ -125,10 +125,8 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     float3 rel = (p.x * gW0 + p.y * gW1 + p.z * gW2 + gW3).xyz;
     float  amp = gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
     float  h   = amp * Swell(rel.xy + gSw.xy, gSw.z, gSs.x);
-    // Light only since 2026-10-02: lifted, the grid's point every 4.2 yards made the swell of big flat
-    // triangles, and from low down their edges tore through the glint. The slope still lights it (amp).
-    o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3;
-    o.rel = rel;
+    o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3 + h * gUp;
+    o.rel = rel + float3(0.0, 0.0, h);
     o.amp = amp;
     o.gd  = uv.y * 148.0;   // the water's depth at the vertex, as the map files give it
     return o;
@@ -668,6 +666,7 @@ float4 gFilm : register(c208);     // the swash: the water's colour (by day), it
 float4 gFilm3 : register(c210);    // the shore foam's strength; the draw (0 the sand, 1 the foam)
 float4 gFilm2 : register(c209);    // 1 / the foam texture's size in yards, 1 with the texture, the foam's strength,
                                    // the run-up in yards of height
+float4 gFoamW : register(c211);    // as the water pass: 1 / foamWidth, 1 / foamReach, foamSpeed
 sampler2D sFoamW : register(s12);  // the game's foam texture (WATERFOAMLOOP2.blp)
 sampler2D sSceneW : register(s14); // the screen before this pass (when gFilm3.z is 1)
 float4 main(float2 vpos : VPOS) : COLOR
@@ -714,13 +713,28 @@ float4 main(float2 vpos : VPOS) : COLOR
     // Soft and broken by the foam texture, not a hard white stroke.
     float  lipE  = exp(-pow((h - up) / 0.009, 2.0)) * (0.2 + 0.8 * smoothstep(0.25, 0.7, ft)) * gFilm2.z * flat;
     lipE *= lv > -1000.0 ? 1.0 : 0.0;
-    // The game's foam on the film, densest just behind its edge, so the shore foam moves up and down with the
-    // water (2026-10-02: it stayed at the waterline while the water ran up the sand).
-    float  fbz   = smoothstep(up * 0.25, up - 0.004, h) * film * smoothstep(0.005, 0.02, up);
-    float  ft2   = gFilm2.y > 0.5 ? 0.6 * ft + 0.4 * tex2D(sFoamW, A.xy * gFilm2.x * 0.71 + float2(0.37, -gZ.w * 0.007)).a : 0.5;
-    float  fcut  = 1.0 - 0.7 * fbz;
-    float  sfoam = smoothstep(fcut, fcut + 0.3, ft2) * saturate(fbz * 2.0) * gFilm3.x;
-    lipE = max(lipE, sfoam * 0.8);
+    // The game's foam on the film: the water pass's shore foam, measured from the moving edge in the same way and
+    // with the same texture at the same place and time, so one foam runs from the water up the sand and back.
+    // Until 2026-10-03 this was a foam of its own just behind the edge, and the water's band stayed put at the
+    // waterline: the foam looked fixed to the flat water while the edge moved.
+    float2 gxW   = ddx(A.xy), gyW = ddy(A.xy);
+    float  exW   = ddx(h), eyW = ddy(h);
+    float  detW  = gxW.x * gyW.y - gxW.y * gyW.x;
+    float2 gh    = abs(detW) > 1e-8 ? float2(exW * gyW.y - gxW.y * eyW, gxW.x * eyW - gyW.x * exW) / detW : 0.0;
+    float  slopeW = clamp(length(gh), 0.02, 2.0);
+    float  below = max(up - h, 0.0);                                 // yards of height under the moving edge
+    float  reachW = below / slopeW;
+    float  shoreW = saturate(1.0 - max(below * gFoamW.x * (1.0 + slopeW * 4.0), reachW * gFoamW.y));
+    float  tW    = gZ.w * gFoamW.z;
+    float  bandW = sin(reachW * 4.0 + tW * 1.6) * 0.5 + 0.5;
+    float  fshW  = shoreW * (0.55 + 0.45 * bandW);
+    float2 fpW   = A.xy * gFilm2.x;
+    float  ft2   = gFilm2.y > 0.5 ? 0.6 * tex2D(sFoamW, fpW + float2(tW * 0.010, tW * 0.006)).a +
+                                    0.4 * tex2D(sFoamW, fpW * 0.71 + float2(0.37 - tW * 0.007, 0.21 + tW * 0.011)).a
+                                  : 0.5;
+    float  fcut  = 1.0 - 0.7 * fshW;
+    float  sfoam = smoothstep(fcut, fcut + 0.3, ft2) * saturate(fshW * 2.0) * gFilm3.x * film;
+    lipE = max(lipE, sfoam);
     // Two draws (2026-10-02). The first multiplies the sand: wet, and under the film the water's hue, as the
     // sand seen through thin water is in the water pass. Laid on as a colour, the film was darker than the clear
     // water beside it, a dark band inside the foam line. The second lays the foam on.
@@ -1529,7 +1543,7 @@ namespace
         Mul(*c.view, *c.proj, vp);
         if (!Invert(vp, inv))
             return;
-        float k[11 * 4] = {};
+        float k[12 * 4] = {};
         memcpy(k, &inv, 64);
         k[16] = g_psc[2]; k[17] = g_psc[3]; k[18] = w.wetSand; k[19] = g_psc[10];
         k[20] = g_psc[8]; k[21] = g_psc[9]; k[22] = static_cast<float>(w.debug);
@@ -1541,6 +1555,7 @@ namespace
         k[38] = w.swash > 0.0f ? w.edgeLine * 0.5f : 0.0f;    // the lip is the edge line
         k[40] = w.shoreFoam * w.foam;
         k[41] = 0.0f;   // the draw: 0 multiplies the sand, 1 lays the foam on
+        k[44] = 1.0f / w.foamWidth; k[45] = 1.0f / w.foamReach; k[46] = w.foamSpeed;
 
         auto* d = dev->lpVtbl;
         IDirect3DVertexShader9* oldVs = nullptr;
@@ -1548,7 +1563,7 @@ namespace
         g_wetSb->lpVtbl->Capture(g_wetSb);
         d->SetVertexShader(dev, g_wetVs);
         d->SetPixelShader(dev, g_wetPs);
-        d->SetPixelShaderConstantF(dev, 200, k, 11);
+        d->SetPixelShaderConstantF(dev, 200, k, 12);
         if (g_foamTex)
         {
             d->SetTexture(dev, kFoamSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_foamTex));

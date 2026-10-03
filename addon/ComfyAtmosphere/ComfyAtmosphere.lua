@@ -630,7 +630,7 @@ local ENTRIES = {
 	{
 		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] waveHeight.
 		name = "COMFYATMOSPHERE_WAVE_HEIGHT",
-		desc = "How strong the swell is out on deep water. It is drawn as light on the surface. They calm toward the shore. 0 is calm water.",
+		desc = "How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water.",
 		type = "slider",
 		cvar = "comfyWaveHeight",
 		dependency = { "comfyWater", "1" },
