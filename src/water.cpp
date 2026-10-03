@@ -304,6 +304,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  zg  = farSlice ? 1e6 : gZ.y / (abs(den) > 1e-9 ? den : -1e-9);         // the bed's view depth
     float  zw  = max(dot(rel, gVz.xyz), 1e-3);                                     // the surface's
     float  depth = farSlice ? gd : rel.z * (1.0 - zg / zw);                       // yards under the surface
+    const float depthSeen = depth;   // from the depth copy: negative where something stands in front
     // On a body under the water (a character's legs, drawn in a draw of their own, below): it is seen through
     // the water, never a shore: no foam, no lip, no edge line (2026-10-02).
     const bool onBody = gSw2.y > 0.5;
@@ -334,6 +335,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // and all in front of the sea behind them (2026-10-02: once every chunk was ours, the frame rate fell
     // through the floor). Without the swash the lip reaches 0.4 yards up the sand.
     clip(depth + (gWake.z > 0.5 ? 0.05 : 0.45));
+    // And from the depth copy, before the map's depth stood in (2026-10-03). The map knows no hill between you
+    // and the water: from 40 yards out the shore, its foam, lip and edge line, drawn without the depth test,
+    // showed through the hill in front of it. Not past the world's slice, nor on a body.
+    clip(farSlice || onBody ? 1.0 : depthSeen + (gWake.z > 0.5 ? 0.05 : 0.45));
 
     // How far the waterline is, across the water: the depth over the bed's slope. The slope is how fast the
     // depth grows per yard of the surface, from the pixels beside this one. On a gentle beach the depth stays
