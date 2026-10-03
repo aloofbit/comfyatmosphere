@@ -124,6 +124,9 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     O o;
     float3 rel = (p.x * gW0 + p.y * gW1 + p.z * gW2 + gW3).xyz;
     float  amp = gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
+    // The open sea settles (2026-10-03): far out, real water reads as flat, and the grid's big triangles of
+    // swell were the part that looked wrong. Gone between 80 and 220 yards; the light follows (amp).
+    amp *= 1.0 - smoothstep(80.0, 220.0, length(rel));
     float  h   = amp * Swell(rel.xy + gSw.xy, gSw.z, gSs.x);
     o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3 + h * gUp;
     o.rel = rel + float3(0.0, 0.0, h);
@@ -237,7 +240,10 @@ float2 SwellSlope(float2 p, float t, float inv)
 
 // The small waves, as a facing: six trains, each its own way and length (7 to 0.85 yards), at the speed of
 // waves on deep water, and fine noise over them. Heights are never drawn; only the light sees them.
-float3 WaveNormal(float2 p, float t, float strength, float2 swell)
+// Each train calms with the distance by its own length (2026-10-03): a long wave still shows far out, so the
+// pattern gets finer toward the horizon. One value for all of them (half at 60 yards) left the far water one
+// flat tone. A train L yards long is at half at 12 L yards.
+float3 WaveNormal(float2 p, float t, float strength, float2 swell, float dist)
 {
     float2 g = 0.0;
     float  a[6] = { 0.0, 0.6, -0.5, 1.2, -1.1, 0.3 };      // the way, from the wind's (45 degrees)
@@ -249,11 +255,12 @@ float3 WaveNormal(float2 p, float t, float strength, float2 swell)
         float2 d   = float2(cos(ang), sin(ang));
         float  k   = 6.2832 / (l[i] / gWave.x);
         float  w   = sqrt(10.7 * k);
-        g += d * (s[i] * cos(k * dot(d, p) - w * t));
+        g += d * (s[i] * cos(k * dot(d, p) - w * t)) / (1.0 + dist * k / (12.0 * 6.2832));
     }
     float2 q = p * 1.6 + float2(t * 0.4, t * 0.25);
     float  n0 = ValueNoise(q);
-    g += float2(ValueNoise(q + float2(0.15, 0.0)) - n0, ValueNoise(q + float2(0.0, 0.15)) - n0) * 0.35;
+    g += float2(ValueNoise(q + float2(0.15, 0.0)) - n0, ValueNoise(q + float2(0.0, 0.15)) - n0) * 0.35 /
+         (1.0 + dist / 60.0);
     return normalize(float3(-(g * strength + swell), 1.0));
 }
 
@@ -568,9 +575,9 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
 )HLSL"
     R"HLSL(
     float3 dir = rel / max(dist, 1e-3);
-    // The waves calm with distance: past a few dozen yards a pixel covers many of them, and they shimmered.
-    float3 N   = WaveNormal(rel.xy + gCam.xy, t, gSky.w / (1.0 + dist / 60.0),
-                            swS + shoreSlope + ringSlope * gReach.y * 2.5 + wakeSlope);
+    // The waves calm with distance, each train by its length: far out a pixel covers many short ones.
+    float3 N   = WaveNormal(rel.xy + gCam.xy, t, gSky.w,
+                            swS + shoreSlope + ringSlope * gReach.y * 2.5 + wakeSlope, dist);
     // What lies under, bent by the waves; not where that would take something in front of the water.
     float2 ruv = uv + N.xy * (gAbs.w * saturate(depth) / max(dist, 2.0)) * float2(1.0, -1.0);
     float  rr  = tex2Dlod(sUnder, float4(ruv, 0, 0)).r;
@@ -605,6 +612,13 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // At most 0.6: with the full 0.98 a low camera saw the far sea as the pale horizon alone, the colour of the
     // sand (2026-10-02). The game's own water keeps its colour to the horizon.
     float  F    = 0.02 + gWave.w * pow(1.0 - cosv, 5.0);
+    // The horizon (2026-10-03). In the last 2 degrees below it the water shows the sky, as real water does at a
+    // glancing look, and the waves show in it as streaks. Without it the sea was one dark tone up to a hard
+    // line under a lighter sky, and read as flat. Only that band: over the whole far sea the full reflection
+    // turned it the pale fog colour, as the sand (2026-10-02, the 0.6 above).
+    float  hz   = 1.0 - saturate(-dir.z / 0.035);
+    hz *= hz;
+    F = max(F, 0.7 * hz);
     float3 R    = reflect(dir, N);
     float3 sky  = lerp(gFogC.rgb, gSky.rgb, saturate(R.z * 2.5 + 0.35));
     // The glint of the sun, or by night of the larger moon, and of the other moon (2026-10-03). Glint Size
@@ -621,6 +635,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // At most a fifth brighter (2026-10-02: at 0.3 the wake and the ripples glowed).
     water *= 1.0 + clamp(dot(ringSlope * gReach.y * 2.5 + wakeSlope, sunXY) * 2.5, -0.2, 0.18);
     water = lerp(water, gFogC.rgb, fogF);
+    // And at the line itself it goes into the haze, as the far land does: no hard edge against the sky.
+    water = lerp(water, gFogC.rgb, 0.5 * hz * hz);
     // The foam on it, lit as the water is: brighter on a slope toward the sun, darker on the back of a wave,
     // a little of the glint; and where it is thin, the water shows through it.
     float  lit   = 0.62 + 0.38 * saturate(dot(N, gSun.xyz) * 1.5) + 0.15 * F;
