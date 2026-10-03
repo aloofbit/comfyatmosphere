@@ -27,7 +27,11 @@ void WaterProbeDraw(IDirect3DDevice9* dev, const WaterChunk& c, unsigned index, 
 // A fixed-function draw about to be made: the game's own wake on the water (see water.cpp)? `c` carries the
 // draw's buffers and its world matrix.
 bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c);
+// The depth under the water this frame (copied before the first water draw), for the sun shadows; or null.
+IDirect3DTexture9* WaterUnderDepth();
 void WaterFrameEnd();   // at Present
 void WaterReset();      // before Reset, and for a new device
 void WaterProbe();      // log the next frame's water draws
 bool WaterProbing();    // a probe frame is being logged
+// The probe: any draw (water or not) using one of the water's textures, logged with its states.
+void WaterProbeTexture(IDirect3DDevice9* dev, const char* call, UINT nv, UINT pc, unsigned index, bool water);

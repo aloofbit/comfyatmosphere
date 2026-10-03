@@ -1493,6 +1493,8 @@ namespace
     {
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
         NoteOrder(dev, "Draw", pc, VertsForPrims(prim, pc));
+        if (WaterProbing() && !g_inPass && !g_worldEnded && !g_skyPhase)
+            WaterProbeTexture(dev, "Draw", VertsForPrims(prim, pc), pc, g_frameDraws, false);
         if (!g_inPass)
             RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
         NoteLampDraw(dev, false, sv, VertsForPrims(prim, pc));
@@ -1686,6 +1688,8 @@ namespace
             return hr;
         }
         const LiquidKind liquid = WaterKind(dev, nv);
+        if (!g_inPass && !g_skyPhase && !g_worldEnded && (liquid == kWater || WaterProbing()))
+            WaterProbeTexture(dev, "Indexed", nv, pc, g_frameDraws, liquid == kWater);
         if (liquid != kNotLiquid)
         {
             const WaterChunk chunk = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll };
@@ -1716,6 +1720,8 @@ namespace
                                                 const void* data, UINT stride)
     {
         NoteOrder(dev, "UP", pc, VertsForPrims(prim, pc));
+        if (WaterProbing() && !g_inPass && !g_worldEnded && !g_skyPhase)
+            WaterProbeTexture(dev, "UP", VertsForPrims(prim, pc), pc, g_frameDraws, false);
         NoteLampDraw(dev, false, 0, VertsForPrims(prim, pc), data, stride);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitiveUP", prim, pc, false, 0, VertsForPrims(prim, pc), data);
@@ -1727,6 +1733,8 @@ namespace
                                                        const void* data, UINT stride)
     {
         NoteOrder(dev, "IndexedUP", pc, nv);
+        if (WaterProbing() && !g_inPass && !g_worldEnded && !g_skyPhase)
+            WaterProbeTexture(dev, "IndexedUP", nv, pc, g_frameDraws, false);
         NoteLampDraw(dev, true, mvi, nv, data, stride);
         MaybeFireRays(dev);
         CountDraw(dev, "DrawIndexedUP", prim, pc, true, 0, nv, data);

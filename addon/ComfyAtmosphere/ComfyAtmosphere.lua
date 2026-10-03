@@ -53,6 +53,11 @@ COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
 COMFYATMOSPHERE_WATER          = "Water Effects";
+COMFYATMOSPHERE_WATER_COLOUR   = "Water Colour";
+COMFYATMOSPHERE_WATER_CLARITY  = "Water Clarity";
+COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
+COMFYATMOSPHERE_WATER_BEND     = "Underwater Distortion";
+COMFYATMOSPHERE_WATER_COVER    = "Underwater Cover";
 COMFYATMOSPHERE_WAVE_HEIGHT    = "Wave Height";
 COMFYATMOSPHERE_WAVE_SIZE      = "Wave Size";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
@@ -524,6 +529,66 @@ local ENTRIES = {
 		cvar = "comfyWater",
 	},
 	{
+		-- comfyfog.dll takes it as [water] colour.
+		name = "COMFYATMOSPHERE_WATER_COLOUR",
+		desc = "The colour deep water turns. 0 is green, 50 is teal, 100 is blue.",
+		type = "slider",
+		cvar = "comfyWaterColour",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] clarity.
+		name = "COMFYATMOSPHERE_WATER_CLARITY",
+		desc = "How far you see into the water. 200 is twice as far as 100.",
+		type = "slider",
+		cvar = "comfyWaterClarity",
+		dependency = { "comfyWater", "1" },
+		minval = 25,
+		maxval = 400,
+		step = 25,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] reflection.
+		name = "COMFYATMOSPHERE_WATER_REFLECT",
+		desc = "How much of the sky the water shows when you look across it. 0 shows only the water's own colour.",
+		type = "slider",
+		cvar = "comfyWaterReflect",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- comfyfog.dll takes it as [water] refraction: 100 is half a yard.
+		name = "COMFYATMOSPHERE_WATER_BEND",
+		desc = "How much the waves bend what you see under the water. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterBend",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] cover.
+		name = "COMFYATMOSPHERE_WATER_COVER",
+		desc = "How much the water hides a character standing in it. 0 shows the legs as clear as the sand beside them.",
+		type = "slider",
+		cvar = "comfyWaterCover",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] waveHeight.
 		name = "COMFYATMOSPHERE_WAVE_HEIGHT",
 		desc = "How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water.",
@@ -815,7 +880,9 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
-	{ "Water", { "comfyWater", "comfyWaveHeight", "comfyWaveSize" } },
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover",
+	             "comfyWaveHeight",
+	             "comfyWaveSize" } },
 };
 local WINDOW_MASTER = "comfyAtmosphere";
 -- Left out of this window: Debug View has the debug window (/atmos debug, the Debug button below).

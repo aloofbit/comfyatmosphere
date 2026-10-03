@@ -438,14 +438,17 @@ struct WaterSettings
     // sky in it, the sun's glint, small waves, whitecaps far out.
     float surface   = 1.0f;      // 0..1: how much of our water is drawn over the game's (0 = the game's alone)
     float clarity   = 1.0f;      // how clear the water is: the light it absorbs is divided by this
-    DWORD deepColor = 0x0E5A58;  // the colour deep water turns, by day
+    float colour    = 25.0f;     // 0..100: the colour deep water turns, green (0), teal (50) or blue (100)
+    float reflection = 0.15f;    // 0..1: how much of the sky the water shows at a glancing look
     DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
     float glint     = 1.0f;      // 0..3: the sun's glint on the waves
     float waves     = 1.0f;      // 0..3: how choppy the small waves are
     float waveHeight = 1.0f;     // yards: how tall the swell rises, out where the water is 1.5 yards deep or more
     float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
     float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water
-    float refraction = 0.25f;    // yards: how far the waves bend what lies under the water
+    float cover     = 0.5f;      // 0..1: how much the water covers a body in it (Underwater Cover)
+    float refraction = 0.125f;   // yards: how far the waves bend what lies under the water (Underwater Distortion:
+                                 // 0..100 is 0..0.5 yards)
     bool  gameWake  = false;     // the game's own wake and splash round a unit in the water; off, the ripples
                                  // take their place
     DWORD foamColor = 0xEEF4F6;  // the foam's colour by day; the night darkens it

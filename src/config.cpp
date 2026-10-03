@@ -178,13 +178,15 @@ void LoadSettings(const wchar_t* ini)
     s.water.wetSand     = Clamp(GetF(kWater, L"wetSand",   s.water.wetSand,   ini), 0.0f, 1.0f);
     s.water.surface     = Clamp(GetF(kWater, L"surface",   s.water.surface,   ini), 0.0f, 1.0f);
     s.water.clarity     = Clamp(GetF(kWater, L"clarity",   s.water.clarity,   ini), 0.1f, 10.0f);
-    s.water.deepColor   = GetX(kWater, L"deepColor", s.water.deepColor, ini) & 0xFFFFFF;
+    s.water.colour      = Clamp(GetF(kWater, L"colour",    s.water.colour,    ini), 0.0f, 100.0f);
+    s.water.reflection  = Clamp(GetF(kWater, L"reflection", s.water.reflection, ini), 0.0f, 1.0f);
     s.water.skyColor    = GetX(kWater, L"skyColor",  s.water.skyColor,  ini) & 0xFFFFFF;
     s.water.glint       = Clamp(GetF(kWater, L"glint",     s.water.glint,     ini), 0.0f, 3.0f);
     s.water.waves       = Clamp(GetF(kWater, L"waves",     s.water.waves,     ini), 0.0f, 3.0f);
     s.water.waveHeight  = Clamp(GetF(kWater, L"waveHeight", s.water.waveHeight, ini), 0.0f, 3.0f);
     s.water.waveScale   = Clamp(GetF(kWater, L"waveScale", s.water.waveScale, ini), 0.25f, 4.0f);
     s.water.whitecaps   = Clamp(GetF(kWater, L"whitecaps", s.water.whitecaps, ini), 0.0f, 1.0f);
+    s.water.cover       = Clamp(GetF(kWater, L"cover",     s.water.cover,     ini), 0.0f, 1.0f);
     s.water.refraction  = Clamp(GetF(kWater, L"refraction", s.water.refraction, ini), 0.0f, 2.0f);
     s.water.gameWake    = GetB(kWater, L"gameWake", s.water.gameWake, ini);
     s.water.edgeLine    = Clamp(GetF(kWater, L"edgeLine", s.water.edgeLine, ini), 0.0f, 1.0f);

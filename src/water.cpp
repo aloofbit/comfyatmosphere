@@ -114,7 +114,7 @@ float2 SwellSlope(float2 p, float t, float inv)
     }
     return g;
 }
-struct O { float4 pos : POSITION; float3 rel : TEXCOORD0; float amp : TEXCOORD1; };
+struct O { float4 pos : POSITION; float3 rel : TEXCOORD0; float amp : TEXCOORD1; float gd : TEXCOORD2; };
 // uv.y is the water's depth at the vertex, from the map files: 0.0549 at 8.1 yards and 0.1176 at 17.4 in the
 // probe, depth / 148. The swell dies out in the last 1.5 yards to the shore, so it never climbs onto the sand
 // (3 until 2026-10-02: the edge looked flat).
@@ -127,6 +127,7 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3 + h * gUp;
     o.rel = rel + float3(0.0, 0.0, h);
     o.amp = amp;
+    o.gd  = uv.y * 148.0;   // the water's depth at the vertex, as the map files give it
     return o;
 }
 )HLSL";
@@ -152,9 +153,9 @@ float4 gAbs  : register(c164);     // the light the water absorbs a yard, by cha
 float4 gSky  : register(c165);     // the sky high up; the waves' strength
 float4 gSunC : register(c166);     // the sun's colour; whitecaps
 float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
-float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none)
+float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none); 1 on a body
 float4 gWave : register(c167);     // 1 / waveScale; the part drawn (0 all, 1 the sand, 2 the water); 1 when
-                                   // the screen copy is there
+                                   // the screen copy is there; the sky reflection's strength
 
 // Hashes without sin (Dave Hoskins): sin of a large argument loses its precision on a GPU.
 float Hash1(float2 i)
@@ -252,16 +253,27 @@ float3 WaveNormal(float2 p, float t, float strength, float2 swell)
 )HLSL"
     // Split in two: MSVC takes no string literal longer than 16 KB (C2026).
     R"HLSL(
-float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) : COLOR
+float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2, float2 vpos : VPOS) : COLOR
 {
     // Seen from under the water: no foam.
     clip(-rel.z);
     float2 uv  = (vpos + 0.5) * gScr.xy;
     float  raw = tex2Dlod(sUnder, float4(uv, 0, 0)).r;
+    // The client draws the world in a slice of the depth range (0..0.94 here) and its far terrain in another
+    // (0.955..0.96) with a camera of its own (shadow.cpp, SettleVotes). A pixel past the water's slice is far
+    // terrain or sky, and decoded with the water's camera it gave a depth that was nonsense: the sea bed showed
+    // only where the near terrain reached, a pale block with straight sides at the edge of it (Westfall,
+    // 2026-10-02). There the map's own depth stands in (gd, the map files' MCLQ at each vertex).
+    const bool farSlice = raw > gZ.z + 1.0 / gZ.w - 1e-5;
     float  den = (raw - gZ.z) * gZ.w - gZ.x;
-    float  zg  = raw >= 0.99999 ? 1e6 : gZ.y / (abs(den) > 1e-9 ? den : -1e-9);   // the bed's view depth
+    float  zg  = farSlice ? 1e6 : gZ.y / (abs(den) > 1e-9 ? den : -1e-9);         // the bed's view depth
     float  zw  = max(dot(rel, gVz.xyz), 1e-3);                                     // the surface's
-    float  depth = rel.z * (1.0 - zg / zw);                                       // yards under the surface
+    float  depth = farSlice ? gd : rel.z * (1.0 - zg / zw);                       // yards under the surface
+    // On a body under the water (a character's legs, drawn in a draw of their own, below): it is seen through
+    // the water, never a shore: no foam, no lip, no edge line (2026-10-02).
+    const bool onBody = gSw2.y > 0.5;
+    if (onBody)
+        depth = max(depth, 0.5);
     float  t   = gScr.z * gFoam.z;
     float  dist = length(rel);
     // Two parts (2026-10-02): the water, depth tested and writing depth, and the sand beside it, not tested.
@@ -395,12 +407,13 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     // of a yard out, it left a strip of clear water between the line and the bubbles).
     float  fback = smoothstep(0.0, 0.03, depth);
     foam = max(foam, fgame * gFT.z * gFT.x * fback);
+    foam = onBody ? 0.0 : foam;
     caps *= 0.0;
     if (gFoam.w > 2.5 && gFoam.w < 3.5)
         clip(-1.0);   // debug 3: the wet sand pass shows alone
-    if (gFoam.w > 1.5)
+    if (gFoam.w > 1.5 && gFoam.w < 2.5)
         return float4(foam.xxx, 1.0);
-    if (gFoam.w > 0.5)
+    if (gFoam.w > 0.5 && gFoam.w < 1.5)
     {
         float g = saturate(depth * gFoam.x * 0.25);
         return depth > -0.05 ? float4(g, 0.15, 1.0 - g, 1.0) : float4(0, 0, 0, 1);
@@ -419,6 +432,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     float  wv = smoothstep(0.0, 0.03, depth) * gDeep.w * gWave.z;
     [branch] if (wv <= 0.0)
         return float4(land, a);
+)HLSL"
+    R"HLSL(
     float3 dir = rel / max(dist, 1e-3);
     // The waves calm with distance: past a few dozen yards a pixel covers many of them, and they shimmered.
     float3 N   = WaveNormal(rel.xy + gCam.xy, t, gSky.w / (1.0 + dist / 60.0),
@@ -427,19 +442,36 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     float2 ruv = uv + N.xy * (gAbs.w * saturate(depth) / max(dist, 2.0)) * float2(1.0, -1.0);
     float  rr  = tex2Dlod(sUnder, float4(ruv, 0, 0)).r;
     float  rd  = (rr - gZ.z) * gZ.w - gZ.x;
-    float  zr  = rr >= 0.99999 ? 1e6 : gZ.y / (abs(rd) > 1e-9 ? rd : -1e-9);
-    ruv = zr > zw ? ruv : uv;
+    float  zr  = rr > gZ.z + 1.0 / gZ.w - 1e-5 ? 1e6 : gZ.y / (abs(rd) > 1e-9 ? rd : -1e-9);
+    // Only onto the bed: not onto something in front of the water, and not onto anything standing well above the
+    // bed here. A character's legs under the water are in the screen copy, and the bent look landed on them
+    // beside the character: a shifted ghost of it round its edges (2026-10-02).
+    // And never on a body: bent, a character's legs under the water showed the bed through them and warped.
+    ruv = zr > zw && zr > zg - 0.75 && !onBody ? ruv : uv;
     float3 bed = tex2Dlod(sScene, float4(ruv, 0, 0)).rgb;
     // Through the water the light is absorbed, red first, along the line of sight's path under the surface,
     // and the water's own colour takes its place.
-    float  path = dist * max(zg / zw - 1.0, 0.0);
+    // Through far terrain's pixels, the map's depth along the line of sight.
+    float  path = farSlice ? gd * dist / max(-rel.z, 0.5) : dist * max(zg / zw - 1.0, 0.0);
+    // A body under the water is covered more than the bed beside it ([water] cover, Underwater Cover): at 0.5
+    // three times the water it is seen through, and at least half a yard of it. By the bare distance, legs just under the surface showed in their full
+    // colour, as if they stood beside the water rather than in it (2026-10-02).
+    path = onBody ? max(path * (1.0 + 4.0 * gSw2.z), gSw2.z) : path;   // Underwater Cover: 0.5 = x3, half a yard
     float3 T    = exp(-gAbs.rgb * path);
+    // Seen through it, the bed takes the water's hue, keeping its own brightness, more with every yard of water.
+    // Filtering alone could not do it: orange sand has hardly any blue to keep, and under blue water it turned
+    // olive green whatever the colour was set to (2026-10-02).
+    float3 tint = gDeep.rgb / max(dot(gDeep.rgb, float3(0.299, 0.587, 0.114)), 1e-3);
+    float  lum  = dot(bed, float3(0.299, 0.587, 0.114));
+    bed = lerp(bed, lum * tint, 0.85 * (1.0 - exp(-2.5 * path)));
     float3 body = bed * T + gDeep.rgb * (1.0 - T);
     // The sky in it: more at a glancing look (Fresnel). The horizon is the game's fog colour.
     float  cosv = saturate(-dot(N, dir));
-    float  F    = 0.02 + 0.98 * pow(1.0 - cosv, 5.0);
+    // At most 0.6: with the full 0.98 a low camera saw the far sea as the pale horizon alone, the colour of the
+    // sand (2026-10-02). The game's own water keeps its colour to the horizon.
+    float  F    = 0.02 + gWave.w * pow(1.0 - cosv, 5.0);
     float3 R    = reflect(dir, N);
-    float3 sky  = lerp(gFogC.rgb, gSky.rgb, saturate(R.z * 2.5));
+    float3 sky  = lerp(gFogC.rgb, gSky.rgb, saturate(R.z * 2.5 + 0.35));
     float  sd   = saturate(dot(R, gSun.xyz));
     float3 glint = gSunC.rgb * gSun.w * (pow(sd, 700.0) * 8.0 + pow(sd, 60.0) * 0.25);
     float3 water = lerp(body, sky, F) + glint;
@@ -450,8 +482,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     float3 fcol  = c * lit + glint * 0.25;
     fcol = lerp(water + 0.12 * c, fcol, saturate(fa * 1.6));
     water = lerp(water, fcol, saturate(fa * 1.25));
-    if (gFoam.w > 3.5)
-        return float4(bed, 1.0);   // debug 4: what lies under the water, bent
+    if (gFoam.w > 3.5 && gFoam.w < 4.5)
+        return float4(bed, 1.0);   // debug 4: what lies under the water, bent and tinted
     // The water over the sand's foam and wet sand, mixed as colour times cover: mixed as plain colours, the foam's
     // white came in where our water fades in at the edge even with no foam there, a light line along the shore
     // (2026-10-02).
@@ -494,7 +526,7 @@ float4 main(float2 vpos : VPOS) : COLOR
 {
     float2 uv  = (vpos + 0.5) * gScr.xy;
     float  raw = tex2Dlod(sUnder, float4(uv, 0, 0)).r;
-    clip(0.99999 - raw);                                             // the sky
+    clip(gZ.x + 1.0 / gZ.y - 1e-5 - raw);                            // the sky, and far terrain in a slice of its own
     float  d   = (raw - gZ.x) * gZ.y;
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp  = ndc.x * gI0 + ndc.y * gI1 + d * gI2 + gI3;
@@ -933,12 +965,26 @@ float4 main(float2 vpos : VPOS) : COLOR
         const bool haveSun = SunDirection(sun);
         k[168] = sun[0]; k[169] = sun[1]; k[170] = sun[2];
         k[171] = haveSun ? w.glint * (night > 0.5f ? 0.3f : 1.0f) : 0.0f;
-        k[172] = ((w.deepColor >> 16) & 0xFF) / 255.0f * day;
-        k[173] = ((w.deepColor >> 8) & 0xFF) / 255.0f * day;
-        k[174] = (w.deepColor & 0xFF) / 255.0f * day;
+        // The colour deep water turns (Water Colour): green, teal and blue, mixed by the slider. The light it
+        // absorbs follows it, so shallow water leans the same way: green water keeps more of its green.
+        static const float kPalette[3][3] = { { 0.13f, 0.30f, 0.16f }, { 0.06f, 0.33f, 0.32f }, { 0.05f, 0.22f, 0.45f } };
+        const float hue = w.colour * 0.02f;   // 0..2
+        const int   lo  = hue >= 1.0f ? 1 : 0;
+        const float f   = hue - lo;
+        float deep[3];
+        for (int i = 0; i < 3; ++i)
+            deep[i] = kPalette[lo][i] + (kPalette[lo + 1][i] - kPalette[lo][i]) * f;
+        k[172] = deep[0] * day;
+        k[173] = deep[1] * day;
+        k[174] = deep[2] * day;
         k[175] = w.surface;
         // Red is absorbed fastest, then blue, then green: the water turns teal with depth.
-        k[176] = 0.35f / w.clarity; k[177] = 0.08f / w.clarity; k[178] = 0.11f / w.clarity;
+        // The light the water absorbs a yard, by channel: the channels furthest from its colour fastest, so what
+        // lies under shallow water leans to the water's colour. Until 2026-10-02 red always went first, and the
+        // sand under the water turned olive green whatever the colour was set to.
+        const float dmax = (std::max)((std::max)(deep[0], deep[1]), deep[2]) + 1e-4f;
+        for (int i = 0; i < 3; ++i)
+            k[176 + i] = (0.04f + 0.35f * (1.0f - deep[i] / dmax)) / w.clarity;
         k[179] = w.refraction;
         k[180] = ((w.skyColor >> 16) & 0xFF) / 255.0f * day;
         k[181] = ((w.skyColor >> 8) & 0xFF) / 255.0f * day;
@@ -949,6 +995,7 @@ float4 main(float2 vpos : VPOS) : COLOR
             k[184 + i] = night > 0.5f ? moonC[i] : sunC[i];
         k[187] = w.whitecaps;
         k[188] = 1.0f / w.waveScale;
+        k[191] = w.reflection;
         k[190] = 0.0f;   // the screen copy: set when it is made (WaterBeforeDraw)
         k[192] = w.waveHeight * 0.25f;
         k[196] = g_foamTex ? 1.0f : 0.0f;
@@ -1285,6 +1332,13 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
         g_psc[2] = vp.MinZ;
         g_psc[3] = 1.0f / (vp.MaxZ - vp.MinZ);
     }
+    if (g_probeOn)
+    {
+        float wmin = 0.0f, wmax = 1.0f;
+        ShadowWorldDepthRange(wmin, wmax);
+        Log("water: the water draws in depth %.4f..%.4f (past it, far terrain), projection m22 %.5f m32 %.4f; the world's slice %.4f..%.4f",
+            vp.MinZ, vp.MaxZ, c.proj->m[2][2], c.proj->m[3][2], wmin, wmax);
+    }
     // The wet sand first and the screen copy after it, so the sand seen through thin water is wet too: copied
     // before, it showed dry and bright under the water, a light line along the shore (2026-10-02).
     DrawWetSand(dev, c);
@@ -1383,7 +1437,9 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     // the fog see the waves. The sand part (wet sand, the lip of foam above the waterline) lies in front of
     // the water's plane and is drawn without the test, as before. Without our surface, one draw does both.
     const bool surface = g_sceneOk && g_cfg.water.surface > 0.0f;
-    float mode[4] = { g_psc[188], surface ? 1.0f : 0.0f, g_psc[190], 0.0f };
+    // The fourth is the sky reflection's strength: until 2026-10-02 this wrote 0 over it, and Sky Reflection
+    // did nothing.
+    float mode[4] = { g_psc[188], surface ? 1.0f : 0.0f, g_psc[190], g_psc[191] };
     d->SetPixelShaderConstantF(dev, kPsReg + 47, mode, 1);
     draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
     if (surface)
@@ -1404,6 +1460,19 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         mode[1] = 2.0f;
         d->SetPixelShaderConstantF(dev, kPsReg + 47, mode, 1);
         draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+        // Once more on the bodies (the stencil's mark, bodymask.cpp), the water over a character's legs: skipped,
+        // the game's own pale water showed there, and the legs under the water looked like a ghost (2026-10-02).
+        // The depth test keeps it off what stands above the surface.
+        if (skipBodies)
+        {
+            float body[4] = { g_psc[192], 1.0f, g_cfg.water.cover, 0.0f };
+            d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
+            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
+            draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+            d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
+            body[1] = 0.0f;
+            d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
+        }
         for (int i = 0; i < 4; ++i)
             d->SetRenderState(dev, zs[i], oz[i]);
     }
@@ -1680,6 +1749,55 @@ void WaterProbe()
     g_pTexCount.clear();
     g_pShaders.clear();
     g_pOthers.clear();
+}
+
+void WaterProbeTexture(IDirect3DDevice9* dev, const char* call, UINT nv, UINT pc, unsigned index, bool water)
+{
+    // The water's textures, learnt from its draws (kept across frames, up to 16).
+    static std::set<void*> waterTex;
+    auto* d = dev->lpVtbl;
+    IDirect3DBaseTexture9* t[2] = {};
+    d->GetTexture(dev, 0, &t[0]);
+    d->GetTexture(dev, 1, &t[1]);
+    if (water)
+    {
+        for (auto* x : t)
+            if (x && waterTex.size() < 16)
+                waterTex.insert(x);
+    }
+    else if (g_probeOn)
+    {
+        static unsigned frame = ~0u, logged = 0;
+        if (frame != g_frameNo) { frame = g_frameNo; logged = 0; }
+        if ((waterTex.count(t[0]) || waterTex.count(t[1])) && ++logged <= 20)
+        {
+            DWORD z = 0, zw = 0, bl = 0, src = 0, dst = 0, fvf = 0;
+            d->GetRenderState(dev, D3DRS_ZENABLE, &z);
+            d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
+            d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &bl);
+            d->GetRenderState(dev, D3DRS_SRCBLEND, &src);
+            d->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+            d->GetFVF(dev, &fvf);
+            IDirect3DVertexShader9* vs = nullptr;
+            IDirect3DPixelShader9* ps = nullptr;
+            d->GetVertexShader(dev, &vs);
+            d->GetPixelShader(dev, &ps);
+            D3DMATRIX wm = {};
+            d->GetTransform(dev, D3DTS_WORLD, &wm);
+            Log("water: another draw with the water's texture: #%u %s, %u vertices, %u triangles, vs %p ps %p fvf 0x%lX, "
+                "z %lu write %lu, blend %lu %lu/%lu, textures %p %p, world (%.1f %.1f %.1f)", index, call, nv, pc, vs, ps,
+                fvf, z, zw, bl, src, dst, t[0], t[1], wm.m[3][0], wm.m[3][1], wm.m[3][2]);
+            if (vs) vs->lpVtbl->Release(vs);
+            if (ps) ps->lpVtbl->Release(ps);
+        }
+    }
+    for (auto* x : t)
+        if (x) x->lpVtbl->Release(x);
+}
+
+IDirect3DTexture9* WaterUnderDepth()
+{
+    return g_copyOk && WaterWanted() ? g_under : nullptr;
 }
 
 bool WaterProbing()

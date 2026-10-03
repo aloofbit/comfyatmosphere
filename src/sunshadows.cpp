@@ -50,6 +50,7 @@
 #include "depth.h"
 #include "shadow.h"
 #include "sun.h"
+#include "water.h"
 #include "sunshadows.h"
 #include "bodymask.h"
 #include "volume.h"
@@ -82,6 +83,7 @@ sampler2D sUnit   : register(s5);   // the units alone, the near map's camera an
 sampler2D sBody   : register(s6);   // the screen: 1 where a player or a creature shows (bodymask.cpp)
 sampler2D sMid    : register(s7);   // the middle map, solid only ([shadow] midRange)
 sampler2D sTerr   : register(s8);   // hills and mountains alone, the far map's camera
+sampler2D sUnder  : register(s9);   // the depth under the water (water.cpp), copied before the water drew
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -117,6 +119,7 @@ float4 gM2   : register(c30);
 float4 gM3   : register(c31);
 float4 gMB   : register(c32);       // middle map: depth bias, normal offset, one texel, 1 if there is one
 float4 gTr   : register(c33);       // the terrain: terrainShade, 1 if there is a map of it, its least depth bias
+float4 gWt   : register(c34);       // the water: 1 if the depth under it is there, light absorbed a yard
                                     // (map units)
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
@@ -178,9 +181,16 @@ float Lit5(sampler2D m, float4 s, float2 g, float bias, float texel)
               + Tap(m, uv + float2(-o,  o), z, uv, g, bias, n, texel) + Tap(m, uv + float2( o,  o), z, uv, g, bias, n, texel);
     return lit / 5.0;
 }
+static bool g_underWater = false;   // this pixel's point is the bed under the water: its neighbours are too
 float Raw(float2 uv)
 {
-    return saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+    float r = saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+    if (g_underWater)
+    {
+        float u = saturate((tex2Dlod(sUnder, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+        r = u < 0.99999 ? max(r, u) : r;
+    }
+    return r;
 }
 // The camera-relative point a pixel shows.
 float3 PointAt(float2 uv, float raw)
@@ -203,6 +213,24 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     if (raw >= 0.99999)
         return gL.y > 0.5 ? 1.0 : 0.5;                                     // the sky: no change
     float3 P   = PointAt(uv, raw);
+    // Under the water the shade falls on the bed, seen through it, and not on the surface (2026-10-02: in
+    // Westfall's shallows a character's shadow lay on the water, away from where it reaches the sand under
+    // it). The point is the bed's, which holds still; the shade fades as the water gets deep and hides the
+    // bed. A point mixed between the surface and the bed moved with the swell, and the shade flickered.
+    // Past the world's slice the copy holds far terrain (water.cpp): there the surface keeps it.
+    float seen = 1.0;
+    [branch] if (gWt.x > 0.5)
+    {
+        float rawU = saturate((tex2Dlod(sUnder, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+        if (rawU > raw && rawU < 0.99999)
+        {
+            float3 Pb = PointAt(uv, rawU);
+            seen = exp(-gWt.y * length(Pb - P));
+            P = Pb;
+            raw = rawU;
+            g_underWater = true;
+        }
+    }
     // The facing, for normalBias and slope only: from the neighbours a pixel away, nearer in depth on
     // each axis. The offset along it grows as the sun grazes the surface, and is only there where the sun
     // is within about 20 degrees of the surface or behind it (2026-10-02): on a bridge's deck, facing a
@@ -367,7 +395,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         return float4(1.0 - leaf, 1.0 - leaf, 1.0 - leaf, 1.0);            // debug 2: the leaves alone
     // The game's fog at this depth: a fogged pixel shows the fog colour, not what the shade falls on.
     float vz    = dot(P, gV.xyz) + gV.w;
-    float clear = 1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0);
+    float clear = (1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0)) * seen;
     float  dark  = max(shade, unit);
     float  f     = (1.0 - gSun.w * shade * clear) * (1.0 - gU.x * unit * clear) * (1.0 + gL.x * (1.0 - dark) * clear);
     f = (f >= 0.0 && f <= 2.0) ? f : 1.0;
@@ -648,9 +676,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 6, reinterpret_cast<IDirect3DBaseTexture9*>(bodyMask ? bodyMask : depth));
     d->SetTexture(dev, 7, reinterpret_cast<IDirect3DBaseTexture9*>(haveMid ? midTex : shadow));
     d->SetTexture(dev, 8, reinterpret_cast<IDirect3DBaseTexture9*>(terrMap ? terrMap : shadow));
+    d->SetTexture(dev, 9, reinterpret_cast<IDirect3DBaseTexture9*>(WaterUnderDepth() ? WaterUnderDepth() : depth));
     d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 6, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    for (DWORD st = 0; st < 9; ++st)
+    for (DWORD st = 0; st < 10; ++st)
     {
         d->SetSamplerState(dev, st, D3DSAMP_MINFILTER, D3DTEXF_POINT);
         d->SetSamplerState(dev, st, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -674,7 +703,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[136] = {};
+    float pc[140] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -766,7 +795,11 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     // The terrain's slack: at least [sunshadows] terrainBias yards. A hill shades from yards away, and at the
     // far map's texel the ground near you shaded itself in faint bands (2026-10-02).
     pc[134] = ss.terrainBias / span;
-    d->SetPixelShaderConstantF(dev, 0, pc, 34);
+    // The water (c34): the depth under it, and how fast it hides the bed (water.cpp's clarity).
+    IDirect3DTexture9* under = WaterUnderDepth();
+    pc[136] = under ? 1.0f : 0.0f;
+    pc[137] = 0.25f / g_cfg.water.clarity;
+    d->SetPixelShaderConstantF(dev, 0, pc, 35);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
@@ -786,6 +819,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetTexture(dev, 6, nullptr);
     d->SetTexture(dev, 7, nullptr);
     d->SetTexture(dev, 8, nullptr);
+    d->SetTexture(dev, 9, nullptr);
 
     // --- restore ------------------------------------------------------------------------------------
     for (int i = 0; i < kTouchedCount; ++i)
