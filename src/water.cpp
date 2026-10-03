@@ -2485,10 +2485,19 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
         g_unitsFrame = g_frameNo;
         g_unitCount = ClientUnits(g_units, 256);
     }
+    // A batch on the water's grid (2026-10-04): the wake's trail is drawn over the water's cells, and its first
+    // vertex is a cell corner (a multiple of 4.1667 yards), not where the unit is. At 6 yards it was taken only
+    // once someone stood that near a corner, and the game's wake showed for up to a minute after a start.
+    const float kCellYd = 533.33333f / 128.0f;
+    const auto onGrid = [&](float a) {
+        const float m = fabsf(a / kCellYd - roundf(a / kCellYd)) * kCellYd;
+        return m < 0.02f;
+    };
+    const float reach = onGrid(p[0]) && onGrid(p[1]) && fabsf(p[2] - wz) < 0.1f ? 15.0f : 6.0f;
     for (int i = 0; i < g_unitCount; ++i)
     {
         const float dx = g_units[i][0] - p[0], dy = g_units[i][1] - p[1];
-        if (dx * dx + dy * dy < 6.0f * 6.0f)
+        if (dx * dx + dy * dy < reach * reach)
         {
             g_wakeTex.insert(tex);
             g_wakeNot.erase(tex);
