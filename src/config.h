@@ -426,6 +426,9 @@ struct WaterSettings
     bool  enabled   = true;
     float foam      = 0.8f;      // 0..1: how white the foam is
     float foamWidth = 1.0f;      // yards of depth: the foam thins out to nothing at this depth
+    float edgeLine  = 1.0f;      // 0..1: the thin light line where the water meets the sand
+    float shoreFoam = 0.85f;      // 0..1: the game's foam texture near the shore
+    float shoreFoamSize = 5.0f;  // yards one copy of that texture spans
     float foamReach = 4.0f;      // yards out from the waterline: the same across the water, for a gentle beach
     float foamScale = 0.6f;      // yards: the size of a bubble in the foam
     float foamSpeed = 1.0f;      // how fast the foam moves and the bands roll in to the shore

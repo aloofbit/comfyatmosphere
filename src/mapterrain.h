@@ -57,4 +57,8 @@ bool MapWaterHeight(float x, float y, float& z);
 // The average ground height over a disc of `radius` yards around `at` (37 points); false with too few.
 bool MapGroundBase(const float at[3], float radius, float& z);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
+struct BlpData;
+// A texture by name, read on the loader thread: 0 while it loads (or the loader has not started), 1 with the
+// texture in out (once), -1 if it could not be read.
+int MapRequestTexture(const char* name, BlpData& out);
 const char* MapTerrainInfo();   // for the probe

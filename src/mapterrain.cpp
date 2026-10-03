@@ -486,7 +486,7 @@ namespace
 
     // --- the loader thread ---------------------------------------------------------------------------
 
-    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject };
+    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject, kJobLooseTexture };
     struct Job { JobKind kind; std::string name; int a, b; unsigned gen; bool groundOnly = false; };   // name: the map, the WMO, the BLP
                                                                                                     // a: a game object's display id
     struct Loaded { std::string name; unsigned gen; bool ok; WmoMesh mesh; double ms; };
@@ -512,6 +512,8 @@ namespace
     std::deque<Loaded>      g_doneWmo;
     std::deque<LoadedTex>   g_doneTex;
     std::deque<ObjectLight> g_doneObj;
+    // Textures another part asked for by name (MapRequestTexture), outside the tiles' own: kept until taken.
+    std::unordered_map<std::string, std::pair<bool, BlpData>> g_looseTex;
     bool                    g_started = false;
     unsigned                g_gen = 1;   // bumped at a map change: older results are thrown away
 
@@ -581,6 +583,14 @@ namespace
                 }
                 std::lock_guard<std::mutex> lock(g_mx);
                 g_doneObj.push_back(std::move(o));
+                continue;
+            }
+            if (job.kind == kJobLooseTexture)
+            {
+                BlpData data;
+                const bool ok = open && BlpLoad(job.name, data);
+                std::lock_guard<std::mutex> lock(g_mx);
+                g_looseTex[job.name] = { ok, std::move(data) };
                 continue;
             }
             if (job.kind == kJobTexture)
@@ -1905,4 +1915,34 @@ const char* MapTerrainInfo()
                 static_cast<unsigned>(g_fileLights.size()), g_objSeen, g_objLit,
                 static_cast<unsigned>(g_objLights.size()), static_cast<unsigned>(g_objectLights.size()));
     return g_info;
+}
+
+// A texture by name, read on the loader thread (the archives are read from that thread only). The first call
+// asks for it, later ones return 0 while it loads, 1 with the texture, -1 if it could not be read. The
+// loader starts with the map terrain ([shadow] mapTerrain): until then the answer is 0.
+int MapRequestTexture(const char* name, BlpData& out)
+{
+    static std::unordered_map<std::string, int> asked;   // 0 asked, 1 taken, -1 failed
+    const std::string n = name;
+    auto a = asked.find(n);
+    if (a != asked.end() && a->second != 0)
+        return a->second;
+    if (!g_started)
+        return 0;
+    std::lock_guard<std::mutex> lock(g_mx);
+    if (a == asked.end())
+    {
+        asked[n] = 0;
+        g_jobs.push_back({ kJobLooseTexture, n, 0, 0, g_gen });
+        g_cv.notify_one();
+        return 0;
+    }
+    auto it = g_looseTex.find(n);
+    if (it == g_looseTex.end())
+        return 0;
+    const int r = it->second.first ? 1 : -1;
+    out = std::move(it->second.second);
+    g_looseTex.erase(it);
+    asked[n] = r;
+    return r;
 }

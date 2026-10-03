@@ -187,6 +187,9 @@ void LoadSettings(const wchar_t* ini)
     s.water.whitecaps   = Clamp(GetF(kWater, L"whitecaps", s.water.whitecaps, ini), 0.0f, 1.0f);
     s.water.refraction  = Clamp(GetF(kWater, L"refraction", s.water.refraction, ini), 0.0f, 2.0f);
     s.water.gameWake    = GetB(kWater, L"gameWake", s.water.gameWake, ini);
+    s.water.edgeLine    = Clamp(GetF(kWater, L"edgeLine", s.water.edgeLine, ini), 0.0f, 1.0f);
+    s.water.shoreFoam   = Clamp(GetF(kWater, L"shoreFoam", s.water.shoreFoam, ini), 0.0f, 1.0f);
+    s.water.shoreFoamSize = Clamp(GetF(kWater, L"shoreFoamSize", s.water.shoreFoamSize, ini), 0.5f, 50.0f);
     s.water.foamScale   = Clamp(GetF(kWater, L"foamScale", s.water.foamScale, ini), 0.05f, 10.0f);
     s.water.foamSpeed   = Clamp(GetF(kWater, L"foamSpeed", s.water.foamSpeed, ini), 0.0f, 10.0f);
     s.water.foamColor   = GetX(kWater, L"foamColor", s.water.foamColor, ini) & 0xFFFFFF;

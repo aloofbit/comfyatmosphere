@@ -43,6 +43,7 @@
 #include "client.h"
 #include "common.h"
 #include "config.h"
+#include "mapm2.h"
 #include "mapterrain.h"
 #include "shadow.h"
 #include "sun.h"
@@ -133,6 +134,7 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     const char* kPsHlsl = R"HLSL(
 sampler2D sUnder : register(s15);  // the depth under the water (INTZ), copied before the first water draw
 sampler2D sScene : register(s14);  // the screen before the first water draw: what lies under the water
+sampler2D sFoamTex : register(s12); // the game's own foam (WATERFOAMLOOP2.blp), tiled over the water
 float4 gZ    : register(c120);     // the projection's m22 and m32; the viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gVz   : register(c121);     // the view's third column: a camera-relative point's view depth
 float4 gScr  : register(c122);     // 1 / width, 1 / height, seconds, strength
@@ -149,6 +151,7 @@ float4 gDeep : register(c163);     // the colour deep water turns, how much of o
 float4 gAbs  : register(c164);     // the light the water absorbs a yard, by channel; refraction in yards
 float4 gSky  : register(c165);     // the sky high up; the waves' strength
 float4 gSunC : register(c166);     // the sun's colour; whitecaps
+float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
 float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none)
 float4 gWave : register(c167);     // 1 / waveScale; the part drawn (0 all, 1 the sand, 2 the water); 1 when
                                    // the screen copy is there
@@ -265,7 +268,14 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     // Each pixel belongs to one: where our water is drawn (wv > 0), the water part.
     float  wvIs = smoothstep(0.0, 0.03, depth) * gDeep.w * gWave.z;
     if (gWave.y > 0.5)
-        clip(gWave.y > 1.5 ? (wvIs > 0.0 ? 1.0 : -1.0) : (wvIs > 0.0 ? -1.0 : 1.0));
+    {
+        // The first 0.15 yards of water go with the sand part, untested: there the water's plane lies a hair
+        // under the sand, the depth test turned the water part away, the sand part left it to the water part,
+        // and the game's own water showed through as a light line along the shore (2026-10-02). There is no
+        // swell that near the shore, so nothing needs the test there.
+        const bool waterPart = wvIs > 0.0 && depth > 0.15;
+        clip(gWave.y > 1.5 ? (waterPart ? 1.0 : -1.0) : (waterPart ? -1.0 : 1.0));
+    }
 
     // How far the waterline is, across the water: the depth over the bed's slope. The slope is how fast the
     // depth grows per yard of the surface, from the pixels beside this one. On a gentle beach the depth stays
@@ -370,6 +380,21 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     // waves and the whitecaps were a layer on top of the water that did not fit the game's painted look. They
     // are kept here, unused, for the foam in the game's own style (the next step).
     foam = max(lip, ring);
+    // The shore foam, in the game's own art (2026-10-02): its foam texture, two layers drifting across each
+    // other, shows where our shapes say (near the shore, in the bands rolling in), and only on the water.
+    float2 fp  = (rel.xy + gCam.xy + swS * 1.5) * gFT.y;
+    float  fa1 = tex2D(sFoamTex, fp + float2(t * 0.010, t * 0.006)).a;
+    float  fa2 = tex2D(sFoamTex, fp * 0.71 + float2(0.37 - t * 0.007, 0.21 + t * 0.011)).a;
+    float  ftx = 0.6 * fa1 + 0.4 * fa2;
+    float  fshape = shore * (0.55 + 0.45 * band);
+    // Only the texture's denser parts pass, even at the waterline: with the whole of it, the band near the shore
+    // was solid white and the texture's own shapes were lost (2026-10-02).
+    float  fcut  = 1.0 - 0.7 * fshape;
+    float  fgame = smoothstep(fcut, fcut + 0.3, ftx) * saturate(fshape * 2.0);
+    // From the edge line on, never onto the sand: it starts where our water does (2026-10-02: started a quarter
+    // of a yard out, it left a strip of clear water between the line and the bubbles).
+    float  fback = smoothstep(0.0, 0.03, depth);
+    foam = max(foam, fgame * gFT.z * gFT.x * fback);
     caps *= 0.0;
     if (gFoam.w > 2.5 && gFoam.w < 3.5)
         clip(-1.0);   // debug 3: the wet sand pass shows alone
@@ -427,7 +452,17 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float2 vpos : VPOS) :
     water = lerp(water, fcol, saturate(fa * 1.25));
     if (gFoam.w > 3.5)
         return float4(bed, 1.0);   // debug 4: what lies under the water, bent
-    return float4(lerp(land, water, wv), lerp(a, 1.0, wv));
+    // The water over the sand's foam and wet sand, mixed as colour times cover: mixed as plain colours, the foam's
+    // white came in where our water fades in at the edge even with no foam there, a light line along the shore
+    // (2026-10-02).
+    float  outA = wv + a * (1.0 - wv);
+    float3 outC = (water * wv + land * a * (1.0 - wv)) / max(outA, 1e-4);
+    // The edge line ([water] edgeLine): a thin light line where the water meets the sand, in the first few
+    // hundredths of a yard of depth, where our water fades in. It began as a fault in this mix (the foam's
+    // colour mixed in where our water fades in) and was the best part of the shore, so it is kept on purpose,
+    // at 1 exactly as it was (2026-10-02).
+    outC = lerp(outC, c, saturate((1.0 - wv) * gFT.w));
+    return float4(outC, outA);
 }
 )HLSL";
 
@@ -474,13 +509,20 @@ float4 main(float2 vpos : VPOS) : COLOR
     float3 n    = cross(ddx(P), ddy(P));
     float  flat = abs(n.z) > 0.85 * length(n) ? 1.0 : 0.0;           // not a body, a wall or a post
     float  top  = 0.4 + 0.1 * sin(gZ.w * 0.7 + A.x * 0.13 + A.y * 0.11);
-    float  wet  = (1.0 - smoothstep(top * 0.5, top, h)) * smoothstep(-0.05, 0.02, h) * flat;
+    // Under the water too, out to a yard deep: the water's colour is laid over it there.
+    float  wet  = (1.0 - smoothstep(top * 0.5, top, h)) * smoothstep(-1.0, -0.6, h) * flat;
     wet *= lv > -1000.0 ? 1.0 : 0.0;
     if (gScr.z > 2.5 && gScr.z < 3.5)
         return float4(wet.xxx, 1.0);                                 // debug 3: the wet sand alone
     return float4(0.0, 0.0, 0.0, wet * gZ.z);
 }
 )HLSL";
+
+    // The game's own foam texture (2026-10-02), read from the client's archives by the map loader.
+    const char* kFoamTexName = "World\\Expansion02\\Doodads\\Generic\\WATERFALLS\\WATERFOAMLOOP2.blp";
+    IDirect3DTexture9*      g_foamTex = nullptr;
+    int                     g_foamTexState = 0;   // 0 not yet, 1 on the GPU, -1 none
+    constexpr DWORD         kFoamSampler = 12;
 
     IDirect3DVertexShader9* g_wetVs = nullptr;
     IDirect3DPixelShader9*  g_wetPs = nullptr;
@@ -510,7 +552,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     bool               g_copied = false;        // tried this frame
     bool               g_copyOk = false;
     bool               g_copyFailLogged = false;
-    float              g_psc[49 * 4];           // this frame's pixel constants: c120 to c168
+    float              g_psc[50 * 4];           // this frame's pixel constants: c120 to c169
 
     // The ripples, in the world. A unit in the water starts one where it stands about once a second, and one
     // each time it has moved a yard and a half: walking leaves a trail. Until 2026-10-02 the rings were drawn
@@ -642,7 +684,8 @@ float4 main(float2 vpos : VPOS) : COLOR
     }
 
     // The screen as it is before the water, out of the render target bound now: what lies under the water,
-    // for the surface. A multisampled target is resolved by the same call. Called out of the scene.
+    // for the surface. A multisampled target is resolved by the same call. A colour StretchRect may run inside
+    // the scene; only a depth one may not.
     bool CopyScene(IDirect3DDevice9* dev)
     {
         if (g_cfg.water.surface <= 0.0f)
@@ -732,7 +775,6 @@ float4 main(float2 vpos : VPOS) : COLOR
         auto* v = dev->lpVtbl;
         const bool inScene = SUCCEEDED(v->EndScene(dev));
         const HRESULT hr = v->StretchRect(dev, cur, nullptr, g_underSurf, nullptr, D3DTEXF_NONE);
-        g_sceneOk = SUCCEEDED(hr) && CopyScene(dev);
         if (inScene)
             v->BeginScene(dev);
         cur->lpVtbl->Release(cur);
@@ -909,6 +951,10 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[188] = 1.0f / w.waveScale;
         k[190] = 0.0f;   // the screen copy: set when it is made (WaterBeforeDraw)
         k[192] = w.waveHeight * 0.25f;
+        k[196] = g_foamTex ? 1.0f : 0.0f;
+        k[197] = 1.0f / w.shoreFoamSize;
+        k[198] = w.shoreFoam;
+        k[199] = w.edgeLine;
     }
 
     const D3DRENDERSTATETYPE kTouched[] = {
@@ -1051,7 +1097,9 @@ float4 main(float2 vpos : VPOS) : COLOR
 bool WaterWanted()
 {
     const WaterSettings& w = g_cfg.water;
-    return g_cfg.master && w.enabled && (w.foam > 0.0f || w.debug) && g_cfg.depth.enabled && !g_failed;
+    // Any part drawn: until 2026-10-02 only the foam counted, and foam 0 took the surface and the wet sand too.
+    const bool any = w.foam > 0.0f || w.surface > 0.0f || w.wetSand > 0.0f || w.shoreFoam > 0.0f || w.debug;
+    return g_cfg.master && w.enabled && any && g_cfg.depth.enabled && !g_failed;
 }
 
 namespace
@@ -1179,6 +1227,47 @@ namespace
     }
 }
 
+namespace
+{
+    void EnsureFoamTexture(IDirect3DDevice9* dev)
+    {
+        if (g_foamTexState != 0)
+            return;
+        BlpData b;
+        const int r = MapRequestTexture(kFoamTexName, b);
+        if (r == 0)
+            return;
+        if (r < 0)
+        {
+            g_foamTexState = -1;
+            Log("water: the foam texture %s could not be read: the shore has the line alone", kFoamTexName);
+            return;
+        }
+        static const D3DFORMAT kFormats[4] = { D3DFMT_DXT1, D3DFMT_DXT3, D3DFMT_DXT5, D3DFMT_A8R8G8B8 };
+        if (FAILED(dev->lpVtbl->CreateTexture(dev, b.width, b.height, static_cast<UINT>(b.levels.size()), 0,
+                                              kFormats[b.format], D3DPOOL_MANAGED, &g_foamTex, nullptr)))
+        {
+            g_foamTexState = -1;
+            return;
+        }
+        for (UINT i = 0; i < b.levels.size(); ++i)
+        {
+            const UINT w = (std::max)(1u, b.width >> i), h = (std::max)(1u, b.height >> i);
+            const UINT rows = b.format == 3 ? h : (std::max)(1u, (h + 3) / 4);
+            const UINT rowBytes = b.format == 3 ? w * 4 : (std::max)(1u, (w + 3) / 4) * (b.format == 0 ? 8 : 16);
+            D3DLOCKED_RECT lr;
+            if (FAILED(g_foamTex->lpVtbl->LockRect(g_foamTex, i, &lr, nullptr, 0)))
+                break;
+            for (UINT row = 0; row < rows && (row + 1) * rowBytes <= b.levels[i].size(); ++row)
+                memcpy(static_cast<uint8_t*>(lr.pBits) + row * lr.Pitch, &b.levels[i][row * rowBytes], rowBytes);
+            g_foamTex->lpVtbl->UnlockRect(g_foamTex, i);
+        }
+        g_foamTexState = 1;
+        Log("water: the foam texture is on the GPU, %ux%u, format %d, %u levels", b.width, b.height, b.format,
+            static_cast<unsigned>(b.levels.size()));
+    }
+}
+
 void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
 {
     if (g_copied || !WaterWanted())
@@ -1187,6 +1276,7 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
     g_copyOk = EnsureShaders(dev) && CopyUnder(dev);
     if (!g_copyOk)
         return;
+    EnsureFoamTexture(dev);
     FrameConstants(c);
     g_psc[190] = g_sceneOk ? 1.0f : 0.0f;
     D3DVIEWPORT9 vp = {};
@@ -1195,7 +1285,11 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
         g_psc[2] = vp.MinZ;
         g_psc[3] = 1.0f / (vp.MaxZ - vp.MinZ);
     }
+    // The wet sand first and the screen copy after it, so the sand seen through thin water is wet too: copied
+    // before, it showed dry and bright under the water, a light line along the shore (2026-10-02).
     DrawWetSand(dev, c);
+    g_sceneOk = CopyScene(dev);
+    g_psc[190] = g_sceneOk ? 1.0f : 0.0f;
 }
 
 void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw)
@@ -1254,13 +1348,23 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
     d->SetVertexShaderConstantF(dev, kVsReg, vc, 11);
-    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 49);
+    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 50);
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    if (g_foamTex)
+    {
+        d->SetTexture(dev, kFoamSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_foamTex));
+        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_SRGBTEXTURE, FALSE);
+    }
     if (g_sceneOk)
     {
         d->SetTexture(dev, kSceneSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_scene));
@@ -1308,6 +1412,8 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetTexture(dev, kUnderSampler, nullptr);
     if (g_sceneOk)
         d->SetTexture(dev, kSceneSampler, nullptr);
+    if (g_foamTex)
+        d->SetTexture(dev, kFoamSampler, nullptr);
     if (skipBodies)
         for (int i = 0; i < kStencilCount; ++i)
             d->SetRenderState(dev, kStencil[i], oldSt[i]);
@@ -1538,6 +1644,8 @@ void WaterFrameEnd()
 
 void WaterReset()
 {
+    SafeRelease(g_foamTex);
+    g_foamTexState = 0;
     SafeRelease(g_wetSb);
     SafeRelease(g_wetVs);
     SafeRelease(g_wetPs);
