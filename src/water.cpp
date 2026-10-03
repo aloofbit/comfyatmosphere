@@ -114,7 +114,8 @@ float2 SwellSlope(float2 p, float t, float inv)
     }
     return g;
 }
-struct O { float4 pos : POSITION; float3 rel : TEXCOORD0; float amp : TEXCOORD1; float gd : TEXCOORD2; };
+struct O { float4 pos : POSITION; float3 rel : TEXCOORD0; float amp : TEXCOORD1; float gd : TEXCOORD2;
+           float z0 : TEXCOORD3; };
 // uv.y is the water's depth at the vertex, from the map files: 0.0549 at 8.1 yards and 0.1176 at 17.4 in the
 // probe, depth / 148. The swell lifts only water 2.5 yards deep and more, in full from 6.5: the grid has a
 // point every 4.2 yards, and lifted next to a steep bank its triangles stood up over the bank as straight lines
@@ -132,6 +133,7 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     o.rel = rel + float3(0.0, 0.0, h);
     o.amp = amp;
     o.gd  = uv.y * 148.0;   // the water's depth at the vertex, as the map files give it
+    o.z0  = rel.z;          // the flat water's height, camera-relative, before the swell lifts it
     return o;
 }
 )HLSL";
@@ -149,7 +151,8 @@ float4 gFogC : register(c125);     // the game's fog colour, 1 / the distance it
 float4 gFog  : register(c126);     // the game's fog start, 1 / (end - start), 1 when known
 float4 gCam  : register(c127);     // the camera in the world
 float4 gReach : register(c128);    // 1 / foamReach, ripples' strength, wet sand's darkness, rings in use
-float4 gRingD[16] : register(c146); // each ripple's way: the way its maker walked (x, y), 0 standing still
+float4 gRingD[16] : register(c146); // each ripple's way: the way its maker walked (x, y), 0 standing still;
+                                    // its noise's shift (z)
 float4 gRing[16] : register(c130); // the ripples: where each began (feet, camera-relative); w its age in
                                    // seconds plus 8 x its speed in tenths of a yard a second, negative for none
 float4 gSun  : register(c162);     // the way to the sun, its glint's strength
@@ -161,12 +164,29 @@ float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest f
                                     // in seconds (negative: no point)
 float4 gMoon2 : register(c203);    // the way to the other moon, its glint's strength (0 by day)
 float4 gGlint : register(c204);    // 1 / the glint's size squared
+float4 gI0   : register(c205);     // rows of inverse(view x projection): clip -> camera-relative world
+float4 gI1   : register(c206);
+float4 gI2   : register(c207);
+float4 gI3   : register(c208);
 float4 gWake : register(c202);     // trails in use, the wake's strength, 1 with the swash, its height (yards)
 float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
 float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none); 1 on a body
 float4 gWave : register(c167);     // 1 / waveScale; the part drawn (0 all, 1 the sand, 2 the water); 1 when
                                    // the screen copy is there; the sky reflection's strength
 
+// The camera-relative point the depth under the water shows at a place on the screen: the bed, or what
+// stands on it.
+float3 BedAt(float2 uvq)
+{
+    float  r   = tex2Dlod(sUnder, float4(uvq, 0, 0)).r;
+    float  d   = min((r - gZ.z) * gZ.w, 0.99999);
+    float2 ndc = float2(uvq.x * 2.0 - 1.0, 1.0 - uvq.y * 2.0);
+    float4 wp  = ndc.x * gI0 + ndc.y * gI1 + d * gI2 + gI3;
+    return wp.xyz / wp.w;
+}
+)HLSL"
+    // Split: MSVC takes no string literal longer than 16 KB (C2026).
+    R"HLSL(
 // Hashes without sin (Dave Hoskins): sin of a large argument loses its precision on a GPU.
 float Hash1(float2 i)
 {
@@ -267,7 +287,8 @@ float3 WaveNormal(float2 p, float t, float strength, float2 swell, float dist)
 )HLSL"
     // Split in two: MSVC takes no string literal longer than 16 KB (C2026).
     R"HLSL(
-float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2, float2 vpos : VPOS) : COLOR
+float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2, float z0 : TEXCOORD3,
+            float2 vpos : VPOS) : COLOR
 {
     // Seen from under the water: no foam.
     clip(-rel.z);
@@ -317,12 +338,36 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // How far the waterline is, across the water: the depth over the bed's slope. The slope is how fast the
     // depth grows per yard of the surface, from the pixels beside this one. On a gentle beach the depth stays
     // small for many yards, and the foam went 20 yards out by depth alone (2026-10-02).
-    float2 gx  = ddx(rel.xy), gy = ddy(rel.xy);
-    float  ex  = ddx(depth), ey = ddy(depth);
+    // Measured under the flat water, the swell's lift left out (2026-10-03). The lifted surface is flat
+    // triangles, a point every 4.2 yards, and its tilt jumps at each edge: the slope, the way to the shore and
+    // the shore waves' facing (shoreSlope) jumped with it, and each triangle had a glint and a sky of its own,
+    // cut off along its edges.
+    // The map's depth (mapK) is under the flat water already.
+    float  depthF = depth - (rel.z - z0) * (1.0 - mapK);
+    // And from bed points 8 pixels either side, not from the pixel beside (2026-10-03). The ground under the
+    // water is flat triangles too: from one pixel to the next its slope jumps at each of their edges, and the
+    // shore waves' place and facing (reach, gdir) jumped with it. Their light, the white patches on the water,
+    // was torn along the ground's triangles, the more the higher Wave Height. 8 pixels apart the difference
+    // changes smoothly as the pixel moves. Far terrain has a camera of its own: there the pixel beside.
+    // Each axis weighs its two sides by how near in height each is to this pixel's own point (2026-10-03).
+    // 8 pixels from a character a point lands on its legs, and the steep "beach" it made lit the shore waves
+    // on and round the character, every way at once: such a side counts for almost nothing. A weight, not a
+    // choice: taking the nearer side flipped where the ground's triangles meet, and the tear came back.
+    float2 o8  = gScr.xy * 8.0;
+    float3 b0  = BedAt(uv);
+    float3 xa  = BedAt(uv + float2(o8.x, 0.0)) - b0, xb = b0 - BedAt(uv - float2(o8.x, 0.0));
+    float3 ya  = BedAt(uv + float2(0.0, o8.y)) - b0, yb = b0 - BedAt(uv - float2(0.0, o8.y));
+    float  wxa = (xb.z * xb.z + 1e-4) / (xa.z * xa.z + xb.z * xb.z + 2e-4);
+    float  wya = (yb.z * yb.z + 1e-4) / (ya.z * ya.z + yb.z * yb.z + 2e-4);
+    float3 bX  = xa * wxa + xb * (1.0 - wxa);
+    float3 bY  = ya * wya + yb * (1.0 - wya);
+    float2 gx  = farSlice ? ddx(rel.xy) : bX.xy, gy = farSlice ? ddy(rel.xy) : bY.xy;
+    float  ex  = farSlice ? ddx(depthF) : -bX.z;   // the depth grows as the bed goes down
+    float  ey  = farSlice ? ddy(depthF) : -bY.z;
     float  det = gx.x * gy.y - gx.y * gy.x;
     float2 grad = abs(det) > 1e-8 ? float2(ex * gy.y - gx.y * ey, gx.x * ey - gy.x * ex) / det : float2(0, 0);
-    float  slope = max(length(grad), 0.02);
-    float  reach = depth / slope;
+    float  slope = clamp(length(grad), 0.02, 4.0);
+    float  reach = depthF / slope;
     // The steeper what lies under the water, the less depth the foam takes: a leg or a post gets a thin collar
     // at the surface. Without it a character's legs were white down to the knees (2026-10-02).
     float  shore = saturate(1.0 - max(depth * gFoam.x * (1.0 + slope * 4.0), reach * gReach.x));
@@ -383,7 +428,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // The rings are waves in the surface too (2026-10-02): a small rise and a trough behind it, as light only,
     // so the glint and the sky in the water move where someone walks. ringSlope is their slope, summed.
     float2 ringSlope = 0.0;
-    // The noise that makes each ring uneven, once for all of them: per ring it is shifted by the ring's slot.
+    // The noise that makes each ring uneven, once for all of them: per ring it is shifted by the ring's own shift.
     // Two noise reads a ring for 32 rings took the game to a frame a minute (2026-10-02).
     float2 wpos  = rel.xy + gCam.xy;
     float  rn1   = ValueNoise(wpos * 1.3);
@@ -403,7 +448,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             float  size = smoothstep(0.05, 0.9, sub) * (1.0 - 0.75 * smoothstep(1.1, 2.0, sub));
             // Not a perfect circle: its edge wanders and its strength comes and goes along it, each ring its own
             // way (a noise in the world, shifted by the ring's slot).
-            float  shift = frac(i * 0.618);
+            // The ring's own, fixed at its start (2026-10-03). It was the slot's (i x 0.618): when the oldest
+            // ring ended, every other ring moved down a slot, its shape and its slope jumped, and the glint on
+            // them flashed, about once a second round anyone standing in the water.
+            float  shift = gRingD[i].z;
             // A smooth wave of the noise, not frac(): frac jumps from 1 back to 0, and each ring had a hard tear
             // across it where it did (2026-10-02).
             float  d   = length(rel.xy - g.xy) + 0.5 * sin(6.2832 * (rn1 + shift)) * (0.15 + 0.5 * ph);
@@ -432,6 +480,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     }
     ring = saturate(ring * gReach.y) * (0.3 + 0.7 * soft) * (depth > -0.05 ? 1.0 : 0.0);
 
+)HLSL"
+    R"HLSL(
     // Shore waves (2026-10-02): crests along the shore that roll in toward it. Their phase is the distance to
     // the waterline (reach), so they come about 4 yards apart on any slope: by depth they bunched into thin
     // lines on a steep stretch. They come in sets along the shore (a slow noise), and fade out past 9 yards and
@@ -443,7 +493,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  sPh   = reach * 1.6 + t * 1.4 + soft * 1.2;
     float  sS    = 0.5 + 0.5 * sin(sPh);
     float  crest = sS * sS;
-    float2 shoreSlope = gdir * (gSw2.x * sEnv * sS * cos(sPh) * 1.6);
+    // None on a body under the water: it has no shore (2026-10-03).
+    float2 shoreSlope = onBody ? 0.0 : gdir * (gSw2.x * sEnv * sS * cos(sPh) * 1.6);
     float  brk = crest * crest * sEnv * smoothstep(3.0, 0.5, reach) * (0.4 + 0.6 * lace) * (gSw2.x > 0.0 ? 1.0 : 0.0);
     foam = max(foam, brk * 0.7);
 
@@ -692,6 +743,15 @@ float4 gFilm2 : register(c209);    // 1 / the foam texture's size in yards, 1 wi
 float4 gFoamW : register(c211);    // as the water pass: 1 / foamWidth, 1 / foamReach, foamSpeed
 sampler2D sFoamW : register(s12);  // the game's foam texture (WATERFOAMLOOP2.blp)
 sampler2D sSceneW : register(s14); // the screen before this pass (when gFilm3.z is 1)
+// The camera-relative point the depth under the water shows at a place on the screen.
+float3 WetPointAt(float2 uvq)
+{
+    float  r   = tex2Dlod(sUnder, float4(uvq, 0, 0)).r;
+    float  d   = min((r - gZ.x) * gZ.y, 0.99999);
+    float2 ndc = float2(uvq.x * 2.0 - 1.0, 1.0 - uvq.y * 2.0);
+    float4 wp  = ndc.x * gI0 + ndc.y * gI1 + d * gI2 + gI3;
+    return wp.xyz / wp.w;
+}
 float4 main(float2 vpos : VPOS) : COLOR
 {
     float2 uv  = (vpos + 0.5) * gScr.xy;
@@ -740,8 +800,13 @@ float4 main(float2 vpos : VPOS) : COLOR
     // with the same texture at the same place and time, so one foam runs from the water up the sand and back.
     // Until 2026-10-03 this was a foam of its own just behind the edge, and the water's band stayed put at the
     // waterline: the foam looked fixed to the flat water while the edge moved.
-    float2 gxW   = ddx(A.xy), gyW = ddy(A.xy);
-    float  exW   = ddx(h), eyW = ddy(h);
+    // From ground points 8 pixels either side, as in the water pass: the sand is flat triangles too, and from
+    // the pixel beside its slope jumped at their edges (2026-10-03).
+    float2 o8W   = gScr.xy * 8.0;
+    float3 bXW   = WetPointAt(uv + float2(o8W.x, 0.0)) - WetPointAt(uv - float2(o8W.x, 0.0));
+    float3 bYW   = WetPointAt(uv + float2(0.0, o8W.y)) - WetPointAt(uv - float2(0.0, o8W.y));
+    float2 gxW   = bXW.xy, gyW = bYW.xy;
+    float  exW   = bXW.z, eyW = bYW.z;
     float  detW  = gxW.x * gyW.y - gxW.y * gyW.x;
     float2 gh    = abs(detW) > 1e-8 ? float2(exW * gyW.y - gxW.y * eyW, gxW.x * eyW - gyW.x * exW) / detW : 0.0;
     float  slopeW = clamp(length(gh), 0.02, 2.0);
@@ -819,7 +884,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     bool               g_copied = false;        // tried this frame
     bool               g_copyOk = false;
     bool               g_copyFailLogged = false;
-    float              g_psc[85 * 4];           // this frame's pixel constants: c120 to c204
+    float              g_psc[89 * 4];           // this frame's pixel constants: c120 to c208
 
     // The ripples, in the world. A unit in the water starts one where it stands about once a second, and one
     // each time it has moved a yard and a half: walking leaves a trail. Until 2026-10-02 the rings were drawn
@@ -830,8 +895,10 @@ float4 main(float2 vpos : VPOS) : COLOR
         double born;
         float  speed;   // yards a second the ring spreads at
         float  dir[2];  // the way its maker walked; 0 standing still
+        float  shift;   // 0..1: shifts the noise that makes it uneven, its own for all its life
     };
     std::vector<Ring> g_rings;
+    unsigned g_ringCount = 0;   // rings begun: each new one's shift follows from it
 
     // The wakes (2026-10-02): the recent path of each unit moving through the water. A unit is followed from
     // frame to frame by the trail whose newest point is nearest its place (no ids from the object list).
@@ -1138,8 +1205,9 @@ float4 main(float2 vpos : VPOS) : COLOR
                     g_rings.erase(g_rings.begin());   // the oldest
                 const float spread = speed > 1.0f ? (std::max)(kRingStill, (std::min)(speed / 3.0f, 3.0f)) : kRingStill;
                 const bool walking = speed > 1.0f;
+                const float shift = static_cast<float>(fmod(++g_ringCount * 0.618034, 1.0));
                 g_rings.push_back({ { p[0], p[1], p[2] }, now, spread,
-                                    { walking ? way[0] : 0.0f, walking ? way[1] : 0.0f } });
+                                    { walking ? way[0] : 0.0f, walking ? way[1] : 0.0f }, shift });
             }
         }
         // The wakes: each moving unit in the water extends the trail that ends nearest it, or starts one.
@@ -1204,7 +1272,7 @@ float4 main(float2 vpos : VPOS) : COLOR
                 // The age, with the speed in tenths of a yard a second above it: speed x 10 x 8 + age (age < 8).
                 o[3] = floorf(r.speed * 10.0f + 0.5f) * 8.0f + static_cast<float>(now - r.born);
                 float* w = out + kRings * 4 + i * 4;
-                w[0] = r.dir[0]; w[1] = r.dir[1]; w[2] = w[3] = 0.0f;
+                w[0] = r.dir[0]; w[1] = r.dir[1]; w[2] = r.shift; w[3] = 0.0f;
             }
             else
             {
@@ -1227,6 +1295,13 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[2] = 0.0f;
         k[3] = 1.0f;   // the viewport's depth range: set by the caller
         k[4] = c.view->m[0][2]; k[5] = c.view->m[1][2]; k[6] = c.view->m[2][2]; k[7] = c.view->m[3][2];
+        // c205 to c208: inverse(view x projection), to rebuild the bed at another pixel (BedAt).
+        {
+            D3DMATRIX vp, inv;
+            Mul(*c.view, *c.proj, vp);
+            if (Invert(vp, inv))
+                memcpy(k + 340, &inv, 64);
+        }
         k[8] = g_underW ? 1.0f / g_underW : 0.0f;
         k[9] = g_underH ? 1.0f / g_underH : 0.0f;
         k[10] = static_cast<float>(fmod(Now(), 3600.0));
@@ -1802,7 +1877,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
     d->SetVertexShaderConstantF(dev, kVsReg, vc, 11);
-    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 85);
+    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 89);
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
