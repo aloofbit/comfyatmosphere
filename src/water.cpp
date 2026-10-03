@@ -653,7 +653,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         float y     = (bestLat - armAt) / armW;
         float arm   = exp(-y * y);
         float dArm  = (1.0 - 2.0 * y * y) * exp(-y * y) / armW;
-        wakeSlope += bestDir * (dArm * life * 0.11);
+        // Faded to nothing on the path itself (2026-10-03): bestDir points away from the path, so it turns over
+        // there, and the tilt flipped from one side to the other at full strength: a straight line along the
+        // path behind a runner, as if the water parted.
+        wakeSlope += bestDir * (dArm * life * 0.11 * smoothstep(0.0, armW, bestLat));
         // The churned water close behind the body: foam, narrow, gone in a second and a half.
         float churn = exp(-pow(bestLat / (0.35 + 0.08 * bestS), 2.0)) * exp(-bestAge * 2.5) * size *
                       smoothstep(0.0, 0.4, bestS) * (1.0 - smoothstep(1.0, 2.5, bestS));
