@@ -189,12 +189,14 @@ void LoadSettings(const wchar_t* ini)
     s.water.waveScale   = Clamp(GetF(kWater, L"waveScale", s.water.waveScale, ini), 0.25f, 4.0f);
     s.water.whitecaps   = Clamp(GetF(kWater, L"whitecaps", s.water.whitecaps, ini), 0.0f, 1.0f);
     s.water.swash       = Clamp(GetF(kWater, L"swash",     s.water.swash,     ini), 0.0f, 1.0f);
-    s.water.swashHeight = Clamp(GetF(kWater, L"swashHeight", s.water.swashHeight, ini), 0.0f, 0.5f);
+    s.water.swashRun    = Clamp(GetF(kWater, L"swashRun",  s.water.swashRun,  ini), 0.0f, 5.0f);
+    s.water.swashHeight = Clamp(GetF(kWater, L"swashHeight", s.water.swashHeight, ini), 0.0f, 1.0f);
     s.water.wake        = Clamp(GetF(kWater, L"wake",      s.water.wake,      ini), 0.0f, 1.0f);
     s.water.cover       = Clamp(GetF(kWater, L"cover",     s.water.cover,     ini), 0.0f, 1.0f);
     s.water.refraction  = Clamp(GetF(kWater, L"refraction", s.water.refraction, ini), 0.0f, 2.0f);
     s.water.gameWake    = GetB(kWater, L"gameWake", s.water.gameWake, ini);
     s.water.edgeLine    = Clamp(GetF(kWater, L"edgeLine", s.water.edgeLine, ini), 0.0f, 1.0f);
+    s.water.edgeWidth   = Clamp(GetF(kWater, L"edgeWidth", s.water.edgeWidth, ini), 0.05f, 3.0f);
     s.water.shoreFoam   = Clamp(GetF(kWater, L"shoreFoam", s.water.shoreFoam, ini), 0.0f, 1.0f);
     s.water.shoreFoamSize = Clamp(GetF(kWater, L"shoreFoamSize", s.water.shoreFoamSize, ini), 0.5f, 50.0f);
     s.water.foamScale   = Clamp(GetF(kWater, L"foamScale", s.water.foamScale, ini), 0.05f, 10.0f);

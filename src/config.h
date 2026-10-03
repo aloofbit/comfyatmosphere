@@ -426,7 +426,8 @@ struct WaterSettings
     bool  enabled   = true;
     float foam      = 0.8f;      // 0..1: how white the foam is
     float foamWidth = 1.0f;      // yards of depth: the foam thins out to nothing at this depth
-    float edgeLine  = 1.0f;      // 0..1: the thin light line where the water meets the sand
+    float edgeLine  = 1.0f;      // 0..1: the thin light line where the water meets the sand (Edge Line)
+    float edgeWidth = 0.4f;      // yards along the ground the edge line spans (Edge Line Width)
     float shoreFoam = 0.85f;      // 0..1: the game's foam texture near the shore
     float shoreFoamSize = 5.0f;  // yards one copy of that texture spans
     float foamReach = 4.0f;      // yards out from the waterline: the same across the water, for a gentle beach
@@ -449,7 +450,8 @@ struct WaterSettings
     float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
     float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water
     float swash     = 0.6f;      // 0..1: the film of water running up the beach and back (Swash)
-    float swashHeight = 0.06f;   // yards of height the swash climbs above the water at most
+    float swashRun  = 1.5f;      // yards along the ground the swash runs up the beach at most
+    float swashHeight = 0.3f;    // yards of height it climbs at most, whatever the run: a steep bank stops it
     float wake      = 0.6f;      // 0..1: the wake behind anyone moving through the water (Wake)
     float cover     = 0.5f;      // 0..1: how much the water covers a body in it (Underwater Cover)
     float refraction = 0.125f;   // yards: how far the waves bend what lies under the water (Underwater Distortion:

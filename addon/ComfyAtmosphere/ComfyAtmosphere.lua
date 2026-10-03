@@ -64,6 +64,8 @@ COMFYATMOSPHERE_WATER_SWASH    = "Swash";
 COMFYATMOSPHERE_WATER_GLINT    = "Sun Glint";
 COMFYATMOSPHERE_WATER_MOON_GLINT = "Moon Glint";
 COMFYATMOSPHERE_WATER_GLINT_SIZE = "Glint Size";
+COMFYATMOSPHERE_WATER_EDGE     = "Edge Line";
+COMFYATMOSPHERE_WATER_EDGE_WIDTH = "Edge Line Width";
 COMFYATMOSPHERE_WAVE_HEIGHT    = "Wave Height";
 COMFYATMOSPHERE_WAVE_SIZE      = "Wave Size";
 COMFYATMOSPHERE_SHADE_TINT     = "Shade Colour";
@@ -597,13 +599,37 @@ local ENTRIES = {
 	{
 		-- A percentage: comfyfog.dll divides it by 100 for [water] swash.
 		name = "COMFYATMOSPHERE_WATER_SWASH",
-		desc = "A thin film of water that runs up the beach and slides back, with foam on its edge. 0 is off.",
+		desc = "The water runs up the beach and slides back, with foam on its edge. 0 is off.",
 		type = "slider",
 		cvar = "comfyWaterSwash",
 		dependency = { "comfyWater", "1" },
 		minval = 0,
 		maxval = 100,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] edgeLine.
+		name = "COMFYATMOSPHERE_WATER_EDGE",
+		desc = "How bright the thin white line is where the water meets the sand. 0 is off.",
+		type = "slider",
+		cvar = "comfyWaterEdge",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] edgeWidth.
+		name = "COMFYATMOSPHERE_WATER_EDGE_WIDTH",
+		desc = "How wide that line is, in tenths of a yard along the sand.",
+		type = "slider",
+		cvar = "comfyWaterEdgeWidth",
+		dependency = { "comfyWater", "1" },
+		minval = 1,
+		maxval = 20,
+		step = 1,
 		numberLabels = 1,
 	},
 	{
@@ -965,6 +991,7 @@ local WINDOW_SECTIONS = {
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
 	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake",
+	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",
 	             "comfyWaveSize" } },

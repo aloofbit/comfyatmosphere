@@ -61,6 +61,8 @@ namespace
         { "water.glint",         "Sun Glint" },
         { "water.moonGlint",     "Moon Glint" },
         { "water.glintSize",     "Glint Size" },
+        { "water.edgeLine",      "Edge Line" },
+        { "water.edgeWidth",     "Edge Line Width" },
         { "water.waveHeight",    "Wave Height" },
         { "water.waveScale",     "Wave Size" },
         { "sunshadows.enabled",  "Sun Shadows" },

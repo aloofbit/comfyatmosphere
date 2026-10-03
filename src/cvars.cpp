@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -163,6 +163,8 @@ namespace
         "comfyWaterGlint",
         "comfyWaterMoonGlint",
         "comfyWaterGlintSize",
+        "comfyWaterEdge",
+        "comfyWaterEdgeWidth",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -316,6 +318,8 @@ namespace
         case kWaterGlint:     snprintf(out, cap, "%.0f", s.water.glint * 100.0f); break;       // percent
         case kWaterMoonGlint: snprintf(out, cap, "%.0f", s.water.moonGlint * 100.0f); break;   // percent
         case kWaterGlintSize: snprintf(out, cap, "%.0f", s.water.glintSize * 100.0f); break;   // percent
+        case kWaterEdge:      snprintf(out, cap, "%.0f", s.water.edgeLine * 100.0f); break;    // percent
+        case kWaterEdgeWidth: snprintf(out, cap, "%.0f", s.water.edgeWidth * 10.0f); break;    // tenths of a yard
         // Thousandths: density 0.015 is 15, anisotropy 0.025 is 25. Distance in yards.
         case kVolumeDensity:  snprintf(out, cap, "%.0f", s.volume.density * 1000.0f); break;
         case kVolumeDistance: snprintf(out, cap, "%.0f", s.volume.maxDistance); break;
@@ -393,6 +397,8 @@ namespace
         if (c[kWaterGlint].seen)     s.water.glint     = Clamp(c[kWaterGlint].value * 0.01f, 0.0f, 3.0f);
         if (c[kWaterMoonGlint].seen) s.water.moonGlint = Clamp(c[kWaterMoonGlint].value * 0.01f, 0.0f, 3.0f);
         if (c[kWaterGlintSize].seen) s.water.glintSize = Clamp(c[kWaterGlintSize].value * 0.01f, 0.25f, 4.0f);
+        if (c[kWaterEdge].seen)      s.water.edgeLine  = Clamp(c[kWaterEdge].value * 0.01f, 0.0f, 1.0f);
+        if (c[kWaterEdgeWidth].seen) s.water.edgeWidth = Clamp(c[kWaterEdgeWidth].value * 0.1f, 0.05f, 3.0f);
         if (c[kVolumeDensity].seen)  s.volume.density  = Clamp(c[kVolumeDensity].value * 0.001f, 0.0f, 0.05f);
         if (c[kVolumeDistance].seen) s.volume.maxDistance = Clamp(c[kVolumeDistance].value, 20.0f, 1000.0f);
         if (c[kVolumeDirection].seen) s.volume.anisotropy = Clamp(c[kVolumeDirection].value * 0.001f, 0.0f, 0.95f);
