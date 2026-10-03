@@ -81,6 +81,7 @@ float4 gW3 : register(c247);
 float4 gUp : register(c248);   // (view x projection)'s third row: a yard up, in clip space
 float4 gSw : register(c249);   // the camera's x and y in the world, seconds, the swell's height (0: none)
 float4 gSs : register(c250);   // 1 / waveScale; 1 for water in a building (no depth in its vertices, no swell)
+float4 gCellsV : register(c251); // the chunk's wet cells, as the pixel shader's c210 (FullGridDraw)
 // The swell: three long trains of waves, each its own way and length (24, 17 and 11 yards x waveScale),
 // at the speed of waves on deep water. 0 to 1: the surface only ever rises, so the game's flat water under
 // it never shows through a trough.
@@ -115,7 +116,7 @@ float2 SwellSlope(float2 p, float t, float inv)
     return g;
 }
 struct O { float4 pos : POSITION; float3 rel : TEXCOORD0; float amp : TEXCOORD1; float gd : TEXCOORD2;
-           float z0 : TEXCOORD3; };
+           float z0 : TEXCOORD3; float2 cell : TEXCOORD4; };
 // uv.y is the water's depth at the vertex, from the map files: 0.0549 at 8.1 yards and 0.1176 at 17.4 in the
 // probe, depth / 148. The swell lifts only water 2.5 yards deep and more, in full from 6.5: the grid has a
 // point every 4.2 yards, and lifted next to a steep bank its triangles stood up over the bank as straight lines
@@ -126,7 +127,23 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     float3 rel = (p.x * gW0 + p.y * gW1 + p.z * gW2 + gW3).xyz;
     // In a building (gSs.y) uv is the texture's, not the map's depth: no swell, and a nominal depth.
     const bool city = gSs.y > 0.5;
-    float  amp = city ? 0.0 : gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
+    // No swell on a point that no wet cell touches (2026-10-03): the whole grid is drawn for the swash, and some
+    // dry points carry a deep water depth in the map files. The swell lifted the water's level in the dry cells,
+    // and at each wave top the water ran far up the beach (Longshore). Wet: a cell of the 4 round the point.
+    bool touchesWet = false;
+    {
+        const float2 g = floor(-p.xy * 0.24 + 0.5);   // the point's row and column (4.1667 yards apart)
+        [unroll] for (int i = 0; i < 4; ++i)
+        {
+            const float2 rc = g - float2(i / 2, i % 2);
+            if (all(rc >= 0.0) && all(rc <= 7.0))
+            {
+                const float bits = rc.x < 2.0 ? gCellsV.x : rc.x < 4.0 ? gCellsV.y : rc.x < 6.0 ? gCellsV.z : gCellsV.w;
+                touchesWet = touchesWet || fmod(floor(bits * exp2(-(fmod(rc.x, 2.0) * 8.0 + rc.y))), 2.0) > 0.5;
+            }
+        }
+    }
+    float  amp = city || !touchesWet ? 0.0 : gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
     // The open sea settles (2026-10-03): far out, real water reads as flat, and the grid's big triangles of
     // swell were the part that looked wrong. Gone between 80 and 220 yards; the light follows (amp).
     amp *= 1.0 - smoothstep(80.0, 220.0, length(rel));
@@ -136,6 +153,7 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     o.amp = amp;
     o.gd  = city ? 3.0 : uv.y * 148.0;   // the water's depth at the vertex, as the map files give it
     o.z0  = rel.z;          // the flat water's height, camera-relative, before the swell lifts it
+    o.cell = p.xy;          // in the chunk: 0 to -33.3 yards, rows along -x, columns along -y
     return o;
 }
 )HLSL";
@@ -172,6 +190,7 @@ float4 gI1   : register(c206);
 float4 gI2   : register(c207);
 float4 gI3   : register(c208);
 float4 gBright : register(c209);   // the water's brightness (Water Brightness)
+float4 gCells : register(c210);    // the chunk's wet cells: 8 bits a row, two rows in each (FullGridDraw)
 float4 gWake : register(c202);     // trails in use, the wake's strength, 1 with the swash, its height (yards)
 float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
 float4 gSw2  : register(c168);     // the shore waves' height (the swell's height x 0.25; 0: none); 1 on a body;
@@ -293,7 +312,7 @@ float3 WaveNormal(float2 p, float t, float strength, float2 swell, float dist)
     // Split in two: MSVC takes no string literal longer than 16 KB (C2026).
     R"HLSL(
 float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2, float z0 : TEXCOORD3,
-            float2 vpos : VPOS) : COLOR
+            float2 cell : TEXCOORD4, float2 vpos : VPOS) : COLOR
 {
     // Seen from under the water: no foam.
     clip(-rel.z);
@@ -323,6 +342,25 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // Not in a building (gSw2.w): the map has no depth for its water, and the depth copy's is the real one.
     const float mapK = farSlice ? 1.0 : smoothstep(40.0, 90.0, dist) * (gSw2.y > 0.5 || gSw2.w > 0.5 ? 0.0 : 1.0);
     depth = lerp(depth, gd, mapK);
+)HLSL"
+    R"HLSL(
+    // Debug View 22: the height over the flat water before any cut, as contours every 0.1 yards (a dark line
+    // each, a brighter one each yard): green above the water, red below; blue tint on the cells the game leaves
+    // dry. The whole grid of every chunk is drawn.
+    if (gFoam.w > 6.5 && gFoam.w < 7.5)
+    {
+        const float2 rc  = clamp(floor(-cell * 0.24), 0.0, 7.0);
+        const float  bits = rc.x < 2.0 ? gCells.x : rc.x < 4.0 ? gCells.y : rc.x < 6.0 ? gCells.z : gCells.w;
+        const float  wetC = fmod(floor(bits * exp2(-(fmod(rc.x, 2.0) * 8.0 + rc.y))), 2.0);
+        const float  h    = -depth;
+        const float  band = frac(abs(h) * 10.0);
+        const float  ink  = band < 0.12 ? (frac(abs(h)) < 0.1 ? 1.0 : 0.35) : 0.0;
+        float3 col = h > 0.0 ? float3(0.1, 0.5 + 0.5 * saturate(1.0 - h / 3.0), 0.1)
+                             : float3(0.5 + 0.5 * saturate(1.0 + h / 3.0), 0.1, 0.1);
+        col = lerp(col, float3(0, 0, 0), ink);
+        col = wetC > 0.5 ? col : lerp(col, float3(0.2, 0.3, 1.0), 0.4);
+        return float4(abs(h) < 3.0 ? col : float3(0.05, 0.05, 0.05), 1.0);
+    }
     // Two parts (2026-10-02): the water, depth tested and writing depth, and the sand beside it, not tested.
     // Each pixel belongs to one: where our water is drawn (wv > 0), the water part.
     float  wvIs = smoothstep(0.0, 0.03, depth) * gDeep.w * gWave.z;
@@ -346,6 +384,15 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // and the water: from 40 yards out the shore, its foam, lip and edge line, drawn without the depth test,
     // showed through the hill in front of it. Not past the world's slice, nor on a body.
     clip(farSlice || onBody ? 1.0 : depthSeen + (gWake.z > 0.5 ? gGlint.z + 0.05 : 0.45));
+    // A cell the game leaves dry (2026-10-03): the sand part covers the whole grid, for the swash past the last
+    // wet cell, but there only above the flat water: the game draws no water in a dry cell, so nothing under its
+    // level is ours to fill either.
+    {
+        const float2 rc  = clamp(floor(-cell * 0.24), 0.0, 7.0);     // row, column (4.1667 yards a cell)
+        const float  bits = rc.x < 2.0 ? gCells.x : rc.x < 4.0 ? gCells.y : rc.x < 6.0 ? gCells.z : gCells.w;
+        const float  wet = fmod(floor(bits * exp2(-(fmod(rc.x, 2.0) * 8.0 + rc.y))), 2.0);
+        clip(wet > 0.5 ? 1.0 : -depth);
+    }
 
     // How far the waterline is, across the water: the depth over the bed's slope. The slope is how fast the
     // depth grows per yard of the surface, from the pixels beside this one. On a gentle beach the depth stays
@@ -380,6 +427,12 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float2 grad = abs(det) > 1e-8 ? float2(ex * gy.y - gx.y * ey, gx.x * ey - gy.x * ex) / det : float2(0, 0);
     float  slope = clamp(length(grad), 0.02, 4.0);
     float  reach = depthF / slope;
+    // Debug View 23: the slope the swash and the shore waves use: brighter up to 0.3, a dark line every 0.05.
+    if (gFoam.w > 7.5 && gFoam.w < 8.5)
+    {
+        const float sv = length(grad);
+        return float4(lerp(saturate(sv / 0.3).xxx * float3(1.0, 0.8, 0.3), 0.0, frac(sv * 20.0) < 0.1 ? 0.8 : 0.0), 1.0);
+    }
     // The steeper what lies under the water, the less depth the foam takes: a leg or a post gets a thin collar
     // at the surface. Without it a character's legs were white down to the knees (2026-10-02).
     float  shore = saturate(1.0 - max(depth * gFoam.x * (1.0 + slope * 4.0), reach * gReach.x));
@@ -535,6 +588,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         // No swash in a building: it climbed the canals' stone walls.
         depthS = onBody || gSw2.w > 0.5 ? depth : depth + upS;
         reachS = depthS / slope;
+
     }
     // One shoreline (2026-10-03): the water itself runs up the sand to the moving edge, waves, sky and glint and
     // all. The swash was a flat film of its own in the wet sand pass, and where it met this water, at the flat
@@ -901,6 +955,8 @@ float4 main(float2 vpos : VPOS) : COLOR
     IDirect3DPixelShader9*  g_wetPs = nullptr;
     IDirect3DTexture9*      g_level = nullptr;     // the water level of each map cell round you
     IDirect3DStateBlock9*   g_wetSb = nullptr;
+    IDirect3DIndexBuffer9*  g_gridIb = nullptr;   // all 8 x 8 cells of a water chunk (FullGridDraw)
+    bool                    g_gridFailed = false;
     constexpr int           kLevelCells = 64;
     constexpr float         kCell = 1600.0f / 3.0f / 128.0f;   // a map cell: 4.17 yards (mapterrain.cpp)
     int                     g_levelX = 0x7FFFFFFF, g_levelY = 0x7FFFFFFF;   // the first cell, by index
@@ -976,7 +1032,7 @@ float4 main(float2 vpos : VPOS) : COLOR
 
     // The probe.
     bool        g_probeOn = false;
-    unsigned    g_pCount = 0, g_pFirst = 0, g_pLast = 0, g_pDetailed = 0, g_pOther = 0;
+    unsigned    g_pCount = 0, g_pFirst = 0, g_pLast = 0, g_pDetailed = 0, g_pOther = 0, g_pShore = 0;
     std::map<UINT, unsigned>        g_pByVerts;
     std::map<void*, std::string>    g_pByTex;    // each texture on stage 0: the draws and the first one's place
     std::map<void*, unsigned>       g_pTexCount;
@@ -1636,6 +1692,111 @@ float4 main(float2 vpos : VPOS) : COLOR
     }
 }
 
+namespace
+{
+    // A shore chunk (fewer than the 128 triangles of a full grid): every point of its vertex buffer, and the
+    // cells its triangles cover. Whether the points of the dry cells carry the water's level (2026-10-03, the
+    // swash cut off where the game's mesh ends).
+    void ProbeShore(IDirect3DDevice9* dev, const WaterChunk& c, bool full)
+    {
+        auto* d = dev->lpVtbl;
+        IDirect3DVertexBuffer9* vb = nullptr;
+        IDirect3DIndexBuffer9*  ib = nullptr;
+        UINT off = 0, stride = 0;
+        if (FAILED(d->GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb || stride < 40 ||
+            FAILED(d->GetIndices(dev, &ib)) || !ib)
+        {
+            if (vb) vb->lpVtbl->Release(vb);
+            if (ib) ib->lpVtbl->Release(ib);
+            Log("water shore chunk: buffers not readable");
+            return;
+        }
+        D3DINDEXBUFFER_DESC idesc = {};
+        ib->lpVtbl->GetDesc(ib, &idesc);
+        const UINT isz = idesc.Format == D3DFMT_INDEX32 ? 4 : 2;
+        // The game draws a strip (prim 5): primCount + 2 indices.
+        std::vector<uint32_t> idx(c.prim == D3DPT_TRIANGLESTRIP ? c.primCount + 2 : c.primCount * 3);
+        void* ip = nullptr;
+        if (SUCCEEDED(ib->lpVtbl->Lock(ib, c.startIndex * isz, static_cast<UINT>(idx.size()) * isz, &ip,
+                                       D3DLOCK_READONLY)) && ip)
+        {
+            for (size_t i = 0; i < idx.size(); ++i)
+            {
+                if (isz == 4) memcpy(&idx[i], static_cast<const uint8_t*>(ip) + i * 4, 4);
+                else { uint16_t v; memcpy(&v, static_cast<const uint8_t*>(ip) + i * 2, 2); idx[i] = v; }
+            }
+            ib->lpVtbl->Unlock(ib);
+        }
+        else
+            idx.clear();
+        const UINT n = c.numVertices;
+        std::vector<float> f(n * 10);
+        void* vp = nullptr;
+        const UINT first = static_cast<UINT>(c.baseVertex + static_cast<INT>(c.minIndex));
+        const bool vok = SUCCEEDED(vb->lpVtbl->Lock(vb, off + first * stride, n * stride, &vp, D3DLOCK_READONLY)) && vp;
+        if (vok)
+        {
+            for (UINT i = 0; i < n; ++i)
+                memcpy(&f[i * 10], static_cast<const uint8_t*>(vp) + i * stride, 40);
+            vb->lpVtbl->Unlock(vb);
+        }
+        vb->lpVtbl->Release(vb);
+        ib->lpVtbl->Release(ib);
+        float cam[3] = {};
+        ClientCamera(cam);
+        Log("water shore chunk: prim %d, %u vertices from %u (base %d min %u), %u triangles from index %u, %u-byte "
+            "indices, world translation (%.1f %.1f %.1f), the camera (%.1f %.1f %.1f)", static_cast<int>(c.prim), n,
+            first, c.baseVertex, c.minIndex, c.primCount, c.startIndex, isz, c.world->m[3][0], c.world->m[3][1],
+            c.world->m[3][2], cam[0], cam[1], cam[2]);
+        if (!vok)
+            return;
+        // Each point's height, apart for the points of drawn cells and the rest.
+        std::vector<bool> wetV(n, false);
+        const bool strip = c.prim == D3DPT_TRIANGLESTRIP;
+        for (size_t t = 0; t + 2 < idx.size(); t += strip ? 1 : 3)
+        {
+            const uint32_t a = idx[t], b = idx[t + 1], e = idx[t + 2];
+            if (a == b || b == e || a == e)
+                continue;
+            for (uint32_t v : { a, b, e })
+                if (v >= c.minIndex && v - c.minIndex < n)
+                    wetV[v - c.minIndex] = true;
+        }
+        float wz0 = 1e9f, wz1 = -1e9f, dz0 = 1e9f, dz1 = -1e9f;
+        int nw = 0;
+        for (UINT i = 0; i < n; ++i)
+        {
+            const float z = f[i * 10 + 2];
+            if (wetV[i]) { wz0 = (std::min)(wz0, z); wz1 = (std::max)(wz1, z); ++nw; }
+            else         { dz0 = (std::min)(dz0, z); dz1 = (std::max)(dz1, z); }
+        }
+        std::string map;
+        for (UINT r = 0; r < 9 && n == 81; ++r)
+        {
+            map += r ? "/" : "";
+            for (UINT k = 0; k < 9; ++k)
+                map += wetV[r * 9 + k] ? "#" : ".";
+        }
+        float gz = 0.0f, mz = 0.0f;
+        const float cx = c.world->m[3][0] - 16.7f + cam[0], cy = c.world->m[3][1] - 16.7f + cam[1];
+        const bool hasW = MapWaterHeight(cx, cy, mz), hasG = MapGroundHeight(cx, cy, gz);
+        Log("    %d points of drawn cells, heights %.3f..%.3f (in the world %.3f..%.3f); the others %.3f..%.3f; "
+            "the map at its middle: water %s %.2f, ground %s %.2f; points %s", nw, wz0, wz1, wz0 + c.world->m[3][2]
+            + cam[2], wz1 + c.world->m[3][2] + cam[2], dz0, dz1, hasW ? "at" : "none", mz, hasG ? "at" : "unknown", gz,
+            map.c_str());
+        if (!full)
+            return;
+        for (UINT i = 0; i < n; ++i)
+            Log("    v%2u: (%.2f %.2f %.3f) n (%.2f %.2f %.2f) uv0 (%.4f %.4f) uv1 (%.4f %.4f)", i, f[i * 10],
+                f[i * 10 + 1], f[i * 10 + 2], f[i * 10 + 3], f[i * 10 + 4], f[i * 10 + 5], f[i * 10 + 6],
+                f[i * 10 + 7], f[i * 10 + 8], f[i * 10 + 9]);
+        std::string tri;
+        for (uint32_t v : idx)
+            tri += " " + std::to_string(v - c.minIndex);
+        Log("    indices (vertex numbers from the first):%s", tri.c_str());
+    }
+}
+
 bool WaterWanted()
 {
     const WaterSettings& w = g_cfg.water;
@@ -1886,6 +2047,129 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
     g_psc[190] = g_sceneOk ? 1.0f : 0.0f;
 }
 
+namespace
+{
+    const float kAllWet[4] = { 65535.0f, 65535.0f, 65535.0f, 65535.0f };
+
+    // Which of the chunk's 8 x 8 cells the game draws, from its strip (or list) of indices, into c210: 8 bits a
+    // row, two rows to a register component, so each is a whole number under 65536 that a float holds exactly.
+    bool WetCells(IDirect3DDevice9* dev, const WaterChunk& c)
+    {
+        static bool told = false;
+        if (c.prim != D3DPT_TRIANGLESTRIP && c.prim != D3DPT_TRIANGLELIST)
+            return false;
+        auto* d = dev->lpVtbl;
+        IDirect3DIndexBuffer9* ib = nullptr;
+        if (FAILED(d->GetIndices(dev, &ib)) || !ib)
+            return false;
+        D3DINDEXBUFFER_DESC desc = {};
+        ib->lpVtbl->GetDesc(ib, &desc);
+        const UINT isz = desc.Format == D3DFMT_INDEX32 ? 4 : 2;
+        const bool strip = c.prim == D3DPT_TRIANGLESTRIP;
+        const UINT n = strip ? c.primCount + 2 : c.primCount * 3;
+        void* p = nullptr;
+        if (FAILED(ib->lpVtbl->Lock(ib, c.startIndex * isz, n * isz, &p, D3DLOCK_READONLY)) || !p)
+        {
+            ib->lpVtbl->Release(ib);
+            if (!told)
+                Log("water: the game's water indices could not be read; the swash stops at its last wet cell");
+            told = true;
+            return false;
+        }
+        if (!told)
+            Log("water: the game's water indices: pool %d, usage 0x%lX, %u-byte", static_cast<int>(desc.Pool),
+                desc.Usage, isz);
+        told = true;
+        uint32_t rows[8] = {};
+        auto at = [&](UINT i) -> int {
+            uint32_t v;
+            if (isz == 4) memcpy(&v, static_cast<const uint8_t*>(p) + i * 4, 4);
+            else { uint16_t h; memcpy(&h, static_cast<const uint8_t*>(p) + i * 2, 2); v = h; }
+            return static_cast<int>(v) - static_cast<int>(c.minIndex);
+        };
+        for (UINT t = 0; t < c.primCount; ++t)
+        {
+            const UINT i = strip ? t : t * 3;
+            const int k[3] = { at(i), at(i + 1), at(i + 2) };
+            if (k[0] == k[1] || k[1] == k[2] || k[0] == k[2])
+                continue;   // a strip's joins
+            int r0 = 8, r1 = -1, c0 = 8, c1 = -1;
+            bool ok = true;
+            for (int j = 0; j < 3; ++j)
+            {
+                if (k[j] < 0 || k[j] > 80) { ok = false; break; }
+                r0 = (std::min)(r0, k[j] / 9); r1 = (std::max)(r1, k[j] / 9);
+                c0 = (std::min)(c0, k[j] % 9); c1 = (std::max)(c1, k[j] % 9);
+            }
+            if (ok && r1 - r0 == 1 && c1 - c0 == 1)
+                rows[r0] |= 1u << c0;
+        }
+        ib->lpVtbl->Unlock(ib);
+        ib->lpVtbl->Release(ib);
+        float m[4];
+        for (int j = 0; j < 4; ++j)
+            m[j] = static_cast<float>(rows[j * 2] | (rows[j * 2 + 1] << 8));
+        if (g_probeOn && std::hypot(c.world->m[3][0] - 16.7f, c.world->m[3][1] - 16.7f) < 70.0f)
+            Log("water: wet cells of the chunk at (%.1f %.1f %.1f), %u triangles from index %u, base %d: rows %02X %02X "
+                "%02X %02X %02X %02X %02X %02X", c.world->m[3][0], c.world->m[3][1], c.world->m[3][2], c.primCount,
+                c.startIndex, c.baseVertex, rows[0], rows[1], rows[2], rows[3], rows[4], rows[5], rows[6], rows[7]);
+        d->SetPixelShaderConstantF(dev, kPsReg + 90, m, 1);
+        d->SetVertexShaderConstantF(dev, kVsReg + 11, m, 1);
+        return true;
+    }
+
+    // The sand part over the chunk's whole grid, the dry cells too (2026-10-03). The game leaves the dry cells
+    // out of its strip, and the swash, drawn by this pass since it became one shoreline, stopped at the last wet
+    // cell: a straight cut with steps across the sand. All 81 points of a chunk carry the water's level, the dry
+    // ones too (measured at Westfall's coast), so the dry cells are the same flat plane, and the shader cuts it
+    // away above the moving edge. Rows of 9 points along -x, 4.17 yards apart. A chunk with no water at all is
+    // not drawn, so the cut can still show at a chunk's edge.
+    void FullGridDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw)
+    {
+        auto* d = dev->lpVtbl;
+        if (!g_gridIb && !g_gridFailed)
+        {
+            if (SUCCEEDED(d->CreateIndexBuffer(dev, 8 * 8 * 6 * 2, D3DUSAGE_WRITEONLY, D3DFMT_INDEX16,
+                                               D3DPOOL_MANAGED, &g_gridIb, nullptr)))
+            {
+                void* p = nullptr;
+                if (SUCCEEDED(g_gridIb->lpVtbl->Lock(g_gridIb, 0, 0, &p, 0)) && p)
+                {
+                    uint16_t* i = static_cast<uint16_t*>(p);
+                    for (uint16_t r = 0; r < 8; ++r)
+                        for (uint16_t k = 0; k < 8; ++k)
+                        {
+                            const uint16_t a = r * 9 + k, b = a + 1, e = a + 9, f = a + 10;
+                            *i++ = a; *i++ = e; *i++ = b;
+                            *i++ = b; *i++ = e; *i++ = f;
+                        }
+                    g_gridIb->lpVtbl->Unlock(g_gridIb);
+                }
+                else
+                    SafeRelease(g_gridIb);
+            }
+            if (!g_gridIb)
+            {
+                g_gridFailed = true;
+                Log("water: no index buffer for the whole grid; the swash stops at the game's last wet cell");
+            }
+        }
+        if (!g_gridIb || c.city || c.numVertices != 81 || !WetCells(dev, c))
+        {
+            draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+            return;
+        }
+        IDirect3DIndexBuffer9* old = nullptr;
+        d->GetIndices(dev, &old);
+        d->SetIndices(dev, g_gridIb);
+        draw(dev, D3DPT_TRIANGLELIST, c.baseVertex + static_cast<INT>(c.minIndex), 0, 81, 0, 128);
+        d->SetIndices(dev, old);
+        if (old) old->lpVtbl->Release(old);
+        d->SetPixelShaderConstantF(dev, kPsReg + 90, kAllWet, 1);
+        d->SetVertexShaderConstantF(dev, kVsReg + 11, kAllWet, 1);
+    }
+}
+
 void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw)
 {
     if (!g_copyOk || !WaterWanted() || g_cfg.water.debug == 6)
@@ -1895,7 +2179,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     D3DMATRIX wv, wvp;
     Mul(*c.world, *c.view, wv);
     Mul(wv, *c.proj, wvp);
-    float vc[11 * 4] = {};
+    float vc[12 * 4] = {};
     memcpy(vc, &wvp, 64);
     memcpy(vc + 16, c.world, 64);
     // The swell: a yard up in clip space, and its height. Only with our surface: the game's flat water is
@@ -1910,6 +2194,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     vc[39] = g_sceneOk && g_cfg.water.surface > 0.0f ? g_cfg.water.waveHeight : 0.0f;
     vc[40] = 1.0f / g_cfg.water.waveScale;
     vc[41] = c.city ? 1.0f : 0.0f;
+    memcpy(vc + 44, kAllWet, sizeof(kAllWet));   // c251, the chunk's own for the whole grid (FullGridDraw)
 
     IDirect3DVertexShader9* oldVs = nullptr;
     IDirect3DPixelShader9*  oldPs = nullptr;
@@ -1923,8 +2208,8 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
             d->SetRenderState(dev, kTouched[i], kFoamState[i]);
     }
     // The client sets vertex registers up to c255 (the probe, 2026-10-02): its own c240 to c247 go back after.
-    float oldVc[11 * 4];
-    const bool haveVc = SUCCEEDED(d->GetVertexShaderConstantF(dev, kVsReg, oldVc, 11));
+    float oldVc[12 * 4];
+    const bool haveVc = SUCCEEDED(d->GetVertexShaderConstantF(dev, kVsReg, oldVc, 12));
     // Not on a body: the body mask marks every unit's pixels in the stencil as the world is drawn, and the foam
     // passes only where the mark is clear. At a body's edge the foam took the body for flat ground beside the
     // water, and its hips went white (2026-10-02).
@@ -1942,8 +2227,9 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     }
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
-    d->SetVertexShaderConstantF(dev, kVsReg, vc, 11);
+    d->SetVertexShaderConstantF(dev, kVsReg, vc, 12);
     d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 90);
+    d->SetPixelShaderConstantF(dev, kPsReg + 90, kAllWet, 1);   // c210, set again for the sand part
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -1985,7 +2271,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     const float cityW = c.city ? 1.0f : 0.0f;
     const float sw2[4] = { g_psc[192], g_psc[193], g_psc[194], cityW };
     d->SetPixelShaderConstantF(dev, kPsReg + 48, sw2, 1);
-    draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+    FullGridDraw(dev, c, draw);
     if (surface)
     {
         DWORD oz[4];
@@ -2031,7 +2317,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         for (int i = 0; i < kStencilCount; ++i)
             d->SetRenderState(dev, kStencil[i], oldSt[i]);
     if (haveVc)
-        d->SetVertexShaderConstantF(dev, kVsReg, oldVc, 11);
+        d->SetVertexShaderConstantF(dev, kVsReg, oldVc, 12);
     d->SetVertexShader(dev, oldVs);
     d->SetPixelShader(dev, oldPs);
     for (int i = 0; i < kTouchedCount; ++i)
@@ -2089,6 +2375,13 @@ void WaterProbeDraw(IDirect3DDevice9* dev, const WaterChunk& c, unsigned index, 
     {
         ++g_pDetailed;
         ProbeDetail(dev, c, index);
+    }
+    // Every shore chunk within 70 yards, in short; the first in full.
+    if (g_pShore < 40 && !c.city && c.primCount < 128 &&
+        std::hypot(c.world->m[3][0] - 16.7f, c.world->m[3][1] - 16.7f) < 70.0f)
+    {
+        ProbeShore(dev, c, g_pShore == 0);
+        ++g_pShore;
     }
 }
 
@@ -2348,6 +2641,8 @@ void WaterReset()
     SafeRelease(g_foamTex);
     g_foamTexState = 0;
     SafeRelease(g_wetSb);
+    SafeRelease(g_gridIb);
+    g_gridFailed = false;
     SafeRelease(g_wetVs);
     SafeRelease(g_wetPs);
     SafeRelease(g_level);
@@ -2375,7 +2670,7 @@ void WaterReset()
 void WaterProbe()
 {
     g_probeOn = true;
-    g_pCount = g_pFirst = g_pLast = g_pDetailed = g_pOther = 0;
+    g_pCount = g_pFirst = g_pLast = g_pDetailed = g_pOther = g_pShore = 0;
     g_pByVerts.clear();
     g_pByTex.clear();
     g_pTexCount.clear();

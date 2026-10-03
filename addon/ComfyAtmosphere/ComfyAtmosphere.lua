@@ -919,11 +919,13 @@ local ENTRIES = {
 			.. "18 water: the wet sand alone\n"
 			.. "19 water: what lies under it, bent and tinted\n"
 			.. "20 water: ripples (red, green) and the wake (blue)\n"
-			.. "21 water: the game's own water drawn (red), other liquid (magenta), ours off",
+			.. "21 water: the game's own water drawn (red), other liquid (magenta), ours off\n"
+			.. "22 water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)\n"
+			.. "23 water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 21,
+		maxval = 23,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -1474,6 +1476,8 @@ local DEBUG_VIEWS = {
 	"water: what lies under it, bent and tinted",
 	"water: ripples (red, green) and the wake (blue)",
 	"water: the game's own water drawn (red), other liquid (magenta), ours off",
+	"water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)",
+	"water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)",
 };
 
 local PANEL_BACKDROP = {

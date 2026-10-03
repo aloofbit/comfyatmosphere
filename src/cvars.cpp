@@ -196,6 +196,8 @@ namespace
         { "water: what lies under it, bent and tinted",       0, 0, 0, 0, 0, 4 },
         { "water: ripples (red, green) and the wake (blue)",  0, 0, 0, 0, 0, 5 },
         { "water: the game's own water drawn (red), other liquid (magenta), ours off", 0, 0, 0, 0, 0, 6 },
+        { "water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)", 0, 0, 0, 0, 0, 7 },
+        { "water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)", 0, 0, 0, 0, 0, 8 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;
