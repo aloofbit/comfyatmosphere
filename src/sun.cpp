@@ -52,6 +52,23 @@ namespace
     float g_loggedDir[3] = { 0.0f, 0.0f, 0.0f };
     int   g_sunLogs      = 0;
 
+    // The two moons, each held in the world where it was last seen (2026-10-03). The sky draws only the moons
+    // on screen. With one off screen the other was "the first quad", and the light, the shadows, the rays and
+    // the water's glint jumped 110 degrees from one moon to the other as the camera turned. Slot 0 is the
+    // larger moon (drawn first when both are), slot 1 the other.
+    struct Moon
+    {
+        float  dir[3];
+        bool   known;
+        double seen;     // when a quad last matched it
+        double missed;   // since when it has been on screen and not drawn; 0 while it is drawn or off screen
+    };
+    Moon g_moons[2] = {};
+    int  g_moonLogs = 0;
+    constexpr float  kMoonMatch = 0.9659f;   // cos 15 degrees: a quad this near a held moon is that moon
+    constexpr double kMoonHold  = 600.0;     // seconds a moon is held unseen
+    constexpr double kMoonGone  = 1.0;       // seconds on screen and not drawn before a moon counts as set
+
     // Camera space -> world space. The camera matrix is a pure rotation here (this client folds the
     // camera position into every world matrix), so its inverse is its transpose: for D3D's row vectors,
     // world[i] = sum_j view_dir[j] * V[i][j].
@@ -64,6 +81,136 @@ namespace
             return false;
         for (int i = 0; i < 3; ++i)
             d[i] /= len;
+        return true;
+    }
+
+    float Dot3(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+    // World -> camera space: the transpose of ViewToWorld.
+    void WorldToView(const float d[3], float v[3])
+    {
+        for (int j = 0; j < 3; ++j)
+            v[j] = d[0] * g_view.m[0][j] + d[1] * g_view.m[1][j] + d[2] * g_view.m[2][j];
+    }
+
+    // Whether a world direction is well inside the screen. A moon there that the sky did not draw has set.
+    bool OnScreen(const float d[3])
+    {
+        if (!g_haveView || !g_haveProj)
+            return false;
+        float v[3];
+        WorldToView(d, v);
+        const float x = v[0] * g_proj.m[0][0] + v[1] * g_proj.m[1][0] + v[2] * g_proj.m[2][0];
+        const float y = v[0] * g_proj.m[0][1] + v[1] * g_proj.m[1][1] + v[2] * g_proj.m[2][1];
+        const float w = v[0] * g_proj.m[0][3] + v[1] * g_proj.m[1][3] + v[2] * g_proj.m[2][3];
+        if (w <= 1e-4f)
+            return false;
+        return fabsf(x / w) < 0.85f && fabsf(y / w) < 0.85f;
+    }
+
+    void MoonLog(const char* what, int slot)
+    {
+        if (g_moonLogs >= 200)
+            return;
+        ++g_moonLogs;
+        const float* d = g_moons[slot].dir;
+        Log("sun: moon %d %s at azimuth %.1f, elevation %.1f", slot + 1, what, atan2f(d[1], d[0]) * 57.29578f,
+            asinf(d[2] < -1.0f ? -1.0f : (d[2] > 1.0f ? 1.0f : d[2])) * 57.29578f);
+    }
+
+    // At night: this frame's moon quads update the held moons; the light follows the larger moon while it is
+    // above the horizon, else the other. Returns false when no moon is held.
+    bool PickMoon(int n, const float dirs[][3], const bool ok[])
+    {
+        const double now = Now();
+        bool matched[2] = { false, false };
+        int  quads[kMaxQuads], nq = 0;
+        for (int q = 0; q < n; ++q)
+            if (ok[q])
+                quads[nq++] = q;
+        if (nq >= 2 && !(g_moons[0].known && g_moons[1].known))
+        {
+            // Both drawn and not both held yet: the draw order says which is which.
+            for (int m = 0; m < 2; ++m)
+            {
+                const bool was = g_moons[m].known;
+                memcpy(g_moons[m].dir, dirs[quads[m]], sizeof(g_moons[m].dir));
+                g_moons[m].known  = true;
+                g_moons[m].seen   = now;
+                g_moons[m].missed = 0.0;
+                matched[m] = true;
+                if (!was)
+                    MoonLog("first seen", m);
+            }
+        }
+        else
+        {
+            // Each quad updates the held moon it is near. One near neither: a moon not held yet takes it,
+            // else it is a stray sky quad and is left out.
+            for (int i = 0; i < nq; ++i)
+            {
+                const float* d = dirs[quads[i]];
+                int   best = -1;
+                float bestDot = kMoonMatch;
+                for (int m = 0; m < 2; ++m)
+                    if (g_moons[m].known && !matched[m] && Dot3(d, g_moons[m].dir) > bestDot)
+                    {
+                        bestDot = Dot3(d, g_moons[m].dir);
+                        best = m;
+                    }
+                if (best < 0)
+                    for (int m = 0; m < 2 && best < 0; ++m)
+                        if (!g_moons[m].known)
+                        {
+                            best = m;
+                            MoonLog("first seen", m);
+                        }
+                if (best < 0)
+                    continue;
+                memcpy(g_moons[best].dir, d, sizeof(g_moons[best].dir));
+                g_moons[best].known  = true;
+                g_moons[best].seen   = now;
+                g_moons[best].missed = 0.0;
+                matched[best] = true;
+            }
+        }
+        // A held moon on screen that the sky has not drawn for a second has set; one unseen for 10 minutes is
+        // let go. A second, not a frame: the sky now and then leaves a moon out of one frame, and let go at
+        // once the larger moon was dropped at 8 degrees up, still in the sky, and the light and the glint
+        // went to the other (2026-10-03).
+        for (int m = 0; m < 2; ++m)
+        {
+            Moon& mo = g_moons[m];
+            if (!mo.known)
+                continue;
+            if (matched[m] || !(mo.dir[2] > 0.0f && OnScreen(mo.dir)))
+                mo.missed = 0.0;
+            else if (mo.missed == 0.0)
+                mo.missed = now;
+            if ((mo.missed > 0.0 && now - mo.missed > kMoonGone) || now - mo.seen > kMoonHold)
+            {
+                MoonLog("let go: not drawn where it was", m);
+                mo.known = false;
+                mo.missed = 0.0;
+            }
+        }
+
+        int pick = -1;
+        for (int m = 0; m < 2 && pick < 0; ++m)
+            if (g_moons[m].known && g_moons[m].dir[2] > 0.0f)
+                pick = m;
+        if (pick < 0)
+            for (int m = 0; m < 2; ++m)
+                if (g_moons[m].known && (pick < 0 || g_moons[m].dir[2] > g_moons[pick].dir[2]))
+                    pick = m;
+        if (pick < 0)
+            return false;
+        WorldToView(g_moons[pick].dir, g_sunView);
+        const int other = 1 - pick;
+        // Down to 4 degrees under the horizon: the disc's top still shows (the water's glint, water.cpp).
+        g_haveSecond = g_moons[other].known && g_moons[other].dir[2] > -0.0698f;
+        if (g_haveSecond)
+            memcpy(g_secondDir, g_moons[other].dir, sizeof(g_secondDir));
         return true;
     }
 
@@ -85,7 +232,11 @@ namespace
         // the rays came from it and from "the second moon" too, so they jumped as the camera tilted. Such a
         // frame is left out: the sun carries on from its own quad.
         float hour = 0.0f;
-        if (n >= 2 && ClientHour(hour) && NightWeight(hour) < 0.5f)
+        const bool haveHour = ClientHour(hour);
+        const bool night = haveHour && NightWeight(hour) >= 0.5f;
+        if (!night)
+            g_moons[0].known = g_moons[1].known = false;
+        if (n >= 2 && haveHour && !night)
         {
             g_haveSecond = false;
             if (n != g_loggedQuads && g_quadLogs < 100)
@@ -119,16 +270,23 @@ namespace
             pick = highest;
         if (pick < 0)
             return;
-        memcpy(g_sunView, g_quads[pick], sizeof(g_sunView));
+        if (night && PickMoon(n, dirs, ok))
+        {
+            // The moons held (PickMoon) set g_sunView and the other moon.
+        }
+        else
+        {
+            memcpy(g_sunView, g_quads[pick], sizeof(g_sunView));
 
-        // The other moon casts rays too ([rays] secondMoon): the first other quad above the horizon.
-        g_haveSecond = false;
-        for (int q = 0; q < n && !g_haveSecond; ++q)
-            if (q != pick && ok[q] && dirs[q][2] > 0.0f)
-            {
-                memcpy(g_secondDir, dirs[q], sizeof(g_secondDir));
-                g_haveSecond = true;
-            }
+            // The other moon casts rays too ([rays] secondMoon): the first other quad above the horizon.
+            g_haveSecond = false;
+            for (int q = 0; q < n && !g_haveSecond; ++q)
+                if (q != pick && ok[q] && dirs[q][2] > 0.0f)
+                {
+                    memcpy(g_secondDir, dirs[q], sizeof(g_secondDir));
+                    g_haveSecond = true;
+                }
+        }
 
         if (n != g_loggedQuads && g_quadLogs < 100)
         {
@@ -233,6 +391,20 @@ bool SunDirection(float dir[3])
         PickQuad();
         SunViewToWorld();
     }
+    else
+    {
+        // A frame with no moon drawn still checks the held moons, once: watching the last moon set, no quad
+        // came, and the set moon was held for good.
+        static unsigned checked = 0;
+        float hour = 0.0f;
+        if (checked != g_sunFrame && g_haveView && (g_moons[0].known || g_moons[1].known) && ClientHour(hour) &&
+            NightWeight(hour) >= 0.5f)
+        {
+            checked = g_sunFrame;
+            if (PickMoon(0, nullptr, nullptr))
+                SunViewToWorld();
+        }
+    }
     float clock[3];
     if (!g_haveSun && !ClockSun(clock))
         return false;
@@ -255,8 +427,11 @@ bool SunDirection(float dir[3])
     // direction was taken only once it had moved 0.05 degrees: the map then held still and jumped, and
     // about every 30 seconds the long shadows of a low sun moved some ten pixels at once. Now it glides
     // toward the measurement with a time constant of 10 seconds: the noise averages out, the real sun is
-    // followed a hair each frame, and a change of more than 5 degrees (the time set by hand) lands at once.
+    // followed a hair each frame, and a change of more than 1.5 degrees (the time set by hand) lands at once.
     // The 10 seconds are [sun] glide since 2026-09-30 (the Sun Smoothing control); 0 follows at once.
+    // 1.5 degrees since 2026-10-03, 5 until then: a comfytime step moves the sky 2.8 degrees, and glided it
+    // barely showed, until a few steps passed 5 and the light, the shadows and the glint jumped at once. The
+    // sky's own steps, 0.56 degrees once a game minute, still glide.
     static float  stable[3] = { 0.0f, 0.0f, 0.0f };
     static bool   have = false;
     static double last = 0.0;
@@ -281,7 +456,7 @@ bool SunDirection(float dir[3])
     }
     memcpy(raw, meas, sizeof(raw));
     const float dot = stable[0] * meas[0] + stable[1] * meas[1] + stable[2] * meas[2];
-    if (!have || dot < 0.9962f)
+    if (!have || dot < 0.99966f)   // more than 1.5 degrees
     {
         memcpy(stable, meas, sizeof(stable));
         have = true;

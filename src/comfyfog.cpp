@@ -1439,7 +1439,11 @@ namespace
     // kept the last direction it had by day.
     void NoteSkySun(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc, UINT nv)
     {
-        if (!g_skyPhase || g_inPass || g_frameDraws >= 48 || prim != D3DPT_TRIANGLESTRIP || pc != 2 || nv != 4)
+        // A quad, or near the horizon a quad cut in two at it, 4 triangles of 6 points, so the part below can
+        // fade (2026-10-03: a moon 10 degrees up was drawn so, not matched, and let go while still in the sky).
+        // The place is the sprite's camera offset, not its corners, so either shape gives the same place.
+        const bool quad = pc == 2 && nv == 4, cut = pc == 4 && nv == 6;
+        if (!g_skyPhase || g_inPass || g_frameDraws >= 48 || prim != D3DPT_TRIANGLESTRIP || !(quad || cut))
             return;
 
         for (int r = 0; r < 3; ++r)

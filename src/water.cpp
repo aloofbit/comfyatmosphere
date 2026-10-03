@@ -679,7 +679,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  gp1  = 700.0 * gGlint.x, gp2 = 60.0 * gGlint.x;
     float3 glint = gSunC.rgb * (gSun.w * (pow(sd, gp1) * 8.0 + pow(sd, gp2) * 0.25) +
                                 gMoon2.w * (pow(sd2, gp1) * 8.0 + pow(sd2, gp2) * 0.25));
-    float3 water = lerp(body, sky, F) + glint;
+    float3 water = lerp(body, sky, F);
     // The ripples lit as the swell is not: brighter on the side of a ring facing the sun, darker behind it, so
     // they show from any side and not only in the glint (2026-10-02).
     float2 sunXY = gSun.xy / max(length(gSun.xy), 0.2);
@@ -688,6 +688,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     water = lerp(water, gFogC.rgb, fogF);
     // And at the line itself it goes into the haze, as the far land does: no hard edge against the sky.
     water = lerp(water, gFogC.rgb, 0.5 * hz * hz);
+    // The glint after the fog and the haze, and through at most half of the fog (2026-10-03). A low moon's
+    // glint lies hundreds of yards out, past the fog's end (417 yards at night in Westfall), and the fog took
+    // it while the moon itself still showed through the sky: the glint went out before the moon had set.
+    water += glint * (1.0 - 0.5 * fogF);
     // The foam on it, lit as the water is: brighter on a slope toward the sun, darker on the back of a wave,
     // a little of the glint; and where it is thin, the water shows through it.
     float  lit   = 0.62 + 0.38 * saturate(dot(N, gSun.xyz) * 1.5) + 0.15 * F;
@@ -1381,15 +1385,36 @@ float4 main(float2 vpos : VPOS) : COLOR
         const float day = 1.0f - 0.8f * night;
         float sun[3] = { 0.0f, 0.0f, 1.0f };
         const bool haveSun = SunDirection(sun);
+        // A disc low in the sky (2026-10-03): its glint went out as its centre crossed the horizon, with half
+        // of it still up, since no water can bounce the view down below the horizon. While any of it is up
+        // (about 4 degrees of radius), the glint aims at the horizon, 1 degree up, and fades as the top sinks.
+        auto lowDisc = [](float d[3]) -> float {
+            const float kRadius = 0.0698f;   // sin 4 degrees
+            const float kAim    = 0.0175f;   // sin 1 degree
+            const float z = d[2];
+            const float t = (z + kRadius) / kRadius;
+            const float vis = t <= 0.0f ? 0.0f : (t >= 1.0f ? 1.0f : t * t * (3.0f - 2.0f * t));
+            if (z < kAim)
+            {
+                const float h = sqrtf(d[0] * d[0] + d[1] * d[1]);
+                const float c = sqrtf(1.0f - kAim * kAim);
+                d[0] = h > 1e-4f ? d[0] / h * c : c;
+                d[1] = h > 1e-4f ? d[1] / h * c : 0.0f;
+                d[2] = kAim;
+            }
+            return vis;
+        };
+        const float sunVis = lowDisc(sun);
         k[168] = sun[0]; k[169] = sun[1]; k[170] = sun[2];
         // By night the light is the larger moon (sun.cpp), with a glint of its own strength (Moon Glint).
         const bool moonUp = night > 0.5f;
-        k[171] = haveSun ? (moonUp ? w.moonGlint : w.glint) : 0.0f;
+        k[171] = haveSun ? (moonUp ? w.moonGlint : w.glint) * sunVis : 0.0f;
         // The other moon (c203): smaller in the sky (a quad of 1.0 against 1.8), so a smaller glint.
         float moon2[3] = { 0.0f, 0.0f, 1.0f };
         const bool second = moonUp && SunSecondDirection(moon2);
+        const float moon2Vis = lowDisc(moon2);
         k[332] = moon2[0]; k[333] = moon2[1]; k[334] = moon2[2];
-        k[335] = second ? w.moonGlint * 0.6f : 0.0f;
+        k[335] = second ? w.moonGlint * 0.6f * moon2Vis : 0.0f;
         k[336] = 1.0f / (w.glintSize * w.glintSize);
         // The colour deep water turns (Water Colour): green, teal and blue, mixed by the slider. The light it
         // absorbs follows it, so shallow water leans the same way: green water keeps more of its green.
