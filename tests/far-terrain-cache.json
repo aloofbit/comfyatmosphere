@@ -1,0 +1,36 @@
+{
+    "name": "far-terrain-cache",
+    "about": "Hop 300 yards away from a hill in the Barrens and back. The game draws far ground with its coarse mesh (64 to 76 triangles a chunk) through a shader the terrain test does not know; the cache must not keep those draws once you are back, or their full shade lies over the hill in big triangles (2026-10-03).",
+    "config": {
+        "character": 1,
+        "flight": true,
+        "camera": 0,
+        "flySpeed": 14,
+        "start": { "map": 1, "x": 1178.8, "y": -2738.5, "z": 295.7, "about": "taken from the owner's probe, flying, facing about 39 degrees from the x axis, toward the mountain: the hops go the other way (219) and come back" },
+        "sun": { "azimuth": 45, "elevation": 35 },
+        "ini": { "shadow.terrainLow": 1 },
+        "debugView": 24
+    },
+    "steps": [
+        { "wait": 5 },
+        { "hop": { "to": 300, "heading": 219, "step": 10, "pause": 0.05 } },
+        { "wait": 3 },
+        { "hop": { "to": 0, "heading": 219, "step": 10, "pause": 0.05 } },
+        { "wait": 1.5 },
+        { "probe": true },
+        { "wait": 1.5 },
+        { "screenshot": true }
+    ],
+    "expect": [
+        {
+            "about": "No coarse ground the files hold is left in the cache near you",
+            "probe": "kept undrawn [\\d.]+ s: fixed-function, (64|68|72|76) triangles",
+            "max": 0
+        },
+        {
+            "about": "No game draw of ground the files cover is held as a caster (the far horizon copy included)",
+            "probe": "fixed-function entry: .*the files cover it: yes",
+            "max": 0
+        }
+    ]
+}

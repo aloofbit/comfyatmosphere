@@ -934,11 +934,13 @@ local ENTRIES = {
 			.. "20 water: ripples (red, green) and the wake (blue)\n"
 			.. "21 water: the game's own water drawn (red), other liquid (magenta), ours off\n"
 			.. "22 water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)\n"
-			.. "23 water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)",
+			.. "23 water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)\n"
+			.. "24 sun shadows: where the shade comes from (red solid, green leaves, blue hills)\n"
+			.. "25 sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 23,
+		maxval = 25,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -1491,6 +1493,8 @@ local DEBUG_VIEWS = {
 	"water: the game's own water drawn (red), other liquid (magenta), ours off",
 	"water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)",
 	"water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)",
+	"sun shadows: where the shade comes from (red solid, green leaves, blue hills)",
+	"sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)",
 };
 
 local PANEL_BACKDROP = {

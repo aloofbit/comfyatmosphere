@@ -199,6 +199,8 @@ namespace
         { "water: the game's own water drawn (red), other liquid (magenta), ours off", 0, 0, 0, 0, 0, 6 },
         { "water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)", 0, 0, 0, 0, 0, 7 },
         { "water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)", 0, 0, 0, 0, 0, 8 },
+        { "sun shadows: where the shade comes from (red solid, green leaves, blue hills)", 0, 4, 0, 0, 0 },
+        { "sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)", 0, 5, 0, 0, 0 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;

@@ -297,7 +297,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The far map, fading out over its last tenth, where it ends. Its solid map only where the near and
     // middle maps leave some of the shade to it; its leaves wherever the near map does; the terrain's map,
     // under the same camera, everywhere.
-    float litF = 1.0, leafF = 1.0, terr = 0.0, through = 0.0, throughS = 0.0;
+    float litF = 1.0, leafF = 1.0, terr = 0.0, through = 0.0, throughS = 0.0, gateV = 0.0;
     // Ground and walls that face away from the sun (not models: green in the mask, the facing of a leaf card
     // from the depth is noise). A ray from such a face runs just under the surface and stays inside the
     // terrain's slack a long way, so the terrain's shade does not say the hill is in front of it.
@@ -337,6 +337,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             float  dT  = tex2Dlod(sTerr, float4(uvf, 0, 0)).r;
             float  m   = 1.0 / (gTr.z * 0.1);
             float  gate = max(terr, away) * saturate((sf.z - dT) * m - 1.0);
+            gateV = gate;
             [branch] if (gCh.z > 0.5)
             {
                 float dL = min(min(tex2Dlod(sFarL, float4(uvf, 0, 0)).r,
@@ -359,6 +360,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // taken until then, and with trees and terrain in one map a tree under a mountain's shade added nothing.
     float leaf  = (1.0 - lerp(leafF, leafN, wn)) * (1.0 - through);
     float shade = 1.0 - lerp(lerp(lerp(litF, litM, wm), litN, wn), 1.0, throughS) * (1.0 - gCh.x * leaf) * (1.0 - gTr.x * terr);
+    // Debug 4 and 5 (2026-10-03): where the shade comes from, and where the check above takes it away.
+    if (gL.y > 4.5)
+        return float4(throughS, through, gateV, 1.0);                      // debug 5: dropped solid, leaves, the check on
+    if (gL.y > 3.5)
+        return float4(1.0 - lerp(lerp(litF, litM, wm), litN, wn), 1.0 - lerp(leafF, leafN, wn), terr, 1.0);   // debug 4: solid, leaves, hills
     if (gL.y > 2.5)
         return float4(body, body, body, 1.0);                              // debug 3: the bodies it finds
     // The units' own shade, darkened again on top of the world's. The map holds no ground, so it needs none

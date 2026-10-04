@@ -1696,6 +1696,33 @@ starts a straight move from where the glided sun is, as long as the time since t
 least `glide`. A jump over 1.5 degrees lands at once. The stats show the sun three ways (measured, glided,
 held), the game time and the held sun's steps.
 
+## Coarse ground in the solid map, and the first test (2026-10-04)
+
+Coming back toward a hill in the Barrens, its shade lay over it in big straight-edged triangles, and only
+after you had been away (a login did not show it). Debug Views 24 (where the shade comes from: red solid,
+green leaves, blue hills) and 25 (what the crest check takes off) showed solid shade on the hill, which is
+ground and belongs in the terrain map alone. Two kinds of the client's own draws of that ground were held as
+solid casters, and the probe now lists every fixed-function entry with the verdict "the files cover it":
+
+- **The coarse chunks.** The client draws a far chunk with its coarsest mesh (64 triangles) through a pixel
+  shader `TerrainShadeIsTerrain` does not know. Fourteen sat on chunk corners around the hill half a minute
+  after the client last drew them, kept by the shade-in-view rule. A fixed-function draw, not alpha tested,
+  on a chunk's corner over a tile the files hold is that ground now, whatever its shader (`FilesGround`):
+  refused as it comes, dropped as "the files have it".
+- **The horizon copy.** The client draws the far ground again in the sky's depth slice: 545 vertices and
+  1,024 triangles a block, its vertices in the world and its matrix the identity, so its place read
+  (0, 0, 0) and no tile covered it. Twenty-four of them, drawn every frame, cast over the hill. Such a draw is
+  now placed by the middle of up to 64 of its vertices (`VertexCentre`), and refused where a tile from the
+  files covers that. The blocks past the loaded tiles still cast, as `[shadow] horizon` means them to.
+
+`tests/far-terrain-cache.json` reproduces it: hop 300 yards from the hill in 10-yard `.go xyz` steps and
+back, then check the probe. It failed by eye before the horizon fix, and its second check would have failed
+on it. The runner and the test format are in `tests/README.md`; wow-test-tool gained `type`, `keys`, `pos`
+and `ground` for it. On the way: the game saves `comfyStats` in Config.wtf and it comes back empty, with no
+room for the DLL's text, so whatever reads it sets it to 600 spaces first (the stats panel already did);
+the stats text carries `gz`, the ground under the player from the map files; and `error()` does nothing in
+the test client, so ComfyTest writes its errors by hand.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's

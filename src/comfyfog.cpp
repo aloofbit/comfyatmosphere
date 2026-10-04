@@ -902,8 +902,20 @@ namespace
                 char map[64] = "";
                 const bool havePl = ClientPlayer(pl);
                 ClientMapName(map, sizeof(map));
-                snprintf(line, sizeof(line), "fps=%.0f;x=%.1f;y=%.1f;z=%.1f;pos=%d;map=%s;", statsFrames / (now - statsLast),
-                         pl[0], pl[1], pl[2], havePl ? 1 : 0, map);
+                // gz: the ground under the player from the map files, or a building's floor below it if higher
+                // (2026-10-03), for wow-test-tool's wait for the ground. Empty until the tile is read.
+                float gz = 0.0f, fz = 0.0f;
+                bool haveGz = havePl && MapGroundHeight(pl[0], pl[1], gz);
+                if (havePl && MapFloorHeight(pl[0], pl[1], pl[2] + 2.0f, fz) && (!haveGz || fz > gz))
+                {
+                    gz = fz;
+                    haveGz = true;
+                }
+                char gzText[24] = "";
+                if (haveGz)
+                    snprintf(gzText, sizeof(gzText), "%.1f", gz);
+                snprintf(line, sizeof(line), "fps=%.0f;x=%.1f;y=%.1f;z=%.1f;gz=%s;pos=%d;map=%s;",
+                         statsFrames / (now - statsLast), pl[0], pl[1], pl[2], gzText, havePl ? 1 : 0, map);
                 std::string text = line;
                 SunStatsText(text);
                 ShadowStatsText(text);

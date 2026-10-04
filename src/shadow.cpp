@@ -903,18 +903,73 @@ namespace
         return std::isfinite(most) ? (std::min)(most, 300.0f) : 0.0f;
     }
 
+    // A draw placed on a terrain chunk's corner (2026-10-03): x and y both whole multiples of 33.33 yards.
+    bool OnChunkCorner(const float pos[3])
+    {
+        constexpr float kChunk = 533.33333f / 16.0f;
+        const float a = pos[0] / kChunk, b = pos[1] / kChunk;
+        return fabsf(a - roundf(a)) * kChunk < 0.05f && fabsf(b - roundf(b)) * kChunk < 0.05f;
+    }
+
+    // Untextured-shader ground the files hold (2026-10-03): the client draws far chunks with its coarsest mesh
+    // (64 triangles) through a pixel shader TerrainShadeIsTerrain does not know, so they were kept as solid
+    // casters. Coming back to a hill in the Barrens, 14 of them were still held half a minute after the client
+    // last drew them (the shade-in-view rule keeps them), and their full shade lay over the hill in big
+    // triangles. A fixed-function draw, not alpha tested, on a chunk's corner over a tile the files hold is
+    // that ground, whatever its shader.
+    bool FilesGround(const Rec& r, const float pos[3])
+    {
+        return !r.vs && !r.alphaTest && OnChunkCorner(pos) && MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f);
+    }
+
+    // The middle of a draw's vertices in the world (2026-10-03), up to 64 of them read. The client's far
+    // horizon copy of the ground is drawn with its vertices already in the world and an identity matrix, so
+    // its place reads (0, 0, 0) and says nothing about where the ground it draws lies.
+    bool VertexCentre(const Rec& r, const D3DMATRIX& absolute, float out[3])
+    {
+        if (!r.vb[0] || !r.vbStride[0] || r.numVertices == 0)
+            return false;
+        const UINT first = static_cast<UINT>(r.baseVertex) + r.minIndex;
+        void* p = nullptr;
+        if (FAILED(r.vb[0]->lpVtbl->Lock(r.vb[0], r.vbOffset[0] + first * r.vbStride[0], r.numVertices * r.vbStride[0],
+                                         &p, D3DLOCK_READONLY | D3DLOCK_NOSYSLOCK)) || !p)
+            return false;
+        const UINT n = r.numVertices < 64 ? r.numVertices : 64;
+        const UINT every = r.numVertices / n;
+        double c[3] = {};
+        for (UINT i = 0; i < n; ++i)
+        {
+            const float* v = reinterpret_cast<const float*>(static_cast<const char*>(p) + (i * every) * r.vbStride[0]);
+            for (int j = 0; j < 3; ++j)
+                c[j] += v[0] * absolute.m[0][j] + v[1] * absolute.m[1][j] + v[2] * absolute.m[2][j] + absolute.m[3][j];
+        }
+        r.vb[0]->lpVtbl->Unlock(r.vb[0]);
+        for (int j = 0; j < 3; ++j)
+            out[j] = static_cast<float>(c[j] / n);
+        return std::isfinite(out[0]) && std::isfinite(out[1]);
+    }
+
     bool FromFiles(const Rec& r, const float pos[3], const D3DMATRIX& absolute, const float* consts, UINT nregs)
     {
         if (!g_cfg.shadow.mapTerrain)
             return false;
         if (r.terrain)   // its place is its corner, the largest x and y: a yard inside finds the tile
             return MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f);
+        if (FilesGround(r, pos))
+            return true;
         // The far horizon: the client draws the distant ground again, coarse, in the sky's depth slice, and
         // [shadow] horizon keeps those draws, which are not drawn with the terrain's shader. Where a tile from
         // the files covers the ground, the coarse copy floated over every dip once you came close, and cast a
         // soft blob with nothing above it (2026-09-30, Gavin's Naze, gone after a restart).
+        // By the middle of its vertices too (2026-10-03): its place reads (0, 0, 0), no tile covered that, and
+        // coming back toward a hill in the Barrens 24 of these cast full solid shade over it in big triangles.
         if (!r.vs && (r.minZ != g_worldMinZ || r.maxZ != g_worldMaxZ))
-            return MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f) || MapTerrainCovers(pos[0], pos[1]);
+        {
+            if (MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f) || MapTerrainCovers(pos[0], pos[1]))
+                return true;
+            float c[3];
+            return VertexCentre(r, absolute, c) && MapTerrainCovers(c[0], c[1]);
+        }
         if (!r.vs)       // a building's group is drawn with the placement's matrix
             return !r.alphaTest && MapBuildingCovers(pos);
         if (UnitAt(pos))
@@ -1427,6 +1482,11 @@ namespace
                                    (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn)))
                 {
                     gone = true; ++g_nFilesEvicted;   // kept before its tile came in
+                    why = "the files have it";
+                }
+                else if (s.mapTerrain && FilesGround(e.rec, e.pos))
+                {
+                    gone = true; ++g_nFilesEvicted;   // ground the files hold, drawn by a shader not known as terrain
                     why = "the files have it";
                 }
                 else if (e.rec.terrain && [&] {
@@ -3046,6 +3106,29 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                         (bits & 1) ? "yes" : "no", (bits & 2) ? "yes" : "no", MapDoodadAt(e.pos) ? "yes" : "no");
                 }
             Log("shadow: %u cache entries within 25 yd", listed);
+            // Every fixed-function entry (2026-10-03): the coarse ground the client draws from afar is one, and
+            // the tests ask which of them still cast over ground the files hold.
+            unsigned ff = 0;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                {
+                    if (e.rec.vs || ff >= 80)
+                        continue;
+                    ++ff;
+                    const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                    float mid[3] = {};
+                    const bool haveMid = VertexCentre(e.rec, e.absolute, mid);
+                    const bool covered = FromFiles(e.rec, e.pos, e.absolute, nullptr, 0);
+                    Log("shadow:   fixed-function entry: %uv %up at (%.2f %.2f %.1f), %.0f yd from you, slice %.4f..%.4f%s, "
+                        "on a chunk corner %s, its vertices' middle (%.0f %.0f %.0f)%s, a building there %s%s%s, drawn "
+                        "%.1f s ago on %u redraws; the files cover it: %s", e.rec.numVertices, e.rec.primCount, e.pos[0],
+                        e.pos[1], e.pos[2], sqrtf(dx * dx + dy * dy), e.rec.minZ, e.rec.maxZ,
+                        (e.rec.minZ != g_worldMinZ || e.rec.maxZ != g_worldMaxZ) ? " (not the world's)" : "",
+                        OnChunkCorner(e.pos) ? "yes" : "no", mid[0], mid[1], mid[2], haveMid ? "" : " (not read)",
+                        MapBuildingCovers(e.pos) ? "yes" : "no", e.rec.terrain ? ", terrain shader" : "",
+                        e.rec.alphaTest ? ", alpha tested" : "", now - e.lastSeen, e.drawnFor, covered ? "yes" : "no");
+                }
+            Log("shadow: %u fixed-function entries", ff);
         }
         g_replayed.clear();
         // The check on the doodads' places: the nearest one from the files against the nearest model draw.
