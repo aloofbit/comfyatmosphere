@@ -34,8 +34,8 @@ A test is a `.json` file here:
 
 | Part | What it holds |
 | --- | --- |
-| `config` | `character` (the slot on character select), `flight` (cast "Toggle GM Flight Mode"), `camera` (0 first person, 1 to 9 that many steps back out, 10 all the way out), `flySpeed` (yards a second), `start` (`map`, `x`, `y`, `z`, by `.go xyz`), `sun` (`azimuth`, `elevation`: a fixed sun), `ini` (`"section.key": value` pairs, by `/atmos`), `debugView` (the Debug View number), `cvars` (`"name": value` pairs for the Atmosphere page's controls, which `/atmos` refuses) |
-| `steps` | one key each: `wait` seconds, `hop` (`.go xyz` along a line), `fly` yards, `back` yards, `turn` degrees to the left, `face` (`heading`, `pitch`: the camera, in degrees, checked against comfyfog.dll's stats), `probe`, `screenshot`, `atmos`, `cvar`, `chat` |
+| `config` | `character` (the slot on character select), `flight` (cast "Toggle GM Flight Mode"), `camera` (0 first person, 1 to 9 that many steps back out, 10 all the way out), `flySpeed` (yards a second), `start` (`map`, `x`, `y`, `z`, by `.go xyz`; `facing`, the character's heading in degrees, counter-clockwise from +x), `sun` (`azimuth`, `elevation`: a fixed sun), `ini` (`"section.key": value` pairs, by `/atmos`), `debugView` (the Debug View number), `cvars` (`"name": value` pairs for the Atmosphere page's controls, which `/atmos` refuses) |
+| `steps` | one key each: `wait` seconds, `down` and `up` (hold a key such as `W` over the steps between), `jump` times, `hop` (`.go xyz` along a line), `fly` yards, `back` yards, `turn` degrees to the left, `face` (`heading`, `pitch`: the camera, in degrees, checked against comfyfog.dll's stats; `leftDrag` tilts it by left-drags, which leave a swimmer level), `probe`, `screenshot`, `atmos`, `cvar`, `chat` |
 | `expect` | checks against the last probe: `probe` is a pattern for its lines, `max` and `min` the count allowed. Or against a screenshot: `shot` (which, from 1), `row`, `from`, `to` (columns), and `min` (the darkest pixel allowed) or `mean` (the least average) along that row. Or `shot` and `box` (`[left, top, right, bottom]`) with `jumpMax`, the percent of pixels allowed that differ sharply from the next one (speckle) |
 
 ## The tests
@@ -47,3 +47,4 @@ A test is a `.json` file here:
 | `stormwind-canal-fog` | Stand on the canal's bank outside Stormwind's gate. The fog over the water must let the far side show (2026-10-04). |
 | `ironforge-gate-fog` | Stand on the road outside Ironforge's gate, under the mountain. The fog must let the road and the trees show (2026-10-04). |
 | `stormwind-tower-speckle` | Stand on the bridge into Stormwind facing the sun over the gate. The left tower, where the sun grazes it, must show no speckled shade (2026-10-04). |
+| `stormwind-canal-wake` | Swim through a canal inside Stormwind, the camera looking down. Ripples and a wake must trail the swimmer, on a building's water as on the map's (2026-10-04). |

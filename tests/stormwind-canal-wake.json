@@ -1,0 +1,43 @@
+{
+    "name": "stormwind-canal-wake",
+    "about": "Swimming along a canal inside Stormwind, the camera looking down from above. No ripple and no wake showed round the swimmer (2026-10-04, the owner). The canal is a building's water, which the map files do not hold. Shots in the normal view and in Debug View 20 (ripples red and green, the wake blue).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 6,
+        "start": { "map": 0, "x": -8779.8, "y": 790.2, "z": 94.4, "facing": -49.5, "about": "the owner's place and heading on the surface, read with ComfyTest pos and a short swim" },
+        "sun": { "azimuth": 45, "elevation": 40 }
+    },
+    "steps": [
+        { "wait": 2 },
+        { "jump": 3 },
+        { "face": { "heading": -49.5, "pitch": -80, "leftDrag": true } },
+        { "wait": 1 },
+        { "down": "W" },
+        { "wait": 1.5 },
+        { "probe": true },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 20" },
+        { "wait": 0.3 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 0" },
+        { "up": "W" }
+    ],
+    "expect": [
+        {
+            "about": "A wake trails the swimmer: at least one trail is drawn",
+            "probe": "^water: wakes: [0-9]+ trails held, [1-9]",
+            "min": 1
+        },
+        {
+            "about": "Ripples spread round the swimmer",
+            "probe": "^water: ripples: [1-9]",
+            "min": 1
+        },
+        {
+            "about": "The swimmer is on a building's water",
+            "probe": "^water: a building's water at",
+            "min": 1
+        }
+    ]
+}

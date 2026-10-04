@@ -117,6 +117,9 @@ foreach ($file in $files) {
     # until its height has stayed on the map files' ground for half a second.
     # Each test in the flight state it asks for.
     if ($cfg.flight -and -not $flying) {
+        # To the start first (2026-10-04): the test before may leave the character swimming, where the ground
+        # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
+        if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += 'wait 3' }
         $lines += 'ground 60'; $lines += 'type /cast Toggle GM Flight Mode'; $lines += 'wait 0.5'
         $flying = $true
     }
@@ -128,6 +131,9 @@ foreach ($file in $files) {
         $s = $cfg.start
         $lines += "chat .go xyz $($s.x) $($s.y) $($s.z) $($s.map)"
         $lines += 'wait 5'
+        # The character's heading (2026-10-04): .go xyz keeps the old one. The camera turns to it, and a
+        # right-click turns the character after it.
+        if ($null -ne $s.facing) { $lines += "face $($s.facing)"; $lines += 'rclick'; $lines += 'wait 0.5' }
     }
     $lines += 'wait 1.2'; $lines += 'pos start'   # the place comes from comfyStats, up to a second old
     # comfyfog's values: none left from before, then this test's.
@@ -162,6 +168,9 @@ foreach ($file in $files) {
         $v = $p.Value
         switch ($p.Name) {
             'wait'       { $lines += "wait $v" }
+            'jump'       { for ($j = 0; $j -lt [int]$v; $j++) { $lines += 'tap space'; $lines += 'wait 1.2' } }   # in the water, it brings a swimmer up to the surface
+            'down'       { $lines += "down $v" }   # hold a key until its up step: the steps between run while it is held
+            'up'         { $lines += "up $v" }
             'fly'        { $lines += ('hold W {0:0.##}' -f ([double]$v / $speed)); $lines += 'wait 1.2'; $lines += "pos after fly $v" }
             'hop'        {
                 if (-not $cfg.start) { throw "$($t.name): hop needs a start" }
@@ -183,7 +192,7 @@ foreach ($file in $files) {
             'back'       { $lines += ('hold S {0:0.##}' -f ([double]$v / ($speed * 0.64))); $lines += 'wait 1.2'; $lines += "pos after back $v" }   # backing up is 64% of the speed
             'turn'       { if ([double]$v -eq 180) { $lines += 'keys ctrl+shift+f' } else { $lines += ('hold Q {0:0.##}' -f ([double]$v / 180.0)) }; $lines += 'wait 1.2'; $lines += "pos after turn $v" }               # the keys turn 180 degrees a second
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
-            'face'       { $lines += "face $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)" } }   # the camera, checked against comfyStats: ComfyTest turns, wow-test-tool tilts
+            'face'       { $lines += "face $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the camera, checked against comfyStats: ComfyTest turns, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
             'screenshot' { $shotViews += $view; $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
             'atmos'      { $lines += "atmos $v" }
@@ -204,12 +213,16 @@ foreach ($file in $files) {
     $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|face|pitch) ' })
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
-    # The last probe of this run: from its header to the next report or the end.
+    # The last probe of this run: from its header to the next report or the end. The frame it logs comes
+    # before the header (2026-10-04: the water's lines), from its "begin frame" line.
     $new = if (Test-Path $log) { @(Get-Content $log | Select-Object -Skip $logStart) } else { @() }
     $heads = @(for ($i = 0; $i -lt $new.Count; $i++) { if ($new[$i] -match '^=== client report \((F12|/atmos probe)\) ===') { $i } })
     $probe = @()
     if ($heads.Count) {
         $from = $heads[-1]
+        for ($i = $from - 1; $i -ge 0 -and $new[$i] -notmatch '^=== (end of )?client report'; $i--) {
+            if ($new[$i] -match '^--- begin frame \d+ capture ---') { $from = $i; break }
+        }
         $to = $new.Count
         for ($i = $from + 1; $i -lt $new.Count; $i++) { if ($new[$i] -match '^=== client report') { $to = $i; break } }
         $probe = $new[$from..($to - 1)]

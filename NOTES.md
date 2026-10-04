@@ -1826,6 +1826,25 @@ pixels was tried first and missed the speckle once it came as hard black and whi
 The runner now logs in once for a whole run and keeps track of flight, which the cast toggles: all five tests in
 4.2 minutes, where each had taken about a minute and a half with its own login.
 
+## No ripple or wake in Stormwind's canals (2026-10-04)
+
+The owner swam in a canal inside Stormwind and saw no ripple and no wake. The canals are a WMO's liquid. The map
+files hold no water there (the probe: "water none", ground 59.46 under the city), so `MaybeInWater` left every
+unit in them out. The shader was never the fault: it checks each ripple against the surface it draws.
+
+- Each draw of a building's water now gives its surface (`NoteCityWater`): the vertices its triangles use, in
+  the world, through the draw's world matrix and the camera. `CityWaterAt` takes the height of the used vertex
+  nearest the unit, within 4 yards. The ripples of a frame begin at its first water draw, before the buildings'
+  water is drawn, so they read the last frame's surfaces.
+- Only the used vertices. The draw's vertex range holds unused corners too: its highest vertex lay at 101.96, 6.5
+  yards over the canal (95.47).
+- The probe logs the draws of a building's water and the height under you.
+
+Test: `tests/stormwind-canal-wake.json`. The owner's first place was read during a dive, 7.8 yards under the
+surface, where no ripple starts; the test starts at their place on the surface, with their heading.
+The runner gained `facing` (a `face` and a right-click), `jump`, and `down`/`up`. The tool's `pitch ... left`
+tilts by left-drags: a right-drag also tilts a swimmer, which then dives.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's

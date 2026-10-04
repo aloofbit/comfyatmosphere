@@ -51,6 +51,7 @@
 #include "water.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -1002,6 +1003,42 @@ float4 main(float2 vpos : VPOS) : COLOR
     std::vector<Ring> g_rings;
     unsigned g_ringCount = 0;   // rings begun: each new one's shift follows from it
 
+    // A building's water (2026-10-04): the canals of Stormwind are a WMO's liquid, which the map files do not
+    // hold, so no swimmer there started a ripple or a wake. Each such draw gives its surface: the vertices its
+    // triangles use, in the world, and their bounds. Only those: the draw's vertex range holds the unused
+    // corners too, and its highest vertex lay 7.5 yards over Stormwind's canal. The ripples of a frame are
+    // begun at its first water draw, before the buildings' water is drawn, so they read the last frame's.
+    struct CityWater { float lo[3], hi[3]; size_t first, count; };
+    std::vector<CityWater> g_cityNow, g_cityLast;
+    std::vector<std::array<float, 3>> g_cityPtsNow, g_cityPtsLast;
+    constexpr size_t kCityWaters = 64, kCityPts = 16384;
+
+    // The height of a building's water at (x, y): its nearest used vertex within 4 yards (the liquid's grid is
+    // 4.17 yards), among the draws whose bounds hold the point and reach from 3 yards under `z` to over it.
+    bool CityWaterAt(float x, float y, float z, float& wz)
+    {
+        float best = 4.0f * 4.0f;
+        bool found = false;
+        for (const CityWater& w : g_cityLast)
+        {
+            if (x < w.lo[0] - 4.0f || x > w.hi[0] + 4.0f || y < w.lo[1] - 4.0f || y > w.hi[1] + 4.0f ||
+                z > w.hi[2] || z < w.lo[2] - 3.0f)
+                continue;
+            for (size_t i = w.first; i < w.first + w.count; ++i)
+            {
+                const auto& q = g_cityPtsLast[i];
+                const float d2 = (q[0] - x) * (q[0] - x) + (q[1] - y) * (q[1] - y);
+                if (d2 < best)
+                {
+                    best = d2;
+                    wz = q[2];
+                    found = true;
+                }
+            }
+        }
+        return found;
+    }
+
     // The wakes (2026-10-02): the recent path of each unit moving through the water. A unit is followed from
     // frame to frame by the trail whose newest point is nearest its place (no ids from the object list).
     struct TrailPoint { float pos[3]; double t; };
@@ -1238,12 +1275,14 @@ float4 main(float2 vpos : VPOS) : COLOR
         return true;
     }
 
-    // A unit in the water, as far as the map files can say: false only where a tile is held and has neither a
-    // river nor the sea there. The shader still checks each ripple against the surface it draws (WMO water,
-    // a tile not loaded yet).
+    // A unit in the water: under a building's water drawn last frame, or as far as the map files can say,
+    // false only where a tile is held and has neither a river nor the sea there. The shader still checks each
+    // ripple against the surface it draws (a tile not loaded yet).
     bool MaybeInWater(const float p[3])
     {
         float wz = 0.0f, gz = 0.0f;
+        if (CityWaterAt(p[0], p[1], p[2], wz) && p[2] < wz - 0.05f && p[2] > wz - 3.0f)
+            return true;
         if (MapWaterHeight(p[0], p[1], wz))
             return p[2] < wz - 0.05f && p[2] > wz - 3.0f;
         return !MapGroundHeight(p[0], p[1], gz);
@@ -1475,7 +1514,22 @@ float4 main(float2 vpos : VPOS) : COLOR
             k[330] = w.swash > 0.0f ? 1.0f : 0.0f;
             k[331] = w.swashRun;
             if (g_probeOn)
+            {
                 Log("water: wakes: %d trails held, %d drawn", static_cast<int>(g_trails.size()), used);
+                Log("water: ripples: %d held; %d draws of a building's water last frame",
+                    static_cast<int>(g_rings.size()), static_cast<int>(g_cityLast.size()));
+                for (const CityWater& w : g_cityLast)
+                    Log("    a building's water: %u vertices used, height %.2f to %.2f, x %.1f to %.1f, y %.1f to %.1f",
+                        static_cast<unsigned>(w.count), w.lo[2], w.hi[2], w.lo[0], w.hi[0], w.lo[1], w.hi[1]);
+                float pl[3], wz = 0.0f;
+                if (ClientPlayer(pl))
+                {
+                    if (CityWaterAt(pl[0], pl[1], pl[2], wz))
+                        Log("water: a building's water at %.2f under you, at %.2f", wz, pl[2]);
+                    else
+                        Log("water: no building's water within 4 yards of you, at %.2f", pl[2]);
+                }
+            }
         }
         k[35] = static_cast<float>((std::min)(static_cast<int>(g_rings.size()), kRings));
 
@@ -2058,8 +2112,80 @@ namespace
 {
     const float kAllWet[4] = { 65535.0f, 65535.0f, 65535.0f, 65535.0f };
 
-    // Which of the chunk's 8 x 8 cells the game draws, from its strip (or list) of indices, into c210: 8 bits a
-    // row, two rows to a register component, so each is a whole number under 65536 that a float holds exactly.
+    // A building's water draw: its surface for the next frame's ripples and wakes (MaybeInWater). Its indices
+    // and vertices are read each frame, as the land's indices are (WetCells): a building's water is a few
+    // draws of some hundreds of vertices.
+    void NoteCityWater(IDirect3DDevice9* dev, const WaterChunk& c)
+    {
+        if (g_cityNow.size() >= kCityWaters || !c.numVertices || c.numVertices > 4096 ||
+            (c.prim != D3DPT_TRIANGLESTRIP && c.prim != D3DPT_TRIANGLELIST))
+            return;
+        auto* d = dev->lpVtbl;
+        // The vertices the triangles use.
+        std::vector<uint8_t> used(c.numVertices, 0);
+        {
+            IDirect3DIndexBuffer9* ib = nullptr;
+            if (FAILED(d->GetIndices(dev, &ib)) || !ib)
+                return;
+            D3DINDEXBUFFER_DESC desc = {};
+            ib->lpVtbl->GetDesc(ib, &desc);
+            const UINT isz = desc.Format == D3DFMT_INDEX32 ? 4 : 2;
+            const UINT n = c.prim == D3DPT_TRIANGLESTRIP ? c.primCount + 2 : c.primCount * 3;
+            void* ip = nullptr;
+            if (FAILED(ib->lpVtbl->Lock(ib, c.startIndex * isz, n * isz, &ip, D3DLOCK_READONLY)) || !ip)
+            {
+                ib->lpVtbl->Release(ib);
+                return;
+            }
+            for (UINT i = 0; i < n; ++i)
+            {
+                uint32_t v;
+                if (isz == 4) memcpy(&v, static_cast<const uint8_t*>(ip) + i * 4, 4);
+                else { uint16_t h; memcpy(&h, static_cast<const uint8_t*>(ip) + i * 2, 2); v = h; }
+                const int k = static_cast<int>(v) - static_cast<int>(c.minIndex);
+                if (k >= 0 && k < static_cast<int>(c.numVertices))
+                    used[k] = 1;
+            }
+            ib->lpVtbl->Unlock(ib);
+            ib->lpVtbl->Release(ib);
+        }
+        IDirect3DVertexBuffer9* vb = nullptr;
+        UINT off = 0, stride = 0;
+        if (FAILED(d->GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb)
+            return;
+        void* ptr = nullptr;
+        const UINT first = static_cast<UINT>(c.baseVertex + static_cast<INT>(c.minIndex));
+        if (stride >= 12 &&
+            SUCCEEDED(vb->lpVtbl->Lock(vb, off + first * stride, c.numVertices * stride, &ptr, D3DLOCK_READONLY)) && ptr)
+        {
+            // Camera-relative through the draw's world matrix, then the camera's place (FrameConstants).
+            const D3DMATRIX& m = *c.world;
+            CityWater w = { { 1e9f, 1e9f, 1e9f }, { -1e9f, -1e9f, -1e9f }, g_cityPtsNow.size(), 0 };
+            for (UINT i = 0; i < c.numVertices && g_cityPtsNow.size() < kCityPts; ++i)
+            {
+                if (!used[i])
+                    continue;
+                float v[3];
+                memcpy(v, static_cast<const uint8_t*>(ptr) + i * stride, 12);
+                const std::array<float, 3> q = {
+                    v[0] * m.m[0][0] + v[1] * m.m[1][0] + v[2] * m.m[2][0] + m.m[3][0] + g_psc[28],
+                    v[0] * m.m[0][1] + v[1] * m.m[1][1] + v[2] * m.m[2][1] + m.m[3][1] + g_psc[29],
+                    v[0] * m.m[0][2] + v[1] * m.m[1][2] + v[2] * m.m[2][2] + m.m[3][2] + g_psc[30] };
+                for (int a = 0; a < 3; ++a)
+                {
+                    w.lo[a] = (std::min)(w.lo[a], q[a]);
+                    w.hi[a] = (std::max)(w.hi[a], q[a]);
+                }
+                g_cityPtsNow.push_back(q);
+                ++w.count;
+            }
+            vb->lpVtbl->Unlock(vb);
+            if (w.count)
+                g_cityNow.push_back(w);
+        }
+        vb->lpVtbl->Release(vb);
+    }
+
     bool WetCells(IDirect3DDevice9* dev, const WaterChunk& c)
     {
         static bool told = false;
@@ -2181,6 +2307,8 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
 {
     if (!g_copyOk || !WaterWanted() || g_cfg.water.debug == 6)
         return;
+    if (c.city)
+        NoteCityWater(dev, c);
 
     auto* d = dev->lpVtbl;
     D3DMATRIX wv, wvp;
@@ -2558,6 +2686,10 @@ void WaterFrameEnd()
     }
     g_wakeLast = g_wakeDraws;
     g_wakeDraws = 0;
+    g_cityLast.swap(g_cityNow);
+    g_cityNow.clear();
+    g_cityPtsLast.swap(g_cityPtsNow);
+    g_cityPtsNow.clear();
     ++g_frameNo;
     g_foamLast = g_foamDraws;
     g_foamDraws = 0;
@@ -2656,6 +2788,10 @@ void WaterReset()
 {
     g_liquidTex.clear();
     g_trails.clear();
+    g_cityNow.clear();
+    g_cityLast.clear();
+    g_cityPtsNow.clear();
+    g_cityPtsLast.clear();
     SafeRelease(g_foamTex);
     g_foamTexState = 0;
     SafeRelease(g_wetSb);
