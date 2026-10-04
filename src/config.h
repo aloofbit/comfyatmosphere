@@ -289,6 +289,9 @@ struct SunShadowSettings
                                   // [shadow] terrainLeaves (2026-10-02; leafShade until then)
     float terrainBias  = 1.5f;    // yards: the least slack in the terrain map's depth test. A hill shades
                                   // from yards away; less, and the ground shades itself in faint bands
+    float hillCarry    = 30.0f;   // yards: inside a hill's shade, a tree's or a wall's shade is kept in full
+                                  // this far from what it falls on, and gone at twice as far (2026-10-04).
+                                  // 0 = no limit
     float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
                                   // everything solid shades the rest, so characters no longer float
     float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the

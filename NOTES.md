@@ -1723,6 +1723,49 @@ room for the DLL's text, so whatever reads it sets it to 600 spaces first (the s
 the stats text carries `gz`, the ground under the player from the map files; and `error()` does nothing in
 the test client, so ComfyTest writes its errors by hand.
 
+## Strips of shade through a hill's shade at the Ashenvale border (2026-10-04)
+
+Flying about 100 yards over the Barrens where they meet Ashenvale, facing a sun 29 degrees up behind the
+ridges, two long dark strips ran down a slope that faced away from the sun, all the way to the bottom of the
+screen. They pointed at the sun, as cast shade does.
+
+- **Debug View 5** (the shade alone) showed them as full shade on a slope otherwise in the hill's part shade.
+  Volumetric Light and the mist were not the cause.
+- **Debug View 24** showed the solid map's shade there. **Debug View 25** showed the crest check
+  (2026-10-03) not taking it off.
+- **A new Debug View 26** shows the depths that check compares: red, the solid caster in front of the
+  hill's first surface; green, behind it; blue, the point behind it. At the strips the caster lay behind the
+  hill's surface. Along the sun's line the order was hill, caster, point.
+- **That order is kept on purpose.** The hill's shade is part shade (terrainShade 0.6), and a fence or a tree
+  beside you keeps its outline in a mountain's shade (2026-10-02). Here the casters were trees standing in
+  the far hills' shade. With the sun this low their shade carried 100 yards and more, down a slope no sun
+  reaches.
+
+The fix is `[sunshadows] hillCarry`, 30 yards. Inside a hill's shade, a caster's shade stays in full up to
+hillCarry from the point it falls on. It fades out by twice that distance, in the same check (`throughS`,
+`through`). At 30 the strips went, and the far cliffs' tree shapes kept their near ends.
+
+Before the cause was found, the probe named a cave inside that ridge: the Barrow Dens. Its tunnels lie under
+the slope, and from the sun they lie between the slope and the sun. They did not cause these strips:
+leaving them out changed nothing. They do not cast now all the same. Each building group's triangles and box
+are kept (`WmoSpan`). Where a placement puts a group's top 2 yards or more under the files' ground at all 25
+points of a grid over it, that group is not drawn into the solid map (`Buried` in mapterrain.cpp). Ground not
+yet read counts as above it, and the check runs again a second later. Here it left out 56 groups of 2
+buildings. The probe's map terrain line counts them.
+
+`tests/ashenvale-edge-strips.json` takes the spot and the camera from the owner's F12 log. The heading and
+pitch came from the sun's place in the sky dump. The test shoots the normal view and Debug Views 24, 25,
+26 and 5. It passes when row 600 of the view 5 shot has no pixel under 60; with the strips it had 1.
+
+On the way:
+- The stats carry `camyaw` and `campitch`, from the view matrix's third column. ComfyTest's `face` turns the
+  camera with `FlipCameraYaw` and checks it.
+- The pitch is wow-test-tool's `pitch`, by right-drags checked the same way. In first person `MoveViewUpStart`
+  and the `cameraPitch` CVar did nothing.
+- The runner copies every screenshot of a run and can check a row of one (`shot` in `expect`).
+- Turning Volumetric Light off also takes the shadow map back to the ini, which turns every sun shadow off.
+  Use its strength slider to test the light alone.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's

@@ -1,0 +1,41 @@
+{
+    "name": "ashenvale-edge-strips",
+    "about": "The Barrens at the Ashenvale border, flying about 100 yards up and facing the sun over a ridge. Two long dark strips ran down the slope toward the camera (2026-10-04, the owner's screenshot at game time 17:39). Shots in the normal view and in Debug Views 24, 25, 26 and 5.",
+    "config": {
+        "character": 1,
+        "flight": true,
+        "camera": 0,
+        "start": { "map": 1, "x": 1291.8, "y": -3001.2, "z": 204.1, "about": "from the owner's F12 log; the camera faced 40 degrees, 10.5 down, worked out from the sun in the sky dump" },
+        "sun": { "azimuth": 45, "elevation": 28.7 }
+    },
+    "steps": [
+        { "wait": 3 },
+        { "face": { "heading": 40.4, "pitch": -10.5 } },
+        { "wait": 2 },
+        { "probe": true },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 24" },
+        { "wait": 0.5 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 25" },
+        { "wait": 0.5 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 26" },
+        { "wait": 0.5 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 5" },
+        { "wait": 0.5 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 0" }
+    ],
+    "expect": [
+        {
+            "about": "No strip of full shade across the slope in the shade alone (Debug View 5): the hill's shade there is about 100, the strips were 1",
+            "shot": 5,
+            "row": 600,
+            "from": 300,
+            "to": 1100,
+            "min": 60
+        }
+    ]
+}

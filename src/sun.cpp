@@ -679,6 +679,17 @@ void SunStatsText(std::string& out)
              g_cfg.shadow.sunStep, clock ? "" : "?", gm >= 0 ? gm / 60 : 0, gm >= 0 ? gm % 60 : 0);
     out += line;
     g_heldSteps = 0;
+    // Where the camera looks (2026-10-04), for wow-test-tool's face command: the heading in degrees
+    // counter-clockwise from +x, as the sun's azimuth, and the pitch, up positive. The view's third column is
+    // the camera's forward direction in the world.
+    if (g_haveView)
+    {
+        const float f[3] = { g_view.m[0][2], g_view.m[1][2], g_view.m[2][2] };
+        float yaw, pitch;
+        azel(f, yaw, pitch);
+        snprintf(line, sizeof(line), "camyaw=%.2f;campitch=%.2f;", yaw, pitch);
+        out += line;
+    }
 }
 
 bool SunSecondDirection(float dir[3])

@@ -104,6 +104,7 @@ namespace
             const size_t vFirst = out.v.size();
             out.v.resize(vFirst + nVert * 3);
             memcpy(&out.v[vFirst], movt, nVert * 12);
+            const size_t idxFirst = out.idx.size();
             for (size_t i = 0; i < nTri; ++i)
             {
                 const uint8_t mat = mopy[i * 2 + 1];
@@ -138,6 +139,22 @@ namespace
                 for (uint16_t k : tri)
                     out.idx.push_back(base + k);
                 ++out.opaque;
+            }
+            // The group's span, with the box of the triangles kept.
+            if (out.idx.size() > idxFirst)
+            {
+                WmoSpan s;
+                s.first = static_cast<uint32_t>(idxFirst);
+                s.count = static_cast<uint32_t>(out.idx.size() - idxFirst);
+                for (int j = 0; j < 3; ++j) { s.lo[j] = 1e30f; s.hi[j] = -1e30f; }
+                for (size_t i = idxFirst; i < out.idx.size(); ++i)
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        const float c = out.v[out.idx[i] * 3 + j];
+                        s.lo[j] = (std::min)(s.lo[j], c);
+                        s.hi[j] = (std::max)(s.hi[j], c);
+                    }
+                out.spans.push_back(s);
             }
             return true;
         }

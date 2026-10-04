@@ -294,10 +294,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             litM = Lit(sMid, sm, g, gMB.x, gMB.z);
         }
     }
+)HLSL" R"HLSL(
     // The far map, fading out over its last tenth, where it ends. Its solid map only where the near and
     // middle maps leave some of the shade to it; its leaves wherever the near map does; the terrain's map,
     // under the same camera, everywhere.
     float litF = 1.0, leafF = 1.0, terr = 0.0, through = 0.0, throughS = 0.0, gateV = 0.0;
+    float3 depthsV = 0.0;   // debug 6: the depths the check compares
     // Ground and walls that face away from the sun (not models: green in the mask, the facing of a leaf card
     // from the depth is noise). A ray from such a face runs just under the surface and stays inside the
     // terrain's slack a long way, so the terrain's shade does not say the hill is in front of it.
@@ -330,6 +332,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // where the terrain lies nearer the sun than the point by the same margin: until 2026-10-03 a face
         // turned away lost all cast shade, and the back walls of Darnassus's buildings, shaded by the
         // buildings themselves, showed lit. No hill stands in front of a back wall.
+        // The hill, then the caster, then the point: kept only near the point ([sunshadows] hillCarry,
+        // 2026-10-04). On the Barrens side of the Ashenvale border, with the sun at 29 degrees behind the
+        // ridges, trees standing in the far hills' shade laid their trunks' shade 100 yards and more down a
+        // slope that faced away from the sun: two long dark strips through the hill's shade. No sun reaches
+        // there to cast them. A fence or a tree beside you in a mountain's shade keeps its outline; the
+        // shade fades out from hillCarry yards between the caster and the point to twice that.
         [branch] if (gTr.y > 0.5 && max(terr, away) > 0.0)
         {
             float2 uvf = float2(sf.x * 0.5 + 0.5, 0.5 - sf.y * 0.5);
@@ -345,14 +353,16 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                                        tex2Dlod(sFarL, float4(uvf + float2( o, -o), 0, 0)).r)),
                                min(tex2Dlod(sFarL, float4(uvf + float2(-o,  o), 0, 0)).r,
                                    tex2Dlod(sFarL, float4(uvf + float2( o,  o), 0, 0)).r));
-                through = saturate((dT - dL) * m - 1.0) * gate;
+                through = max(saturate((dT - dL) * m - 1.0), saturate((sf.z - dL) / gTr.w - 1.0)) * gate;
             }
             float dS = min(min(tex2Dlod(sShadow, float4(uvf, 0, 0)).r,
                                min(tex2Dlod(sShadow, float4(uvf + float2(-o, -o), 0, 0)).r,
                                    tex2Dlod(sShadow, float4(uvf + float2( o, -o), 0, 0)).r)),
                            min(tex2Dlod(sShadow, float4(uvf + float2(-o,  o), 0, 0)).r,
                                tex2Dlod(sShadow, float4(uvf + float2( o,  o), 0, 0)).r));
-            throughS = saturate((dT - dS) * m - 1.0) * gate;
+            throughS = max(saturate((dT - dS) * m - 1.0), saturate((sf.z - dS) / gTr.w - 1.0)) * gate;
+            // In units of the margin (0.1 of terrainBias): 100 of them full.
+            depthsV = float3(saturate((dT - dS) * m * 0.01), saturate((dS - dT) * m * 0.01), saturate((sf.z - dT) * m * 0.01));
         }
     }
     // Solid things stop the sun; leaves stop leafShade of it, and hills terrainShade. They multiply
@@ -361,6 +371,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float leaf  = (1.0 - lerp(leafF, leafN, wn)) * (1.0 - through);
     float shade = 1.0 - lerp(lerp(lerp(litF, litM, wm), litN, wn), 1.0, throughS) * (1.0 - gCh.x * leaf) * (1.0 - gTr.x * terr);
     // Debug 4 and 5 (2026-10-03): where the shade comes from, and where the check above takes it away.
+    if (gL.y > 5.5)
+        return float4(depthsV, 1.0);                                       // debug 6: caster before the hill, behind it, point behind it
     if (gL.y > 4.5)
         return float4(throughS, through, gateV, 1.0);                      // debug 5: dropped solid, leaves, the check on
     if (gL.y > 3.5)
@@ -842,6 +854,8 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     // The terrain's slack: at least [sunshadows] terrainBias yards. A hill shades from yards away, and at the
     // far map's texel the ground near you shaded itself in faint bands (2026-10-02).
     pc[134] = ss.terrainBias / span;
+    // How far a caster's shade carries inside a hill's ([sunshadows] hillCarry, 2026-10-04); 0 is no limit.
+    pc[135] = (ss.hillCarry > 0.0f ? ss.hillCarry : 1.0e6f) / span;
     // The water (c34): the depth under it, and how fast it hides the bed (water.cpp's clarity).
     IDirect3DTexture9* under = WaterUnderDepth();
     pc[136] = under ? 1.0f : 0.0f;

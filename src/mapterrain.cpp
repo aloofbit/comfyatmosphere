@@ -171,6 +171,7 @@ namespace
         std::vector<std::vector<float>> indoorTris;        // and their triangles, for the ceiling test
         std::vector<WmoLight>   lights;                    // its lights, own space: kept too
         WmoFloors               floors;                    // its floors, own space: kept too (MapFloorHeight)
+        std::vector<WmoSpan>    spans;                     // each group's triangles and box: kept too (Buried)
         bool                    used = true;
     };
 
@@ -852,7 +853,15 @@ namespace
     // lo, hi: the box culled by, once the model is ready: the tile's box and the model's own box turned
     // into place, together. The tile's box takes in the furniture and the props (measured: the abbey's is 3
     // yards bigger, Stormwind's 196); the model's own can be the bigger where a patch changed the building.
-    struct Inst { const Placement* p; Model* m; float lo[3], hi[3]; };
+    // draw: the groups that cast, as runs of indices (first, triangles), once Buried has checked them; buried:
+    // how many groups lie under the ground (-1 until the ground under all of them is read).
+    struct Inst
+    {
+        const Placement* p; Model* m; float lo[3], hi[3];
+        std::vector<std::pair<UINT, UINT>> draw;
+        int    buried = -1;
+        double nextCheck = 0.0;
+    };
     std::vector<Inst>                      g_insts;      // every building in the tiles held, once
     bool                                   g_instDirty = true;
     std::unordered_map<long long, std::vector<const Placement*>> g_coverGrid;   // ready buildings, 4-yard cells
@@ -1062,7 +1071,7 @@ namespace
                 {
                     Model& m = g_models[p.name];
                     m.used = true;
-                    g_insts.push_back({ &p, &m, {}, {} });
+                    g_insts.push_back({ &p, &m, {}, {}, {}, -1, 0.0 });
                 }
         for (auto it = g_models.begin(); it != g_models.end();)
         {
@@ -1502,6 +1511,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
             m.indoorTris = std::move(m.mesh.indoorTris);
             m.lights = m.mesh.lights;
             m.floors = std::move(m.mesh.floors);
+            m.spans = std::move(m.mesh.spans);
             memcpy(m.hi, m.mesh.hi, 12);
             m.mesh  = WmoMesh();   // on the GPU now; read again after a device change
             coverDirty = true;
@@ -2062,12 +2072,66 @@ unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float c
     return drawn;
 }
 
+// A building's groups that lie wholly under the ground where it is placed cast no shade (2026-10-04). The Barrow
+// Dens is a cave inside the ridge between the Barrens and Ashenvale. Seen from the sun its tunnels lay under the
+// slope over them, and with the sun at 29 degrees behind the ridge they printed two long dark strips down it,
+// through the hill's shade, which the hill check keeps (a caster behind the hill and near the point). Each
+// group's box is turned into place and the files' ground read over it at 5 by 5 points: a group whose top is
+// kBuriedBy yards or more under the ground at every point is left out. Where the ground is not read yet the group
+// counts as above it, and the check runs again a second later.
+static void Buried(Inst& i)
+{
+    constexpr float kBuriedBy = 2.0f;
+    const Placement& p = *i.p;
+    i.draw.clear();
+    int buried = 0;
+    bool unknown = false;
+    for (const WmoSpan& s : i.m->spans)
+    {
+        float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+        for (int k = 0; k < 8; ++k)
+        {
+            const float c[3] = { (k & 1) ? s.hi[0] : s.lo[0], (k & 2) ? s.hi[1] : s.lo[1], (k & 4) ? s.hi[2] : s.lo[2] };
+            for (int j = 0; j < 3; ++j)
+            {
+                const float w = c[0] * p.rot[0][j] + c[1] * p.rot[1][j] + c[2] * p.rot[2][j] + p.pos[j];
+                lo[j] = (std::min)(lo[j], w);
+                hi[j] = (std::max)(hi[j], w);
+            }
+        }
+        bool under = true;
+        for (int gx = 0; gx < 5 && under; ++gx)
+            for (int gy = 0; gy < 5 && under; ++gy)
+            {
+                float z;
+                if (!MapGroundHeight(lo[0] + (hi[0] - lo[0]) * gx * 0.25f, lo[1] + (hi[1] - lo[1]) * gy * 0.25f, z))
+                {
+                    unknown = true;
+                    under = false;
+                }
+                else if (z < hi[2] + kBuriedBy)
+                    under = false;
+            }
+        if (under)
+        {
+            ++buried;
+            continue;
+        }
+        if (!i.draw.empty() && i.draw.back().first + i.draw.back().second * 3 == s.first)
+            i.draw.back().second += s.count / 3;
+        else
+            i.draw.push_back({ s.first, s.count / 3 });
+    }
+    i.buried = unknown ? -1 : buried;
+}
+
 unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float cam[3])
 {
     auto* d = dev->lpVtbl;
     unsigned drawn = 0;
     bool set = false;
-    for (const Inst& i : g_insts)
+    const double now = Now();
+    for (Inst& i : g_insts)
     {
         const Model& mo = *i.m;
         if (mo.state != Model::kReady || !mo.vb || !mo.ib)
@@ -2075,6 +2139,13 @@ unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float
         const Placement& p = *i.p;
         if (Outside(m, i.lo, i.hi))
             continue;
+        if (i.buried < 0 && now >= i.nextCheck)
+        {
+            Buried(i);
+            i.nextCheck = now + 1.0;
+        }
+        if (!mo.spans.empty() && i.draw.empty())
+            continue;   // every group under the ground
         if (!set)
         {
             d->SetVertexShader(dev, nullptr);
@@ -2094,7 +2165,11 @@ unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float
         d->SetTransform(dev, D3DTS_WORLD, &w);
         d->SetStreamSource(dev, 0, mo.vb, 0, 12);
         d->SetIndices(dev, mo.ib);
-        d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, mo.nv, 0, mo.ntri);
+        if (mo.spans.empty())
+            d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, mo.nv, 0, mo.ntri);
+        else
+            for (const auto& r : i.draw)
+                d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, mo.nv, r.first, r.second);
         ++drawn;
     }
     g_wmoDrawnLast = drawn;
@@ -2141,18 +2216,26 @@ const char* MapTerrainInfo()
     }
     for (const auto& kv : g_texs)
         (kv.second.state == Tex::kReady ? tReady : kv.second.state == Tex::kFailed ? tFailed : tLoading)++;
+    unsigned buriedGroups = 0, buriedIn = 0;
+    for (const Inst& i : g_insts)
+        if (i.buried > 0)
+        {
+            buriedGroups += static_cast<unsigned>(i.buried);
+            ++buriedIn;
+        }
     const unsigned done = g_loadedTotal + g_missingTotal, wDone = g_wmoRead + g_wmoFailed;
     _snprintf_s(g_info, sizeof(g_info), _TRUNCATE,
                 "map terrain: map \"%s\", %u archives; tiles in reach: %u ready (%u of them the ground alone), %u loading, %u without ground; "
                 "%u drawn into the last map; since the start %u read, %u not found, %.0f ms a tile. Buildings: %u "
-                "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map; "
+                "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map, %u groups under "
+                "the ground left out of %u; "
                 "%.0f ms a model. Doodads: %u (%u of them the buildings', %u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
                 "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
                 "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u; game "
                 "objects %u, %u of them lit, %u lights, %u display ids read",
                 g_map.c_str(), MpqArchiveCount(), ready, ground, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
-                static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast,
+                static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast, buriedGroups, buriedIn,
                 wDone ? g_wmoMs / wDone : 0.0, doodads, wmoD, missing, dTris, dTiles, settled,
                 g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1],
                 static_cast<unsigned>(g_fileLights.size()), g_objSeen, g_objLit,

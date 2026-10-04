@@ -201,6 +201,7 @@ namespace
         { "water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)", 0, 0, 0, 0, 0, 8 },
         { "sun shadows: where the shade comes from (red solid, green leaves, blue hills)", 0, 4, 0, 0, 0 },
         { "sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)", 0, 5, 0, 0, 0 },
+        { "sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill; 15 yards full at terrainBias 1.5)", 0, 6, 0, 0, 0 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;

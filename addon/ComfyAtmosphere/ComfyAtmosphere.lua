@@ -936,11 +936,12 @@ local ENTRIES = {
 			.. "22 water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)\n"
 			.. "23 water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)\n"
 			.. "24 sun shadows: where the shade comes from (red solid, green leaves, blue hills)\n"
-			.. "25 sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)",
+			.. "25 sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)\n"
+			.. "26 sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 25,
+		maxval = 26,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -1495,6 +1496,7 @@ local DEBUG_VIEWS = {
 	"water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)",
 	"sun shadows: where the shade comes from (red solid, green leaves, blue hills)",
 	"sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)",
+	"sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)",
 };
 
 local PANEL_BACKDROP = {

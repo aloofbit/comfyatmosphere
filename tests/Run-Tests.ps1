@@ -22,6 +22,7 @@
 
   Steps, one key each:
     wait <s>, hop { to, heading, step, pause }, fly <yards>, flyFor <seconds>, back <yards>, turn <degrees> (180: the client's Ctrl+Shift+F flip; other angles hold Q, 180 a second), probe, screenshot,
+    face { heading, pitch } (the camera, in degrees: heading counter-clockwise from +x as the sun's azimuth, pitch up positive; ComfyTest checks and corrects it),
     pos, atmos "<words>", cvar "<name> <value>", chat "<text>". Where the character is (from comfyfog.dll's
     comfyStats CVar) goes into the result after the start and after each fly, back and turn.
 
@@ -29,6 +30,10 @@
     probe   a pattern (a regular expression) for lines of the probe
     max     at most this many lines may match (0: none)
     min     at least this many must match
+  or against a screenshot of the run:
+    shot    which one, from 1 (in the order taken)
+    row     a row of pixels, from the top, and from, to: the columns along it (every 4th is read)
+    min     no pixel's brightness (0..255, the mean of red, green and blue) under this
 
 .EXAMPLE
   .\Run-Tests.ps1                         # every test here
@@ -124,6 +129,7 @@ foreach ($file in $files) {
             'back'       { $lines += ('hold S {0:0.##}' -f ([double]$v / ($speed * 0.64))); $lines += 'wait 1.2'; $lines += "pos after back $v" }   # backing up is 64% of the speed
             'turn'       { if ([double]$v -eq 180) { $lines += 'keys ctrl+shift+f' } else { $lines += ('hold Q {0:0.##}' -f ([double]$v / 180.0)) }; $lines += 'wait 1.2'; $lines += "pos after turn $v" }               # the keys turn 180 degrees a second
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
+            'face'       { $lines += "face $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)" } }   # the camera, checked against comfyStats: ComfyTest turns, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
             'screenshot' { $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
             'atmos'      { $lines += "atmos $v" }
@@ -141,7 +147,7 @@ foreach ($file in $files) {
     $logStart = if (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
     $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String
-    $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^pos ' })
+    $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|face|pitch) ' })
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
     # The last probe of this run: from its header to the next report or the end.
@@ -155,9 +161,34 @@ foreach ($file in $files) {
         $probe = $new[$from..($to - 1)]
     }
 
+    # Every screenshot of the run, in order: a test can take one in each debug view.
+    $shots = @(Get-ChildItem (Join-Path $Client 'Screenshots') -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.LastWriteTime -ge $started } | Sort-Object LastWriteTime)
+
     $results = @()
     $pass = $true
     foreach ($e in $t.expect) {
+        if ($null -ne $e.shot) {
+            # A row of a screenshot (2026-10-04): the Debug View 5 shot is one grey where the shade is even, and
+            # a strip of shade that should not be there shows as a dip.
+            $n = [int]$e.shot
+            if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $pass = $false; continue }
+            Add-Type -AssemblyName System.Drawing
+            $bmp = [Drawing.Bitmap]::FromFile($shots[$n - 1].FullName)
+            $low = 255; $at = -1
+            try {
+                for ($x = [int]$e.from; $x -le [int]$e.to -and $x -lt $bmp.Width; $x += 4) {
+                    $c = $bmp.GetPixel($x, [int]$e.row)
+                    $l = [int](($c.R + $c.G + $c.B) / 3)
+                    if ($l -lt $low) { $low = $l; $at = $x }
+                }
+            }
+            finally { $bmp.Dispose() }
+            $ok = $low -ge [int]$e.min
+            if (-not $ok) { $pass = $false }
+            $results += ('{0}  {1}: the darkest pixel of row {2} is {3}, at column {4} (at least {5})' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $e.row, $low, $at, $e.min)
+            continue
+        }
         if (-not $heads.Count) { $results += "FAIL  no probe in the log: $($e.about)"; $pass = $false; continue }
         $hits = @($probe | Where-Object { $_ -match $e.probe })
         $ok = $true
@@ -168,19 +199,19 @@ foreach ($file in $files) {
         $results += @($hits | Select-Object -First 10 | ForEach-Object { "        $_" })
     }
 
-    $shot = Get-ChildItem (Join-Path $Client 'Screenshots') -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -ge $started } | Sort-Object LastWriteTime | Select-Object -Last 1
-    $shotCopy = $null
-    if ($shot) {
-        $shotCopy = Join-Path $resultsDir "$stamp-$($t.name)$($shot.Extension)"
-        Copy-Item $shot.FullName $shotCopy
+    $shotCopies = @()
+    for ($i = 0; $i -lt $shots.Count; $i++) {
+        $suffix = if ($shots.Count -gt 1) { "-$($i + 1)" } else { '' }
+        $copy = Join-Path $resultsDir "$stamp-$($t.name)$suffix$($shots[$i].Extension)"
+        Copy-Item $shots[$i].FullName $copy
+        $shotCopies += $copy
     }
 
     $verdict = if ($pass) { 'PASS' } else { 'FAIL' }
     $report = @("$verdict  $($t.name)  ($stamp)") + $results
     if ($positions.Count) { $report += 'where the character was:'; $report += @($positions | ForEach-Object { "        $_" }) }
     if ($warnings.Count) { $report += 'errors from the game:'; $report += @($warnings | ForEach-Object { "        $_" }) }
-    if ($shotCopy) { $report += "screenshot: $shotCopy" } else { $report += 'screenshot: none taken' }
+    if ($shotCopies.Count) { $report += @($shotCopies | ForEach-Object { "screenshot: $_" }) } else { $report += 'screenshot: none taken' }
     $text = $report -join "`r`n"
     Write-Host $text
     [IO.File]::WriteAllText((Join-Path $resultsDir "$stamp-$($t.name).txt"), $text + "`r`n`r`n" + ($probe -join "`r`n") + "`r`n")
