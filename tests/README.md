@@ -15,7 +15,7 @@ steps in the game.
    .\Run-Tests.ps1 far-terrain-cache -NoLogin   # the client is already in the world
    ```
 
-The runner restarts the test client and logs in once, unless `-NoLogin` is given, and runs every test in that one session. It logs in again only for a test that wants another character, and casts flight only when a test needs it and it is off. It sends `/atmos reset` before and after each test,
+The runner restarts the test client and logs in once, unless `-NoLogin` is given, and runs every test in that one session. It logs in again only for a test that wants another character, and casts flight when a test's `flight` differs from the state it is in. A run ends with flight off. It sends `/atmos reset` before and after each test,
 and puts every CVar it set back as it was, so a test leaves no values behind. Do not touch the mouse or keyboard while a test
 runs. The result, the script it ran, the probe and the screenshots go to `results\`, which git ignores.
 

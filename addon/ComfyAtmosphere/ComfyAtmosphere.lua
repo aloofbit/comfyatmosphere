@@ -1406,6 +1406,11 @@ end
 local tuneNumber = 0;
 local tuneWaiting = nil;
 local tuneUntil = 0;
+-- Commands given while one waits for its answer, sent in order as the answers come (2026-10-04). They were
+-- refused ("still waiting for the last answer"): a macro or a test sending several at once lost some, and a
+-- test's sun elevation went missing that way.
+local tuneQueue = {};
+local TuneSend;
 
 local function Say(text)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: " .. text);
@@ -1453,8 +1458,22 @@ tuneFrame:SetScript("OnUpdate", function()
 	end
 	tuneWaiting = nil;
 	SetCVar("comfyTune", "");
+	if table.getn(tuneQueue) > 0 then
+		TuneSend(table.remove(tuneQueue, 1));
+		return;
+	end
 	this:Hide();
 end);
+
+TuneSend = function(msg)
+	repeat
+		tuneNumber = tuneNumber + 1;
+	until not HasCVar("comfyTuneReply" .. tuneNumber);
+	tuneWaiting = tuneNumber;
+	tuneUntil = GetTime() + 3;
+	SetCVar("comfyTune", tuneNumber .. " " .. (msg or ""));
+	tuneFrame:Show();
+end;
 
 SLASH_COMFYATMOS1 = "/atmos";
 -- /atmos stats: comfyfog.dll's figures on screen, for finding faults. The DLL writes them into the CVar
@@ -1806,16 +1825,10 @@ SlashCmdList["COMFYATMOS"] = function(msg)
 		return;
 	end
 	if tuneWaiting then
-		Say("still waiting for the last answer.");
+		table.insert(tuneQueue, msg or "");
 		return;
 	end
-	repeat
-		tuneNumber = tuneNumber + 1;
-	until not HasCVar("comfyTuneReply" .. tuneNumber);
-	tuneWaiting = tuneNumber;
-	tuneUntil = GetTime() + 3;
-	SetCVar("comfyTune", tuneNumber .. " " .. (msg or ""));
-	tuneFrame:Show();
+	TuneSend(msg);
 end;
 
 -- The round shadow the game draws under each character and creature. The CVar shadowLOD ("Unit shadow

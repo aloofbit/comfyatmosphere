@@ -70,6 +70,9 @@ $summary = @()
 # turned it on, off after a login. With -NoLogin it is taken as off.
 $loggedAs = $null
 $flying = $false
+# Flight off: the same cast. In the air the character falls, which a GM survives; between tests the next
+# start's .go xyz follows at once.
+$flightOff = @('type /cast Toggle GM Flight Mode', 'wait 0.5')
 
 foreach ($file in $files) {
     if (-not (Test-Path $file)) { throw "No test $file" }
@@ -91,10 +94,14 @@ foreach ($file in $files) {
     # Flight first, then the start: a start in the air holds only with flight on. The character must be on the
     # ground when flight goes on, or it can stick in the air (the owner, 2026-10-03): wow-test-tool's ground waits
     # until its height has stayed on the map files' ground for half a second.
-    # A test without flight leaves it as it is: its start is on the ground, where flight changes nothing.
+    # Each test in the flight state it asks for.
     if ($cfg.flight -and -not $flying) {
         $lines += 'ground 60'; $lines += 'type /cast Toggle GM Flight Mode'; $lines += 'wait 0.5'
         $flying = $true
+    }
+    elseif (-not $cfg.flight -and $flying) {
+        $lines += $flightOff
+        $flying = $false
     }
     if ($cfg.start) {
         $s = $cfg.start
@@ -265,6 +272,13 @@ foreach ($file in $files) {
     Write-Host $text
     [IO.File]::WriteAllText((Join-Path $resultsDir "$stamp-$($t.name).txt"), $text + "`r`n`r`n" + ($probe -join "`r`n") + "`r`n")
     $summary += "$verdict  $($t.name)"
+}
+
+# The character is left as a login leaves it: flight off.
+if ($flying) {
+    $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-flight-off.script.txt"
+    [IO.File]::WriteAllText($script, ($flightOff -join "`r`n") + "`r`n")
+    & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null
 }
 
 Write-Host ''
