@@ -13,11 +13,20 @@ steps in the game.
    .\Run-Tests.ps1                       # every test
    .\Run-Tests.ps1 far-terrain-cache     # one test
    .\Run-Tests.ps1 far-terrain-cache -NoLogin   # the client is already in the world
+   .\Run-Tests.ps1 -Accept                # and take this run's screenshots as the expected ones
    ```
 
-The runner restarts the test client and logs in once, unless `-NoLogin` is given, and runs every test in that one session. It logs in again only for a test that wants another character, and casts flight when a test's `flight` differs from the state it is in. A run ends with flight off. It sends `/atmos reset` before and after each test,
+The runner restarts the test client and logs in once, unless `-NoLogin` is given, and runs every test in that one session. It logs in again only for a test that wants another character, and casts flight when a test's `flight` differs from the state it is in. A run ends with flight off and the camera behind the character. It sends `/atmos reset` before and after each test,
 and puts every CVar it set back as it was, so a test leaves no values behind. Do not touch the mouse or keyboard while a test
 runs. The result, the script it ran, the probe and the screenshots go to `results\`, which git ignores.
+
+## The page
+
+Each run writes `results\<time>-report.html` and opens it (`-NoOpen` does not). It shows every test, its checks
+and what they measured, and each screenshot beside the expected one, with the Debug View it was taken in. A
+check that reads a screenshot sits with that screenshot. The expected shots are in `expected\<test>-<n>.jpg`,
+in git. When a change is meant to alter a test's look, look at the page, then run again with `-Accept` to take
+the new shots as expected.
 
 ## A test
 

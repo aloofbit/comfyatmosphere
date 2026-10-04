@@ -48,10 +48,16 @@
   .\Run-Tests.ps1                         # every test here
   .\Run-Tests.ps1 far-terrain-cache       # one test
   .\Run-Tests.ps1 far-terrain-cache -NoLogin   # the client is already in the world
+  .\Run-Tests.ps1 -Accept                 # and take this run's screenshots as the expected ones
+
+  Each run writes a page, results\<time>-report.html, and opens it (-NoOpen does not): every test, its checks,
+  and each screenshot beside the expected one in expected\<test>-<n>.jpg.
 #>
 param(
     [Parameter(Position = 0)][string[]]$Name,
     [switch]$NoLogin,
+    [switch]$Accept,
+    [switch]$NoOpen,
     [string]$Client = (Join-Path $env:USERPROFILE 'Desktop\wow-clients\octow - Copy')
 )
 
@@ -70,6 +76,21 @@ $summary = @()
 # turned it on, off after a login. With -NoLogin it is taken as off.
 $loggedAs = $null
 $flying = $false
+$runStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$runStarted = Get-Date
+$expectedDir = Join-Path $here 'expected'
+$records = @()
+# The Debug Views' names, for the page, from the list the DLL keeps (kDebugViews in cvars.cpp).
+$viewNames = @()
+$cvarsSrc = Join-Path $here '..\src\cvars.cpp'
+if (Test-Path $cvarsSrc) {
+    $src = Get-Content $cvarsSrc -Raw
+    $at = $src.IndexOf('kDebugViews[] = {')
+    if ($at -ge 0) {
+        $block = $src.Substring($at, $src.IndexOf('};', $at) - $at)
+        $viewNames = @([regex]::Matches($block, '\{ "([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
+    }
+}
 # Flight off: the same cast. In the air the character falls, which a GM survives; between tests the next
 # start's .go xyz follows at once.
 $flightOff = @('type /cast Toggle GM Flight Mode', 'wait 0.5')
@@ -133,6 +154,9 @@ foreach ($file in $files) {
     # hop: .go xyz along a line from the start at the start's height, in steps (2026-10-03). Exact where turning
     # and flight speed were not. $along is how far along the line the last hop left the character.
     $along = 0.0
+    # What each screenshot shows, for the page: the Debug View at the time.
+    $view = if ($null -ne $cfg.debugView) { [int]$cfg.debugView } else { 0 }
+    $shotViews = @()
     foreach ($st in $t.steps) {
         $p = $st.PSObject.Properties | Select-Object -First 1
         $v = $p.Value
@@ -161,9 +185,9 @@ foreach ($file in $files) {
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
             'face'       { $lines += "face $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)" } }   # the camera, checked against comfyStats: ComfyTest turns, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
-            'screenshot' { $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
+            'screenshot' { $shotViews += $view; $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
             'atmos'      { $lines += "atmos $v" }
-            'cvar'       { $lines += "cvar $v" }
+            'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
             'chat'       { $lines += "chat $v" }
             default      { throw "$($t.name): unknown step '$($p.Name)'" }
         }
@@ -196,13 +220,14 @@ foreach ($file in $files) {
                Where-Object { $_.LastWriteTime -ge $started } | Sort-Object LastWriteTime)
 
     $results = @()
+    $checks = @()   # for the page: each check, whether it passed, and the screenshot it read (0: the probe)
     $pass = $true
     foreach ($e in $t.expect) {
         if ($null -ne $e.shot -and $null -ne $e.box) {
             # A box of a screenshot (2026-10-04): how much of it jumps from one pixel to the next. Counting
             # half-grey pixels missed speckle that came as hard black and white dots.
             $n = [int]$e.shot
-            if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $pass = $false; continue }
+            if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $checks += [pscustomobject]@{ ok = $false; about = $e.about; got = "no screenshot $n ($($shots.Count) taken)"; shot = 0 }; $pass = $false; continue }
             Add-Type -AssemblyName System.Drawing
             $bmp = [Drawing.Bitmap]::FromFile($shots[$n - 1].FullName)
             $jumps = 0; $count = 0
@@ -220,13 +245,14 @@ foreach ($file in $files) {
             $ok = $share -le [int]$e.jumpMax
             if (-not $ok) { $pass = $false }
             $results += ('{0}  {1}: {2}% of the box jumps from one pixel to the next (at most {3}%)' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $share, $e.jumpMax)
+            $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('{0}% of the box jumps from one pixel to the next (at most {1}%)' -f $share, $e.jumpMax); shot = $n }
             continue
         }
         if ($null -ne $e.shot) {
             # A row of a screenshot (2026-10-04): the Debug View 5 shot is one grey where the shade is even, and
             # a strip of shade that should not be there shows as a dip.
             $n = [int]$e.shot
-            if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $pass = $false; continue }
+            if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $checks += [pscustomobject]@{ ok = $false; about = $e.about; got = "no screenshot $n ($($shots.Count) taken)"; shot = 0 }; $pass = $false; continue }
             Add-Type -AssemblyName System.Drawing
             $bmp = [Drawing.Bitmap]::FromFile($shots[$n - 1].FullName)
             $low = 255; $at = -1; $sum = 0; $count = 0
@@ -243,15 +269,17 @@ foreach ($file in $files) {
             $ok = ($null -eq $e.min -or $low -ge [int]$e.min) -and ($null -eq $e.mean -or $avg -ge [int]$e.mean)
             if (-not $ok) { $pass = $false }
             $results += ('{0}  {1}: row {2} averages {3}, its darkest pixel {4} at column {5} (wanted: average {6}, darkest {7})' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $e.row, $avg, $low, $at, $(if ($null -ne $e.mean) { "at least $($e.mean)" } else { 'any' }), $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' }))
+            $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('row {0} averages {1}, its darkest pixel {2} at column {3} (wanted: average {4}, darkest {5})' -f $e.row, $avg, $low, $at, $(if ($null -ne $e.mean) { "at least $($e.mean)" } else { 'any' }), $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' })); shot = $n }
             continue
         }
-        if (-not $heads.Count) { $results += "FAIL  no probe in the log: $($e.about)"; $pass = $false; continue }
+        if (-not $heads.Count) { $results += "FAIL  no probe in the log: $($e.about)"; $checks += [pscustomobject]@{ ok = $false; about = $e.about; got = 'no probe in the log'; shot = 0 }; $pass = $false; continue }
         $hits = @($probe | Where-Object { $_ -match $e.probe })
         $ok = $true
         if ($null -ne $e.max -and $hits.Count -gt [int]$e.max) { $ok = $false }
         if ($null -ne $e.min -and $hits.Count -lt [int]$e.min) { $ok = $false }
         if (-not $ok) { $pass = $false }
         $results += ('{0}  {1}: {2} line(s) match' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $hits.Count)
+        $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('{0} line(s) of the probe match' -f $hits.Count); shot = 0 }
         $results += @($hits | Select-Object -First 10 | ForEach-Object { "        $_" })
     }
 
@@ -272,14 +300,30 @@ foreach ($file in $files) {
     Write-Host $text
     [IO.File]::WriteAllText((Join-Path $resultsDir "$stamp-$($t.name).txt"), $text + "`r`n`r`n" + ($probe -join "`r`n") + "`r`n")
     $summary += "$verdict  $($t.name)"
+    if ($Accept -and $shotCopies.Count) {
+        New-Item -ItemType Directory -Force $expectedDir | Out-Null
+        for ($i = 0; $i -lt $shotCopies.Count; $i++) {
+            Copy-Item $shotCopies[$i] (Join-Path $expectedDir "$($t.name)-$($i + 1)$([IO.Path]::GetExtension($shotCopies[$i]))") -Force
+        }
+    }
+    $records += [pscustomobject]@{
+        name = $t.name; about = $t.about; pass = $pass; stamp = $stamp; checks = $checks
+        positions = $positions; warnings = $warnings; shots = $shotCopies; views = $shotViews
+    }
 }
 
-# The character is left as a login leaves it: flight off.
-if ($flying) {
-    $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-flight-off.script.txt"
-    [IO.File]::WriteAllText($script, ($flightOff -join "`r`n") + "`r`n")
-    & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null
-}
+# The character is left as a login leaves it: the camera behind it (face turns the camera alone), flight off.
+$end = @('camback')
+if ($flying) { $end += $flightOff }
+$script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-end.script.txt"
+[IO.File]::WriteAllText($script, ($end -join "`r`n") + "`r`n")
+& (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null
+
+# The page (2026-10-04): every test, its checks, and each screenshot beside the expected one.
+& (Join-Path $here 'Write-Report.ps1') -Records $records -Page (Join-Path $resultsDir "$runStamp-report.html") `
+    -ExpectedDir $expectedDir -ViewNames $viewNames -Started $runStarted
 
 Write-Host ''
 Write-Host ($summary -join "`r`n")
+Write-Host "report: $(Join-Path $resultsDir "$runStamp-report.html")"
+if (-not $NoOpen) { Start-Process (Join-Path $resultsDir "$runStamp-report.html") }
