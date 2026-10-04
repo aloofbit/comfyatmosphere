@@ -10,8 +10,8 @@
 
   Config:
     character   the slot on character select, from the top (Luf is 1)
-    flight      true: type "/cast Toggle GM Flight Mode" after the login (it is off after a login); an addon's
-                CastSpellByName does not reach it
+    flight      true: type "/cast Toggle GM Flight Mode" unless an earlier test of the run turned it on (it is off
+                after a login); an addon's CastSpellByName does not reach it
     camera      0 first person, 1 to 9 that many steps back out, 10 all the way out ("zoomed" is 0, "far" 10)
     flySpeed    yards a second while flying with W, to turn "fly" yards into seconds (7 is the run speed)
     start       { map, x, y, z }: where the test begins, by .go xyz
@@ -38,6 +38,11 @@
     row     a row of pixels, from the top, and from, to: the columns along it (every 4th is read)
     min     no pixel's brightness (0..255, the mean of red, green and blue) under this
     mean    the row's average brightness at least this
+  or against a box of a screenshot:
+    shot    which one, from 1
+    box     [ left, top, right, bottom ] in pixels (every 2nd row is read)
+    jumpMax the share of pixels allowed, in percent, whose brightness differs from the next one along the row
+            by more than 60: speckle in the shade-alone view (Debug View 5) jumps, even shade or light does not
 
 .EXAMPLE
   .\Run-Tests.ps1                         # every test here
@@ -60,6 +65,11 @@ if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client a
 $files = if ($Name) { $Name | ForEach-Object { Join-Path $here "$_.json" } } else { Get-ChildItem $here -Filter *.json | ForEach-Object { $_.FullName } }
 $log = Join-Path $Client 'comfyfog.log'
 $summary = @()
+# One login for the whole run (2026-10-04): a login a test cost about a minute each. Another login only for a
+# test that wants another character. Flight is a toggle, so the runner keeps track of it: on after a test
+# turned it on, off after a login. With -NoLogin it is taken as off.
+$loggedAs = $null
+$flying = $false
 
 foreach ($file in $files) {
     if (-not (Test-Path $file)) { throw "No test $file" }
@@ -68,9 +78,11 @@ foreach ($file in $files) {
     $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
     Write-Host "=== $($t.name) ==="
 
-    if (-not $NoLogin) {
-        $slot = if ($cfg.character) { [int]$cfg.character } else { 1 }
+    $slot = if ($cfg.character) { [int]$cfg.character } else { 1 }
+    if (-not $NoLogin -and $loggedAs -ne $slot) {
         & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
+        $loggedAs = $slot
+        $flying = $false
     }
 
     # The config and the steps into a wow-test-tool script.
@@ -79,7 +91,11 @@ foreach ($file in $files) {
     # Flight first, then the start: a start in the air holds only with flight on. The character must be on the
     # ground when flight goes on, or it can stick in the air (the owner, 2026-10-03): wow-test-tool's ground waits
     # until its height has stayed on the map files' ground for half a second.
-    if ($cfg.flight) { $lines += 'ground 60'; $lines += 'type /cast Toggle GM Flight Mode'; $lines += 'wait 0.5' }
+    # A test without flight leaves it as it is: its start is on the ground, where flight changes nothing.
+    if ($cfg.flight -and -not $flying) {
+        $lines += 'ground 60'; $lines += 'type /cast Toggle GM Flight Mode'; $lines += 'wait 0.5'
+        $flying = $true
+    }
     if ($cfg.start) {
         $s = $cfg.start
         $lines += "chat .go xyz $($s.x) $($s.y) $($s.z) $($s.map)"
@@ -175,6 +191,30 @@ foreach ($file in $files) {
     $results = @()
     $pass = $true
     foreach ($e in $t.expect) {
+        if ($null -ne $e.shot -and $null -ne $e.box) {
+            # A box of a screenshot (2026-10-04): how much of it jumps from one pixel to the next. Counting
+            # half-grey pixels missed speckle that came as hard black and white dots.
+            $n = [int]$e.shot
+            if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $pass = $false; continue }
+            Add-Type -AssemblyName System.Drawing
+            $bmp = [Drawing.Bitmap]::FromFile($shots[$n - 1].FullName)
+            $jumps = 0; $count = 0
+            try {
+                for ($y = [int]$e.box[1]; $y -le [int]$e.box[3] -and $y -lt $bmp.Height; $y += 2) {
+                    for ($x = [int]$e.box[0]; $x -lt [int]$e.box[2] -and $x + 1 -lt $bmp.Width; $x++) {
+                        $p = $bmp.GetPixel($x, $y); $q = $bmp.GetPixel($x + 1, $y)
+                        if ([Math]::Abs(($p.R + $p.G + $p.B) - ($q.R + $q.G + $q.B)) / 3 -gt 60) { $jumps++ }
+                        $count++
+                    }
+                }
+            }
+            finally { $bmp.Dispose() }
+            $share = if ($count) { [int](100 * $jumps / $count) } else { 0 }
+            $ok = $share -le [int]$e.jumpMax
+            if (-not $ok) { $pass = $false }
+            $results += ('{0}  {1}: {2}% of the box jumps from one pixel to the next (at most {3}%)' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $share, $e.jumpMax)
+            continue
+        }
         if ($null -ne $e.shot) {
             # A row of a screenshot (2026-10-04): the Debug View 5 shot is one grey where the shade is even, and
             # a strip of shade that should not be there shows as a dip.

@@ -1,0 +1,30 @@
+{
+    "name": "stormwind-tower-speckle",
+    "about": "On the bridge into Stormwind, facing the gate with the sun behind it. A band of the left tower, where the sun grazes it, showed a speckled shade (2026-10-04, the owner at game time 17:39). Shots in the normal view and in Debug View 5 (the shade alone).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 5,
+        "start": { "map": 0, "x": -8984.2, "y": 496.4, "z": 96.5, "about": "the owner's place, read with ComfyTest pos; the camera faced 41.6 degrees, level, about 11 yards behind" },
+        "sun": { "azimuth": 45, "elevation": 28.7 }
+    },
+    "steps": [
+        { "wait": 3 },
+        { "face": { "heading": 41.6, "pitch": 0.1 } },
+        { "wait": 3 },
+        { "probe": true },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 5" },
+        { "wait": 1 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 0" }
+    ],
+    "expect": [
+        {
+            "about": "No speckled shade on the left tower where the sun grazes it (Debug View 5): 20% of the box jumped at normalBias 2, none at 4",
+            "shot": 2,
+            "box": [ 430, 30, 495, 200 ],
+            "jumpMax": 5
+        }
+    ]
+}

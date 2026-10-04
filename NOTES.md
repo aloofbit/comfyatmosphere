@@ -1807,6 +1807,25 @@ until the runner gained `cvars` in the config. ComfyTest's `cvar` now keeps each
 change, and `cvarsback` at the end of every test puts them back. The game saves CVars in Config.wtf, and a
 test would otherwise leave the owner's controls moved.
 
+## Speckle on Stormwind's gate tower (2026-10-04)
+
+On the bridge into Stormwind, facing the sun over the gate, the side of the left tower the sun grazes showed a
+fine fixed speckle: shadow acne, the depth test landing on the tower's own surface. Measured in Debug View 5 as
+the share of pixels that jump by more than 60 from the next one in a box on the tower:
+
+- `normalBias` 2 (the default until now): 20%. At 3: 3%. At 4 and 6: 0%, the band evenly shaded.
+- `normalBias` 0: 1%, the band lit. `bias 8`: 3%, lit.
+- `slope` 0.5 and 1: 42% and 30%, worse. The middle map and `softness` changed nothing.
+- Reading the facing from neighbours 2 pixels away, not 1, changed nothing: the facing is not noisy.
+
+`[sunshadows] normalBias` is 4 now. It acts only where the sun is within about 20 degrees of a surface or
+behind it, so surfaces the sun reaches well are as they were. The owner ran through Stormwind with it and saw
+nothing wrong. `tests/stormwind-tower-speckle.json` checks the box (at most 5% jumping). A count of half-grey
+pixels was tried first and missed the speckle once it came as hard black and white dots.
+
+The runner now logs in once for a whole run and keeps track of flight, which the cast toggles: all five tests in
+4.2 minutes, where each had taken about a minute and a half with its own login.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's

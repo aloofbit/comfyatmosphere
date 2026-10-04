@@ -272,11 +272,12 @@ struct SunShadowSettings
                                   // both maps alike, where bias is in texels of each
     float sunOffset  = 0.06f;     // yards each point is moved toward the sun before the test, against
                                   // the same. Values tuned in game with /atmos (2026-09-29)
-    float normalBias = 2.0f;      // texels of the finest map each point is moved along its rebuilt facing,
+    float normalBias = 4.0f;      // texels of the finest map each point is moved along its rebuilt facing,
                                   // up to 4 times that where the sun grazes the surface, and only where it
                                   // grazes it or is behind it: walls the sun grazes shaded themselves in
                                   // stripes without it. The facing is per triangle on a model, so the bodies
-                                  // the mask finds take none of it (2026-10-02)
+                                  // the mask finds take none of it (2026-10-02). 2 until 2026-10-04: the side
+                                  // of Stormwind's gate tower the sun grazed was speckled
     float slope      = 0.0f;      // 0..1: how much of the surface's slope (from the same facing) sets each
                                   // tap's depth. Against stripes on sloped ground at a high softness; on
                                   // a model it made patches where the arm shades the body
