@@ -1651,6 +1651,51 @@ let tree shade show through a ridge.
 
 The owner: that fixed it.
 
+Later the same day: in Darnassus the back walls of buildings showed lit (Debug View 5). The facing rule had
+taken all cast shade off a face turned from the sun, and a back wall is shaded by its own building. Now a
+face turned from the sun only joins the depth test above, and the shade goes only where the terrain lies
+nearer the sun than the point by the same margin. No hill stands in front of a back wall.
+
+## Shade that left the cache in Darnassus (2026-10-03)
+
+A tree's shade on a bridge in Darnassus went now and then: after staleTime with the tree off screen, or as
+you turned. Each cause was another kind of caster the files left to the client's draws. The cache now logs
+each big tree it drops (`a big tree left the cache`, with the rule and whether the files place a doodad
+there), and a probe lists each tile: ground alone or in full, its doodads, the buildings' share and their
+cut-out triangles, the area they cover, and whether they are on the GPU.
+
+- **The buildings' doodads.** Only those with a light word were read. `WmoDoodads` reads every doodad an
+  outdoor group lists (MODR), from the default set and the placement's own, and each tile bakes those that
+  stand on it, beside its own.
+- **Big doodads on far tiles.** A tile held for its ground had no doodads. It now keeps those that reach 60
+  yards from where they stand (`kBigReach`), a model's reach measured once. A giant tree (KALIDARTREE08)
+  320 yards from the bridge shaded it. A tile's doodad draw is culled by what its doodads cover, not its
+  square plus 60 yards: the canopy reached 270 yards past its tile.
+- **Shade in view.** The age and reach rules leave a cached caster while 25 points along the sun from it,
+  out to 600 yards, fall in view with its size as slack. The length is not taken from its size: a tree's
+  bones can all sit at its foot.
+- **Animated.** A model with a bone of 16 keys or more was taken as animated and left to the client.
+  KALIDARTREE08 turns a second bone with 17 keys and has none of its 325 vertices on it (a wisp); the client
+  draws it in batches of copies that change each frame, so its entries were brief and went in half a second.
+  Now a model is animated only if a vertex hangs on a moving bone or a child of one. The gryphon roost: 2,178
+  of 2,629 vertices, still animated.
+- **The buildings' cut-out triangles.** `WmoLoad` leaves out alpha-keyed materials. `WmoLeavesLoad` reads
+  them with their first UV set and texture, and the tiles bake them into the leaves: the pines on Darnassus's
+  houses (KALIDARTREENEEDLES_SMALL01, groups 97 to 99).
+- **Unreachable but exterior.** Darnassus's treetops (groups 101 to 103, "treetops", 0x89) carry 0x80 and
+  the client draws them, a canopy 200 to 275 yards across. Left out, they cast only from the client's draws,
+  judged by the building's origin, and went for good once dropped. A 0x80 group is left out now only without
+  0x8; Stormwind's four have none.
+
+## The sun at a steady speed (2026-10-03)
+
+The sky moves its sun 0.56 degrees once a game minute (only the elevation: the azimuth is 45 all day). With
+the held sun (`sunStep`) the shadows stepped; with `sunStep = 0` an ease of 3 seconds put most of each move in
+its first second, and the shadows gave a small snap once a minute. Now a step of the sky (over 0.1 degrees)
+starts a straight move from where the glided sun is, as long as the time since the sky's last step and at
+least `glide`. A jump over 1.5 degrees lands at once. The stats show the sun three ways (measured, glided,
+held), the game time and the held sun's steps.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's

@@ -19,7 +19,7 @@ struct M2Model
     std::vector<uint16_t> tris;     // view-local corners
     std::vector<Batch>    batches;
     bool                  alpha = false;   // any batch alpha keyed: the whole model casts as leaves
-    bool                  animated = false;   // a bone with 16 or more keyframes: it moves (a gryphon roost)
+    bool                  animated = false;   // a vertex on a bone with 16 or more keyframes: it moves (a gryphon roost)
     // The flame, for a model that gives light (mapwmo.cpp): where its glow quads and its particle emitters are,
     // in the model's own space, and their colour. flame 0 = the model has neither (an unlit candle, or a lamp
     // that glows by its texture alone); haveColour = a colour was read.

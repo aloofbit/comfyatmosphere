@@ -48,7 +48,11 @@ namespace
             // 0x80: unreachable. No portal leads to it, so the client never draws it. Stormwind has four, 100
             // to 250 yards up over the city ("Mage Quarter", "Command Center", "garrison_hall", "HB03"), and
             // they cast a large shadow over the Trade District from an empty sky (2026-09-30). Left out whole.
-            if (o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x80))
+            // Unless it is also marked exterior (0x8, 2026-10-03): Darnassus's treetops ("treetops",
+            // "Treetops02", "Treetops03", 0x89) are 0x80 too, and the client draws them. Left out, the tall
+            // canopy cast only from the client's draws, and its shade went for good once the cache let them go.
+            // Stormwind's four have no 0x8.
+            if (o + 8 + 36 <= end && (U32(d, o + 8 + 8) & 0x88) == 0x80)
                 return true;
             // Not indoor when the group is also lit by the exterior light (0x40) or marked exterior (0x8): the
             // client lights it as it lights the open air. Stormwind's canal tunnels are 0xa040, and walking through
@@ -144,6 +148,7 @@ namespace
 namespace
 {
     constexpr uint32_t kMODN = 0x4D4F444E, kMODS = 0x4D4F4453, kMODD = 0x4D4F4444, kMOLT = 0x4D4F4C54;
+    constexpr uint32_t kMODR = 0x4D4F4452, kMOTV = 0x4D4F5456;
 
     // The doodads that give light, by the name of their model, and how far their light reaches. Inside a
     // building the client has no point lights (probe, the Darkshire inn): its candles are particles, and the
@@ -587,4 +592,206 @@ bool WmoLoad(const std::string& rootName, WmoMesh& out)
     LampsInGeometry(glassPts, out);
     Floors(out);
     return out.groupsRead > 0 && !out.idx.empty();
+}
+
+bool WmoLeavesLoad(const std::string& rootName, WmoLeaves& out)
+{
+    out = WmoLeaves();
+    std::vector<uint8_t> d;
+    if (!MpqRead(rootName.c_str(), d))
+        return false;
+    unsigned groups = 0;
+    std::vector<uint32_t> blend, texOff;
+    std::string motx;
+    for (size_t o = 0; o + 8 <= d.size();)
+    {
+        const uint32_t tag = U32(d, o), size = U32(d, o + 4);
+        if (o + 8 + static_cast<size_t>(size) > d.size())
+            break;
+        if (tag == kMOHD && size >= 60) groups = U32(d, o + 8 + 4);
+        if (tag == kMOMT)
+            for (size_t m = 0; m + 64 <= size; m += 64)
+            {
+                blend.push_back(U32(d, o + 8 + m + 8));
+                texOff.push_back(U32(d, o + 8 + m + 12));
+            }
+        if (tag == kMOTX)
+            motx.assign(reinterpret_cast<const char*>(&d[o + 8]), size);
+        o += 8 + static_cast<size_t>(size);
+    }
+    if (groups == 0 || groups > 1024)
+        return false;
+    // Each alpha-keyed material's texture, once.
+    std::vector<int> slot(blend.size(), -1);
+    for (size_t m = 0; m < blend.size(); ++m)
+        if (blend[m] == 1 && texOff[m] < motx.size())
+        {
+            const std::string t(motx.c_str() + texOff[m]);
+            if (t.empty())
+                continue;
+            auto it = std::find(out.tex.begin(), out.tex.end(), t);
+            slot[m] = static_cast<int>(it - out.tex.begin());
+            if (it == out.tex.end())
+                out.tex.push_back(t);
+        }
+    if (out.tex.empty())
+        return true;
+    const size_t dot = rootName.size() >= 4 ? rootName.size() - 4 : rootName.size();
+    const std::string stem = rootName.substr(0, dot);
+    for (unsigned g = 0; g < groups; ++g)
+    {
+        char name[16];
+        _snprintf_s(name, sizeof(name), _TRUNCATE, "_%03u.wmo", g);
+        if (!MpqRead((stem + name).c_str(), d))
+            continue;
+        for (size_t o = 0; o + 8 <= d.size();)
+        {
+            const uint32_t tag = U32(d, o), size = U32(d, o + 4);
+            if (o + 8 + static_cast<size_t>(size) > d.size())
+                break;
+            const size_t end = o + 8 + size;
+            if (tag == kMOGP && o + 8 + 0x44 <= end)
+            {
+                const uint32_t flags = U32(d, o + 8 + 8);
+                if ((flags & 0x88) == 0x80 || ((flags & 0x2000) && !(flags & 0x48)))
+                    break;   // unreachable, or indoors: the roof shades it
+                const uint8_t* mopy = nullptr; size_t nTri = 0;
+                const uint8_t* movi = nullptr; size_t nIdx = 0;
+                const uint8_t* movt = nullptr; size_t nVert = 0;
+                const uint8_t* motv = nullptr; size_t nUv = 0;
+                for (size_t s = o + 8 + 0x44; s + 8 <= end;)
+                {
+                    const uint32_t t = U32(d, s), n = U32(d, s + 4);
+                    if (s + 8 + static_cast<size_t>(n) > end)
+                        break;
+                    if (t == kMOPY) { mopy = &d[s + 8]; nTri = n / 2; }
+                    if (t == kMOVI) { movi = &d[s + 8]; nIdx = n / 2; }
+                    if (t == kMOVT) { movt = &d[s + 8]; nVert = n / 12; }
+                    if (t == kMOTV && !motv) { motv = &d[s + 8]; nUv = n / 8; }   // the first set
+                    s += 8 + static_cast<size_t>(n);
+                }
+                if (!mopy || !movi || !movt || !motv)
+                    break;
+                nTri = (std::min)(nTri, nIdx / 3);
+                for (size_t i = 0; i < nTri; ++i)
+                {
+                    const uint8_t mat = mopy[i * 2 + 1];
+                    if (mat == 0xFF || mat >= slot.size() || slot[mat] < 0)
+                        continue;
+                    uint16_t tri[3];
+                    memcpy(tri, movi + i * 6, 6);
+                    if (tri[0] >= nVert || tri[1] >= nVert || tri[2] >= nVert ||
+                        tri[0] >= nUv || tri[1] >= nUv || tri[2] >= nUv)
+                        continue;
+                    for (uint16_t k : tri)
+                    {
+                        float p[5];
+                        memcpy(p, movt + k * 12, 12);
+                        memcpy(p + 3, motv + k * 8, 8);
+                        out.tri.insert(out.tri.end(), p, p + 5);
+                    }
+                    out.texOf.push_back(static_cast<uint16_t>(slot[mat]));
+                }
+                break;
+            }
+            o = end;
+        }
+    }
+    return true;
+}
+
+bool WmoDoodads(const std::string& rootName, std::vector<WmoDoodad>& out)
+{
+    out.clear();
+    std::vector<uint8_t> d;
+    if (!MpqRead(rootName.c_str(), d))
+        return false;
+    unsigned groups = 0;
+    size_t modn = 0, modnSize = 0, mods = 0, modsSize = 0, modd = 0, moddSize = 0;
+    for (size_t o = 0; o + 8 <= d.size();)
+    {
+        const uint32_t tag = U32(d, o), size = U32(d, o + 4);
+        if (o + 8 + static_cast<size_t>(size) > d.size())
+            break;
+        if (tag == kMOHD && size >= 60) groups = U32(d, o + 8 + 4);
+        if (tag == kMODN) { modn = o + 8; modnSize = size; }
+        if (tag == kMODS) { mods = o + 8; modsSize = size; }
+        if (tag == kMODD) { modd = o + 8; moddSize = size; }
+        o += 8 + static_cast<size_t>(size);
+    }
+    if (!modnSize || !moddSize || groups == 0 || groups > 1024)
+        return false;
+    const uint32_t nDoodads = static_cast<uint32_t>(moddSize / 40);
+    std::vector<uint8_t> root;
+    root.swap(d);
+    // Which doodads an outdoor group lists (MODR: 16-bit indices into MODD), by the same rule as Group's:
+    // indoor is 0x2000 without 0x40 or 0x8, and an unreachable group (0x80 without 0x8) lists nothing the
+    // client draws.
+    std::vector<bool> outdoor(nDoodads, false);
+    const size_t dot = rootName.size() >= 4 ? rootName.size() - 4 : rootName.size();
+    const std::string stem = rootName.substr(0, dot);
+    for (unsigned g = 0; g < groups; ++g)
+    {
+        char name[16];
+        _snprintf_s(name, sizeof(name), _TRUNCATE, "_%03u.wmo", g);
+        if (!MpqRead((stem + name).c_str(), d))
+            continue;
+        for (size_t o = 0; o + 8 <= d.size();)
+        {
+            const uint32_t tag = U32(d, o), size = U32(d, o + 4);
+            if (o + 8 + static_cast<size_t>(size) > d.size())
+                break;
+            const size_t end = o + 8 + size;
+            if (tag == kMOGP && o + 8 + 0x44 <= end)
+            {
+                const uint32_t flags = U32(d, o + 8 + 8);
+                if ((flags & 0x88) != 0x80 && !((flags & 0x2000) && !(flags & 0x48)))
+                    for (size_t s = o + 8 + 0x44; s + 8 <= end;)
+                    {
+                        const uint32_t t = U32(d, s), n = U32(d, s + 4);
+                        if (s + 8 + static_cast<size_t>(n) > end)
+                            break;
+                        if (t == kMODR)
+                            for (size_t k = s + 8; k + 2 <= s + 8 + n; k += 2)
+                            {
+                                uint16_t i;
+                                memcpy(&i, &d[k], 2);
+                                if (i < nDoodads)
+                                    outdoor[i] = true;
+                            }
+                        s += 8 + static_cast<size_t>(n);
+                    }
+            }
+            o = end;
+        }
+    }
+    for (uint32_t i = 0; i < nDoodads; ++i)
+    {
+        if (!outdoor[i])
+            continue;
+        const size_t o = modd + i * 40ull;
+        const uint32_t nameOff = U32(root, o) & 0xFFFFFF;
+        if (nameOff >= modnSize)
+            continue;
+        WmoDoodad w = {};
+        for (size_t k = modn + nameOff; k < modn + modnSize && root[k]; ++k)
+            w.name += static_cast<char>(root[k] >= 'a' && root[k] <= 'z' ? root[k] - 32 : root[k]);
+        memcpy(w.pos, &root[o + 4], 12);
+        memcpy(w.q, &root[o + 16], 16);
+        memcpy(&w.scale, &root[o + 32], 4);
+        if (!(w.scale > 0.0f && w.scale < 100.0f))
+            w.scale = 1.0f;
+        for (size_t sOff = mods; sOff + 32 <= mods + modsSize; sOff += 32)
+        {
+            const uint32_t first = U32(root, sOff + 20), count = U32(root, sOff + 24);
+            if (i >= first && i < first + count)
+            {
+                w.set = static_cast<uint16_t>((sOff - mods) / 32);
+                break;
+            }
+        }
+        if (!w.name.empty())
+            out.push_back(std::move(w));
+    }
+    return true;
 }

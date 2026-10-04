@@ -60,3 +60,30 @@ enum class BuildingLightIs { Other, SameLamp, Floor };
 BuildingLightIs BuildingLightBy(const float building[3], const float flame[3]);
 
 bool WmoLoad(const std::string& rootName, WmoMesh& out);
+
+// A doodad the building places (MODD), in the building's own space: its model (upper case, as MODN spells
+// it), place, turn (a quaternion x y z w) and scale, and the doodad set it belongs to.
+struct WmoDoodad
+{
+    std::string name;
+    float       pos[3];
+    float       q[4];
+    float       scale;
+    uint16_t    set;
+};
+// The doodads that stand in the building's outdoor groups (2026-10-03): a tree in Darnassus cast only while the
+// client drew it, and its shade went staleTime after it was off screen. A doodad no outdoor group lists (a
+// room's furniture) is left out: the roof shades it, and it would only cost triangles. Loader thread only.
+bool WmoDoodads(const std::string& rootName, std::vector<WmoDoodad>& out);
+
+// A building's alpha-keyed triangles (blend mode 1: the small pines on Darnassus's buildings, a grate, a vine),
+// in its own space, for the leaf maps (2026-10-03). WmoLoad leaves them out, and they cast only while the client
+// drew them: a pine on a building in Darnassus lost its shade when that part of the building was not drawn.
+struct WmoLeaves
+{
+    std::vector<std::string> tex;     // the materials' first textures
+    std::vector<float>       tri;     // 15 floats a triangle: x y z u v for each corner
+    std::vector<uint16_t>    texOf;   // each triangle's entry in tex
+};
+// Its outdoor groups only, as WmoDoodads. Loader thread only.
+bool WmoLeavesLoad(const std::string& rootName, WmoLeaves& out);

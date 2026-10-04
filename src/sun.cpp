@@ -52,6 +52,16 @@ namespace
     float g_loggedDir[3] = { 0.0f, 0.0f, 0.0f };
     int   g_sunLogs      = 0;
 
+    // For the stats (SunStatsText, 2026-10-03): this frame's measurement and where it came from, the glided
+    // sun, the shadows' held sun, and how often the held sun stepped.
+    float    g_statMeas[3]  = { 0.0f, 0.0f, 1.0f };
+    int      g_statSrc      = -1;      // -1 none yet, 0 the clock, 1 the sky, 2 [sun] fixed
+    float    g_statGlide[3] = { 0.0f, 0.0f, 1.0f };
+    float    g_statHeld[3]  = { 0.0f, 0.0f, 1.0f };
+    bool     g_statHaveHeld = false;
+    unsigned g_heldSteps    = 0;       // since the last stats line
+    double   g_heldStepAt   = 0.0;
+
     // The two moons, each held in the world where it was last seen (2026-10-03). The sky draws only the moons
     // on screen. With one off screen the other was "the first quad", and the light, the shadows, the rays and
     // the water's glint jumped 110 degrees from one moon to the other as the camera turned. Slot 0 is the
@@ -383,6 +393,9 @@ bool SunDirection(float dir[3])
     {
         const float az = s.azimuth * 0.01745329f, el = s.elevation * 0.01745329f;
         dir[0] = cosf(el) * cosf(az); dir[1] = cosf(el) * sinf(az); dir[2] = sinf(el);
+        memcpy(g_statMeas, dir, sizeof(g_statMeas));
+        memcpy(g_statGlide, dir, sizeof(g_statGlide));
+        g_statSrc = 2;
         return true;
     }
     if (g_sunViewFresh)
@@ -430,8 +443,13 @@ bool SunDirection(float dir[3])
     // followed a hair each frame, and a change of more than 1.5 degrees (the time set by hand) lands at once.
     // The 10 seconds are [sun] glide since 2026-09-30 (the Sun Smoothing control); 0 follows at once.
     // 1.5 degrees since 2026-10-03, 5 until then: a comfytime step moves the sky 2.8 degrees, and glided it
-    // barely showed, until a few steps passed 5 and the light, the shadows and the glint jumped at once. The
-    // sky's own steps, 0.56 degrees once a game minute, still glide.
+    // barely showed, until a few steps passed 5 and the light, the shadows and the glint jumped at once.
+    // At a steady speed since 2026-10-03, not an ease. The sky moves its sun 0.56 degrees once a game minute,
+    // and an ease of 3 seconds made most of that move in its first second: with [shadow] sunStep 0 every
+    // shadow gave a small snap once a minute. Now a step of the sky (more than 0.1 degrees: the wander is a
+    // thousandth) starts a straight move from where the sun is to the new place, as long as the time since
+    // the sky's last step and at least glide seconds. The sun then moves on all the time at the sky's own
+    // pace, one step behind it.
     static float  stable[3] = { 0.0f, 0.0f, 0.0f };
     static bool   have = false;
     static double last = 0.0;
@@ -455,22 +473,36 @@ bool SunDirection(float dir[3])
             now);
     }
     memcpy(raw, meas, sizeof(raw));
+    static float  from[3] = { 0.0f, 0.0f, 1.0f }, to[3] = { 0.0f, 0.0f, 1.0f };
+    static double moveAt = 0.0, moveFor = 0.0, stepAt = 0.0;
+    const double glide = g_cfg.sun.glide;
     const float dot = stable[0] * meas[0] + stable[1] * meas[1] + stable[2] * meas[2];
-    if (!have || dot < 0.99966f)   // more than 1.5 degrees
+    if (!have || dot < 0.99966f || glide <= 0.0)   // more than 1.5 degrees, or no glide: at once
     {
         memcpy(stable, meas, sizeof(stable));
+        memcpy(from, meas, sizeof(from));
+        memcpy(to, meas, sizeof(to));
+        moveFor = 0.0;
+        stepAt = now;
         have = true;
     }
     else
     {
-        const double dt = now - last;
-        const double glide = g_cfg.sun.glide;
-        const float  k  = glide <= 0.0 ? 1.0f :
-                          static_cast<float>(1.0 - exp(-(dt > 0.0 && dt < 1.0 ? dt : 0.0) / glide));
+        if (to[0] * meas[0] + to[1] * meas[1] + to[2] * meas[2] < 0.9999985f)   // the sky stepped: > 0.1 degrees
+        {
+            memcpy(from, stable, sizeof(from));
+            memcpy(to, meas, sizeof(to));
+            const double since = now - stepAt;
+            moveAt  = now;
+            moveFor = since > glide ? (since < 120.0 ? since : 120.0) : glide;
+            stepAt  = now;
+        }
+        const float t = moveFor > 0.0 ? static_cast<float>((now - moveAt) / moveFor) : 1.0f;
+        const float k = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
         float len = 0.0f;
         for (int i = 0; i < 3; ++i)
         {
-            stable[i] += (meas[i] - stable[i]) * k;
+            stable[i] = from[i] + (to[i] - from[i]) * k;
             len += stable[i] * stable[i];
         }
         len = sqrtf(len);
@@ -480,6 +512,9 @@ bool SunDirection(float dir[3])
     }
     last = now;
     memcpy(dir, stable, sizeof(stable));
+    memcpy(g_statMeas, meas, sizeof(g_statMeas));
+    memcpy(g_statGlide, stable, sizeof(g_statGlide));
+    g_statSrc = g_haveSun ? 1 : 0;
     return true;
 }
 
@@ -604,11 +639,46 @@ bool ShadowSunDirection(float dir[3])
     hd = hd > 1.0f ? 1.0f : hd < -1.0f ? -1.0f : hd;
     if (!haveHeld || hold <= 0.0f || acosf(hd) >= hold)
     {
+        if (haveHeld && memcmp(held, cur, sizeof(held)) != 0)
+        {
+            ++g_heldSteps;
+            g_heldStepAt = Now();
+        }
         memcpy(held, cur, sizeof(held));
         haveHeld = true;
     }
     memcpy(dir, held, sizeof(held));
+    memcpy(g_statHeld, held, sizeof(g_statHeld));
+    g_statHaveHeld = true;
     return true;
+}
+
+// The sun for the on-screen stats (/atmos stats), as name=value; pairs: azimuth and elevation in degrees of the
+// measurement (the sky's sprite, or the clock before it is seen), of the glided sun that the light, the rays,
+// the water and the fog read (SunDirection), and of the held sun the shadow maps are drawn with
+// (ShadowSunDirection); the game time; and how often the held sun stepped in the last second.
+void SunStatsText(std::string& out)
+{
+    const auto azel = [](const float d[3], float& az, float& el) {
+        az = atan2f(d[1], d[0]) * 57.29578f;
+        el = asinf(d[2] < -1.0f ? -1.0f : (d[2] > 1.0f ? 1.0f : d[2])) * 57.29578f;
+    };
+    float maz, mel, gaz, gel, haz, hel;
+    azel(g_statMeas, maz, mel);
+    azel(g_statGlide, gaz, gel);
+    azel(g_statHeld, haz, hel);
+    float hour = -1.0f;
+    const bool clock = ClientHour(hour);
+    const int gm = clock ? static_cast<int>(hour * 60.0f) : -1;
+    char line[400];
+    snprintf(line, sizeof(line),
+             "sunsrc=%s;sunmaz=%.3f;sunmel=%.3f;sungaz=%.3f;sungel=%.3f;sunheld=%d;sunhaz=%.3f;sunhel=%.3f;"
+             "sunsteps=%u;sunstepago=%.1f;sunstep=%.3f;gametime=%s%02d:%02d;",
+             g_statSrc == 2 ? "fixed" : g_statSrc == 1 ? "sky" : g_statSrc == 0 ? "clock" : "none", maz, mel, gaz, gel,
+             g_statHaveHeld ? 1 : 0, haz, hel, g_heldSteps, g_heldStepAt > 0.0 ? Now() - g_heldStepAt : -1.0,
+             g_cfg.shadow.sunStep, clock ? "" : "?", gm >= 0 ? gm / 60 : 0, gm >= 0 ? gm % 60 : 0);
+    out += line;
+    g_heldSteps = 0;
 }
 
 bool SunSecondDirection(float dir[3])

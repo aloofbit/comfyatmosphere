@@ -510,7 +510,7 @@ local ENTRIES = {
 	{
 		-- Seconds: comfyfog.dll takes it as [sun] glide.
 		name = "COMFYATMOSPHERE_SUN_GLIDE",
-		desc = "Seconds the shadows, sun rays and light take to follow the sun as it moves. Higher is steadier. Lower follows the time of day sooner. 0 follows at once, with a small wander.",
+		desc = "Seconds at least that the shadows, sun rays and light take to follow a step of the sun. The sky moves the sun once a game minute, and each move is spread over the minute. 0 follows at once.",
 		type = "slider",
 		cvar = "comfySunGlide",
 		dependency = { "comfyVolume", "1" },
@@ -1526,7 +1526,7 @@ end
 
 -- ---- the stats panel ------------------------------------------------------------------------------
 
-local STATS_ROWS = 30;
+local STATS_ROWS = 40;
 local statsFrame = nil;
 
 local function StatsParse(raw)
@@ -1567,6 +1567,23 @@ local function StatsRows(v)
 
 	Head("Frame");
 	Row("Frame rate", G("fps") .. " fps");
+
+	-- The sun three ways, in degrees (azimuth, elevation): what the sky shows (or the clock, before the sky
+	-- is seen), the glided sun that the light, the rays, the water and the fog use, and the held sun the
+	-- shadow maps are drawn with.
+	Head("Sun");
+	Row("Game time", G("gametime"));
+	Row("Measured (" .. G("sunsrc") .. ")", G("sunmaz") .. ", " .. G("sunmel"));
+	Row("Glided (light, water)", G("sungaz") .. ", " .. G("sungel"));
+	if v.sunheld == "1" then
+		Row("Held (shadows)", G("sunhaz") .. ", " .. G("sunhel"));
+		local ago = tonumber(v.sunstepago) or -1;
+		Row("Shadow steps", G("sunsteps") .. " in the last second, the last " ..
+			(ago >= 0 and string.format("%.1f s ago", ago) or "never") .. "  (step " .. G("sunstep") .. " deg)",
+			(tonumber(v.sunsteps) or 0) > 0);
+	else
+		Row("Held (shadows)", "not drawn yet");
+	end
 
 	Head("Shadow casters");
 	Row("Held", G("held") .. "  (" .. G("models") .. " models, " .. G("fixed") .. " buildings)");

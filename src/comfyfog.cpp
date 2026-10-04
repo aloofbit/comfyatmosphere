@@ -905,6 +905,7 @@ namespace
                 snprintf(line, sizeof(line), "fps=%.0f;x=%.1f;y=%.1f;z=%.1f;pos=%d;map=%s;", statsFrames / (now - statsLast),
                          pl[0], pl[1], pl[2], havePl ? 1 : 0, map);
                 std::string text = line;
+                SunStatsText(text);
                 ShadowStatsText(text);
                 VolumeStatsText(text);
                 CVarsStats(text);

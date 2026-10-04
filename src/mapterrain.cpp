@@ -120,6 +120,7 @@ namespace
         std::vector<uint32_t>  dLeafIdx;
         std::vector<Batch>     dBatches;
         float                  dMinZ = 0.0f, dMaxZ = 0.0f;
+        float                  dLo[2] = { 1e9f, 1e9f }, dHi[2] = { -1e9f, -1e9f };   // the doodads' x and y: what they cover
         std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
         std::vector<float>     dAnim;           // the places of the animated ones, left out: the client's
         std::vector<std::string> dAnimName;     // draws of them cast instead (a gryphon roost)
@@ -128,6 +129,8 @@ namespace
         std::vector<float>     dScale;
         std::string            archives;        // the archives that hold the tile, the one read first
         unsigned               doodads = 0, doodadsMissing = 0;
+        unsigned               wmoDoodads = 0;          // of the doodads, those the buildings place
+        unsigned               wmoLeafTris = 0;         // the buildings' alpha-keyed triangles, with the leaves
         double                 dMs = 0.0;
     };
 
@@ -236,14 +239,25 @@ namespace
     // --- doodads, on the loader thread ---
 
     std::unordered_map<std::string, std::shared_ptr<M2Model>> g_m2;   // loader thread only
+    std::unordered_map<std::string, std::vector<WmoDoodad>> g_wmoDoodads;   // by building: loader thread only
+    std::unordered_map<std::string, WmoLeaves> g_wmoLeaves;   // by building: loader thread only
+    std::unordered_map<std::string, float> g_m2Reach;   // each model's reach from its origin, yards at scale 1
+    // A tile read for its ground alone keeps the doodads that reach this far from where they stand (2026-10-03).
+    // A giant tree on Teldrassil (KALIDARTREE08 at scale 0.17) stands 320 yards from a bridge in Darnassus
+    // and shades it; its tile was held for its ground, so the tree cast only while the client drew it.
+    constexpr float kBigReach = 60.0f;
     unsigned g_m2Gen = 0;
 
     // The tile's MDDF into its two doodad buffers.
-    void Doodads(const std::vector<uint8_t>& d, Mesh& m, unsigned gen)
+    // bigOnly: a tile held for its ground. Its doodads that reach kBigReach, and nothing else.
+    void Doodads(const std::vector<uint8_t>& d, Mesh& m, unsigned gen, bool bigOnly)
     {
         if (gen != g_m2Gen)
         {
             g_m2.clear();   // another map
+            g_wmoDoodads.clear();
+            g_wmoLeaves.clear();
+            g_m2Reach.clear();
             g_m2Gen = gen;
         }
         size_t mmdx = 0, mmdxSize = 0, mmid = 0, mmidSize = 0, mddf = 0, mddfSize = 0;
@@ -265,6 +279,49 @@ namespace
         std::unordered_map<std::string, std::vector<uint32_t>> groups;   // leaf indices by texture
         m.dMinZ = 1e9f;
         m.dMaxZ = -1e9f;
+        m.dLo[0] = m.dLo[1] = 1e9f;
+        m.dHi[0] = m.dHi[1] = -1e9f;
+        // A model into the tile's buffers: world (row vector) = model * rot + pos, rot with the scale in it.
+        const auto bake = [&](const M2Model& md, const float rot[3][3], const float pos[3], const std::string& name,
+                              float sc) {
+            const size_t nv = md.pos.size() / 3;
+            std::vector<float>& vout = md.alpha ? m.dLeaf : m.dSolid;
+            const uint32_t base = static_cast<uint32_t>(vout.size() / (md.alpha ? 5 : 3));
+            for (size_t i = 0; i < nv; ++i)
+            {
+                const float* p = &md.pos[i * 3];
+                float w[3];
+                for (int j = 0; j < 3; ++j)
+                    w[j] = p[0] * rot[0][j] + p[1] * rot[1][j] + p[2] * rot[2][j] + pos[j];
+                vout.push_back(w[0] - x1);
+                vout.push_back(w[1] - y1);
+                vout.push_back(w[2]);
+                if (md.alpha)
+                {
+                    vout.push_back(md.uv[i * 2]);
+                    vout.push_back(md.uv[i * 2 + 1]);
+                }
+                m.dMinZ = (std::min)(m.dMinZ, w[2]);
+                m.dMaxZ = (std::max)(m.dMaxZ, w[2]);
+                for (int j = 0; j < 2; ++j)
+                {
+                    m.dLo[j] = (std::min)(m.dLo[j], w[j]);
+                    m.dHi[j] = (std::max)(m.dHi[j], w[j]);
+                }
+            }
+            for (const M2Model::Batch& b : md.batches)
+            {
+                if (b.blend > 1)
+                    continue;   // blended: the client's draw of it casts nothing either
+                std::vector<uint32_t>& idx = md.alpha ? groups[b.blend == 1 ? b.tex : std::string()] : m.dSolidIdx;
+                for (uint32_t k = b.start; k < b.start + b.count; ++k)
+                    idx.push_back(base + md.tris[k]);
+            }
+            m.dPos.insert(m.dPos.end(), pos, pos + 3);
+            m.dName.push_back(name.substr(name.find_last_of('\\') + 1));
+            m.dScale.push_back(sc);
+            ++m.doodads;
+        };
         for (size_t o = mddf; o + 36 <= mddf + mddfSize; o += 36)
         {
             const uint32_t nameId = U32(d, o);
@@ -288,6 +345,34 @@ namespace
             const size_t dot = name.find_last_of('.');
             if (dot != std::string::npos)
                 name.erase(dot);   // X.MDX and X.M2 are one model
+            if (bigOnly)
+            {
+                // Its reach, measured once: the model is kept only if it is big, or a full tile has it.
+                auto rr = g_m2Reach.find(name);
+                if (rr == g_m2Reach.end())
+                {
+                    std::shared_ptr<M2Model> md;
+                    const auto have = g_m2.find(name);
+                    if (have != g_m2.end())
+                        md = have->second;
+                    else
+                    {
+                        md = std::make_shared<M2Model>();
+                        if (!M2Load(name + ".m2", *md))
+                            md.reset();
+                    }
+                    float r2 = 0.0f;
+                    if (md)
+                        for (size_t i = 0; i + 2 < md->pos.size(); i += 3)
+                            r2 = (std::max)(r2, md->pos[i] * md->pos[i] + md->pos[i + 1] * md->pos[i + 1] +
+                                                md->pos[i + 2] * md->pos[i + 2]);
+                    rr = g_m2Reach.emplace(name, sqrtf(r2)).first;
+                    if (md && have == g_m2.end() && rr->second * (scale16 / 1024.0f) >= kBigReach)
+                        g_m2.emplace(name, md);   // used below; a small one is let go
+                }
+                if (rr->second * (scale16 / 1024.0f) < kBigReach)
+                    continue;
+            }
             auto it = g_m2.find(name);
             if (it == g_m2.end())
             {
@@ -301,7 +386,7 @@ namespace
             // client showed a light or a glow sprite for it. Taken before the model is known to be readable:
             // LightFlames has an answer either way. One light for each group of flames.
             float lightReach = 0.0f;
-            if (const char* word = LightModelWord(name.substr(name.find_last_of('\\') + 1), it->second.get(), lightReach))
+            if (const char* word = bigOnly ? nullptr : LightModelWord(name.substr(name.find_last_of('\\') + 1), it->second.get(), lightReach))
             {
                 float r[3][3], fp[kMaxFlames][3], colour[3];
                 EulerZYX(rotDeg[1] * deg, rotDeg[0] * deg, rotDeg[2] * deg, r);
@@ -340,38 +425,109 @@ namespace
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j)
                     rot[i][j] = (j < 2 ? -1.0f : 1.0f) * r[j][i] * sc;
-            const size_t nv = md.pos.size() / 3;
-            std::vector<float>& vout = md.alpha ? m.dLeaf : m.dSolid;
-            const uint32_t base = static_cast<uint32_t>(vout.size() / (md.alpha ? 5 : 3));
-            for (size_t i = 0; i < nv; ++i)
+            bake(md, rot, pos, name, sc);
+        }
+        // The buildings' own doodads in the open (2026-10-03): Darnassus's trees are the city's, not the
+        // tile's, and cast only while the client drew them. Each tile that places a building takes those that
+        // stand on it, so one on a tile's edge is built once; the default set (0) and the placement's own.
+        // Their lights come from the building (WmoMesh::lights), not from here.
+        for (const Placement& pl : m.wmos)
+        {
+            auto wit = g_wmoDoodads.find(pl.name);
+            if (wit == g_wmoDoodads.end())
             {
-                const float* p = &md.pos[i * 3];
-                float w[3];
+                std::vector<WmoDoodad> list;
+                WmoDoodads(pl.name, list);
+                wit = g_wmoDoodads.emplace(pl.name, std::move(list)).first;
+            }
+            for (const WmoDoodad& wd : wit->second)
+            {
+                if (wd.set != 0 && wd.set != pl.doodadSet)
+                    continue;
+                // Its place in the world, from the building's space.
+                float pos[3];
                 for (int j = 0; j < 3; ++j)
-                    w[j] = p[0] * rot[0][j] + p[1] * rot[1][j] + p[2] * rot[2][j] + pos[j];
-                vout.push_back(w[0] - x1);
-                vout.push_back(w[1] - y1);
-                vout.push_back(w[2]);
-                if (md.alpha)
+                    pos[j] = wd.pos[0] * pl.rot[0][j] + wd.pos[1] * pl.rot[1][j] + wd.pos[2] * pl.rot[2][j] + pl.pos[j];
+                if (!(pos[0] <= x1 && pos[0] > x1 - kTile && pos[1] <= y1 && pos[1] > y1 - kTile))
+                    continue;
+                std::string name = wd.name;
+                const size_t dot = name.find_last_of('.');
+                if (dot != std::string::npos)
+                    name.erase(dot);   // X.MDX and X.M2 are one model
+                auto it = g_m2.find(name);
+                if (it == g_m2.end())
                 {
-                    vout.push_back(md.uv[i * 2]);
-                    vout.push_back(md.uv[i * 2 + 1]);
+                    auto model = std::make_shared<M2Model>();
+                    if (!M2Load(name + ".m2", *model))
+                        model.reset();
+                    it = g_m2.emplace(name, model).first;
                 }
-                m.dMinZ = (std::min)(m.dMinZ, w[2]);
-                m.dMaxZ = (std::max)(m.dMaxZ, w[2]);
+                if (!it->second)
+                {
+                    ++m.doodadsMissing;
+                    continue;
+                }
+                const M2Model& md = *it->second;
+                if (md.animated)
+                {
+                    m.dAnim.insert(m.dAnim.end(), pos, pos + 3);
+                    m.dAnimName.push_back(name.substr(name.find_last_of('\\') + 1));
+                    continue;
+                }
+                // The doodad's turn (row vector: v * Q = q v q*) and scale, then the building's turn.
+                const float x = wd.q[0], y = wd.q[1], z = wd.q[2], w = wd.q[3];
+                const float R[3][3] = { { 1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w) },
+                                        { 2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w) },
+                                        { 2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y) } };
+                float rot[3][3];
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        rot[i][j] = wd.scale * (R[0][i] * pl.rot[0][j] + R[1][i] * pl.rot[1][j] + R[2][i] * pl.rot[2][j]);
+                bake(md, rot, pos, name, wd.scale);
+                ++m.wmoDoodads;
             }
-            for (const M2Model::Batch& b : md.batches)
+            // Its alpha-keyed triangles, into the leaves (2026-10-03): those whose middle stands on this tile.
+            auto lit = g_wmoLeaves.find(pl.name);
+            if (lit == g_wmoLeaves.end())
             {
-                if (b.blend > 1)
-                    continue;   // blended: the client's draw of it casts nothing either
-                std::vector<uint32_t>& idx = md.alpha ? groups[b.blend == 1 ? b.tex : std::string()] : m.dSolidIdx;
-                for (uint32_t k = b.start; k < b.start + b.count; ++k)
-                    idx.push_back(base + md.tris[k]);
+                WmoLeaves lv;
+                WmoLeavesLoad(pl.name, lv);
+                lit = g_wmoLeaves.emplace(pl.name, std::move(lv)).first;
             }
-            m.dPos.insert(m.dPos.end(), pos, pos + 3);
-            m.dName.push_back(name.substr(name.find_last_of('\\') + 1));
-            m.dScale.push_back(sc);
-            ++m.doodads;
+            const WmoLeaves& lv = lit->second;
+            for (size_t t = 0; t < lv.texOf.size(); ++t)
+            {
+                float w[3][3];
+                for (int c = 0; c < 3; ++c)
+                {
+                    const float* p = &lv.tri[t * 15 + c * 5];
+                    for (int j = 0; j < 3; ++j)
+                        w[c][j] = p[0] * pl.rot[0][j] + p[1] * pl.rot[1][j] + p[2] * pl.rot[2][j] + pl.pos[j];
+                }
+                const float cx = (w[0][0] + w[1][0] + w[2][0]) / 3.0f, cy = (w[0][1] + w[1][1] + w[2][1]) / 3.0f;
+                if (!(cx <= x1 && cx > x1 - kTile && cy <= y1 && cy > y1 - kTile))
+                    continue;
+                const uint32_t base = static_cast<uint32_t>(m.dLeaf.size() / 5);
+                std::vector<uint32_t>& idx = groups[lv.tex[lv.texOf[t]]];
+                for (int c = 0; c < 3; ++c)
+                {
+                    const float* p = &lv.tri[t * 15 + c * 5];
+                    m.dLeaf.push_back(w[c][0] - x1);
+                    m.dLeaf.push_back(w[c][1] - y1);
+                    m.dLeaf.push_back(w[c][2]);
+                    m.dLeaf.push_back(p[3]);
+                    m.dLeaf.push_back(p[4]);
+                    idx.push_back(base + c);
+                    m.dMinZ = (std::min)(m.dMinZ, w[c][2]);
+                    m.dMaxZ = (std::max)(m.dMaxZ, w[c][2]);
+                    for (int j = 0; j < 2; ++j)
+                    {
+                        m.dLo[j] = (std::min)(m.dLo[j], w[c][j]);
+                        m.dHi[j] = (std::max)(m.dHi[j], w[c][j]);
+                    }
+                }
+                ++m.wmoLeafTris;
+            }
         }
         for (auto& g : groups)
         {
@@ -663,8 +819,8 @@ namespace
                     m.found = Build(file, m);
                     if (m.groundOnly)
                         m.wmos.clear();
-                    else if (m.found)
-                        Doodads(file, m, job.gen);
+                    if (m.found)
+                        Doodads(file, m, job.gen, m.groundOnly);
                 }
                 if (!m.found)
                 {
@@ -1081,6 +1237,16 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
                 continue;
             (m.found ? g_loadedTotal : g_missingTotal)++;
             g_loadMs += m.ms;
+            // A tile held for its ground and now read in full: its big doodads' buffers go, and all of its
+            // doodads are uploaded again.
+            if (it->second.upgrading)
+            {
+                SafeRelease(it->second.dSolidVb);
+                SafeRelease(it->second.dSolidIb);
+                SafeRelease(it->second.dLeafVb);
+                SafeRelease(it->second.dLeafIb);
+                it->second.dOnGpu = false;
+            }
             it->second.mesh = std::move(m);
             it->second.pending = false;
             it->second.upgrading = false;
@@ -1695,6 +1861,38 @@ bool MapDoodadCovers(const float pos[3], float tol)
     return false;
 }
 
+bool MapDoodadAt(const float pos[3], float tol)
+{
+    const long long cx = static_cast<long long>(floorf(pos[0] * 0.25f)), cy = static_cast<long long>(floorf(pos[1] * 0.25f));
+    for (long long ox = -1; ox <= 1; ++ox)
+        for (long long oy = -1; oy <= 1; ++oy)
+        {
+            auto it = g_doodadGrid.find(CellKey(cx + ox, cy + oy));
+            if (it == g_doodadGrid.end())
+                continue;
+            const std::vector<float>& p = it->second;
+            for (size_t i = 0; i + 2 < p.size(); i += 3)
+                if (fabsf(p[i] - pos[0]) < tol && fabsf(p[i + 1] - pos[1]) < tol && fabsf(p[i + 2] - pos[2]) < tol)
+                    return true;
+        }
+    return false;
+}
+
+void MapLogTiles(const float from[3])
+{
+    for (const auto& kv : g_tiles)
+    {
+        const Tile& t = kv.second;
+        const Mesh& me = t.mesh;
+        Log("shadow: tile %d_%d, %.0f yd from you: %s%s; %u doodads (%u the buildings', and %u of their cut-out "
+            "triangles), on the GPU %s, settled %s; "
+            "they cover x %.0f..%.0f, y %.0f..%.0f, z %.0f..%.0f", me.a, me.b, Distance(from[0], from[1], me.a, me.b),
+            t.pending ? "loading" : me.groundOnly ? "the ground alone" : "in full", t.upgrading ? ", being read in full" : "",
+            me.doodads, me.wmoDoodads, me.wmoLeafTris, t.dOnGpu ? "yes" : "no", DoodadsSettled(t) ? "yes" : "no", me.dLo[0], me.dHi[0],
+            me.dLo[1], me.dHi[1], me.dMinZ, me.dMaxZ);
+    }
+}
+
 unsigned MapFilesVersion() { return g_filesVersion; }
 
 bool MapDoodadNearest(const float from[3], float pos[3])
@@ -1733,8 +1931,10 @@ unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float c
         if (!t.dOnGpu || (leaves ? !t.dLeafVb : !t.dSolidVb))
             continue;
         const float x1 = CornerX(t.mesh.b), y1 = CornerY(t.mesh.a);
-        const float lo[3] = { x1 - kTile - 60.0f, y1 - kTile - 60.0f, t.mesh.dMinZ },
-                    hi[3] = { x1 + 60.0f, y1 + 60.0f, t.mesh.dMaxZ };   // a tree reaches past its tile's edge
+        // What the doodads cover: a giant tree reaches far past its tile's edge.
+        const float lo[3] = { (std::min)(x1 - kTile - 60.0f, t.mesh.dLo[0]), (std::min)(y1 - kTile - 60.0f, t.mesh.dLo[1]),
+                              t.mesh.dMinZ },
+                    hi[3] = { (std::max)(x1 + 60.0f, t.mesh.dHi[0]), (std::max)(y1 + 60.0f, t.mesh.dHi[1]), t.mesh.dMaxZ };
         if (Outside(m, lo, hi))
             continue;
         if (!set)
@@ -1927,13 +2127,14 @@ const char* MapTerrainInfo()
         (kv.second.state == Model::kReady ? mReady : kv.second.state == Model::kFailed ? mFailed : mLoading)++;
     for (const Inst& i : g_insts)
         instReady += i.m->state == Model::kReady;
-    unsigned doodads = 0, missing = 0, dTiles = 0, settled = 0, tReady = 0, tFailed = 0, tLoading = 0;
+    unsigned doodads = 0, missing = 0, dTiles = 0, settled = 0, tReady = 0, tFailed = 0, tLoading = 0, wmoD = 0;
     unsigned long long dTris = 0;
     for (const auto& kv : g_tiles)
     {
         const Mesh& me = kv.second.mesh;
         doodads += me.doodads;
         missing += me.doodadsMissing;
+        wmoD += me.wmoDoodads;
         dTris += (me.dSolidIdx.size() + me.dLeafIdx.size()) / 3;
         dTiles += kv.second.dOnGpu;
         settled += DoodadsSettled(kv.second);
@@ -1945,14 +2146,14 @@ const char* MapTerrainInfo()
                 "map terrain: map \"%s\", %u archives; tiles in reach: %u ready (%u of them the ground alone), %u loading, %u without ground; "
                 "%u drawn into the last map; since the start %u read, %u not found, %.0f ms a tile. Buildings: %u "
                 "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map; "
-                "%.0f ms a model. Doodads: %u (%u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
+                "%.0f ms a model. Doodads: %u (%u of them the buildings', %u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
                 "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
                 "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u; game "
                 "objects %u, %u of them lit, %u lights, %u display ids read",
                 g_map.c_str(), MpqArchiveCount(), ready, ground, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
                 static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast,
-                wDone ? g_wmoMs / wDone : 0.0, doodads, missing, dTris, dTiles, settled,
+                wDone ? g_wmoMs / wDone : 0.0, doodads, wmoD, missing, dTris, dTiles, settled,
                 g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1],
                 static_cast<unsigned>(g_fileLights.size()), g_objSeen, g_objLit,
                 static_cast<unsigned>(g_objLights.size()), static_cast<unsigned>(g_objectLights.size()));

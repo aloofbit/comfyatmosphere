@@ -1353,6 +1353,33 @@ namespace
         // the map as soon as you looked down, so a ridge's shade came and went as the camera tilted, and
         // the view darkened and lightened with it (2026-09-29). They are a few hundred draws.
         const float keepFixed = (std::max)(keep, s.depth);
+        // Whether an entry's shade can lie in view (2026-10-03). A caster off screen is not drawn, and after
+        // staleTime it went, though its shadow lay in front of you: a giant tree on the horizon shading a
+        // bridge in Darnassus. Its shade lies along the sun from it, so 24 points from it away from the sun,
+        // out to 600 yards, are tested against the view, each with its size as slack. The length is not taken
+        // from its size: a tree's bones can all sit at its foot, and a size of a few yards looked only 80 yards
+        // along. While one point is in view, the age and reach rules leave it. Something gone that comes back
+        // into view goes by the in-view rule above, as before.
+        float sunD[3];
+        const bool haveSun = ShadowSunDirection(sunD) && sunD[2] > 0.05f;
+        const auto shadeInView = [&](const Entry& e) {
+            if (!haveSun)
+                return false;
+            const float r = (std::max)(e.spread, 10.0f) + 3.0f;
+            constexpr float kLen = 600.0f;
+            for (int k = 0; k <= 24; ++k)
+            {
+                const float t = kLen * k / 24.0f;
+                const float rel[3] = { e.pos[0] - sunD[0] * t - cam[0], e.pos[1] - sunD[1] * t - cam[1],
+                                       e.pos[2] - sunD[2] * t - cam[2] };
+                float c[4];
+                for (int j = 0; j < 4; ++j)
+                    c[j] = rel[0] * camVP.m[0][j] + rel[1] * camVP.m[1][j] + rel[2] * camVP.m[2][j] + camVP.m[3][j];
+                if (c[3] > -r && fabsf(c[0]) < c[3] + 2.0f * r && fabsf(c[1]) < c[3] + 2.0f * r)
+                    return true;
+            }
+            return false;
+        };
 
         // One version of each terrain chunk, the most detailed seen. The client draws a chunk with a
         // coarser mesh further off (145 vertices and 256 triangles near, 41 and 64 past about 250 yards),
@@ -1465,9 +1492,10 @@ namespace
                         // distance and in view or not (2026-09-30): a ship's pieces that it left out of view
                         // stayed as a dark outline of the ship until staleTime.
                         if (e.mobile || e.drifts || (e.unit && !UnitAt(e.pos)) || brief ||
-                            dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ||
-                            (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
-                            (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime))
+                            ((dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ||
+                              (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
+                              (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime)) &&
+                             !shadeInView(e)))
                         {
                             gone = true; ++g_nEvictAge;
                             why = e.mobile ? "moving" : e.drifts ? "has moved" : (e.unit && !UnitAt(e.pos)) ? "unit gone" :
@@ -1479,6 +1507,18 @@ namespace
                 if (gone)
                 {
                     NoteNear(why, e.rec, e.pos, player, true, e.drawnFor);
+                    // A big tree leaving (2026-10-03): a giant tree's shade on a bridge in Darnassus went now and
+                    // then, and was hard to catch with a probe. Logged without one, up to 60 a session.
+                    static int bigLogs = 0;
+                    if (e.rec.vs && !e.unit && e.rec.alphaTest && e.spread > 50.0f && bigLogs < 60)
+                    {
+                        ++bigLogs;
+                        const float bx = e.pos[0] - player[0], by = e.pos[1] - player[1];
+                        Log("shadow: a big tree left the cache (%s): M2 %uv %up at (%.1f %.1f %.1f), bones %.0f yd about, "
+                            "%.0f yd from you, the game drew it %.1f s ago on %u redraws; the files place a doodad there: %s",
+                            why, e.rec.numVertices, e.rec.primCount, e.pos[0], e.pos[1], e.pos[2], e.spread,
+                            sqrtf(bx * bx + by * by), now - e.lastSeen, e.drawnFor, MapDoodadAt(e.pos) ? "yes" : "no");
+                    }
                     ReleaseRec(e.rec);
                     list[i] = std::move(list.back());
                     list.pop_back();
@@ -2960,6 +3000,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 models - atUnits, alpha);
         }
         MapLogDoodadsNear(pl, 40.0f);
+        MapLogTiles(pl);
         // The cache's entries within 60 yards the client has not drawn for over 2 seconds: kept shade
         // with nothing to show for it, the first thing to look at when a shadow has no caster.
         {
@@ -2997,11 +3038,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                     auto f = g_replayed.find(&e);
                     const unsigned char bits = f == g_replayed.end() ? 0 : f->second;
                     Log("shadow:   near you: %s %uv %up start %u at (%.1f %.1f %.1f), %.1f yd (its bones %.1f yd about); the game drew it %.1f s ago, "
-                        "on %u redraws%s%s%s%s; this redraw: far map %s, near map %s", e.rec.vs ? "M2" : "ff",
+                        "on %u redraws%s%s%s%s; this redraw: far map %s, near map %s; the files place a doodad there: %s",
+                        e.rec.vs ? "M2" : "ff",
                         e.rec.numVertices, e.rec.primCount, e.rec.startIndex, e.pos[0], e.pos[1], e.pos[2], d,
                         e.spread, now - e.lastSeen, e.drawnFor, e.unit ? ", at a unit" : "", e.mobile ? ", moving" : "",
                         e.drifts ? ", has moved" : "", e.rec.alphaTest ? ", alpha tested" : "",
-                        (bits & 1) ? "yes" : "no", (bits & 2) ? "yes" : "no");
+                        (bits & 1) ? "yes" : "no", (bits & 2) ? "yes" : "no", MapDoodadAt(e.pos) ? "yes" : "no");
                 }
             Log("shadow: %u cache entries within 25 yd", listed);
         }

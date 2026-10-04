@@ -47,8 +47,8 @@ struct SunSettings
     float azimuth   = 45.0f;        // the afternoon sun logged while tuning
     float elevation = 50.0f;
     // Seconds the sun's direction takes to follow the sky (a time constant; 2026-09-30, the Sun Smoothing
-    // control). The sky's sun is measured afresh each frame and wanders a little; this averages that out.
-    // The shadows, the rays and the volumetric light all follow it. 0 = at once, with the wander.
+    // control). The sky moves its sun in steps of 0.56 degrees once a game minute; each step is followed at a
+    // steady speed, over the time since the last step and at least this long. 0 = at once.
     float glide     = 3.0f; 
 };
 

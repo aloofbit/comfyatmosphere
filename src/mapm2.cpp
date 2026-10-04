@@ -209,14 +209,36 @@ bool M2Load(const std::string& name, M2Model& out)
     // 28 bytes (the key count at +20), then the pivot. Offline, of 160 models on two tiles: the gryphon roost
     // (48 of 53 bones, up to 464 keys), birds (267), flies, fireflies and a training dummy (20 to 25). Lamps,
     // lampposts, a chandelier and a stone pyre animate only their flame (5 to 9 keys) and stay as they are.
+    // Only if a vertex hangs on such a bone, or on a child of one (2026-10-03). The giant trees on Teldrassil
+    // (KALIDARTREE08) turn a second bone with 17 keys, and not one of their 325 vertices is weighted to it: it
+    // carries a wisp. Taken as animated, they were left to the client's draws, which come in batches of
+    // copies that change each frame, and their shade left the cache half a second after the client stopped
+    // drawing them. A vertex's bone indices name bones directly; one past the bones counts as moving.
+    const uint32_t nVert = U32(d, 0x44), ofsVert = U32(d, 0x48);
     {
         const uint32_t nBones = U32(d, 0x34), ofsBones = U32(d, 0x38);
-        for (uint32_t i = 0; i < nBones && !out.animated && ofsBones + (i + 1) * 108ull <= d.size(); ++i)
+        std::vector<bool> moves(nBones, false);
+        bool any = false;
+        for (uint32_t i = 0; i < nBones && ofsBones + (i + 1) * 108ull <= d.size(); ++i)
+        {
             for (int t = 0; t < 3; ++t)
                 if (U32(d, ofsBones + i * 108ull + 12 + t * 28 + 20) >= 16)
-                    out.animated = true;
+                    moves[i] = true;
+            int16_t parent;
+            memcpy(&parent, &d[ofsBones + i * 108ull + 8], 2);
+            if (parent >= 0 && static_cast<uint32_t>(parent) < i && moves[parent])
+                moves[i] = true;   // parents come before their children
+            any = any || moves[i];
+        }
+        if (any && static_cast<uint64_t>(ofsVert) + static_cast<uint64_t>(nVert) * 48 <= d.size())
+            for (uint32_t i = 0; i < nVert && !out.animated; ++i)
+            {
+                const size_t o = ofsVert + i * 48ull;
+                for (int k = 0; k < 4; ++k)
+                    if (d[o + 12 + k] > 0 && (d[o + 16 + k] >= nBones || moves[d[o + 16 + k]]))
+                        out.animated = true;
+            }
     }
-    const uint32_t nVert = U32(d, 0x44), ofsVert = U32(d, 0x48);
     const uint32_t nViews = U32(d, 0x4C), ofsViews = U32(d, 0x50);
     const uint32_t nTex = U32(d, 0x5C), ofsTex = U32(d, 0x60);
     const uint32_t nMat = U32(d, 0x84), ofsMat = U32(d, 0x88);
