@@ -1,0 +1,36 @@
+{
+    "name": "ironforge-gate-fog",
+    "about": "Outside Ironforge's gate, at the foot of the mountain the city lies under. The fog was thick enough to hide the trees 60 yards off (2026-10-04, the owner at game time 17:39). Shots in the normal view and in Debug Views 12 (how much gets through) and 14 (where mist collects).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 6,
+        "start": { "map": 0, "x": -5030.8, "y": -820.8, "z": 495.1, "about": "the owner's place, read with ComfyTest pos; the camera faced 108 degrees, 22 down, about 16 yards behind" },
+        "sun": { "azimuth": 45, "elevation": 28.7 },
+        "cvars": { "comfyMistMorning": 0 }
+    },
+    "steps": [
+        { "wait": 3 },
+        { "face": { "heading": 108.0, "pitch": -22.0 } },
+        { "wait": 3 },
+        { "probe": true },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 12" },
+        { "wait": 1 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 14" },
+        { "wait": 1 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 0" }
+    ],
+    "expect": [
+        {
+            "about": "The road and the trees show through the fog (Debug View 12, white = clear): row 300 averaged 11 when the mountain lifted the fog's ground",
+            "shot": 2,
+            "row": 300,
+            "from": 200,
+            "to": 1100,
+            "mean": 60
+        }
+    ]
+}

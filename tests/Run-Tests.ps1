@@ -18,7 +18,10 @@
     sun         { azimuth, elevation } in degrees: a fixed sun ([sun] fixed), the same light every run
     ini         { "section.key": value, ... }: comfyfog.ini values for this test, by /atmos. /atmos reset runs
                 before and after, so nothing stays set
-    debugView   the Debug View to show (the comfyDebugView control), set back to 0 at the end
+    debugView   the Debug View to show (the comfyDebugView control)
+    cvars       { "name": value, ... }: the Atmosphere page's controls, which /atmos refuses. Every CVar a test
+                sets, by cvars, debugView or a cvar step, goes back to its value before at the end (ComfyTest's
+                cvarsback): the game saves them in Config.wtf
 
   Steps, one key each:
     wait <s>, hop { to, heading, step, pause }, fly <yards>, flyFor <seconds>, back <yards>, turn <degrees> (180: the client's Ctrl+Shift+F flip; other angles hold Q, 180 a second), probe, screenshot,
@@ -34,6 +37,7 @@
     shot    which one, from 1 (in the order taken)
     row     a row of pixels, from the top, and from, to: the columns along it (every 4th is read)
     min     no pixel's brightness (0..255, the mean of red, green and blue) under this
+    mean    the row's average brightness at least this
 
 .EXAMPLE
   .\Run-Tests.ps1                         # every test here
@@ -92,6 +96,9 @@ foreach ($file in $files) {
     if ($cfg.ini) {
         foreach ($p in $cfg.ini.PSObject.Properties) { $lines += "atmos $($p.Name) $($p.Value)" }
     }
+    if ($cfg.cvars) {
+        foreach ($p in $cfg.cvars.PSObject.Properties) { $lines += "cvar $($p.Name) $($p.Value)" }
+    }
     if ($null -ne $cfg.debugView) { $lines += "cvar comfyDebugView $($cfg.debugView)" }
     # The camera by a number (the owner, 2026-10-03): 0 first person, 1 to 9 that many steps back out from it,
     # 10 all the way out. "zoomed" is 0 and "far" is 10.
@@ -139,7 +146,7 @@ foreach ($file in $files) {
         }
     }
     # Put back what the test set.
-    if ($null -ne $cfg.debugView) { $lines += 'cvar comfyDebugView 0' }
+    $lines += 'cvarsback'
     $lines += 'atmos reset'
     $script = Join-Path $resultsDir "$stamp-$($t.name).script.txt"
     [IO.File]::WriteAllText($script, ($lines -join "`r`n") + "`r`n")
@@ -175,18 +182,20 @@ foreach ($file in $files) {
             if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $pass = $false; continue }
             Add-Type -AssemblyName System.Drawing
             $bmp = [Drawing.Bitmap]::FromFile($shots[$n - 1].FullName)
-            $low = 255; $at = -1
+            $low = 255; $at = -1; $sum = 0; $count = 0
             try {
                 for ($x = [int]$e.from; $x -le [int]$e.to -and $x -lt $bmp.Width; $x += 4) {
                     $c = $bmp.GetPixel($x, [int]$e.row)
                     $l = [int](($c.R + $c.G + $c.B) / 3)
                     if ($l -lt $low) { $low = $l; $at = $x }
+                    $sum += $l; $count++
                 }
             }
             finally { $bmp.Dispose() }
-            $ok = $low -ge [int]$e.min
+            $avg = if ($count) { [int]($sum / $count) } else { 0 }
+            $ok = ($null -eq $e.min -or $low -ge [int]$e.min) -and ($null -eq $e.mean -or $avg -ge [int]$e.mean)
             if (-not $ok) { $pass = $false }
-            $results += ('{0}  {1}: the darkest pixel of row {2} is {3}, at column {4} (at least {5})' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $e.row, $low, $at, $e.min)
+            $results += ('{0}  {1}: row {2} averages {3}, its darkest pixel {4} at column {5} (wanted: average {6}, darkest {7})' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $e.row, $avg, $low, $at, $(if ($null -ne $e.mean) { "at least $($e.mean)" } else { 'any' }), $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' }))
             continue
         }
         if (-not $heads.Count) { $results += "FAIL  no probe in the log: $($e.about)"; $pass = $false; continue }

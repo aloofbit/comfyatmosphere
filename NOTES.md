@@ -1766,6 +1766,47 @@ On the way:
 - Turning Volumetric Light off also takes the shadow map back to the ini, which turns every sun shadow off.
   Use its strength slider to test the light alone.
 
+## Fog in the canal outside Stormwind's gate (2026-10-04)
+
+On the canal's bank outside the gate, at dawn, the fog over the water hid the far wall and the gate. The fog's
+`[fog] lowGround` boost measures the ground against the ground smoothed over `smoothRadius`, and around the
+canal that is the city, about 30 yards higher. So the canal took the full low-ground boost (x2.5) and the water
+boost (x3.1), multiplied: x7.75. The fog's floor also sat 15 yards over the water (`follow 0.5`), another
+x1.8. In Debug View 12 (how much gets through, 0 to 255) the far side averaged 7. With low ground off it was
+30 to 49, with water off 45 to 66, with both off 124 to 148, and with `follow 1` 16 to 34.
+
+Low ground and water stand for one thing, mist gathering, so the fog now takes the larger of the two boosts
+and not both (`FogAt`, `Collects`, and `FogThicknessAt` on the CPU). Open water and dry valleys do not change;
+a lake in a valley gets x3.1, not x7.75. Debug View 14 is scaled by the larger boost to match. The far side now
+averages 37, and the far wall and the gate show through a haze.
+
+`tests/stormwind-canal-fog.json` stands at the owner's place with `[fog] morning` off, so the hour does not
+change it, and checks the average of row 250 of the Debug View 12 shot (at least 25). The runner's screenshot
+check gained `mean` for this: fog is a gradient, and the darkest pixel says little about it.
+
+## Fog at the foot of Ironforge's mountain (2026-10-04)
+
+On the road outside Ironforge's gate the fog hid the trees 60 yards off. The mountain the city lies under rises
+100 yards and more within `[fog] smoothRadius` of the road. The smoothed ground sat far over it, the fog's floor
+was lifted half of that (`follow 0.5`), and the whole road took the full low-ground boost. In Debug View 12 the
+road averaged 10 to 31 (0 to 255). With low ground off it was 58 to 105, with `follow 1` 109 to 179, with
+`smoothRadius 30` 97 to 140.
+
+The fix cuts tall ground in the smoothing. For each cell, ground more than `lowDepth` (25 yards) above it counts
+as 25 yards above it. A cell with nothing that high in its window keeps the plain blur (a separable max finds
+them). The rest are averaged again over every second cell of the window. The whole window took 25 to 30 ms at
+the mountain; every second cell takes 5 to 6 ms, in a rebuild of 13 to 14 ms that runs once you have moved 256
+yards. The trace line of the rebuild gives the cut's share. Valleys up to 25 yards deep fill as before. A
+mountain or a city wall beside you counts as a 25-yard rise. The road now averages 155 to 200, and the
+Stormwind canal 67 (37 with only the larger-of-two fix).
+
+`tests/ironforge-gate-fog.json` checks row 300 of the Debug View 12 shot (an average of at least 60).
+
+`/atmos fog.morning 0` is refused: the Morning Mist control sets it. So both fog tests ran with the hour's boost
+until the runner gained `cvars` in the config. ComfyTest's `cvar` now keeps each CVar's value before its first
+change, and `cvarsback` at the end of every test puts them back. The game saves CVars in Config.wtf, and a
+test would otherwise leave the owner's controls moved.
+
 ## Banners, a statue and the Charger (2026-10-02)
 
 Three faults that looked like one: a Stormwind banner lost its lion from afar, a statue and the player's

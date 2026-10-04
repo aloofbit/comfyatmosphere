@@ -1,0 +1,36 @@
+{
+    "name": "stormwind-canal-fog",
+    "about": "On the bank of the canal outside Stormwind's gate, looking over the water toward the bridge. The fog there was thick enough to hide the far bank (2026-10-04, the owner at game time 06:45). Shots in the normal view and in Debug Views 12 (how much gets through) and 14 (where mist collects).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 3,
+        "start": { "map": 0, "x": -8997.4, "y": 406.6, "z": 73.1, "about": "the owner's place, read with ComfyTest pos; the camera faced 45.6 degrees, 10.7 down, about 8.6 yards behind" },
+        "sun": { "azimuth": 45, "elevation": 8.5 },
+        "cvars": { "comfyMistMorning": 0 }
+    },
+    "steps": [
+        { "wait": 3 },
+        { "face": { "heading": 45.6, "pitch": -10.7 } },
+        { "wait": 3 },
+        { "probe": true },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 12" },
+        { "wait": 1 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 14" },
+        { "wait": 1 },
+        { "screenshot": true },
+        { "cvar": "comfyDebugView 0" }
+    ],
+    "expect": [
+        {
+            "about": "The far side of the canal shows through the fog (Debug View 12, white = clear): it averaged 7 when low ground and water both thickened it",
+            "shot": 2,
+            "row": 250,
+            "from": 300,
+            "to": 1000,
+            "mean": 25
+        }
+    ]
+}

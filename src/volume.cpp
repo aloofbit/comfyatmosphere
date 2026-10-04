@@ -43,7 +43,8 @@
 // from the map files and remade as you move: the surface (the ground, or water over it), the water, and the
 // surface smoothed over [fog] smoothRadius. The fog lies on a height between the smoothed surface and the
 // surface itself ([fog] follow), so it fills valleys and still thins over hilltops; it is thicker where the
-// surface lies below its surroundings ([fog] lowGround) and over water ([fog] water). [fog] morning
+// surface lies below its surroundings ([fog] lowGround) or over water ([fog] water), by the larger of the two
+// (2026-10-04; both multiplied until then). [fog] morning
 // thickens it around dawn, and less around dusk.
 //
 // Under the terrain (2026-10-01): Ironforge, the Undercity and mines are buildings under the map's ground, and
@@ -140,7 +141,9 @@ float FogAt(float3 P)
     {
         float4 g = tex2Dlod(sGround, float4(P.xy * gGr.z + gGr.xy, 0, 0));
         base = lerp(g.b, g.r, gW.x) + gGr.w;
-        mult = (1.0 + gW.z * saturate((g.b - g.r) * gW.y)) * (1.0 + gW.w * g.g);
+        // The larger of the two, not both (2026-10-04): low ground and water are one mist gathering. Multiplied,
+        // the canal outside Stormwind's gate, water 30 yards under the city, took 2.5 x 3.1 and hid its far bank.
+        mult = max(1.0 + gW.z * saturate((g.b - g.r) * gW.y), 1.0 + gW.w * g.g);
         // Under the terrain, on the floor of the building there (.a; the same as .r where there is none).
         float under = saturate((g.r + gGr.w - P.z - 4.0) * (1.0 / 12.0)) * step(1.0, g.r - g.a);
         base = lerp(base, g.a + gGr.w, under);
@@ -153,7 +156,7 @@ float FogAt(float3 P)
 float Collects(float3 P)
 {
     float4 g = tex2Dlod(sGround, float4(P.xy * gGr.z + gGr.xy, 0, 0));
-    return (gGr.z > 0.0) ? (1.0 + gW.z * saturate((g.b - g.r) * gW.y)) * (1.0 + gW.w * g.g) : 1.0;
+    return (gGr.z > 0.0) ? max(1.0 + gW.z * saturate((g.b - g.r) * gW.y), 1.0 + gW.w * g.g) : 1.0;
 }
 
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
@@ -271,7 +274,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     }
 
     if (gP.x > 6.5)
-        return float4(saturate((Collects(dir * min(dist, gG.z)) - 1.0) / max(gW.z + gW.w, 1e-3)), 0.0, 0.0, 1.0);
+        return float4(saturate((Collects(dir * min(dist, gG.z)) - 1.0) / max(max(gW.z, gW.w), 1e-3)), 0.0, 0.0, 1.0);
                                                                           // debug 7: where the mist collects
     if (gP.x > 5.5)
         return float4(tex2Dlod(sShadow, float4(uv, 0, 0)).r, 0.0, 0.0, 1.0);   // debug 6: the shadow map
@@ -743,7 +746,60 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             if (!hasFloor[k])
                 flo[k] = surf[k];   // none: the shader takes .a equal to .r as no floor
         std::vector<float> smooth = surf;
-        Blur(smooth, static_cast<int>(g_cfg.fog.smoothRadius / kGroundCell + 0.5f));
+        const int smoothR = static_cast<int>(g_cfg.fog.smoothRadius / kGroundCell + 0.5f);
+        Blur(smooth, smoothR);
+        // Tall ground beside a point counts as lowDepth yards above it, no more (2026-10-04). Outside
+        // Ironforge's gate the mountain the city lies under rose 100 yards and more within smoothRadius: the
+        // smoothed ground sat far over the road, the fog's floor was lifted half of that ([fog] follow), the
+        // whole road took the full low-ground boost, and the trees 60 yards off were lost. Stormwind's walls over
+        // its canal did the same. A valley up to lowDepth deep still fills. Each cell with ground higher than
+        // that in its window is averaged again with the heights cut; the rest keep the blur.
+        const double cutFrom = Now();
+        if (smoothR > 0)
+        {
+            const float cap = g_cfg.fog.lowDepth;
+            std::vector<float> hi = surf, t(surf.size());
+            for (int pass = 0; pass < 2; ++pass)   // the highest ground within the window: a separable max
+            {
+                for (int j = 0; j < kGround; ++j)
+                    for (int i = 0; i < kGround; ++i)
+                    {
+                        float m = -1e30f;
+                        for (int o = -smoothR; o <= smoothR; ++o)
+                        {
+                            const int ii = pass ? i : (std::min)((std::max)(i + o, 0), kGround - 1);
+                            const int jj = pass ? (std::min)((std::max)(j + o, 0), kGround - 1) : j;
+                            m = (std::max)(m, hi[jj * kGround + ii]);
+                        }
+                        t[j * kGround + i] = m;
+                    }
+                hi.swap(t);
+            }
+            // Every second cell of the window: a quarter of the work (the whole window took 25 to 30 ms at the
+            // mountain, where most cells need it), and over 100 yards the average hardly moves.
+            for (int j = 0; j < kGround; ++j)
+                for (int i = 0; i < kGround; ++i)
+                {
+                    const int k = j * kGround + i;
+                    const float top = surf[k] + cap;
+                    if (hi[k] <= top)
+                        continue;
+                    float s = 0.0f;
+                    int n = 0;
+                    for (int dj = -smoothR; dj <= smoothR; dj += 2)
+                    {
+                        const int jj = (std::min)((std::max)(j + dj, 0), kGround - 1);
+                        for (int di = -smoothR; di <= smoothR; di += 2)
+                        {
+                            const int ii = (std::min)((std::max)(i + di, 0), kGround - 1);
+                            s += (std::min)(surf[jj * kGround + ii], top);
+                            ++n;
+                        }
+                    }
+                    smooth[k] = s / n;
+                }
+        }
+        const double cutMs = 1000.0 * (Now() - cutFrom);
         Blur(wet, 2);   // a soft shore
         D3DLOCKED_RECT lr = {};
         if (FAILED(g_ground->lpVtbl->LockRect(g_ground, 0, &lr, nullptr, 0)))
@@ -774,8 +830,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         g_groundFiles   = files;
         g_groundSmooth  = g_cfg.fog.smoothRadius;
         if (g_logNext || g_cfg.trace)
-            Log("fog: ground texture made around (%.0f %.0f) in %.1f ms: %d of %d cells had no tile, %d wet, %d with a "
-                "floor under the terrain", at[0], at[1], 1000.0 * (Now() - t0), missing, kGround * kGround, nWet, nFloor);
+            Log("fog: ground texture made around (%.0f %.0f) in %.1f ms (%.1f of them cutting tall ground): %d of %d cells "
+                "had no tile, %d wet, %d with a floor under the terrain", at[0], at[1], 1000.0 * (Now() - t0), cutMs,
+                missing, kGround * kGround, nWet, nFloor);
     }
 
     // Dawn and dusk ([fog] morning): the fog thicker by up to `morning` at 6:00 and half of that at 20:00.
@@ -1746,7 +1803,7 @@ float FogThicknessAt(const float rel[3])
         const int k = (std::min)((std::max)(j, 0), kGround - 1) * kGround + (std::min)((std::max)(i, 0), kGround - 1);
         base = g_gSmooth[k] + (g_gSurf[k] - g_gSmooth[k]) * fs.follow;
         const float low = (g_gSmooth[k] - g_gSurf[k]) / fs.lowDepth;
-        mult = (1.0f + fs.lowGround * (low < 0.0f ? 0.0f : (low > 1.0f ? 1.0f : low))) * (1.0f + fs.water * g_gWet[k]);
+        mult = (std::max)(1.0f + fs.lowGround * (low < 0.0f ? 0.0f : (low > 1.0f ? 1.0f : low)), 1.0f + fs.water * g_gWet[k]);   // as the shader
         // Under the terrain, as the shader does.
         if (g_gFloor.size() == g_gSurf.size() && g_gSurf[k] - g_gFloor[k] >= 1.0f)
         {
