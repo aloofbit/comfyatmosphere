@@ -45,6 +45,11 @@ namespace
         IDirect3DSurface9* surf   = nullptr;   // tex's level 0
         IDirect3DSurface9* msaa   = nullptr;   // for a multisampled client surface: what the client draws into,
                                                // resolved into surf when the world ends. Null otherwise
+        DWORD              quality = 0;        // the client surface's multisample quality
+        // A stealthed unit's scratch (DepthScratchBegin): the same size, format and samples as Bound().
+        IDirect3DTexture9* scratchTex = nullptr;
+        IDirect3DSurface9* scratch    = nullptr;
+        bool               scratchFailed = false;
         DWORD              used   = 0;         // GetTickCount when the client last bound it
         IDirect3DSurface9* Bound() const { return msaa ? msaa : surf; }
     };
@@ -57,6 +62,7 @@ namespace
     bool  g_logNext   = false;
     IDirect3DTexture9* g_worldTex = nullptr;   // not referenced separately: owned by g_swaps
     bool  g_resolveFailed = false;              // StretchRect refused once: not tried again until Reset
+    Swap* g_scratchFrom = nullptr;              // the swap whose scratch is bound (DepthScratchBegin)
 
     // A client surface that could not be swapped, so it is not tried (and logged) again at every
     // BeginScene and every bind.
@@ -89,6 +95,8 @@ namespace
                 Log("depth: freed the stand-in for client depth %p (%ux%u), not bound for 3 seconds", s.client, s.w, s.h);
                 if (g_worldTex == s.tex)
                     g_worldTex = nullptr;
+                SafeRelease(s.scratch);
+                SafeRelease(s.scratchTex);
                 SafeRelease(s.msaa);
                 SafeRelease(s.surf);
                 SafeRelease(s.tex);
@@ -155,6 +163,8 @@ namespace
                 return s;
             }
             // Same address, different surface: the old one was freed. Rebuild in place.
+            SafeRelease(s->scratch);
+            SafeRelease(s->scratchTex);
             SafeRelease(s->msaa);
             SafeRelease(s->surf);
             SafeRelease(s->tex);
@@ -169,7 +179,7 @@ namespace
         const bool multisampled = desc.MultiSampleType != D3DMULTISAMPLE_NONE;
         Swap s;
         s.client = client;
-        s.w = desc.Width; s.h = desc.Height; s.ms = desc.MultiSampleType;
+        s.w = desc.Width; s.h = desc.Height; s.ms = desc.MultiSampleType; s.quality = desc.MultiSampleQuality;
         s.used = GetTickCount();
         HRESULT hr = dev->lpVtbl->CreateTexture(dev, desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ,
                                                 D3DPOOL_DEFAULT, &s.tex, nullptr);
@@ -285,6 +295,78 @@ void DepthWorldEnded(IDirect3DDevice9* dev, bool resolve)
     cur->lpVtbl->Release(cur);
 }
 
+// A stealthed unit's two passes go into a scratch copy of the depth (2026-10-04). The client draws a stealthed
+// unit into depth alone, then blended in colour over that depth, so only its nearest surface shows: flat, one
+// layer of it. Its depth in the world's buffer outlined it in the fog, the light and the shadows, so the depth
+// pass was skipped and the colour pass wrote no depth; then every layer blended, and a leg over the body gave a
+// dark spot. In the scratch both passes run as the client means them, against the world's depth as it stood,
+// and the world's depth never holds the unit. A copy of depth is refused inside a scene (DXVK), so the scene
+// ends for it and begins again, as the multisampled resolve does.
+bool DepthScratchBegin(IDirect3DDevice9* dev, bool copy)
+{
+    if (!g_cfg.depth.enabled)
+        return false;
+    IDirect3DSurface9* cur = nullptr;
+    if (FAILED(dev->lpVtbl->GetDepthStencilSurface(dev, &cur)) || !cur)
+        return false;
+    Swap* s = nullptr;
+    for (int i = 0; i < g_swapCount; ++i)
+        if (g_swaps[i].Bound() == cur)
+            s = &g_swaps[i];
+    cur->lpVtbl->Release(cur);
+    if (!s || s->scratchFailed)
+        return false;
+    auto* d = dev->lpVtbl;
+    if (!s->scratch)
+    {
+        HRESULT hr;
+        if (s->msaa)
+            hr = d->CreateDepthStencilSurface(dev, s->w, s->h, kINTZ, s->ms, s->quality, FALSE, &s->scratch, nullptr);
+        else
+        {
+            hr = d->CreateTexture(dev, s->w, s->h, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &s->scratchTex,
+                                  nullptr);
+            if (SUCCEEDED(hr))
+                hr = s->scratchTex->lpVtbl->GetSurfaceLevel(s->scratchTex, 0, &s->scratch);
+        }
+        if (FAILED(hr))
+        {
+            SafeRelease(s->scratch);
+            SafeRelease(s->scratchTex);
+            s->scratchFailed = true;
+            Log("depth: no scratch depth for stealthed units (hr=0x%08X): their depth pass is skipped instead", hr);
+            return false;
+        }
+        Log("depth: scratch depth %p (%ux%u, multisample %d) for stealthed units", s->scratch, s->w, s->h,
+            static_cast<int>(s->ms));
+    }
+    if (copy)
+    {
+        const bool inScene = SUCCEEDED(d->EndScene(dev));
+        const HRESULT hr = d->StretchRect(dev, s->Bound(), nullptr, s->scratch, nullptr, D3DTEXF_NONE);
+        if (inScene)
+            d->BeginScene(dev);
+        if (FAILED(hr))
+        {
+            s->scratchFailed = true;
+            Log("depth: copying the depth into the scratch failed (hr=0x%08X): stealthed units' depth pass is "
+                "skipped instead", hr);
+            return false;
+        }
+    }
+    d->SetDepthStencilSurface(dev, s->scratch);
+    g_scratchFrom = s;
+    return true;
+}
+
+void DepthScratchEnd(IDirect3DDevice9* dev)
+{
+    if (!g_scratchFrom)
+        return;
+    dev->lpVtbl->SetDepthStencilSurface(dev, g_scratchFrom->Bound());
+    g_scratchFrom = nullptr;
+}
+
 IDirect3DTexture9* DepthWorldTexture()
 {
     return g_cfg.depth.enabled ? g_worldTex : nullptr;
@@ -301,8 +383,11 @@ void DepthReset(IDirect3DDevice9* dev)
             dev->lpVtbl->SetDepthStencilSurface(dev, nullptr);
         cur->lpVtbl->Release(cur);
     }
+    g_scratchFrom = nullptr;
     for (int i = 0; i < g_swapCount; ++i)
     {
+        SafeRelease(g_swaps[i].scratch);
+        SafeRelease(g_swaps[i].scratchTex);
         SafeRelease(g_swaps[i].msaa);
         SafeRelease(g_swaps[i].surf);
         SafeRelease(g_swaps[i].tex);

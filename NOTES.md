@@ -2125,6 +2125,31 @@ Turning costs frames without the mod too. The mod adds about 1.2 ms a frame whil
 slowest frames: not found yet. In Stormwind every turning run read about 60 fps with the effects on and off
 alike, which looks like a limit of the client's while the mouse turns the camera.
 
+## A stealthed unit drawn flat (2026-10-04)
+
+A stealthed Pinto at the Eastvale paddock (the server gives him a stealth aura; no table does) showed dark
+spots where a leg crossed his body. With the mod off he was flat: one see-through layer.
+
+- **How the client draws a stealthed unit:** all of its parts into depth alone, then each part in colour,
+  blended over that depth, and after each colour pass a layer blended without depth writes. The probe's
+  order line read `+DDDDDC+CCCC` before the layers were known. Only the unit's nearest surface passes, so it
+  is flat.
+- **What `[depth] seeThrough` did:** skipped the depth passes and turned the colour passes' depth writes off,
+  so that the fog, the light and the shadows saw the ground behind the unit (see "Stealthed units"). Then
+  every layer of it blended: the dark spots.
+- **Now** the unit's passes go into a scratch copy of the depth (`DepthScratchBegin`, depth.cpp): the world's
+  depth is copied into it at the unit's first depth pass, the depth passes, colour passes and layers draw
+  into it as the client means them, and the world's depth is bound again. The world's depth never holds the
+  unit. The copy ends the scene for it and begins it again, as the multisampled resolve does. A layer is a
+  blended draw without depth writes of the same stealthed unit, after its depth passes (`IsStealthLayer`).
+- **Your own character, zoomed in.** `seeThroughNear` (4 yards) switched the handling off near the camera,
+  for the face that showed through the back of the head. Zoomed in on Pinto, the handling was off and he
+  took shade and cast a shadow. The handling takes only stealthed units now, and the scratch sorts a unit's
+  own face as the client does, so `seeThroughNear` applies only when no scratch can be made. The owner, zoomed
+  all the way in: no eyes through the head.
+- The F12 `depth:` line gives the draws in order (D depth, C colour, L a layer, + a copy) and how many went
+  into the scratch. No scratch (it could not be made, or a copy failed): the old way, and a log line.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

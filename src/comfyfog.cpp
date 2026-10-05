@@ -367,6 +367,15 @@ namespace
     std::unordered_set<void*> g_waterPs;        // the client's water pixel shaders (IsWaterDraw)
     unsigned g_seeThroughDraws = 0, g_seeThroughLast = 0;   // IsSeeThroughModel's draws this frame, and last frame
     unsigned g_depthOnlySkipped = 0, g_depthOnlyLast = 0;   // IsDepthOnlyModel's, the same way
+    // A stealthed unit's draws this frame (DepthScratchBegin): 0 none yet, 1 its depth passes, 2 its colour passes
+    // and layers. The client draws all of a unit's depth passes, then its colour passes, each followed by a
+    // layer blended without depth writes (+DDDDDC+CCCC, 2026-10-04: the layers came between and were drawn
+    // against the world's depth, over each other). The world's depth is copied into the scratch afresh only at
+    // a depth pass after anything else: a new unit.
+    int      g_stealthPass = 0;
+    char     g_stealthOrder[64] = "", g_stealthOrderLast[64] = "";   // the probe: D depth, C colour, + a copy
+    int      g_stealthOrderLen = 0;
+    unsigned g_scratchDraws = 0, g_scratchLast = 0;          // draws into the scratch, this frame and last
     bool     g_ownFaded = false;   // the camera within [depth] seeThroughNear of your character (hkBeginScene)
     float    g_ownDist  = 1e9f;    // ... how far, in yards
     bool     g_ownMounted = false; // ... and whether you ride a mount: [depth] seeThroughNearMounted applies
@@ -487,6 +496,12 @@ namespace
         g_inPass = true;
         g_seeThroughLast = g_seeThroughDraws;
         g_seeThroughDraws = 0;
+        g_scratchLast = g_scratchDraws;
+        g_scratchDraws = 0;
+        g_stealthPass = 0;
+        memcpy(g_stealthOrderLast, g_stealthOrder, sizeof(g_stealthOrder));
+        g_stealthOrder[0] = 0;
+        g_stealthOrderLen = 0;
         g_depthOnlyLast = g_depthOnlySkipped;
         g_depthOnlySkipped = 0;
         if (g_orderRec)
@@ -945,11 +960,13 @@ namespace
                     g_cfg.night.strength);
             else
                 Log("night: no game clock at [client] clockAddr, so the rays and the light keep their day strength");
-            Log("depth: last frame, %u see-through model draws had their depth writes turned off and %u depth-only "
-                "model passes were skipped ([depth] seeThrough %d); the camera %.1f yd from you%s, so %s",
-                g_seeThroughLast, g_depthOnlyLast, g_cfg.depth.seeThrough ? 1 : 0, g_ownDist,
+            Log("depth: last frame, %u see-through model draws and %u depth-only model passes of stealthed units, %u "
+                "of them drawn into the scratch depth (in order: %s; D depth, C colour, L a layer, + a copy of the world's depth), the rest without "
+                "depth ([depth] seeThrough %d); the camera %.1f yd from you%s; %s",
+                g_seeThroughLast, g_depthOnlyLast, g_scratchLast, g_stealthOrderLast[0] ? g_stealthOrderLast : "none",
+                g_cfg.depth.seeThrough ? 1 : 0, g_ownDist,
                 g_ownMounted ? " (mounted)" : "",
-                g_ownFaded ? "off (your character may be faded)" : "on");
+                g_ownFaded ? "near: without the scratch it would be off" : "not near");
             DepthProbe();
             ShadowProbe();
             VolumeProbe();
@@ -1625,7 +1642,7 @@ namespace
     // from the solid pass. The grass is blended with depth writes too, but fixed-function: not taken.
     bool IsSeeThroughModel(IDirect3DDevice9* dev)
     {
-        if (!g_cfg.depth.seeThrough || g_ownFaded || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
+        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
             !VolumeActive())
             return false;
         DWORD zwrite = 0, blend = 0, src = 0, dst = 0;
@@ -1640,6 +1657,21 @@ namespace
         return src == D3DBLEND_SRCALPHA && dst == D3DBLEND_INVSRCALPHA && SeeThroughUnit(dev);
     }
 
+    // A stealthed unit's layer (2026-10-04): blended without depth writes, after its colour pass. Drawn into the
+    // scratch depth, it meets the unit's own depth as the client means, and shows on its nearest surface alone.
+    bool IsStealthLayer(IDirect3DDevice9* dev)
+    {
+        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
+            !VolumeActive())
+            return false;
+        DWORD zwrite = 1, blend = 0;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zwrite);
+        if (zwrite)
+            return false;
+        dev->lpVtbl->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        return blend && SeeThroughUnit(dev);
+    }
+
     // The first of a see-through model's two passes ([depth] seeThrough, 2026-09-30): the client draws a
     // stealthed unit into depth alone (colour writes 0, depth writes on), then its colour blended over that,
     // so its own parts do not show through each other. Measured on the stealthed lions: each was that pair,
@@ -1648,7 +1680,7 @@ namespace
     // (IsSeeThroughModel), then doubles up a little where a leg crosses the body.
     bool IsDepthOnlyModel(IDirect3DDevice9* dev)
     {
-        if (!g_cfg.depth.seeThrough || g_ownFaded || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
+        if (!g_cfg.depth.seeThrough || !g_vshader || g_inPass || g_skyPhase || g_worldEnded ||
             !VolumeActive())
             return false;
         DWORD cw = 0xF, zwrite = 0;
@@ -1659,13 +1691,47 @@ namespace
         return zwrite != 0 && SeeThroughUnit(dev);
     }
 
+    // A stealthed unit's pass drawn into the scratch depth (depth.cpp, DepthScratchBegin), as the client means it.
+    // False: no scratch, and the caller falls back to skipping the depth pass and the colour pass's depth writes.
+    bool DrawStealthPass(IDirect3DDevice9* dev, char kind, D3DPRIMITIVETYPE prim, INT bvi, UINT mvi, UINT nv,
+                         UINT si, UINT pc, HRESULT& hr)
+    {
+        const bool depthPass = kind == 'D';
+        const bool copy = depthPass ? g_stealthPass != 1 : g_stealthPass == 0;
+        g_inPass = true;   // our scene restart and depth binds pass straight through the hooks
+        const bool ok = DepthScratchBegin(dev, copy);
+        g_inPass = false;
+        if (!ok)
+            return false;
+        g_stealthPass = depthPass ? 1 : 2;
+        if (g_stealthOrderLen < static_cast<int>(sizeof(g_stealthOrder)) - 3)
+        {
+            if (copy)
+                g_stealthOrder[g_stealthOrderLen++] = '+';
+            g_stealthOrder[g_stealthOrderLen++] = kind;
+            g_stealthOrder[g_stealthOrderLen] = 0;
+        }
+        hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+        g_inPass = true;
+        DepthScratchEnd(dev);
+        g_inPass = false;
+        ++g_scratchDraws;
+        return true;
+    }
+
     HRESULT STDMETHODCALLTYPE hkDrawIndexedPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi,
                                                      UINT mvi, UINT nv, UINT si, UINT pc)
     {
         if (IsDepthOnlyModel(dev))
         {
             ++g_depthOnlySkipped;
-            return S_OK;
+            HRESULT hr = S_OK;
+            if (DrawStealthPass(dev, 'D', prim, bvi, mvi, nv, si, pc, hr))
+                return hr;
+            // No scratch: skipped, unless the camera is near your character ([depth] seeThroughNear), where a
+            // stealthed character of yours would show its face through the back of its head.
+            if (!g_ownFaded)
+                return S_OK;
         }
         // The game's own wake on the water ([water] gameWake, water.cpp): hidden, it is not drawn, recorded for
         // the shadows or marked as a body.
@@ -1701,10 +1767,21 @@ namespace
         if (IsSeeThroughModel(dev))
         {
             ++g_seeThroughDraws;
+            HRESULT hr = S_OK;
+            if (DrawStealthPass(dev, 'C', prim, bvi, mvi, nv, si, pc, hr))
+                return hr;
+            if (g_ownFaded)
+                return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
             dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
-            const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+            hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
             dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
             return hr;
+        }
+        if (g_stealthPass != 0 && IsStealthLayer(dev))
+        {
+            HRESULT hr = S_OK;
+            if (DrawStealthPass(dev, 'L', prim, bvi, mvi, nv, si, pc, hr))
+                return hr;
         }
         const LiquidKind liquid = WaterKind(dev, nv);
         const bool isWater = liquid == kWater || liquid == kCityWater;

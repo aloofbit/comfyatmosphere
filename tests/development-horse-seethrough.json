@@ -72,7 +72,7 @@
     "expect": [
         {
             "about": "No horse is taken as see-through (the owner's frame had 2)",
-            "probe": "^depth: last frame, 0 see-through model draws had their depth writes turned off and 0 depth-only",
+            "probe": "^depth: last frame, 0 see-through model draws and 0 depth-only model passes of stealthed units",
             "min": 1
         },
         {
