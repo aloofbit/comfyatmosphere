@@ -63,6 +63,9 @@ COMFYATMOSPHERE_WATER_WAKE     = "Wake";
 COMFYATMOSPHERE_WATER_RIPPLE_DEPTH = "Ripple Depth";
 COMFYATMOSPHERE_WATER_FOAM     = "Foam";
 COMFYATMOSPHERE_WATER_SWASH    = "Swash";
+COMFYATMOSPHERE_WATER_SWASH_HEIGHT = "Swash Height";
+COMFYATMOSPHERE_WATER_SWASH_LENGTH = "Swash Length";
+COMFYATMOSPHERE_WATER_SWASH_SPEED  = "Swash Speed";
 COMFYATMOSPHERE_WATER_GLINT    = "Sun Glint";
 COMFYATMOSPHERE_WATER_MOON_GLINT = "Moon Glint";
 COMFYATMOSPHERE_WATER_GLINT_SIZE = "Glint Size";
@@ -611,15 +614,47 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] swash.
+		-- comfyfog.dll takes it as [water] swash, on or off (2026-10-05: a slider whose 5 to 100 changed nothing).
 		name = "COMFYATMOSPHERE_WATER_SWASH",
-		desc = "The water runs up the beach and slides back, with foam on its edge. 0 is off.",
-		type = "slider",
+		desc = "The water runs up the beach and slides back, with foam on its edge.",
+		type = "checkbutton",
 		cvar = "comfyWaterSwash",
 		dependency = { "comfyWater", "1" },
-		minval = 0,
+	},
+	{
+		-- Hundredths of a yard: comfyfog.dll divides it by 100 for [water] swashHeight.
+		name = "COMFYATMOSPHERE_WATER_SWASH_HEIGHT",
+		desc = "How far up the shore the water runs. 30 climbs 0.3 yards, and 1.5 yards up a gentle beach.",
+		type = "slider",
+		cvar = "comfyWaterSwashHeight",
+		dependency = { "comfyWaterSwash", "1" },
+		minval = 5,
 		maxval = 100,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Yards: comfyfog.dll takes it as [water] swashLength.
+		name = "COMFYATMOSPHERE_WATER_SWASH_LENGTH",
+		desc = "How many yards along the shore one surge spans. Lower gives more, shorter surges side by side.",
+		type = "slider",
+		cvar = "comfyWaterSwashLength",
+		dependency = { "comfyWaterSwash", "1" },
+		minval = 5,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] swashSpeed.
+		name = "COMFYATMOSPHERE_WATER_SWASH_SPEED",
+		desc = "How fast the surges come. 100 is one every 11 seconds.",
+		type = "slider",
+		cvar = "comfyWaterSwashSpeed",
+		dependency = { "comfyWaterSwash", "1" },
+		minval = 10,
+		maxval = 300,
+		step = 10,
 		numberLabels = 1,
 	},
 	{
@@ -1021,7 +1056,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterWake", "comfyWaterRippleDepth",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",

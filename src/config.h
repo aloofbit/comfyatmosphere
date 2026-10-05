@@ -456,9 +456,12 @@ struct WaterSettings
     float waveHeight = 1.0f;     // yards: how tall the swell rises, out where the water is 6.5 yards deep or more
     float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
     float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water
-    float swash     = 0.6f;      // 0..1: the film of water running up the beach and back (Swash)
-    float swashRun  = 1.5f;      // yards along the ground the swash runs up the beach at most
-    float swashHeight = 0.3f;    // yards of height it climbs at most, whatever the run: a steep bank stops it
+    float swash     = 0.6f;      // above 0: the water runs up the beach and back (Swash, on or off)
+    // How far up the shore it goes (Swash Height): yards of height at most, and up a gentle beach 5 times that
+    // along the ground. One value since 2026-10-05: swashRun (1.5) and this (0.3) were two limits on one thing.
+    float swashHeight = 0.05f;   // the owner's (2026-10-05); 0.3 until then
+    float swashLength = 55.0f;   // yards along the shore one surge spans (Swash Length): lower, more and shorter
+    float swashSpeed  = 0.8f;    // how fast the surges come (Swash Speed): 1 is one every 11.4 s
     float wake      = 0.6f;      // 0..1: the wake behind anyone moving through the water (Wake)
     float cover     = 0.5f;      // 0..1: how much the water covers a body in it (Underwater Cover)
     float refraction = 0.125f;   // yards: how far the waves bend what lies under the water (Underwater Distortion:

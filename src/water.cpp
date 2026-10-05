@@ -199,6 +199,8 @@ float4 gSw2  : register(c168);     // the shore waves' height (the swell's heigh
                                    // cover; w 1 for water in a building
 float4 gWave : register(c167);     // 1 / waveScale; the part drawn (0 all, 1 the sand, 2 the water); 1 when
                                    // the screen copy is there; the sky reflection's strength
+float4 gSwash : register(c211);    // the swash: 30 / its length along the shore (yards), its speed (radians a
+                                   // second), as the wet sand pass's gSwashW
 
 // The camera-relative point the depth under the water shows at a place on the screen: the bed, or what
 // stands on it.
@@ -342,7 +344,12 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // in a slice of its own (farSlice), and where it met the near terrain the water's colour jumped along a
     // straight line (2026-10-02). So both sides agree well before they meet. Not on a body.
     // Not in a building (gSw2.w): the map has no depth for its water, and the depth copy's is the real one.
-    const float mapK = farSlice ? 1.0 : smoothstep(40.0, 90.0, dist) * (gSw2.y > 0.5 || gSw2.w > 0.5 ? 0.0 : 1.0);
+    // Not at the waterline either (2026-10-05): the map gives one depth at each corner of a cell 4 yards wide,
+    // and where it crossed 0 the water's edge went in steps, off the ground's own line, seen from far off (the
+    // owner). The depth copy has the ground at every pixel, so it keeps the first yard or so of water and all
+    // the terrain rising out of it; the map's depth takes over in deeper water only.
+    const float mapK = farSlice ? 1.0 : smoothstep(40.0, 90.0, dist) * smoothstep(0.3, 1.5, depth)
+                                        * (gSw2.y > 0.5 || gSw2.w > 0.5 ? 0.0 : 1.0);
     depth = lerp(depth, gd, mapK);
 )HLSL"
     R"HLSL(
@@ -585,9 +592,16 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  depthS = depth, reachS = reach;
     {
         float2 A2  = rel.xy + gCam.xy;
-        float  ph2 = sin(A2.x * 0.21 + A2.y * 0.17) * 1.7 + sin(A2.x * 0.07 - A2.y * 0.09) * 2.3;
-        float  sg  = 0.5 + 0.5 * sin(gScr.z * 0.55 + ph2);
-        float  upS = min(gWake.w * slope, gGlint.z) * sg * sg * gWake.z;   // along the ground, as the wet pass
+        // Each stretch of shore in its own time: the stretch about 30 yards at Swash Length 30 (2026-10-05).
+        float2 A2s = A2 * gSwash.x;
+        float  ph2 = sin(A2s.x * 0.21 + A2s.y * 0.17) * 1.7 + sin(A2s.x * 0.07 - A2s.y * 0.09) * 2.3;
+        float  sg  = 0.5 + 0.5 * sin(gScr.z * gSwash.y + ph2);
+        // No higher than the wet sand (2026-10-05, the owner): at Swash Height 65 the water ran onto dry sand.
+        // The wet sand pass's top: fully wet below half of it, fading to dry at it. The swash stops at half of it,
+        // where the sand is still fully wet: at 0.75 of it the owner saw the water pass the wet sand.
+        float  topS = 0.4 + 0.1 * sin(A2.x * 0.13 + A2.y * 0.11);
+        float  upS = min(min(gWake.w * slope, gGlint.z), topS * 0.5) * sg * sg * gWake.z;   // as the wet pass
+
         // No swash in a building: it climbed the canals' stone walls.
         depthS = onBody || gSw2.w > 0.5 ? depth : depth + upS;
         reachS = depthS / slope;
@@ -829,6 +843,8 @@ float4 gFilm2 : register(c209);    // 1 / the foam texture's size in yards, 1 wi
                                    // the run-up in yards of height
 float4 gFoamW : register(c211);    // as the water pass: 1 / foamWidth, 1 / foamReach, foamSpeed; the swash's
                                    // highest climb (yards of height)
+float4 gSwashW : register(c212);   // the swash: 30 / its length along the shore (yards), its speed (radians a
+                                   // second), as the water pass's gSwash
 sampler2D sFoamW : register(s12);  // the game's foam texture (WATERFOAMLOOP2.blp)
 sampler2D sSceneW : register(s14); // the screen before this pass (when gFilm3.z is 1)
 // The camera-relative point the depth under the water shows at a place on the screen.
@@ -872,8 +888,10 @@ float4 main(float2 vpos : VPOS) : COLOR
     // darker and in the water's colour, with a broken lip of the game's foam on its edge. By the sand's height
     // above the water, so its edge follows the shore smoothly; drawn here, over the whole screen, because the
     // water's own chunks end on the sand in steps of a cell. Each stretch of shore runs up in its own time.
-    float  phase = sin(A.x * 0.21 + A.y * 0.17) * 1.7 + sin(A.x * 0.07 - A.y * 0.09) * 2.3;
-    float  surge = 0.5 + 0.5 * sin(gZ.w * 0.55 + phase);
+    // Swash Length scales the stretches along the shore, Swash Speed the time (2026-10-05).
+    float2 As    = A.xy * gSwashW.x;
+    float  phase = sin(As.x * 0.21 + As.y * 0.17) * 1.7 + sin(As.x * 0.07 - As.y * 0.09) * 2.3;
+    float  surge = 0.5 + 0.5 * sin(gZ.w * gSwashW.y + phase);
     surge = surge * surge;                                           // quick up the beach, slow back
     // From ground points 8 pixels either side, as in the water pass: the sand is flat triangles too, and from
     // the pixel beside its slope jumped at their edges (2026-10-03).
@@ -888,7 +906,8 @@ float4 main(float2 vpos : VPOS) : COLOR
     // The run-up is along the ground (2026-10-03): up to gFilm2.w yards of it, its height capped at gFoamW.w.
     // As a height alone (0.06), on a steep bank the film climbed a few centimetres and lay as a thin bright
     // line at the flat waterline while the foam moved; on a gentle beach this is about as it was.
-    float  up    = min(gFilm2.w * slopeW, gFoamW.w) * surge;           // the edge's height above the water now
+    // No higher than the wet sand (2026-10-05, the owner): half of its top, where it is fully wet, as the water pass.
+    float  up    = min(min(gFilm2.w * slopeW, gFoamW.w), top * 0.5) * surge;   // the edge's height above the water now
     // It stops at the waterline (2026-10-03; 0.05 below it until then). The water takes what lies under it from
     // the screen after this pass, so the film below the waterline showed through the first 0.05 yards of water,
     // tinted twice: a bright line fixed at the flat waterline, which never moved with the swash.
@@ -1512,7 +1531,7 @@ float4 main(float2 vpos : VPOS) : COLOR
             k[328] = static_cast<float>(used);
             k[329] = w.wake;
             k[330] = w.swash > 0.0f ? 1.0f : 0.0f;
-            k[331] = w.swashRun;
+            k[331] = w.swashHeight * 5.0f;   // the run along the ground: 5 times the height (Swash Height)
             if (g_probeOn)
             {
                 Log("water: wakes: %d trails held, %d drawn", static_cast<int>(g_trails.size()), used);
@@ -1939,7 +1958,7 @@ namespace
         Mul(*c.view, *c.proj, vp);
         if (!Invert(vp, inv))
             return;
-        float k[12 * 4] = {};
+        float k[13 * 4] = {};
         memcpy(k, &inv, 64);
         k[16] = g_psc[2]; k[17] = g_psc[3]; k[18] = w.wetSand; k[19] = g_psc[10];
         k[20] = g_psc[8]; k[21] = g_psc[9]; k[22] = static_cast<float>(w.debug);
@@ -1947,11 +1966,12 @@ namespace
         k[28] = g_psc[28]; k[29] = g_psc[29]; k[30] = g_psc[30];
         // The swash (c208, c209): the water's colour, the film's strength; the foam texture and the run-up.
         k[32] = g_psc[172]; k[33] = g_psc[173]; k[34] = g_psc[174]; k[35] = w.swash;
-        k[36] = 1.0f / w.shoreFoamSize; k[37] = g_foamTex ? 1.0f : 0.0f; k[39] = w.swashRun;
+        k[36] = 1.0f / w.shoreFoamSize; k[37] = g_foamTex ? 1.0f : 0.0f; k[39] = w.swashHeight * 5.0f;
         k[38] = 0.0f;    // no lip here: the water pass draws the edge line at its own moving edge (2026-10-03)
         k[40] = w.shoreFoam * w.foam;
         k[41] = 0.0f;   // the draw: 0 multiplies the sand, 1 lays the foam on
         k[44] = 1.0f / w.foamWidth; k[45] = 1.0f / w.foamReach; k[46] = w.foamSpeed; k[47] = w.swashHeight;
+        k[48] = 30.0f / w.swashLength; k[49] = 0.55f * w.swashSpeed;   // c212: as the water pass's c211
 
         auto* d = dev->lpVtbl;
         IDirect3DVertexShader9* oldVs = nullptr;
@@ -1959,7 +1979,7 @@ namespace
         g_wetSb->lpVtbl->Capture(g_wetSb);
         d->SetVertexShader(dev, g_wetVs);
         d->SetPixelShader(dev, g_wetPs);
-        d->SetPixelShaderConstantF(dev, 200, k, 12);
+        d->SetPixelShaderConstantF(dev, 200, k, 13);
         if (g_foamTex)
         {
             d->SetTexture(dev, kFoamSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_foamTex));
@@ -2367,6 +2387,11 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetVertexShaderConstantF(dev, kVsReg, vc, 12);
     d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 90);
     d->SetPixelShaderConstantF(dev, kPsReg + 90, kAllWet, 1);   // c210, set again for the sand part
+    {
+        // c211, the swash's length along the shore and its speed (2026-10-05): as the wet sand pass's c212.
+        const float sw[4] = { 30.0f / g_cfg.water.swashLength, 0.55f * g_cfg.water.swashSpeed, 0.0f, 0.0f };
+        d->SetPixelShaderConstantF(dev, kPsReg + 91, sw, 1);
+    }
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);

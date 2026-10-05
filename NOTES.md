@@ -2210,6 +2210,41 @@ draws go into the scratch with one copy, and the shot shows it flat with no shad
 `tests/elwynn-own-face.json` (the owner's character with the camera 1.8 yards back: nothing taken as
 stealthed).
 
+## The swash's controls, and the waterline from far off (2026-10-05)
+
+**The Swash slider changed the look from 0 to 5 and not from 5 to 100.** Since 2026-10-03 the water pass draws
+the swash, and it got the value only as on or off (`k[330] = swash > 0`); the strength the wet sand pass read
+was no longer used (`fA = 0`). The owner and I agreed what the swash needs instead:
+
+- **Swash** is a tick box: on or off. A saved 5 to 100 from the old slider counts as on.
+- **Swash Height** (`[water] swashHeight`): how far up the shore the water goes. It was two limits on one
+  thing, `swashRun` (1.5 yards along the ground) and `swashHeight` (0.3 yards of height); only the smaller
+  counted at any spot. Now one value: its height, and up a gentle beach 5 times that along the ground.
+- **Swash Length** (`swashLength`, yards): how wide one surge is along the shore. It scales the place in
+  the surge's phase (`30 / swashLength`, so 30 is the old look).
+- **Swash Speed** (`swashSpeed`): the time. 1 is one surge every 11.4 s (0.55 radians a second).
+
+Both passes take the length and the speed from one new register each: c211 in the water pass, c212 in the
+wet sand pass, so the water's edge and the wet sand's foam line stay together. The defaults are the owner's:
+Height 0.05, Length 55, Speed 0.8.
+
+**No higher than the wet sand.** At Swash Height 65 the water ran onto dry sand. The wet sand pass makes the
+sand fully wet up to half of its `top` (0.4 +- 0.1 yards over the water) and dry at `top`. The swash now
+climbs at most half of `top`, in both passes. At 0.75 of it the owner still saw it pass the wet sand: there
+the sand is only half dark.
+
+**The waterline was jagged from far off, and the swash climbed the terrain there.** From 40 yards out the
+water pass takes its depth from the map files (`mapK`), by 90 yards entirely: the far terrain is in a depth
+slice of its own, and where the two met, deep water's colour jumped along a straight line. But the map gives
+one depth at each corner of a cell 4 yards wide, and where that crossed 0 the edge went in steps, off the
+ground's own line. The depth copy has the ground at every pixel, so now it keeps the water under about a
+yard deep, and all the terrain rising out of it: `mapK` is also scaled by `smoothstep(0.3, 1.5, depth)`. The
+edge then follows the ground, and the swash climbs the real ground at any distance. A fade of the swash
+from 30 to 40 yards was tried first and taken out again.
+
+Tests: `tests/westfall-beach-swash.json` (10 second recordings at the defaults, then each slider moved) and
+`tests/westfall-far-waterline.json` (the shore from 90 yards: our water's edge beside the game's own).
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

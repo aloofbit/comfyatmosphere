@@ -191,8 +191,9 @@ void LoadSettings(const wchar_t* ini)
     s.water.waveScale   = Clamp(GetF(kWater, L"waveScale", s.water.waveScale, ini), 0.25f, 4.0f);
     s.water.whitecaps   = Clamp(GetF(kWater, L"whitecaps", s.water.whitecaps, ini), 0.0f, 1.0f);
     s.water.swash       = Clamp(GetF(kWater, L"swash",     s.water.swash,     ini), 0.0f, 1.0f);
-    s.water.swashRun    = Clamp(GetF(kWater, L"swashRun",  s.water.swashRun,  ini), 0.0f, 5.0f);
     s.water.swashHeight = Clamp(GetF(kWater, L"swashHeight", s.water.swashHeight, ini), 0.0f, 1.0f);
+    s.water.swashLength = Clamp(GetF(kWater, L"swashLength", s.water.swashLength, ini), 5.0f, 200.0f);
+    s.water.swashSpeed  = Clamp(GetF(kWater, L"swashSpeed", s.water.swashSpeed, ini), 0.1f, 4.0f);
     s.water.wake        = Clamp(GetF(kWater, L"wake",      s.water.wake,      ini), 0.0f, 1.0f);
     s.water.cover       = Clamp(GetF(kWater, L"cover",     s.water.cover,     ini), 0.0f, 1.0f);
     s.water.refraction  = Clamp(GetF(kWater, L"refraction", s.water.refraction, ini), 0.0f, 2.0f);
