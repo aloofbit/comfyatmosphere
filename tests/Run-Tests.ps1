@@ -170,7 +170,10 @@ foreach ($file in $files) {
     # (CameraZoomOut) went all the way out whatever its number, so every test before then ran at 10. A notch: 1
     # put the camera 2.5 yards back, 2 at 3.4, 4 at 5.3.
     # Or by yards (cameraDistance, 2026-10-04): as far back as the owner had it, from a snapshot.
-    if ($null -ne $cfg.cameraDistance) { $lines += "camdist $($cfg.cameraDistance)" }
+    # Or the camera's own distance (cameraZoom, 2026-10-05), the field the wheel moves, set exactly by
+    # comfytest.dll: close in, camdist was a notch off.
+    if ($null -ne $cfg.cameraZoom) { $lines += "camzoom $($cfg.cameraZoom)" }
+    elseif ($null -ne $cfg.cameraDistance) { $lines += "camdist $($cfg.cameraDistance)" }
     elseif ($null -ne $cfg.camera) {
         $cam = if ($cfg.camera -eq 'zoomed') { 0 } elseif ($cfg.camera -eq 'far') { 10 } else { [int]$cfg.camera }
         $lines += 'zoom -30'

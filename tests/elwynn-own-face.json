@@ -4,14 +4,14 @@
     "config": {
         "character": 1,
         "flight": false,
-        "cameraDistance": 1.8,
+        "cameraZoom": 1.066,
         "start": {
             "map": 0,
             "x": -9433.2,
             "y": -1401.2,
             "z": 46.7,
             "facing": -167.8,
-            "about": "the owner's snapshot at the Eastvale paddock: on the ground, the camera facing -167.8 degrees, 16.3 down, 1.8 yards back, close enough that the game fades the character"
+            "about": "the owner's snapshot at the Eastvale paddock: on the ground, the camera facing -167.8 degrees, 16.3 down, the camera field 1.066 yards back (1.62 by camdist; the owner set it by the wheel, 2026-10-05), close enough that the game fades the character"
         },
         "sun": {
             "azimuth": 45,

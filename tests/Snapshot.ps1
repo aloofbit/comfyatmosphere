@@ -64,12 +64,19 @@ foreach ($l in $lines) {
     if ($l -match '^--- control: (comfy\w+) = (-?[\d.]+) ---' -and $Matches[1] -ne 'comfyDebugView') { $cvars[$Matches[1]] = [double]$Matches[2] }
 }
 
+# The camera's own distance (2026-10-05): the field the mouse wheel moves, from comfytest.dll. A test sets it
+# exactly (cameraZoom); camdist measures to the feet and changes with the pitch, which close in was a notch off.
+Import-Module (Join-Path $tool 'Robot.psm1') -Force -DisableNameChecking
+$zoom = $null
+if ((Send-ComfyTest 'camera') -match 'EC=([\d.]+)') { $zoom = [math]::Round([double]$Matches[1], 3) }
+
 $camera = if ($null -ne $dist -and $dist -lt 1.5) { 0 } else { $null }
 $config = [ordered]@{
     character = 1
     flight    = ($z - $gz) -gt 3.0
 }
-if ($null -ne $camera) { $config.camera = 0 } elseif ($null -ne $dist) { $config.cameraDistance = [math]::Round($dist, 1) }
+if ($null -ne $zoom) { $config.cameraZoom = $zoom }
+elseif ($null -ne $camera) { $config.camera = 0 } elseif ($null -ne $dist) { $config.cameraDistance = [math]::Round($dist, 1) }
 $config.start = [ordered]@{
     map = [int]$mapId; x = $x; y = $y; z = $z; facing = [math]::Round($yaw, 1)
     about = ('the owner''s snapshot: {0:0.0} yards over the ground ({1:0.0}); the camera faced {2:0.0} degrees, {3:0.0} {4}, {5} yards back; the sun from their probe' -f ($z - $gz), $gz, $yaw, [math]::Abs($pitch), $(if ($pitch -lt 0) { 'down' } else { 'up' }), $(if ($null -ne $dist) { '{0:0.0}' -f $dist } else { '?' }))
