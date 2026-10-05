@@ -6,7 +6,7 @@
         "flight": true,
         "camera": 0,
         "flySpeed": 14,
-        "start": { "map": 1, "x": 1178.8, "y": -2738.5, "z": 295.7, "facing": 39, "about": "taken from the owner's probe, flying, facing about 39 degrees from the x axis, toward the mountain: the hops go the other way (219) and come back. The heading is set since 2026-10-05: without it the test faced wherever the last test left the character" },
+        "start": { "map": 1, "x": 1182.2, "y": -2735.2, "z": 308.7, "facing": 40.1, "about": "the owner's snapshot (2026-10-05): flying 97.4 yards over the ground, facing 40.1 degrees from the x axis toward the mountain, the camera 16.7 down: the hops go the other way (219) and come back" },
         "sun": { "azimuth": 45, "elevation": 35 },
         "ini": { "shadow.terrainLow": 1 },
         "debugView": 24,
@@ -86,6 +86,7 @@
         }
     },
     "steps": [
+        { "face": { "heading": 40.1, "pitch": -16.7 } },
         { "wait": 5 },
         { "hop": { "to": 300, "heading": 219, "step": 10, "pause": 0.05 } },
         { "wait": 3 },
