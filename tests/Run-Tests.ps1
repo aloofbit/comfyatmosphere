@@ -74,9 +74,20 @@ $log = Join-Path $Client 'comfyfog.log'
 $summary = @()
 # One login for the whole run (2026-10-04): a login a test cost about a minute each. Another login only for a
 # test that wants another character. Flight is a toggle, so the runner keeps track of it: on after a test
-# turned it on, off after a login. With -NoLogin it is taken as off.
+# turned it on, off after a login. With -NoLogin it is read (2026-10-05): flying when the character is more than
+# 3 yards over the ground. Taken as off, a run started where the owner had been flying waited for the ground.
 $loggedAs = $null
 $flying = $false
+if ($NoLogin) {
+    $check = Join-Path $env:TEMP 'comfy-flightcheck.txt'
+    [IO.File]::WriteAllText($check, "pos flightcheck`r`n")
+    $out = & (Join-Path $tool 'Run-Test.ps1') $check -Client $Client 6>&1 | Out-String
+    $m = [regex]::Match($out, 'pos\s+\S+\s+\S+\s+(-?[\d.]+)\s+(-?[\d.]+)\s+flightcheck')
+    if ($m.Success -and ([double]$m.Groups[1].Value - [double]$m.Groups[2].Value) -gt 3.0) {
+        $flying = $true
+        Write-Host 'The character is flying: flight is taken as on.'
+    }
+}
 $runStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $runStarted = Get-Date
 $expectedDir = Join-Path $here 'expected'

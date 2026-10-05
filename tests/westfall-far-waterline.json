@@ -1,17 +1,17 @@
 {
-    "name": "westfall-beach-swash",
-    "about": "The swash on a Westfall beach, from 40 yards up: 10 second recordings at the defaults (Swash Height 5, Length 55, Speed 80), then with one slider moved each. At Height 100 the water must stop at the wet sand's height, not run onto dry sand (2026-10-05, the owner). The sliders replaced a Swash slider whose 5 to 100 changed nothing.",
+    "name": "westfall-far-waterline",
+    "about": "The waterline seen from far off: from 66.7 yards up, the shore about 90 yards away. Our water's edge was jagged there and the water showed over the terrain (2026-10-05, the owner): the water must end where the terrain rises out of it, with no swash needed. Shot 1 is our water, shot 2 the game's own (Water Effects off), to compare the line.",
     "config": {
         "character": 1,
         "flight": true,
         "cameraZoom": 0,
         "start": {
             "map": 0,
-            "x": -9605.7,
-            "y": 1337.3,
-            "z": 40.5,
-            "facing": -104.8,
-            "about": "the owner's snapshot (2026-10-05): flying 40 yards over the Westfall beach, first person, looking 44.8 down at the shore"
+            "x": -9591.4,
+            "y": 1374.9,
+            "z": 66.3,
+            "facing": -109.6,
+            "about": "the owner's snapshot (2026-10-05): flying 66.7 yards over the Westfall beach, first person, looking 45 down at the shore about 90 yards off"
         },
         "sun": {
             "azimuth": 45,
@@ -98,8 +98,8 @@
     "steps": [
         {
             "face": {
-                "heading": -104.8,
-                "pitch": -44.8
+                "heading": -109.6,
+                "pitch": -45
             }
         },
         {
@@ -109,52 +109,19 @@
             "probe": true
         },
         {
-            "record": {
-                "seconds": 10,
-                "label": "The defaults: Height 5, Length 55, Speed 80"
-            }
+            "screenshot": true
         },
         {
-            "cvar": "comfyWaterSwashHeight 100"
+            "cvar": "comfyWater 0"
         },
         {
-            "wait": 1
+            "wait": 1.5
         },
         {
-            "record": {
-                "seconds": 10,
-                "label": "Swash Height 100: no higher than the wet sand"
-            }
+            "screenshot": true
         },
         {
-            "cvar": "comfyWaterSwashHeight 5"
-        },
-        {
-            "cvar": "comfyWaterSwashLength 10"
-        },
-        {
-            "wait": 1
-        },
-        {
-            "record": {
-                "seconds": 10,
-                "label": "Swash Length 10: shorter surges"
-            }
-        },
-        {
-            "cvar": "comfyWaterSwashLength 55"
-        },
-        {
-            "cvar": "comfyWaterSwashSpeed 300"
-        },
-        {
-            "wait": 1
-        },
-        {
-            "record": {
-                "seconds": 10,
-                "label": "Swash Speed 300"
-            }
+            "cvar": "comfyWater 1"
         }
     ]
 }
