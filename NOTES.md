@@ -2149,6 +2149,16 @@ spots where a leg crossed his body. With the mod off he was flat: one see-throug
   all the way in: no eyes through the head.
 - The F12 `depth:` line gives the draws in order (D depth, C colour, L a layer, + a copy) and how many went
   into the scratch. No scratch (it could not be made, or a copy failed): the old way, and a log line.
+- **A unit that stealths in view kept its shadow** (2026-10-05). The test summons a Pinto and then stealths
+  it: in the second between, the shadow cache recorded the horse, and a unit's entry stays while a unit near
+  it wears its model. A stealthed unit's draws never enter the cache, so that pose cast a shadow for as long
+  as it stood there. A unit's entry now goes once the nearest unit wearing its model is stealthed
+  (`UnitStealthedNear`, why "unit stealthed"); a second horse of the same model beside it keeps its own.
+
+Tests: `tests/development-pinto-stealth.json` (a Pinto summoned on the development map and given Stealth: its
+draws go into the scratch with one copy, and the shot shows it flat with no shadow) and
+`tests/elwynn-own-face.json` (the owner's character with the camera 1.8 yards back: nothing taken as
+stealthed).
 
 ## The framing that matters
 

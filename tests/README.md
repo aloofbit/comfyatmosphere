@@ -58,4 +58,6 @@ camera as far back as the owner had it; under 1.5 yards it is `camera: 0`.
 | `stormwind-canal-wake` | Swim through a canal inside Stormwind, the camera looking down. Ripples and a wake must trail the swimmer, on a building's water as on the map's (2026-10-04). |
 | `elwynn-trough-shadow` | Stand in the Eastvale water trough, the camera zoomed in. The trough must not be marked a body, so its shadow has no character's extra darkness (2026-10-04). |
 | `development-horse-seethrough` | On the development map with a summoned Warhorse and Charger beside you. No horse may be taken as see-through, and the Warhorse must stay a body in every frame (2026-10-04). |
+| `development-pinto-stealth` | On the development map with a summoned Pinto given Stealth. Its draws must go into the scratch depth with one copy of the world's depth, and it must look flat with no shadow (2026-10-05). |
+| `elwynn-own-face` | At the Eastvale paddock with the camera 1.8 yards behind the character, where the game fades it. Nothing may be taken as a stealthed unit, so the face never shows through the head (2026-10-04). |
 | `development-windmill` | Stand 17 yards from a Westfall windmill in its blades' shade, then 200 yards out, the camera turned round, and back. All its parts must be in the far map, no older pose of it kept, its tower solid and its sails leaves (2026-10-04). |

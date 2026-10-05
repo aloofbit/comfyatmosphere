@@ -1,0 +1,127 @@
+{
+    "name": "elwynn-own-face",
+    "about": "The owner's own character with the camera 1.8 yards back, where the game fades it as it fades a stealthed unit (2026-10-04, the owner). The see-through rule once took that fade for stealth and the face showed through the back of the head; the rule now takes stealthed units alone, and their passes go into a scratch depth. Nothing of the character may be taken as stealthed. One shot in the normal view.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "cameraDistance": 1.8,
+        "start": {
+            "map": 0,
+            "x": -9433.2,
+            "y": -1401.2,
+            "z": 46.7,
+            "facing": -167.8,
+            "about": "the owner's snapshot at the Eastvale paddock: on the ground, the camera facing -167.8 degrees, 16.3 down, 1.8 yards back, close enough that the game fades the character"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 40
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 70,
+            "comfyClouds": 1,
+            "comfyRays": 1,
+            "comfyRaysStrength": 25,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 45,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 10,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 11,
+            "comfyVolumeDistance": 180,
+            "comfyVolumeDirection": 195,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 40,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 65,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 35,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 100,
+            "comfyMistSky": 25,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 65,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 0,
+            "comfyWaveSize": 200,
+            "comfyWater": 1,
+            "comfyWaterColour": 35,
+            "comfyWaterClarity": 50,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 100,
+            "comfyWaterFoam": 20,
+            "comfyWaterSwash": 0,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 15,
+            "comfyWaterEdgeWidth": 2,
+            "comfyWaterBright": 60,
+            "comfyWaterRippleDepth": 220
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": -167.8,
+                "pitch": -16.2
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        }
+    ],
+    "expect": [
+        {
+            "about": "The camera is within 3 yards of the character, where the game fades it",
+            "probe": "^depth: last frame, .*the camera [0-2][.][0-9] yd from you",
+            "min": 1
+        },
+        {
+            "about": "Nothing is taken as a stealthed unit: the faded character is drawn as the game draws it",
+            "probe": "^depth: last frame, 0 see-through model draws and 0 depth-only model passes",
+            "min": 1
+        }
+    ]
+}

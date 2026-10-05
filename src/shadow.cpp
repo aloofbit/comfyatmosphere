@@ -1707,6 +1707,39 @@ namespace
         return false;
     }
 
+    // Whether the nearest unit wearing a draw's model is stealthed (2026-10-05). A unit's entry stays while a unit
+    // near it wears its model (UnitModelNear), and a stealthed unit's draws never enter the cache, so a horse
+    // recorded in the second before it went into stealth kept that pose's shadow for as long as it stood there.
+    // The nearest wearer: a second horse of the same model beside it, not stealthed, keeps its own.
+    bool UnitStealthedNear(const Rec& r, const float pos[3])
+    {
+        const UINT verts = RecVertices(r);
+        if (!verts)
+            return false;
+        float best = kUnitModelReach * kUnitModelReach;
+        bool stealthed = false;
+        for (int i = 0; i < g_filesUnitCount; ++i)
+        {
+            const float dx = pos[0] - g_filesUnits[i][0], dy = pos[1] - g_filesUnits[i][1],
+                        dz = pos[2] - g_filesUnits[i][2];
+            const float d2 = dx * dx + dy * dy;
+            if (d2 >= best || dz < -kUnitModelReach || dz > kUnitModelReach)
+                continue;
+            for (int k = 0; k < 2; ++k)
+            {
+                const std::vector<uint32_t>* views = g_filesUnitModels[i][k] ? MapCreatureModelViews(g_filesUnitModels[i][k])
+                                                                             : nullptr;
+                if (views && std::find(views->begin(), views->end(), verts) != views->end())
+                {
+                    best = d2;
+                    stealthed = g_filesUnitStealthed[i];
+                    break;
+                }
+            }
+        }
+        return stealthed;
+    }
+
     bool UnitAt(const float pos[3])
     {
         const long long cx = static_cast<long long>(floorf(pos[0] * 0.5f));
@@ -2452,7 +2485,8 @@ namespace
                         // entry went each time the client did not draw it.
                         bool known = true;
                         const bool unitGone = e.unit && !UnitAt(e.pos) && !UnitModelNear(e.rec, e.pos, known) && known;
-                        if (e.mobile || e.drifts || unitGone || brief ||
+                        const bool unitStealthed = e.unit && e.rec.vs && UnitStealthedNear(e.rec, e.pos);
+                        if (e.mobile || e.drifts || unitGone || unitStealthed || brief ||
                             ((dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ||
                               (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
                               (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime)) &&
@@ -2460,6 +2494,7 @@ namespace
                         {
                             gone = true; ++g_nEvictAge;
                             why = e.mobile ? "moving" : e.drifts ? "has moved" : unitGone ? "unit gone" :
+                                  unitStealthed ? "unit stealthed" :
                                   brief ? "brief" : dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ? "out of reach" :
                                   "unseen too long";
                         }

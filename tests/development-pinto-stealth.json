@@ -1,0 +1,77 @@
+{
+    "name": "development-pinto-stealth",
+    "about": "On the development map (451), where the Charger test stands, a Pinto summoned beside the player and given Stealth (.aura 1784). The game draws a stealthed unit flat: its depth passes, then its colour passes with a layer after each, against its own depth. The see-through rule skipped the depth passes, and every layer blended: dark spots where a leg crossed the body (2026-10-04, the owner, at the Eastvale paddock). Its passes now go into a scratch depth, copied from the world's once, at its first depth pass. Summoned before it is stealthed, the horse was in the shadow cache, and that pose kept its shadow while it stood there; a unit's entry now goes once the nearest unit wearing its model is stealthed. The runner deletes the Pinto after. One shot in the normal view.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 4,
+        "start": {
+            "map": 451,
+            "x": 4617.6,
+            "y": -452.6,
+            "z": 289.6,
+            "facing": 167.4,
+            "about": "the Charger test's place: the camera facing 167.4 degrees, 22.0 down, 5.3 yards back (4 notches), nearer than that test's to show the horse's legs over its body. The Pinto is summoned where the Warhorse stands in that test"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 36.4
+        },
+        "summon": [
+            {
+                "entry": 5405,
+                "name": "Pinto",
+                "x": 4611.6,
+                "y": -451.0,
+                "z": 290.3
+            }
+        ]
+    },
+    "steps": [
+        {
+            "type": "/target Pinto"
+        },
+        {
+            "wait": 0.5
+        },
+        {
+            "chat": ".aura 1784 60"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "type": "/script ClearTarget()"
+        },
+        {
+            "face": {
+                "heading": 167.4,
+                "pitch": -22.0
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        }
+    ],
+    "expect": [
+        {
+            "about": "The Pinto is drawn as a stealthed unit, and its draws go into the scratch depth",
+            "probe": "^depth: last frame, [1-9][0-9]* see-through model draws and [1-9][0-9]* depth-only model passes of stealthed units, [1-9][0-9]* of them drawn into the scratch depth",
+            "min": 1
+        },
+        {
+            "about": "The world's depth is copied into the scratch once, before its depth passes, and never between its colour passes and layers (the fault read +DDDDDC+CCCC)",
+            "probe": "in order: [+]D+C[CL]*;",
+            "min": 1
+        }
+    ]
+}
