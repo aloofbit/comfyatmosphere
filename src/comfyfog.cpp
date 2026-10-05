@@ -26,6 +26,7 @@
 #include "cvars.h"
 #include "report.h"
 #include "depth.h"
+#include "grade.h"
 #include "lampglow.h"
 #include "lamps.h"
 #include "rays.h"
@@ -630,6 +631,10 @@ namespace
         BenchSectionBegin(dev, kBenchRays);
         const bool ran = RaysBeforeUI(dev);
         BenchSectionEnd(dev, kBenchRays, ran);
+        // The saturation last, over the whole world with the rays and the light in it (grade.cpp).
+        const bool graded = GradeBeforeUI(dev);
+        if (graded && g_probe.active)
+            Log("  [draw %4u] SATURATION     x %.2f", g_probe.draws, GradeSaturationNow());
         if (haveVp)
             dev->lpVtbl->SetViewport(dev, &oldVp);
         g_inPass = false;
@@ -755,6 +760,7 @@ namespace
             BodyMaskReset();
             TerrainShadeReset();
             WaterReset();
+            GradeReset();
             MapTerrainRelease();
             g_waterPs.clear();
             g_fog       = ClientFog();
@@ -1004,6 +1010,7 @@ namespace
         BodyMaskReset();
         TerrainShadeReset();
         WaterReset();
+        GradeReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {

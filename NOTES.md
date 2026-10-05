@@ -2263,6 +2263,29 @@ from 30 to 40 yards was tried first and taken out again.
 Tests: `tests/westfall-beach-swash.json` (10 second recordings at the defaults, then each slider moved) and
 `tests/westfall-far-waterline.json` (the shore from 90 yards: our water's edge beside the game's own).
 
+## Saturation by day and by night (2026-10-05)
+
+The owner asked for two sliders: how strong the colours are by day, and at night, with a smooth change
+between the two. **Day Saturation** and **Night Saturation** (`[colour] day` and `night`, percent: 100 is
+the game's own colour, 0 grey, 200 the most) are on a new **Color** tab of the window, under a **Color Effects** box (`[colour] enabled`, CVar
+`comfyColor`). Off, `GradeBeforeUI` returns at once: no clock read, no copy, no draw.
+
+- **Where it draws.** `grade.cpp`, after the rays in `FireRays`, before the first UI draw, so the UI keeps
+  its colour. It copies the back buffer into a texture of the same size and draws it back:
+  `lum + (colour - lum) x saturation`, Rec. 709 luminance, alpha not written. One copy and one full-screen
+  draw. A multiply blend cannot do it: the result needs the pixel's own luminance.
+- **The change.** The clock's night weight (`NightWeight`: `[night]` dusk, dawn and fade), the one Night
+  Darkness uses, through a smoothstep so the change starts and ends gently. With the defaults it takes 1.5
+  game hours from 20:00 and from 05:00. The value in use also moves toward that target with a time constant
+  of 0.4 s, and snaps to it within 1%, so a clock jump (comfytime's Ctrl+End) or a slider fades over less
+  than 2 s.
+- **When it does not draw.** With the value in use at 1 (both sliders at 100 by default), in any debug view,
+  with Atmosphere Effects off, and outside the world.
+- A probe logs `SATURATION x <value>` where the pass drew.
+
+Test: `tests/development-saturation.json`. The test client's clock is day (comfytime), so it checks Day
+Saturation at 0 and 200, and that Night Saturation does nothing by day. Night needs Ctrl+End in game.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

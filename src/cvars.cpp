@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -170,6 +170,9 @@ namespace
         "comfyWaterSwashHeight",
         "comfyWaterSwashLength",
         "comfyWaterSwashSpeed",
+        "comfyDaySaturation",
+        "comfyNightSaturation",
+        "comfyColor",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -350,6 +353,9 @@ namespace
         case kLampDistance:   snprintf(out, cap, "%.0f", s.lamps.fogReach * 100.0f); break;
         case kNightDarkness:  snprintf(out, cap, "%.0f", s.night.darkness * 100.0f); break;
         case kMoonlight:      snprintf(out, cap, "%.0f", s.night.tint * 100.0f); break;
+        case kDaySaturation:  snprintf(out, cap, "%.0f", s.colour.day); break;      // percent already
+        case kNightSaturation: snprintf(out, cap, "%.0f", s.colour.night); break;
+        case kColour:         snprintf(out, cap, "%d", s.colour.enabled ? 1 : 0); break;
         case kFog:            snprintf(out, cap, "%d", s.fog.enabled ? 1 : 0); break;
         // Ten-thousandths a yard (40 is 0.004), yards, and percentages.
         case kFogDensity:     snprintf(out, cap, "%.0f", s.fog.density * 10000.0f); break;
@@ -432,6 +438,9 @@ namespace
         if (c[kLampDistance].seen)   s.lamps.fogReach = Clamp(c[kLampDistance].value * 0.01f, 0.5f, 4.0f);
         if (c[kNightDarkness].seen)  s.night.darkness = Clamp(c[kNightDarkness].value * 0.01f, 0.0f, 0.9f);
         if (c[kMoonlight].seen)      s.night.tint     = Clamp(c[kMoonlight].value * 0.01f, 0.0f, 1.0f);
+        if (c[kDaySaturation].seen)  s.colour.day     = Clamp(c[kDaySaturation].value, 0.0f, 200.0f);
+        if (c[kNightSaturation].seen) s.colour.night  = Clamp(c[kNightSaturation].value, 0.0f, 200.0f);
+        if (c[kColour].seen)         s.colour.enabled = c[kColour].value != 0.0f;
         if (c[kFog].seen)            s.fog.enabled    = c[kFog].value != 0.0f;
         if (c[kFogDensity].seen)     s.fog.density    = Clamp(c[kFogDensity].value * 0.0001f, 0.0f, 0.1f);
         if (c[kFogHeight].seen)      s.fog.height     = Clamp(c[kFogHeight].value, 1.0f, 2000.0f);
@@ -499,7 +508,7 @@ namespace
         if (!s.master)
         {
             s.volume.enabled = s.depth.enabled = s.shadow.enabled = s.fog.enabled = false;
-            s.rays.enabled = s.sunShadows.enabled = s.lamps.enabled = false;
+            s.rays.enabled = s.sunShadows.enabled = s.lamps.enabled = s.colour.enabled = false;
         }
     }
 

@@ -58,6 +58,7 @@ namespace
     const wchar_t* kSunShadows = L"sunshadows";
     const wchar_t* kRays    = L"rays";
     const wchar_t* kNight   = L"night";
+    const wchar_t* kColour  = L"colour";
     const wchar_t* kBench   = L"bench";
     const wchar_t* kGeneral = L"general";
 
@@ -373,6 +374,10 @@ void LoadSettings(const wchar_t* ini)
     s.night.moonColor = GetX(kNight, L"moonColor", s.night.moonColor, ini) & 0xFFFFFF;
     s.night.sky      = Clamp(GetF(kNight, L"sky",      s.night.sky,      ini), 0.0f, 1.0f);
     s.night.indoors  = GetB(kNight, L"indoors", s.night.indoors, ini);
+
+    s.colour.enabled = GetB(kColour, L"enabled", s.colour.enabled, ini);
+    s.colour.day   = Clamp(GetF(kColour, L"day",   s.colour.day,   ini), 0.0f, 200.0f);
+    s.colour.night = Clamp(GetF(kColour, L"night", s.colour.night, ini), 0.0f, 200.0f);
 
     s.bench.settle  = Clamp(GetF(kBench, L"settle",  s.bench.settle,  ini), 0.5f, 30.0f);
     s.bench.measure = Clamp(GetF(kBench, L"measure", s.bench.measure, ini), 1.0f, 60.0f);

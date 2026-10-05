@@ -1,0 +1,216 @@
+{
+    "name": "development-saturation",
+    "about": "On the development map (451), the Day Saturation and Night Saturation sliders (2026-10-05). The test client's clock is fixed by comfytime in the day, so Night Saturation must change nothing. Five shots: both at 100 (the game's own colour, no pass), Day Saturation 0 (grey), Day Saturation 200, and Day Saturation 100 with Night Saturation 0 (the game's own colour again), and Day Saturation 0 with the Color Effects box off (the game's own colour, no pass). The UI keeps its colour in each.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 4,
+        "start": {
+            "map": 451,
+            "x": 4617.6,
+            "y": -452.6,
+            "z": 289.6,
+            "facing": 167.4,
+            "about": "the Charger test's place: the camera facing 167.4 degrees, 22.0 down, 5.3 yards back (4 notches). The guard stands at 4613.9 -451.7 290.1"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 36.4
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 70,
+            "comfyClouds": 1,
+            "comfyRays": 1,
+            "comfyRaysStrength": 25,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 45,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 10,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 11,
+            "comfyVolumeDistance": 180,
+            "comfyVolumeDirection": 195,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 40,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 65,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 35,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 100,
+            "comfyMistSky": 25,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 65,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 0,
+            "comfyWaveSize": 200,
+            "comfyWater": 1,
+            "comfyWaterColour": 35,
+            "comfyWaterClarity": 50,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 100,
+            "comfyWaterFoam": 20,
+            "comfyWaterSwash": 0,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 15,
+            "comfyWaterEdgeWidth": 2,
+            "comfyWaterBright": 60,
+            "comfyWaterRippleDepth": 220,
+            "comfyDaySaturation": 100,
+            "comfyNightSaturation": 100,
+            "comfyColor": 1
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": 167.4,
+                "pitch": -22.0
+            }
+        },
+        {
+            "wait": 2
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDaySaturation 0"
+        },
+        {
+            "wait": 2
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDaySaturation 200"
+        },
+        {
+            "wait": 2
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDaySaturation 100"
+        },
+        {
+            "cvar": "comfyNightSaturation 0"
+        },
+        {
+            "wait": 2
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDaySaturation 0"
+        },
+        {
+            "cvar": "comfyColor 0"
+        },
+        {
+            "wait": 2
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        }
+    ],
+    "expect": [
+        {
+            "about": "Both at 100: the pass does not run",
+            "probeAt": 1,
+            "probe": "SATURATION +x [0-9]",
+            "max": 0
+        },
+        {
+            "about": "Day Saturation 0: the pass runs at 0",
+            "probeAt": 2,
+            "probe": "SATURATION +x 0[.]00",
+            "min": 1
+        },
+        {
+            "about": "Day Saturation 200: the pass runs at 2",
+            "probeAt": 3,
+            "probe": "SATURATION +x 2[.]00",
+            "min": 1
+        },
+        {
+            "about": "By day, Night Saturation 0 changes nothing: the pass does not run",
+            "probeAt": 4,
+            "probe": "SATURATION +x [0-9]",
+            "max": 0
+        },
+        {
+            "about": "Color Effects off: no pass, with Day Saturation at 0",
+            "probeAt": 5,
+            "probe": "SATURATION +x [0-9]",
+            "max": 0
+        }
+    ]
+}

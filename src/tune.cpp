@@ -111,6 +111,9 @@ namespace
         { "night.strength",      "Night Strength" },
         { "night.darkness",      "Night Darkness" },
         { "night.tint",          "Moonlight Colour" },
+        { "colour.enabled",      "Color Effects" },
+        { "colour.day",          "Day Saturation" },
+        { "colour.night",        "Night Saturation" },
         { "sky.clouds",          "Clouds" },
     };
 

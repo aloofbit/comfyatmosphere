@@ -87,6 +87,9 @@ COMFYATMOSPHERE_DEBUG_VIEW     = "Debug View";
 COMFYATMOSPHERE_NIGHT_STRENGTH = "Night Strength";
 COMFYATMOSPHERE_NIGHT_DARKNESS = "Night Darkness";
 COMFYATMOSPHERE_MOONLIGHT      = "Moonlight Colour";
+COMFYATMOSPHERE_COLOR          = "Color Effects";
+COMFYATMOSPHERE_DAY_SATURATION = "Day Saturation";
+COMFYATMOSPHERE_NIGHT_SATURATION = "Night Saturation";
 COMFYATMOSPHERE_CLOUDS         = "Clouds";
 COMFYATMOSPHERE_MIST           = "Fog";
 COMFYATMOSPHERE_MIST_DENSITY   = "Fog Density";
@@ -936,6 +939,37 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- [colour] enabled: off, the saturation pass does not run at all.
+		name = "COMFYATMOSPHERE_COLOR",
+		desc = "Day and night saturation. Off costs nothing.",
+		type = "checkbutton",
+		cvar = "comfyColor",
+	},
+	{
+		-- Percent: [colour] day. The change to Night Saturation follows the game clock, as Night Darkness.
+		name = "COMFYATMOSPHERE_DAY_SATURATION",
+		desc = "How strong the colours are by day. 100 is the game's own. 0 is grey.",
+		type = "slider",
+		cvar = "comfyDaySaturation",
+		dependency = { "comfyColor", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [colour] night.
+		name = "COMFYATMOSPHERE_NIGHT_SATURATION",
+		desc = "How strong the colours are at night. 100 is the game's own. 0 is grey. The change from day is slow, from dusk to full night.",
+		type = "slider",
+		cvar = "comfyNightSaturation",
+		dependency = { "comfyColor", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		name = "COMFYATMOSPHERE_CLOUDS",
 		desc = "The cloud layer in the sky.",
 		type = "checkbutton",
@@ -1056,6 +1090,7 @@ local WINDOW_SECTIONS = {
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
+	{ "Color", { "comfyColor", "comfyDaySaturation", "comfyNightSaturation" } },
 	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",

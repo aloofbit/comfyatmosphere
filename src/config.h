@@ -81,6 +81,15 @@ struct NightSettings
     bool  indoors  = false;     // true = darker inside buildings too
 };
 
+// Colour saturation by day and by night (grade.cpp, 2026-10-05). Between the two by [night] dusk, dawn and
+// fade. Percent: 100 is the game's own colour, 0 grey; with both at 100 the pass does not run.
+struct ColourSettings
+{
+    bool  enabled = true;       // the Color Effects box: off, the pass is not even considered
+    float day   = 100.0f;       // 0..200: the saturation by day (Day Saturation)
+    float night = 100.0f;       // 0..200: the saturation at full night (Night Saturation)
+};
+
 // A readable depth buffer (depth.cpp), which the volumetric light reads. Off unless enabled.
 struct DepthSettings
 {
@@ -496,6 +505,7 @@ struct Settings
     FogSettings  fog;
     SunSettings  sun;
     NightSettings night;
+    ColourSettings colour;
     ClientSettings client;
 
     bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:
