@@ -1659,6 +1659,14 @@ namespace
             g_filesUnitStealthed[i] = list[i].stealthed && !list[i].self;
             g_filesUnitBytes1[i] = list[i].bytes1;
             g_filesUnitSelf[i] = list[i].self;
+            // Each unit's model is asked for as the unit is first seen (2026-10-05). The read is a job on the
+            // map thread, and it was first asked for when a unit was already stealthed (ShadowIsStealthedUnitDraw,
+            // UnitStealthedNear): a Pinto that stealthed in view kept its shadow for half a second, until the
+            // read came back.
+            if (list[i].display)
+                MapCreatureModelViews(list[i].display);
+            if (list[i].mount)
+                MapCreatureModelViews(list[i].mount);
             g_filesUnitCells[(static_cast<long long>(floorf(g_filesUnits[i][0] * 0.5f)) << 32) ^
                              (static_cast<long long>(floorf(g_filesUnits[i][1] * 0.5f)) & 0xFFFFFFFFll)].push_back(i);
         }

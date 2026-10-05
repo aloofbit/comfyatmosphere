@@ -2204,6 +2204,15 @@ spots where a leg crossed his body. With the mod off he was flat: one see-throug
   it wears its model. A stealthed unit's draws never enter the cache, so that pose cast a shadow for as long
   as it stood there. A unit's entry now goes once the nearest unit wearing its model is stealthed
   (`UnitStealthedNear`, why "unit stealthed"); a second horse of the same model beside it keeps its own.
+- **The shadow stayed for half a second as Stealth went on** (2026-10-05). The model a unit wears is read on
+  the map thread (`MapCreatureModelViews`), and it was first asked for once a unit was stealthed. Until the
+  read came back, the unit's draws were not known as its own: the cache kept its shadow. `TakeUnits` now asks
+  for each unit's model as the unit is first seen. A trace of each frame showed the flag set on the frame the
+  client began the fade, and the cache entries gone 2 frames later.
+- **The Pinto's black fade is the game's own.** As Stealth goes on, the client leans the horse forward, draws
+  it solid black (two sets of passes for about 50 frames), and fades the black out triangle by triangle. All
+  of it is the same with the mod off. A creature meant to stealth, the Mountain Lion (2406, Prowl on spawn,
+  Alterac's foothills), changes cleanly: the owner checked it.
 
 Tests: `tests/development-pinto-stealth.json` (a Pinto summoned on the development map and given Stealth: its
 draws go into the scratch with one copy, and the shot shows it flat with no shadow) and
