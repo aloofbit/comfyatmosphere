@@ -219,8 +219,12 @@ foreach ($file in $files) {
                 $secs = if ($null -ne $v.seconds) { [double]$v.seconds } else { [double]$v }
                 $recLabels += $(if ($v.label) { $v.label } else { '' })
                 $recViews += $view
-                $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += "record $secs"; $lines += 'ui show'
+                # With start (2026-10-05), the steps after it run while it records, until recordWait: to record a
+                # change those steps make, such as a stealth aura going on.
+                if ($v.start) { $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += "record $secs start" }
+                else { $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += "record $secs"; $lines += 'ui show' }
             }
+            'recordWait' { $lines += 'recordwait'; $lines += 'ui show' }
             'atmos'      { $lines += "atmos $v" }
             'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
             'chat'       { $lines += "chat $v" }

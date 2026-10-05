@@ -1,6 +1,6 @@
 {
     "name": "development-pinto-stealth",
-    "about": "On the development map (451), where the Charger test stands, a Pinto summoned beside the player and given Stealth (.aura 1784). The game draws a stealthed unit flat: its depth passes, then its colour passes with a layer after each, against its own depth. The see-through rule skipped the depth passes, and every layer blended: dark spots where a leg crossed the body (2026-10-04, the owner, at the Eastvale paddock). Its passes now go into a scratch depth, copied from the world's once, at its first depth pass. Summoned before it is stealthed, the horse was in the shadow cache, and that pose kept its shadow while it stood there; a unit's entry now goes once the nearest unit wearing its model is stealthed. The runner deletes the Pinto after. One shot in the normal view.",
+    "about": "On the development map (451), where the Charger test stands, a Pinto summoned beside the player and given Stealth (.aura 1784). The game draws a stealthed unit flat: its depth passes, then its colour passes with a layer after each, against its own depth. The see-through rule skipped the depth passes, and every layer blended: dark spots where a leg crossed the body (2026-10-04, the owner, at the Eastvale paddock). Its passes now go into a scratch depth, copied from the world's once, at its first depth pass. Summoned before it is stealthed, the horse was in the shadow cache, and that pose kept its shadow while it stood there; a unit's entry now goes once the nearest unit wearing its model is stealthed. The runner deletes the Pinto after. One shot in the normal view. A 5 second recording catches the Pinto as Stealth goes on: it got shadows during the change from not stealthed to stealthed (2026-10-05, the owner), and should lose them the moment Stealth starts.",
     "config": {
         "character": 1,
         "flight": false,
@@ -103,28 +103,41 @@
     },
     "steps": [
         {
-            "target": "Pinto"
-        },
-        {
-            "wait": 0.5
-        },
-        {
-            "chat": ".aura 1784 60"
-        },
-        {
-            "wait": 1
-        },
-        {
-            "clearTarget": true
-        },
-        {
             "face": {
                 "heading": 167.4,
                 "pitch": -22.0
             }
         },
         {
-            "wait": 3
+            "target": "Pinto"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "record": {
+                "seconds": 5,
+                "label": "Stealth goes on 1 s in",
+                "start": true
+            }
+        },
+        {
+            "wait": 1
+        },
+        {
+            "chat": ".aura 1784 60"
+        },
+        {
+            "wait": 4
+        },
+        {
+            "recordWait": true
+        },
+        {
+            "clearTarget": true
+        },
+        {
+            "wait": 2
         },
         {
             "probe": true
