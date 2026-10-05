@@ -438,17 +438,23 @@ struct SkySettings
 struct WaterSettings
 {
     bool  enabled   = true;
-    float foam      = 0.8f;      // 0..1: how white the foam is
+    float foam      = 0.35f;     // 0..1: how white the foam is
     float foamWidth = 1.0f;      // yards of depth: the foam thins out to nothing at this depth
-    float edgeLine  = 1.0f;      // 0..1: the thin light line where the water meets the sand (Edge Line)
-    float edgeWidth = 0.4f;      // yards along the ground the edge line spans (Edge Line Width)
+    float edgeLine  = 0.1f;      // 0..1: the thin light line where the water meets the sand (Edge Line)
+    float edgeWidth = 0.1f;      // yards along the ground the edge line spans (Edge Line Width)
     float shoreFoam = 0.85f;      // 0..1: the game's foam texture near the shore
     float shoreFoamSize = 5.0f;  // yards one copy of that texture spans
     float foamReach = 4.0f;      // yards out from the waterline: the same across the water, for a gentle beach
     float foamScale = 0.6f;      // yards: the size of a bubble in the foam
     float foamSpeed = 1.0f;      // how fast the foam moves and the bands roll in to the shore
     float ripples   = 0.4f;      // 0..1: the rings round anyone standing in the water
-    float rippleDepth = 1.0f;    // 0..4: how deep the rings' waves look, their foam line left as it is (Ripple Depth)
+    float rippleDepth = 1.0f;    // 0..4: how deep the rings' waves look round anyone standing still, their foam
+                                 // line left as it is (Standing Ripple Depth)
+    float rippleDepthMoving = 3.4f;   // 0..4: the same for the rings of anyone walking or swimming (Moving Ripple Depth)
+    float rippleSpread = 0.5f;   // 0.1..3: how fast the rings round anyone standing still grow, so how large they get:
+                                 // 1 is 1.1 yards a second (Standing Ripple Spread)
+    float rippleSpreadMoving = 1.0f;  // 0.1..3: the same for the rings of anyone walking or swimming (Moving Ripple
+                                      // Spread): 1 is a third of their speed, 1.1 to 3 yards a second
     float wetSand   = 0.45f;     // 0..1: how much darker the sand is where the water reaches
     // The surface (2026-10-02): the water drawn by us in place of the game's: its colour by the real depth, the
     // sky in it, the sun's glint, small waves, whitecaps far out.
@@ -469,9 +475,9 @@ struct WaterSettings
     // How far up the shore it goes (Swash Height): yards of height at most, and up a gentle beach 5 times that
     // along the ground. One value since 2026-10-05: swashRun (1.5) and this (0.3) were two limits on one thing.
     float swashHeight = 0.05f;   // the owner's (2026-10-05); 0.3 until then
-    float swashLength = 55.0f;   // yards along the shore one surge spans (Swash Length): lower, more and shorter
-    float swashSpeed  = 0.8f;    // how fast the surges come (Swash Speed): 1 is one every 11.4 s
-    float wake      = 0.6f;      // 0..1: the wake behind anyone moving through the water (Wake)
+    float swashLength = 90.0f;   // yards along the shore one surge spans (Swash Length): lower, more and shorter
+    float swashSpeed  = 0.3f;    // how fast the surges come (Swash Speed): 1 is one every 11.4 s
+    float wake      = 0.85f;     // 0..1: the wake behind anyone moving through the water (Wake)
     float cover     = 0.5f;      // 0..1: how much the water covers a body in it (Underwater Cover)
     float refraction = 0.125f;   // yards: how far the waves bend what lies under the water (Underwater Distortion:
                                  // 0..100 is 0..0.5 yards)

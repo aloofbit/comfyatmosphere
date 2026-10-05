@@ -2244,7 +2244,22 @@ was no longer used (`fA = 0`). The owner and I agreed what the swash needs inste
 
 Both passes take the length and the speed from one new register each: c211 in the water pass, c212 in the
 wet sand pass, so the water's edge and the wet sand's foam line stay together. The defaults are the owner's:
-Height 0.05, Length 55, Speed 0.8.
+Height 0.05, Length 55, Speed 0.8. On 2026-10-05 the owner's settings in play became the defaults: Length 90, Speed 0.3,
+and with them Wake 0.85, Foam 0.35, Edge Line 0.1, Edge Line Width 0.1 yards and Ripple Depth 3.4.
+
+**Ripple Depth in two (2026-10-05).** The owner asked for one depth for the rings round someone standing still and
+one for the rings someone leaves walking or swimming. Ripple Depth (`[water] rippleDepth`, CVar
+`comfyWaterRippleDepth`) became Standing Ripple Depth, so a saved value carries over; Moving Ripple Depth is
+`rippleDepthMoving` (CVar `comfyWaterRippleMoving`). Defaults: standing 1, moving 3.4. Each ring takes its depth when it
+begins, by whether its maker had moved since the last frame (its way, `dir`, not 0), and the water pass reads it
+from `gRingD[i].w`; `c204.y`, the one depth until then, is free.
+
+**Ripple Spread, standing and moving (2026-10-05).** How fast a ring grows, so how large it is when it fades
+after 2.6 s: `rippleSpread` (Standing Ripple Spread, 0.5 by default: the owner wanted the rings round someone
+standing still small) and `rippleSpreadMoving` (Moving Ripple Spread, 1). They scale the ring's speed when it
+begins: 1.1 yards a second standing, a third of the walker's speed (1.1 to 3) moving. The shader told a
+walker's ring by that speed (over 1.15 yards a second); with the sliders it tells it by its way, which only a
+walker's ring has.
 
 **No higher than the wet sand.** At Swash Height 65 the water ran onto dry sand. The wet sand pass makes the
 sand fully wet up to half of its `top` (0.4 +- 0.1 yards over the water) and dry at `top`. The swash now

@@ -173,7 +173,7 @@ float4 gFog  : register(c126);     // the game's fog start, 1 / (end - start), 1
 float4 gCam  : register(c127);     // the camera in the world
 float4 gReach : register(c128);    // 1 / foamReach, ripples' strength, wet sand's darkness, rings in use
 float4 gRingD[16] : register(c146); // each ripple's way: the way its maker walked (x, y), 0 standing still;
-                                    // its noise's shift (z)
+                                    // its noise's shift (z); its waves' depth (w: Standing or Moving Ripple Depth)
 float4 gRing[16] : register(c130); // the ripples: where each began (feet, camera-relative); w its age in
                                    // seconds plus 8 x its speed in tenths of a yard a second, negative for none
 float4 gSun  : register(c162);     // the way to the sun, its glint's strength
@@ -184,7 +184,8 @@ float4 gSunC : register(c166);     // the sun's colour; whitecaps
 float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest first: camera-relative feet, age
                                     // in seconds (negative: no point)
 float4 gMoon2 : register(c203);    // the way to the other moon, its glint's strength (0 by day)
-float4 gGlint : register(c204);    // 1 / the glint's size squared; y the ripples' depth (Ripple Depth); z the
+float4 gGlint : register(c204);    // 1 / the glint's size squared; y free (the ripples' depth until 2026-10-05,
+                                   // now each ring's own, gRingD.w); z the
                                    // swash's highest climb (yards); w the
                                    // edge line's width (yards along the ground)
 float4 gI0   : register(c205);     // rows of inverse(view x projection): clip -> camera-relative world
@@ -540,8 +541,9 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             float  back = saturate(-dot(outw, way));
             fade *= 1.0 - back * saturate(0.4 + ph * 1.5);
             // A walker's rings lose their foam line fast: left on, a trail of them drew a whitish streak far behind
-            // the wake (2026-10-02). Standing still spreads at 1.1 yards a second, sp 11.
-            float walker = sp > 11.5 ? 1.0 : 0.0;
+            // the wake (2026-10-02). A walker's ring is the one with a way (2026-10-05); it was told by its spread,
+            // over 1.15 yards a second, until the spread became a slider.
+            float walker = dot(way, way) > 0.25 ? 1.0 : 0.0;
             ring = max(ring, fade * exp(-x * x) * lerp(1.0, exp(-age * 3.0), walker));
             // The wave: one crest and the trough after it, wider than the foam's line, its slope along the way
             // out from where it began.
@@ -549,11 +551,12 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             float  y   = (d - rad) / wv2;
             float  dh  = (1.0 - 2.0 * y * y) * exp(-y * y) / wv2;   // the slope of y * exp(-y^2)
             float2 out2 = (rel.xy - g.xy) / max(d, 1e-3);
-            ringSlope += out2 * (dh * fade * 0.065 * lerp(1.0, 0.6, walker));
+            // Its depth (2026-10-05): Standing Ripple Depth or Moving Ripple Depth, by whether its maker moved
+            // when it began. Only the waves: the foam line stays as it is.
+            ringSlope += out2 * (dh * fade * 0.065 * lerp(1.0, 0.6, walker) * gRingD[i].w);
         }
     }
     ring = saturate(ring * gReach.y) * (0.3 + 0.7 * soft) * (depth > -0.05 ? 1.0 : 0.0);
-    ringSlope *= gGlint.y;   // Ripple Depth (2026-10-03): the rings' waves, not their foam line
 
 )HLSL"
     R"HLSL(
@@ -1363,8 +1366,12 @@ float4 main(float2 vpos : VPOS) : COLOR
             {
                 if (g_rings.size() >= static_cast<size_t>(kRings))
                     g_rings.erase(g_rings.begin());   // the oldest
-                const float spread = speed > 1.0f ? (std::max)(kRingStill, (std::min)(speed / 3.0f, 3.0f)) : kRingStill;
                 const bool walking = speed > 1.0f;
+                // Standing Ripple Spread and Moving Ripple Spread (2026-10-05): how fast the ring grows, so how
+                // large it is when it fades out after kRingLife. The owner wanted the rings round someone
+                // standing still small.
+                const float spread = (walking ? (std::max)(kRingStill, (std::min)(speed / 3.0f, 3.0f)) : kRingStill) *
+                                     (walking ? g_cfg.water.rippleSpreadMoving : g_cfg.water.rippleSpread);
                 const float shift = static_cast<float>(fmod(++g_ringCount * 0.618034, 1.0));
                 g_rings.push_back({ { p[0], p[1], p[2] }, now, spread,
                                     { walking ? way[0] : 0.0f, walking ? way[1] : 0.0f }, shift });
@@ -1432,7 +1439,10 @@ float4 main(float2 vpos : VPOS) : COLOR
                 // The age, with the speed in tenths of a yard a second above it: speed x 10 x 8 + age (age < 8).
                 o[3] = floorf(r.speed * 10.0f + 0.5f) * 8.0f + static_cast<float>(now - r.born);
                 float* w = out + kRings * 4 + i * 4;
-                w[0] = r.dir[0]; w[1] = r.dir[1]; w[2] = r.shift; w[3] = 0.0f;
+                // The depth of its waves: a ring whose maker walked or swam has a way (2026-10-05).
+                const bool moved = r.dir[0] != 0.0f || r.dir[1] != 0.0f;
+                w[0] = r.dir[0]; w[1] = r.dir[1]; w[2] = r.shift;
+                w[3] = moved ? g_cfg.water.rippleDepthMoving : g_cfg.water.rippleDepth;
             }
             else
             {
@@ -1587,7 +1597,7 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[332] = moon2[0]; k[333] = moon2[1]; k[334] = moon2[2];
         k[335] = second ? w.moonGlint * 0.6f * moon2Vis : 0.0f;
         k[336] = 1.0f / (w.glintSize * w.glintSize);
-        k[337] = w.rippleDepth;   // c204.y
+        k[337] = 0.0f;            // c204.y: free (each ring's depth is in gRingD.w)
         k[338] = w.swashHeight;
         k[339] = w.edgeWidth;
         k[356] = w.brightness;   // c209

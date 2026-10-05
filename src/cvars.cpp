@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -173,6 +173,9 @@ namespace
         "comfyDaySaturation",
         "comfyNightSaturation",
         "comfyColor",
+        "comfyWaterRippleMoving",
+        "comfyWaterRippleSpread",
+        "comfyWaterRippleSpreadMoving",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -335,6 +338,9 @@ namespace
         case kWaterEdgeWidth: snprintf(out, cap, "%.0f", s.water.edgeWidth * 10.0f); break;    // tenths of a yard
         case kWaterBright:    snprintf(out, cap, "%.0f", s.water.brightness * 100.0f); break;  // percent
         case kWaterRippleDepth: snprintf(out, cap, "%.0f", s.water.rippleDepth * 100.0f); break; // percent
+        case kWaterRippleMoving: snprintf(out, cap, "%.0f", s.water.rippleDepthMoving * 100.0f); break;
+        case kWaterSpread:    snprintf(out, cap, "%.0f", s.water.rippleSpread * 100.0f); break;        // percent
+        case kWaterSpreadMoving: snprintf(out, cap, "%.0f", s.water.rippleSpreadMoving * 100.0f); break;
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -422,6 +428,9 @@ namespace
         if (c[kWaterEdgeWidth].seen) s.water.edgeWidth = Clamp(c[kWaterEdgeWidth].value * 0.1f, 0.05f, 3.0f);
         if (c[kWaterBright].seen)    s.water.brightness = Clamp(c[kWaterBright].value * 0.01f, 0.25f, 2.0f);
         if (c[kWaterRippleDepth].seen) s.water.rippleDepth = Clamp(c[kWaterRippleDepth].value * 0.01f, 0.0f, 4.0f);
+        if (c[kWaterRippleMoving].seen) s.water.rippleDepthMoving = Clamp(c[kWaterRippleMoving].value * 0.01f, 0.0f, 4.0f);
+        if (c[kWaterSpread].seen)    s.water.rippleSpread = Clamp(c[kWaterSpread].value * 0.01f, 0.1f, 3.0f);
+        if (c[kWaterSpreadMoving].seen) s.water.rippleSpreadMoving = Clamp(c[kWaterSpreadMoving].value * 0.01f, 0.1f, 3.0f);
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);

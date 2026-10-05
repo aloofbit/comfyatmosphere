@@ -60,7 +60,10 @@ COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
 COMFYATMOSPHERE_WATER_BEND     = "Underwater Distortion";
 COMFYATMOSPHERE_WATER_COVER    = "Underwater Cover";
 COMFYATMOSPHERE_WATER_WAKE     = "Wake";
-COMFYATMOSPHERE_WATER_RIPPLE_DEPTH = "Ripple Depth";
+COMFYATMOSPHERE_WATER_RIPPLE_DEPTH = "Standing Ripple Depth";
+COMFYATMOSPHERE_WATER_RIPPLE_MOVING = "Moving Ripple Depth";
+COMFYATMOSPHERE_WATER_RIPPLE_SPREAD = "Standing Ripple Spread";
+COMFYATMOSPHERE_WATER_RIPPLE_SPREAD_MOVING = "Moving Ripple Spread";
 COMFYATMOSPHERE_WATER_FOAM     = "Foam";
 COMFYATMOSPHERE_WATER_SWASH    = "Swash";
 COMFYATMOSPHERE_WATER_SWASH_HEIGHT = "Swash Height";
@@ -735,12 +738,48 @@ local ENTRIES = {
 	{
 		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleDepth.
 		name = "COMFYATMOSPHERE_WATER_RIPPLE_DEPTH",
-		desc = "How deep the rings round anyone in the water look. 100 is as it was; their white line stays the same.",
+		desc = "How deep the rings round anyone standing still in the water look. 100 is as it was; their white line stays the same.",
 		type = "slider",
 		cvar = "comfyWaterRippleDepth",
 		dependency = { "comfyWater", "1" },
 		minval = 0,
 		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleDepthMoving.
+		name = "COMFYATMOSPHERE_WATER_RIPPLE_MOVING",
+		desc = "How deep the rings look that anyone walking or swimming leaves behind. 100 is as it was; their white line stays the same.",
+		type = "slider",
+		cvar = "comfyWaterRippleMoving",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleSpread.
+		name = "COMFYATMOSPHERE_WATER_RIPPLE_SPREAD",
+		desc = "How large the rings round anyone standing still in the water grow. 100 is as it was.",
+		type = "slider",
+		cvar = "comfyWaterRippleSpread",
+		dependency = { "comfyWater", "1" },
+		minval = 10,
+		maxval = 300,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleSpreadMoving.
+		name = "COMFYATMOSPHERE_WATER_RIPPLE_SPREAD_MOVING",
+		desc = "How large the rings grow that anyone walking or swimming leaves behind. 100 is as it was.",
+		type = "slider",
+		cvar = "comfyWaterRippleSpreadMoving",
+		dependency = { "comfyWater", "1" },
+		minval = 10,
+		maxval = 300,
 		step = 10,
 		numberLabels = 1,
 	},
@@ -1091,7 +1130,7 @@ local WINDOW_SECTIONS = {
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
 	{ "Color", { "comfyColor", "comfyDaySaturation", "comfyNightSaturation" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",
