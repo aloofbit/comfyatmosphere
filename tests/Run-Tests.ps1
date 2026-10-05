@@ -26,6 +26,7 @@
   Steps, one key each:
     wait <s>, hop { to, heading, step, pause }, fly <yards>, flyFor <seconds>, back <yards>, turn <degrees> (180: the client's Ctrl+Shift+F flip; other angles hold Q, 180 a second), probe, screenshot,
     face { heading, pitch } (the camera, in degrees: heading counter-clockwise from +x as the sun's azimuth, pitch up positive; ComfyTest checks and corrects it),
+    record { seconds, label } (a video without the UI, by ffmpeg, shown on the page and played at once),
     pos, atmos "<words>", cvar "<name> <value>", chat "<text>". Where the character is (from comfyfog.dll's
     comfyStats CVar) goes into the result after the start and after each fly, back and turn.
 
@@ -181,6 +182,7 @@ foreach ($file in $files) {
     # What each screenshot shows, for the page: the Debug View at the time.
     $view = if ($null -ne $cfg.debugView) { [int]$cfg.debugView } else { 0 }
     $shotViews = @()
+    $recViews = @(); $recLabels = @()
     foreach ($st in $t.steps) {
         $p = $st.PSObject.Properties | Select-Object -First 1
         $v = $p.Value
@@ -213,6 +215,12 @@ foreach ($file in $files) {
             'face'       { $lines += "heading $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the character and the camera, checked against comfyStats: right-drags turn, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
             'screenshot' { $shotViews += $view; $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
+            'record'     {   # a video, without the UI as a screenshot: { seconds, label } or the seconds alone
+                $secs = if ($null -ne $v.seconds) { [double]$v.seconds } else { [double]$v }
+                $recLabels += $(if ($v.label) { $v.label } else { '' })
+                $recViews += $view
+                $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += "record $secs"; $lines += 'keys alt+z'
+            }
             'atmos'      { $lines += "atmos $v" }
             'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
             'chat'       { $lines += "chat $v" }
@@ -355,12 +363,24 @@ foreach ($file in $files) {
         Copy-Item $shots[$i].FullName $copy
         $shotCopies += $copy
     }
+    # Every recording of the run (2026-10-05), with its sheet of frames: the step record.
+    $recs = @(Get-ChildItem (Join-Path $Client 'Recordings') -Filter *.mp4 -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.LastWriteTime -ge $started } | Sort-Object LastWriteTime)
+    $recCopies = @()
+    for ($i = 0; $i -lt $recs.Count; $i++) {
+        $copy = Join-Path $resultsDir "$stamp-$($t.name)-rec$($i + 1).mp4"
+        Copy-Item $recs[$i].FullName $copy
+        $sheet = $recs[$i].FullName -replace '\.mp4$', '-sheet.jpg'
+        if (Test-Path $sheet) { Copy-Item $sheet ($copy -replace '\.mp4$', '-sheet.jpg') }
+        $recCopies += $copy
+    }
 
     $verdict = if ($pass) { 'PASS' } else { 'FAIL' }
     $report = @("$verdict  $($t.name)  ($stamp)") + $results
     if ($positions.Count) { $report += 'where the character was:'; $report += @($positions | ForEach-Object { "        $_" }) }
     if ($warnings.Count) { $report += 'errors from the game:'; $report += @($warnings | ForEach-Object { "        $_" }) }
     if ($shotCopies.Count) { $report += @($shotCopies | ForEach-Object { "screenshot: $_" }) } else { $report += 'screenshot: none taken' }
+    $report += @($recCopies | ForEach-Object { "recording: $_" })
     $text = $report -join "`r`n"
     Write-Host $text
     [IO.File]::WriteAllText((Join-Path $resultsDir "$stamp-$($t.name).txt"), $text + "`r`n`r`n" + ($probe -join "`r`n") + "`r`n")
@@ -374,6 +394,7 @@ foreach ($file in $files) {
     $records += [pscustomobject]@{
         name = $t.name; about = $t.about; pass = $pass; stamp = $stamp; checks = $checks
         positions = $positions; warnings = $warnings; shots = $shotCopies; views = $shotViews
+        recordings = $recCopies; recViews = $recViews; recLabels = $recLabels
     }
 }
 

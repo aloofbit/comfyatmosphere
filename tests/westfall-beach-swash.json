@@ -1,0 +1,130 @@
+{
+    "name": "westfall-beach-swash",
+    "about": "The swash on a beach, recorded for 10 seconds at Swash 5 and at Swash 100. The Swash control changed the look from 0 to 5, and from 5 to 100 the look did not change much (2026-10-05, the owner).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "cameraDistance": 15.8,
+        "start": {
+            "map": 0,
+            "x": -9606.9,
+            "y": 1328.7,
+            "z": -0.1,
+            "facing": -107.5,
+            "about": "the owner's snapshot on the beach (2026-10-05): the place, the camera and the heading; the sun from their probe"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 28.7
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 25,
+            "comfyClouds": 0,
+            "comfyRays": 1,
+            "comfyRaysStrength": 40,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 25,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 0,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 16,
+            "comfyVolumeDistance": 190,
+            "comfyVolumeDirection": 70,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 20,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 15,
+            "comfyMistHeight": 15,
+            "comfyMistBrightness": 120,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 200,
+            "comfyMistSky": 50,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 100,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 10,
+            "comfyWaveSize": 200,
+            "comfyWater": 1,
+            "comfyWaterColour": 25,
+            "comfyWaterClarity": 100,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 60,
+            "comfyWaterFoam": 30,
+            "comfyWaterSwash": 5,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 25,
+            "comfyWaterEdgeWidth": 1,
+            "comfyWaterBright": 70,
+            "comfyWaterRippleDepth": 100
+        }
+    },
+    "steps": [
+        {
+            "wait": 2
+        },
+        {
+            "face": {
+                "heading": -107.5,
+                "pitch": -31.2
+            }
+        },
+        {
+            "wait": 1
+        },
+        {
+            "probe": true
+        },
+        {
+            "record": {
+                "seconds": 10,
+                "label": "Swash 5"
+            }
+        },
+        {
+            "cvar": "comfyWaterSwash 100"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "record": {
+                "seconds": 10,
+                "label": "Swash 100"
+            }
+        }
+    ]
+}

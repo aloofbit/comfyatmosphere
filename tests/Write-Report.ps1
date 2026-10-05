@@ -66,6 +66,8 @@ ul.checks li.bad::before { content: "\2717"; color: var(--fail); }
 @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
 figure { margin: 0; min-width: 0; }
 figure img { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--line); }
+video { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--line); background: #000; }
+img.sheet { width: 100%; height: auto; display: block; margin-top: 6px; border-radius: 6px; }
 figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
 .none { border: 1px dashed var(--line); border-radius: 6px; aspect-ratio: 16 / 10; display: grid; place-items: center; color: var(--dim); font-size: 13px; text-align: center; padding: 8px; }
 details { margin-top: 12px; color: var(--dim); font-size: 13px; }
@@ -104,7 +106,20 @@ foreach ($r in $Records) {
         }
         [void]$sb.Append("</div></div>`n")
     }
-    if (-not $r.shots.Count) { [void]$sb.Append("<p class=""about"">No screenshot taken.</p>`n") }
+    # The recordings (2026-10-05): each plays at once, without sound, over and over. The sheet of its frames
+    # is under it, closed.
+    for ($i = 0; $i -lt $r.recordings.Count; $i++) {
+        $n = $i + 1
+        $v = if ($i -lt $r.recViews.Count) { [int]$r.recViews[$i] } else { 0 }
+        $label = if ($v -eq 0) { 'Normal view' } elseif ($v -lt $ViewNames.Count) { "Debug View ${v}: $($ViewNames[$v])" } else { "Debug View $v" }
+        if ($i -lt $r.recLabels.Count -and $r.recLabels[$i]) { $label = "$($r.recLabels[$i]), $label" }
+        $got = [IO.Path]::GetFileName($r.recordings[$i])
+        $sheet = $got -replace '\.mp4$', '-sheet.jpg'
+        [void]$sb.Append("<div class=""shot""><h3>Recording ${n}: $(Html $label)</h3>")
+        [void]$sb.Append("<video src=""$(Html $got)"" autoplay muted loop playsinline controls></video>")
+        [void]$sb.Append("<details><summary>20 frames of it</summary><a href=""$(Html $sheet)""><img class=""sheet"" src=""$(Html $sheet)"" alt=""20 frames of recording $n"" loading=""lazy""></a></details></div>`n")
+    }
+    if (-not $r.shots.Count -and -not $r.recordings.Count) { [void]$sb.Append("<p class=""about"">No screenshot taken.</p>`n") }
     $more = @()
     if ($r.positions.Count) { $more += 'Where the character was:'; $more += @($r.positions | ForEach-Object { "  $_" }) }
     if ($r.warnings.Count) { $more += 'Errors from the game:'; $more += @($r.warnings | ForEach-Object { "  $_" }) }
