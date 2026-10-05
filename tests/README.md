@@ -13,11 +13,13 @@ steps in the game.
    .\Run-Tests.ps1                       # every test
    .\Run-Tests.ps1 far-terrain-cache     # one test
    .\Run-Tests.ps1 far-terrain-cache -NoLogin   # the client is already in the world
-   .\Run-Tests.ps1 -Accept                # and take this run's screenshots as the expected ones
+   .\Run-Tests.ps1 -Accept                # and take this run's screenshots and recordings as the expected ones
    ```
 
 The runner restarts the test client and logs in once, unless `-NoLogin` is given, and runs every test in that one session. It logs in again only for a test that wants another character, and casts flight when a test's `flight` differs from the state it is in. A run ends with flight off and the camera behind the character. It sends `/atmos reset` before and after each test,
-and puts every CVar it set back as it was, so a test leaves no values behind. Do not touch the mouse or keyboard while a test
+and puts every CVar it set back as it was, so a test leaves no values behind. It clears the weather at each
+test's start (`.wchange 0 0`). With comfytest.dll in the client (wow-test-tool's `dll\`) a run needs no mouse or
+keyboard, and the game may stay behind other windows; without it, do not touch the mouse or keyboard while a test
 runs. The result, the script it ran, the probe and the screenshots go to `results\`, which git ignores.
 
 ## The page
@@ -25,8 +27,9 @@ runs. The result, the script it ran, the probe and the screenshots go to `result
 Each run writes `results\<time>-report.html` and opens it (`-NoOpen` does not). It shows every test, its checks
 and what they measured, and each screenshot beside the expected one, with the Debug View it was taken in. A
 check that reads a screenshot sits with that screenshot. The expected shots are in `expected\<test>-<n>.jpg`,
-in git. When a change is meant to alter a test's look, look at the page, then run again with `-Accept` to take
-the new shots as expected.
+in git. Each recording plays beside its expected one, `expected\<test>-rec<n>.mp4`. When a change is meant to
+alter a test's look, look at the page, then run again with `-Accept` to take the new shots and recordings as
+expected.
 
 ## A test
 
@@ -34,7 +37,7 @@ A test is a `.json` file here:
 
 | Part | What it holds |
 | --- | --- |
-| `config` | `character` (the slot on character select), `flight` (cast "Toggle GM Flight Mode"), `camera` (0 first person, 1 to 9 that many notches of the mouse wheel back out, 10 all the way out; 1 notch is 2.5 yards, 2 is 3.4, 4 is 5.3), `flySpeed` (yards a second), `start` (`map`, `x`, `y`, `z`, by `.go xyz`; `facing`, the character's heading in degrees, counter-clockwise from +x), `sun` (`azimuth`, `elevation`: a fixed sun), `ini` (`"section.key": value` pairs, by `/atmos`), `debugView` (the Debug View number), `cvars` (`"name": value` pairs for the Atmosphere page's controls, which `/atmos` refuses), `summon` (`entry`, `name`, `x`, `y`, `z`: a creature summoned there before the start and deleted by its name after the steps; only a creature with no world spawn, since `.npc delete` removes a world spawn from the database) |
+| `config` | `character` (the slot on character select), `flight` (cast "Toggle GM Flight Mode"), `camera` (0 first person, 1 to 9 that many notches of the mouse wheel back out, 10 all the way out; 1 notch is 2.5 yards, 2 is 3.4, 4 is 5.3), `cameraZoom` (the camera's own distance, the field the mouse wheel moves, set exactly by comfytest.dll; a snapshot records it), `flySpeed` (yards a second), `start` (`map`, `x`, `y`, `z`, by `.go xyz`; `facing`, the character's heading in degrees, counter-clockwise from +x), `sun` (`azimuth`, `elevation`: a fixed sun), `ini` (`"section.key": value` pairs, by `/atmos`), `debugView` (the Debug View number), `cvars` (`"name": value` pairs for the Atmosphere page's controls, which `/atmos` refuses), `summon` (`entry`, `name`, `x`, `y`, `z`: a creature summoned there before the start and deleted by its name after the steps; only a creature with no world spawn, since `.npc delete` removes a world spawn from the database) |
 | `steps` | one key each: `wait` seconds, `down` and `up` (hold a key such as `W` over the steps between), `jump` times, `hop` (`.go xyz` along a line), `fly` yards, `back` yards, `turn` degrees to the left (by `face`), `face` (`heading`, `pitch`: the camera, in degrees, checked against comfyfog.dll's stats; `leftDrag` tilts it by left-drags, which leave a swimmer level), `probe`, `screenshot`, `record` (`seconds`, `label`: a video without the UI, shown on the page and played at once; by comfytest.dll when the client has it, so the game may be covered), `atmos`, `cvar`, `chat`, `type` (a slash command typed into the chat box), `target` (the unit with that exact name, as `/target`), `clearTarget`, `camera` (the camera's distance partway through, as `config.camera`) |
 | `expect` | checks against the last probe (or the one `probeAt` names, from 1): `probe` is a pattern for its lines, `max` and `min` the count allowed. Or against a screenshot: `shot` (which, from 1), `row`, `from`, `to` (columns), and `min` (the darkest pixel allowed), `mean` (the least average) or `meanMax` (the most average, for a row that must stay in shade) along that row. Or `shot` and `box` (`[left, top, right, bottom]`) with `jumpMax`, the percent of pixels allowed that differ sharply from the next one (speckle) |
 
