@@ -103,7 +103,7 @@
     },
     "steps": [
         {
-            "type": "/target Pinto"
+            "target": "Pinto"
         },
         {
             "wait": 0.5
@@ -115,7 +115,7 @@
             "wait": 1
         },
         {
-            "type": "/script ClearTarget()"
+            "clearTarget": true
         },
         {
             "face": {

@@ -24,7 +24,7 @@
                 cvarsback): the game saves them in Config.wtf
 
   Steps, one key each:
-    wait <s>, hop { to, heading, step, pause }, fly <yards>, flyFor <seconds>, back <yards>, turn <degrees> (180: the client's Ctrl+Shift+F flip; other angles hold Q, 180 a second), probe, screenshot,
+    wait <s>, hop { to, heading, step, pause }, fly <yards>, flyFor <seconds>, back <yards>, turn <degrees> (to the left, by face), probe, screenshot, target <name>, clearTarget,
     face { heading, pitch } (the camera, in degrees: heading counter-clockwise from +x as the sun's azimuth, pitch up positive; ComfyTest checks and corrects it),
     record { seconds, label } (a video without the UI, by ffmpeg, shown on the page and played at once),
     pos, atmos "<words>", cvar "<name> <value>", chat "<text>". Where the character is (from comfyfog.dll's
@@ -96,7 +96,7 @@ if (Test-Path $cvarsSrc) {
 # start's .go xyz follows at once. With flight off the character stays in the air until it moves (the owner,
 # 2026-10-04): a .go xyz after it kept it there, and the next test's ground wait ran out 84 yards over a hill.
 # So it walks for half a second.
-$flightOff = @('type /cast Toggle GM Flight Mode', 'wait 0.5', 'hold W 0.5', 'wait 0.5')
+$flightOff = @('flight', 'wait 0.5', 'hold W 0.5', 'wait 0.5')
 
 foreach ($file in $files) {
     if (-not (Test-Path $file)) { throw "No test $file" }
@@ -124,7 +124,7 @@ foreach ($file in $files) {
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
         if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += 'wait 3' }
         $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
-        $lines += 'ground 60'; $lines += 'type /cast Toggle GM Flight Mode'; $lines += 'wait 0.5'
+        $lines += 'ground 60'; $lines += 'flight'; $lines += 'wait 0.5'
         $flying = $true
     }
     elseif (-not $cfg.flight -and $flying) {
@@ -188,7 +188,7 @@ foreach ($file in $files) {
         $v = $p.Value
         switch ($p.Name) {
             'wait'       { $lines += "wait $v" }
-            'jump'       { for ($j = 0; $j -lt [int]$v; $j++) { $lines += 'tap space'; $lines += 'wait 1.2' } }   # in the water, it brings a swimmer up to the surface
+            'jump'       { for ($j = 0; $j -lt [int]$v; $j++) { $lines += 'jump'; $lines += 'wait 1.2' } }   # in the water, it brings a swimmer up to the surface
             'down'       { $lines += "down $v" }   # hold a key until its up step: the steps between run while it is held
             'up'         { $lines += "up $v" }
             'fly'        { $lines += ('hold W {0:0.##}' -f ([double]$v / $speed)); $lines += 'wait 1.2'; $lines += "pos after fly $v" }
@@ -210,7 +210,7 @@ foreach ($file in $files) {
             }
             'flyFor'     { $lines += "hold W $v"; $lines += 'wait 1.2'; $lines += "pos after flying $v s" }   # seconds, not yards: two legs of the same time cover the same ground
             'back'       { $lines += ('hold S {0:0.##}' -f ([double]$v / ($speed * 0.64))); $lines += 'wait 1.2'; $lines += "pos after back $v" }   # backing up is 64% of the speed
-            'turn'       { if ([double]$v -eq 180) { $lines += 'keys ctrl+shift+f' } else { $lines += ('hold Q {0:0.##}' -f ([double]$v / 180.0)) }; $lines += 'wait 1.2'; $lines += "pos after turn $v" }               # the keys turn 180 degrees a second
+            'turn'       { $lines += "turnby $v"; $lines += 'wait 1.2'; $lines += "pos after turn $v" }   # to the left; by face, not Ctrl+Shift+F, which broke the camera (2026-10-05)
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
             'face'       { $lines += "heading $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the character and the camera, checked against comfyStats: right-drags turn, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
@@ -225,6 +225,8 @@ foreach ($file in $files) {
             'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
             'chat'       { $lines += "chat $v" }
             'type'       { $lines += "type $v" }
+            'target'      { $lines += "target $v" }   # the unit with that exact name, as /target (ComfyTest)
+            'clearTarget' { $lines += 'cleartarget' }
             'camera'     {   # the camera's distance partway through, as config.camera: 0 first person, 1 to 9 notches out, 10 all the way
                 $lines += 'zoom -30'
                 if ([int]$v -ge 10) { $lines += 'zoom 30' } elseif ([int]$v -gt 0) { $lines += 'wait 1'; $lines += "wheel $([int]$v)" }
@@ -236,12 +238,12 @@ foreach ($file in $files) {
     # of the database for good, so it is sent only when the selection has exactly that name.
     if ($cfg.summon) {
         foreach ($u in $cfg.summon) {
-            $lines += "type /target $($u.name)"
+            $lines += "target $($u.name)"
             $lines += 'wait 0.5'
-            $lines += "type /script if UnitName(""target"") == ""$($u.name)"" then SendChatMessage("".npc delete"") end"
+            $lines += "npcdelete $($u.name)"
             $lines += 'wait 0.5'
         }
-        $lines += 'type /script ClearTarget()'
+        $lines += 'cleartarget'
     }
     # Put back what the test set.
     $lines += 'cvarsback'

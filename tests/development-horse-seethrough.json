@@ -110,7 +110,7 @@
     },
     "steps": [
         {
-            "type": "/script ClearTarget()"
+            "clearTarget": true
         },
         {
             "face": {
