@@ -74,21 +74,9 @@ $files = if ($Name) { $Name | ForEach-Object { Join-Path $here "$_.json" } } els
 $log = Join-Path $Client 'comfyfog.log'
 $summary = @()
 # One login for the whole run (2026-10-04): a login a test cost about a minute each. Another login only for a
-# test that wants another character. Flight is a toggle, so the runner keeps track of it: on after a test
-# turned it on, off after a login. With -NoLogin it is read (2026-10-05): flying when the character is more than
-# 3 yards over the ground. Taken as off, a run started where the owner had been flying waited for the ground.
+# test that wants another character. Flight is read before each test (2026-10-05, wow-test-tool's flight on and
+# flight off, from comfytest.dll): a toggle the runner kept track of lost step, and a test started with it off.
 $loggedAs = $null
-$flying = $false
-if ($NoLogin) {
-    $check = Join-Path $env:TEMP 'comfy-flightcheck.txt'
-    [IO.File]::WriteAllText($check, "pos flightcheck`r`n")
-    $out = & (Join-Path $tool 'Run-Test.ps1') $check -Client $Client 6>&1 | Out-String
-    $m = [regex]::Match($out, 'pos\s+\S+\s+\S+\s+(-?[\d.]+)\s+(-?[\d.]+)\s+flightcheck')
-    if ($m.Success -and ([double]$m.Groups[1].Value - [double]$m.Groups[2].Value) -gt 3.0) {
-        $flying = $true
-        Write-Host 'The character is flying: flight is taken as on.'
-    }
-}
 $runStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $runStarted = Get-Date
 $expectedDir = Join-Path $here 'expected'
@@ -104,11 +92,9 @@ if (Test-Path $cvarsSrc) {
         $viewNames = @([regex]::Matches($block, '\{ "([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
     }
 }
-# Flight off: the same cast. In the air the character falls, which a GM survives; between tests the next
-# start's .go xyz follows at once. With flight off the character stays in the air until it moves (the owner,
-# 2026-10-04): a .go xyz after it kept it there, and the next test's ground wait ran out 84 yards over a hill.
-# So it walks for half a second.
-$flightOff = @('flight', 'wait 0.5', 'hold W 0.5', 'wait 0.5')
+# Each part of a test is named in the game's chat as it starts (the owner, 2026-10-05): "wow-test: <what>",
+# shown in that client alone (ComfyTest's say).
+function Say([string]$what) { "say $what" }
 
 foreach ($file in $files) {
     if (-not (Test-Path $file)) { throw "No test $file" }
@@ -121,31 +107,31 @@ foreach ($file in $files) {
     if (-not $NoLogin -and $loggedAs -ne $slot) {
         & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
         $loggedAs = $slot
-        $flying = $false
     }
 
     # The config and the steps into a wow-test-tool script.
     $speed = if ($cfg.flySpeed) { [double]$cfg.flySpeed } else { 7.0 }
     $lines = @("# $($t.name), made by Run-Tests.ps1 from $([IO.Path]::GetFileName($file))")
+    $lines += Say "$($t.name): starting"
     # GM mode on first (the owner, 2026-10-05): a hostile creature, summoned or near the start, leaves the
     # character alone.
     $lines += 'chat .gm on'
     $lines += 'wait 0.5'
     # Flight first, then the start: a start in the air holds only with flight on. The character must be on the
     # ground when flight goes on, or it can stick in the air (the owner, 2026-10-03): wow-test-tool's ground waits
-    # until its height has stayed on the map files' ground for half a second.
-    # Each test in the flight state it asks for.
-    if ($cfg.flight -and -not $flying) {
+    # until its height has stayed on the map files' ground for half a second. flight on and flight off read the
+    # state and cast only when it is the other way, and ground unlessflying does not wait when flight is on.
+    if ($cfg.flight) {
+        $lines += Say 'flight on'
         # To the start first (2026-10-04): the test before may leave the character swimming, where the ground
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
         if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += "arrive $($cfg.start.x) $($cfg.start.y) $($cfg.start.z)" }
         $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
-        $lines += 'ground 60'; $lines += 'flight'; $lines += 'wait 0.5'
-        $flying = $true
+        $lines += 'ground 60 unlessflying'; $lines += 'flight on'
     }
-    elseif (-not $cfg.flight -and $flying) {
-        $lines += $flightOff
-        $flying = $false
+    else {
+        $lines += Say 'flight off'
+        $lines += 'flight off'
     }
     # Creatures the test needs (2026-10-04): summoned where each stands (.npc summon puts it at the player), on the
     # start's map, before the start. Each is deleted after the steps (below). Only a creature with no world
@@ -160,6 +146,7 @@ foreach ($file in $files) {
     }
     if ($cfg.start) {
         $s = $cfg.start
+        $lines += Say 'going to the start'
         $lines += "chat .go xyz $($s.x) $($s.y) $($s.z) $($s.map)"
         # Until the character is there, then 1 s (2026-10-05): it was 5 s every time, and the tool's arrive line
         # notes the place, so the pos line after it went too. Without comfytest.dll, arrive waits 5 s.
@@ -171,8 +158,10 @@ foreach ($file in $files) {
     if (-not $cfg.start) { $lines += 'wait 1.2'; $lines += 'pos start' }   # the place comes from comfyStats, up to a second old
     # No weather (the owner, 2026-10-05): rain or snow changes the light and the fog from run to run. The
     # weather is the zone's, so it is cleared here, at the start.
+    $lines += Say 'clearing the weather'
     $lines += 'chat .wchange 0 0'
     # comfyfog's values: none left from before, then this test's.
+    $lines += Say 'setting the snapshot: the sun and the controls'
     $lines += 'atmos reset'
     if ($cfg.sun) {
         $lines += 'atmos sun.fixed 1'
@@ -193,6 +182,7 @@ foreach ($file in $files) {
     # Or by yards (cameraDistance, 2026-10-04): as far back as the owner had it, from a snapshot.
     # Or the camera's own distance (cameraZoom, 2026-10-05), the field the wheel moves, set exactly by
     # comfytest.dll: close in, camdist was a notch off.
+    if ($null -ne $cfg.cameraZoom -or $null -ne $cfg.cameraDistance -or $null -ne $cfg.camera) { $lines += Say 'moving the camera' }
     if ($null -ne $cfg.cameraZoom) { $lines += "camzoom $($cfg.cameraZoom)" }
     elseif ($null -ne $cfg.cameraDistance) { $lines += "camdist $($cfg.cameraDistance)" }
     elseif ($null -ne $cfg.camera) {
@@ -207,9 +197,31 @@ foreach ($file in $files) {
     $view = if ($null -ne $cfg.debugView) { [int]$cfg.debugView } else { 0 }
     $shotViews = @()
     $recViews = @(); $recLabels = @()
+    $nShot = 0; $nRec = 0; $nProbe = 0
     foreach ($st in $t.steps) {
         $p = $st.PSObject.Properties | Select-Object -First 1
         $v = $p.Value
+        switch ($p.Name) {
+            'face'       { $lines += Say "facing $($v.heading)$(if ($null -ne $v.pitch) { ", pitch $($v.pitch)" })" }
+            'hop'        { $lines += Say "hopping to $($v.to) yards" }
+            'fly'        { $lines += Say "flying $v yards" }
+            'flyFor'     { $lines += Say "flying for $v s" }
+            'back'       { $lines += Say "backing $v yards" }
+            'turn'       { $lines += Say "turning $v degrees" }
+            'probe'      { $nProbe++; $lines += Say "probe $nProbe" }
+            'screenshot' { $nShot++; $lines += Say "screenshot $nShot" }
+            'record'     {
+                $nRec++
+                $secs = if ($null -ne $v.seconds) { $v.seconds } else { $v }
+                $lines += Say "recording $nRec, $secs s$(if ($v.label) { ": $($v.label)" })"
+            }
+            'cvar'       { $lines += Say "control: $v" }
+            'atmos'      { $lines += Say "/atmos $v" }
+            'chat'       { $lines += Say "chat: $v" }
+            'target'     { $lines += Say "targeting $v" }
+            'camera'     { $lines += Say 'moving the camera' }
+            'jump'       { $lines += Say 'jumping' }
+        }
         switch ($p.Name) {
             'wait'       { $lines += "wait $v" }
             'jump'       { for ($j = 0; $j -lt [int]$v; $j++) { $lines += 'jump'; $lines += 'wait 1.2' } }   # in the water, it brings a swimmer up to the surface
@@ -274,6 +286,7 @@ foreach ($file in $files) {
         $lines += 'cleartarget'
     }
     # Put back what the test set.
+    $lines += Say "$($t.name): putting the controls back"
     $lines += 'cvarsback'
     $lines += 'atmos reset'
     $script = Join-Path $resultsDir "$stamp-$($t.name).script.txt"
@@ -436,8 +449,7 @@ foreach ($file in $files) {
 }
 
 # The character is left as a login leaves it: the camera behind it (face turns the camera alone), flight off.
-$end = @('camback')
-if ($flying) { $end += $flightOff }
+$end = @('say putting the camera back, flight off', 'camback', 'flight off', 'say done')
 $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-end.script.txt"
 [IO.File]::WriteAllText($script, ($end -join "`r`n") + "`r`n")
 & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null

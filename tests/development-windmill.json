@@ -1,6 +1,6 @@
 {
     "name": "development-windmill",
-    "about": "On the development map (451), a Westfall windmill seen from beside it, flying in its blades' shade, in first person; then 200 yards out, the camera turned all the way round, and back (2026-10-04, the owner). Four faults of its shade, all on this windmill: its parts were too small for the far map one by one (minTriangles), so its shade came in steps; batches of windmills drawn from afar held frozen poses under the turning blades; the windmill's blades, out of view in first person, went as an \"older pose\" when its tower's edge was drawn; and its stone tower cast as leaves because its sails are alpha tested. The owner's snapshot controls; the owner's snapshot place and sun. Last, from 90 yards, flying, in first person, where its parts must all be in the far map; the probe is taken there. Shots in the normal view and in Debug View 5 (the shade alone): before going out, after coming back, and from 90 yards. Since 2026-10-04 the windmill is a record in the object table, its parts filed under it.",
+    "about": "On the development map (451), a Westfall windmill seen from beside it, flying in its blades' shade, in first person; then 200 yards out, the camera turned all the way round, and back (2026-10-04, the owner). Four faults of its shade, all on this windmill: its parts were too small for the far map one by one (minTriangles), so its shade came in steps; batches of windmills drawn from afar held frozen poses under the turning blades; the windmill's blades, out of view in first person, went as an \"older pose\" when its tower's edge was drawn; and its stone tower cast as leaves because its sails are alpha tested. The owner's snapshot controls; the owner's snapshot place and sun. Last, from 90 yards, flying, in first person, where its parts must all be in the far map; the probe is taken there. Before going out and after coming back, a 5 s recording in the normal view and one in Debug View 5 (the shade alone), so the blades' shade is seen turning (2026-10-05, the owner); from 90 yards, shots in both views. Since 2026-10-04 the windmill is a record in the object table, its parts filed under it.",
     "config": {
         "character": 1,
         "flight": true,
@@ -109,7 +109,10 @@
             "wait": 2
         },
         {
-            "screenshot": true
+            "record": {
+                "seconds": 5,
+                "label": "beside it, before going out"
+            }
         },
         {
             "cvar": "comfyDebugView 5"
@@ -118,7 +121,10 @@
             "wait": 1
         },
         {
-            "screenshot": true
+            "record": {
+                "seconds": 5,
+                "label": "beside it, before going out, Debug View 5"
+            }
         },
         {
             "cvar": "comfyDebugView 0"
@@ -182,7 +188,10 @@
             "wait": 4
         },
         {
-            "screenshot": true
+            "record": {
+                "seconds": 5,
+                "label": "after coming back"
+            }
         },
         {
             "cvar": "comfyDebugView 5"
@@ -191,7 +200,10 @@
             "wait": 1
         },
         {
-            "screenshot": true
+            "record": {
+                "seconds": 5,
+                "label": "after coming back, Debug View 5"
+            }
         },
         {
             "cvar": "comfyDebugView 0"
