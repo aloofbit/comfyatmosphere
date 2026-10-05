@@ -4,6 +4,10 @@
 
 #include <d3d9.h>
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 // Once per map redraw, on the render thread: ask for the tiles within `reach` yards of `player` (across
 // the ground), take in those the loader has finished, and drop those left far behind.
 void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach, float fullReach);
@@ -31,7 +35,15 @@ bool MapDoodadCovers(const float pos[3], float tol = 0.5f);
 bool MapDoodadAt(const float pos[3], float tol = 0.5f);
 // The probe: one line for each tile held, with its doodads (2026-10-03).
 void MapLogTiles(const float from[3]);
-bool MapAnimatedDoodadAt(const float pos[3], float tol);   // an animated doodad the files place there, left out
+bool MapAnimatedDoodadAt(const float pos[3], float tol);
+// The animated doodads the files place within `radius` yards of `at` (across the ground): their places, up to
+// `max`; the count (2026-10-04, the shadow cache's object table).
+int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max, std::string* names = nullptr);
+// The vertex counts of a model file's views (2026-10-04): a draw of the model holds one view's vertices, or a
+// whole number of copies of them (a batch). Null while the loader reads it, or if it could not be read.
+const std::vector<uint32_t>* MapModelViews(const std::string& name);
+// A game object's model file, by its display (GameObjectDisplayInfo.dbc), once the loader has read it; else null.
+const std::string* MapGameObjectModel(unsigned display);   // an animated doodad the files place there, left out
 unsigned MapFilesVersion();   // changes whenever what the files cover changes
 bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
 // The probe: the doodads from the files within radius yards, with their model, and whether the client drew them.
@@ -66,4 +78,9 @@ struct BlpData;
 // A texture by name, read on the loader thread: 0 while it loads (or the loader has not started), 1 with the
 // texture in out (once), -1 if it could not be read.
 int MapRequestTexture(const char* name, BlpData& out);
+// The vertex counts of the views of a creature display's model (2026-10-04): CreatureDisplayInfo.dbc gives the
+// model's row, CreatureModelData.dbc its file, and the M2 its views. The client draws a unit's model from a
+// vertex buffer holding one view's vertices. Null while the loader reads it, or if it could not be read;
+// the first call asks for it.
+const std::vector<uint32_t>* MapCreatureModelViews(unsigned display);
 const char* MapTerrainInfo();   // for the probe

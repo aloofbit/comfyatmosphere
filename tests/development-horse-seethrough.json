@@ -1,0 +1,89 @@
+{
+    "name": "development-horse-seethrough",
+    "about": "On the development map (451), a Warhorse and a Charger standing beside the player, the camera 11 yards back looking at them. The client drew the Warhorse faded (a depth pass, then its colour blended), and the see-through rule, meant for stealthed units, skipped that depth pass: the horse flashed, see-through and in triangles, standing still (2026-10-04, the owner). The rule now takes a stealthed unit's model alone, and a unit's entry leaves the cache only when no unit near it wears that model. The runner summons the two horses and deletes them after. Shots in the normal view and in Debug View 15 (the bodies).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 10,
+        "start": {
+            "map": 451,
+            "x": 4617.6,
+            "y": -452.6,
+            "z": 289.6,
+            "facing": 167.4,
+            "about": "the owner's place, read with ComfyTest pos; the camera faced 167.4 degrees, 22.0 down, 11 yards back. The horses are summoned where the owner's stood"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 36.4
+        },
+        "summon": [
+            {
+                "entry": 9158,
+                "name": "Riding Horse (Warhorse)",
+                "x": 4611.6,
+                "y": -451.0,
+                "z": 290.3
+            },
+            {
+                "entry": 14565,
+                "name": "Riding Horse (Charger)",
+                "x": 4613.0,
+                "y": -454.6,
+                "z": 290.2
+            }
+        ]
+    },
+    "steps": [
+        {
+            "type": "/script ClearTarget()"
+        },
+        {
+            "face": {
+                "heading": 167.4,
+                "pitch": -22.0
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 15"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        }
+    ],
+    "expect": [
+        {
+            "about": "No horse is taken as see-through (the owner's frame had 2)",
+            "probe": "^depth: last frame, 0 see-through model draws had their depth writes turned off and 0 depth-only",
+            "min": 1
+        },
+        {
+            "about": "The Warhorse (144,864 bytes: 3,018 vertices) is a body in every frame the probe logs",
+            "probe": "model draw a model, not a body.*[(]144864 bytes",
+            "max": 0
+        },
+        {
+            "about": "The Warhorse is drawn and marked a body",
+            "probe": "model draw a BODY.*[(]144864 bytes",
+            "min": 1
+        }
+    ]
+}

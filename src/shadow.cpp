@@ -415,6 +415,7 @@ namespace
         bool               drifts = false; // has moved past stillRadius once: the still rule no longer holds it
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
         float              spread = 0.0f;  // yards from pos to its farthest bone: a batch of models (see Spread)
+        mutable bool       inFar = false;  // the probe: drawn into the far map on its last redraw (2026-10-04)
     };
 
     // Each key holds the instances of that model, wherever they stand.
@@ -453,6 +454,15 @@ namespace
     // a tree's leaf entries left the cache before its trunk, or a leaf batch was drawn once without the
     // alpha test, and the trunk went back to the solid map (2026-09-29).
     std::unordered_set<unsigned long long> g_leafModels;
+    // Each model's parts seen, by their first index: triangles, and whether the part is alpha tested (2026-10-04).
+    // A model goes whole to the leaves only when its alpha-tested parts are a share of it (kLeafShare): a tree's
+    // canopy is most of the tree. A Westfall windmill's sails are 30 of its 286 triangles, and its stone tower
+    // cast as leaves with them: part shade, through which a doodad inside it showed as a dark octagon. Kept as
+    // long as g_leafModels, for the same reason.
+    struct LeafPart { UINT prims = 0; bool alpha = false; };
+    std::unordered_map<unsigned long long, std::map<UINT, LeafPart>> g_leafParts;
+    constexpr float kLeafShare = 0.25f;
+
 
     unsigned long long ModelKey(const void* vb, const void* vs)
     {
@@ -460,14 +470,224 @@ namespace
                static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(vs));
     }
 
+    // A model's triangles, all its parts seen (g_leafParts), or the part's own when none is known (2026-10-04).
+    UINT ModelTriangles(const Rec& r)
+    {
+        const auto lp = g_leafParts.find(ModelKey(r.vb[0], r.vs));
+        if (lp == g_leafParts.end())
+            return r.primCount;
+        UINT all = 0;
+        for (const auto& pp : lp->second)
+            all += pp.second.prims;
+        return (std::max)(all, r.primCount);
+    }
+
+    // The animated doodads' places the cache has entries at (2026-10-04): the newest of them, the newest from
+    // each buffer, and the newest of each part (buffer and first index).
+    struct AnimPlace
+    {
+        float p[3];
+        double newest;
+        std::map<const void*, double> byVb;
+        std::map<std::pair<const void*, UINT>, double> byPart;
+    };
+    std::vector<AnimPlace> AnimPlaces()
+    {
+        std::vector<AnimPlace> out;
+        for (const auto& kv : g_cache)
+            for (const Entry& e : kv.second)
+                if (e.rec.vs && !e.unit && MapAnimatedDoodadAt(e.pos, 2.0f))
+                {
+                    AnimPlace* hit = nullptr;
+                    for (AnimPlace& a : out)
+                    {
+                        const float dx = a.p[0] - e.pos[0], dy = a.p[1] - e.pos[1], dz = a.p[2] - e.pos[2];
+                        if (dx * dx + dy * dy + dz * dz < 4.0f)
+                        {
+                            hit = &a;
+                            break;
+                        }
+                    }
+                    if (!hit)
+                    {
+                        out.push_back({ { e.pos[0], e.pos[1], e.pos[2] }, e.lastSeen, {}, {} });
+                        hit = &out.back();
+                    }
+                    hit->newest = (std::max)(hit->newest, e.lastSeen);
+                    double& v = hit->byVb[e.rec.vb[0]];
+                    v = (std::max)(v, e.lastSeen);
+                    double& q = hit->byPart[{ e.rec.vb[0], e.rec.startIndex }];
+                    q = (std::max)(q, e.lastSeen);
+                }
+        return out;
+    }
+
+    // Whether the entry is an older pose of an animated doodad one of its bones stands on (2026-10-04): a newer
+    // draw of the same part (buffer and first index) stands there, or the doodad is drawn from another buffer
+    // now (from afar a batch of windmills, near by one). Not because another part of it was drawn later: in
+    // first person, with a windmill behind the camera, the client drew its tower's edge and not its blades,
+    // and the blades' shade went.
+    bool OlderAt(const Entry& e, const AnimPlace& a)
+    {
+        const auto part = a.byPart.find({ e.rec.vb[0], e.rec.startIndex });
+        if (part != a.byPart.end() && part->second > e.lastSeen)
+            return true;
+        const auto vb = a.byVb.find(e.rec.vb[0]);
+        const double vbNewest = vb != a.byVb.end() ? vb->second : 0.0;
+        return a.newest > e.lastSeen && vbNewest < a.newest;
+    }
+    // The animated doodads an entry holds, by the bones it uploaded that stand on one (2 yards), and which of
+    // them are drawn anew since (OlderAt). A batch from afar holds several windmills; the client's next batch
+    // may hold fewer, as one goes behind the camera (2026-10-04).
+    struct HeldDoodads { int held = 0, newer = 0; std::vector<const AnimPlace*> newerPlaces; };
+    HeldDoodads HeldAnim(const Entry& e, const std::vector<AnimPlace>& places)
+    {
+        HeldDoodads h;
+        bool nearAny = false;
+        for (const AnimPlace& a : places)
+        {
+            const float dx = a.p[0] - e.pos[0], dy = a.p[1] - e.pos[1], dz = a.p[2] - e.pos[2];
+            const float r = e.spread + 2.0f;
+            if (dx * dx + dy * dy + dz * dz < r * r)
+            {
+                nearAny = true;
+                break;
+            }
+        }
+        if (!nearAny)
+            return h;
+        std::vector<const AnimPlace*> seen;
+        const UINT nregs = (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn);
+        for (UINT k = 0; 34 + 3 * k <= nregs && k < 64; ++k)
+        {
+            const float* c = e.consts.data();
+            const float b[3] = { c[(31 + 3 * k) * 4 + 3], c[(32 + 3 * k) * 4 + 3], c[(33 + 3 * k) * 4 + 3] };
+            float w[3];
+            for (int j = 0; j < 3; ++j)
+                w[j] = b[0] * e.absolute.m[0][j] + b[1] * e.absolute.m[1][j] + b[2] * e.absolute.m[2][j] +
+                       e.absolute.m[3][j];
+            for (const AnimPlace& a : places)
+            {
+                const float dx = a.p[0] - w[0], dy = a.p[1] - w[1], dz = a.p[2] - w[2];
+                if (dx * dx + dy * dy + dz * dz >= 4.0f || std::find(seen.begin(), seen.end(), &a) != seen.end())
+                    continue;
+                seen.push_back(&a);
+                ++h.held;
+                if (a.newest > e.lastSeen && OlderAt(e, a))
+                {
+                    ++h.newer;
+                    h.newerPlaces.push_back(&a);
+                }
+            }
+        }
+        return h;
+    }
+    // Whether the entry is an older pose of every animated doodad it holds: then it goes.
+    bool OlderAnimPose(const Entry& e, const std::vector<AnimPlace>& places)
+    {
+        const HeldDoodads h = HeldAnim(e, places);
+        return h.held > 0 && h.newer == h.held;
+    }
+    // Of a batch that holds some doodads drawn anew and some not (2026-10-04): the bones within 30 yards of
+    // each one drawn anew are zeroed in the entry's copy of the constants, so its old pose collapses to a point
+    // and casts nothing, and the others keep theirs. Until then the whole batch went, and a windmill behind
+    // the camera, which only that batch still held, lost its shade.
+    void DropAnimPoses(Entry& e, const std::vector<const AnimPlace*>& gone)
+    {
+        const UINT nregs = (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn);
+        for (UINT k = 0; 34 + 3 * k <= nregs && k < 64; ++k)
+        {
+            float* c = e.consts.data();
+            const float b[3] = { c[(31 + 3 * k) * 4 + 3], c[(32 + 3 * k) * 4 + 3], c[(33 + 3 * k) * 4 + 3] };
+            if (b[0] == 0.0f && b[1] == 0.0f && b[2] == 0.0f)
+            {
+                bool zero = true;
+                for (int r = 0; r < 12 && zero; ++r)
+                    zero = c[31 * 4 + k * 12 + r] == 0.0f;
+                if (zero)
+                    continue;   // dropped already
+            }
+            float w[3];
+            for (int j = 0; j < 3; ++j)
+                w[j] = b[0] * e.absolute.m[0][j] + b[1] * e.absolute.m[1][j] + b[2] * e.absolute.m[2][j] +
+                       e.absolute.m[3][j];
+            for (const AnimPlace* a : gone)
+            {
+                const float dx = a->p[0] - w[0], dy = a->p[1] - w[1], dz = a->p[2] - w[2];
+                if (dx * dx + dy * dy + dz * dz < 30.0f * 30.0f)
+                {
+                    for (int r = 0; r < 12; ++r)
+                        c[31 * 4 + k * 12 + r] = 0.0f;
+                    break;
+                }
+            }
+        }
+    }
+
     // The models the cache has at a unit, by vertex buffer and shader, rebuilt at each replay: the body
     // mark (bodymask.cpp) asks it about each draw as the client makes it (2026-10-01). A model's place is
     // known only once the frame is merged, so a unit that has just come into view is marked a frame late.
     std::unordered_set<unsigned long long> g_unitModels;
 
+    // ---------------------------------------------------------------------------------------------
+    // The object table (2026-10-04). The cache knows draws, not objects: one object is several draws (a
+    // windmill's tower, cap, motor and blades), one draw can be several objects (from afar the client draws
+    // windmills in batches, a bone set each), the same object is drawn from another buffer at another
+    // distance, and what is drawn changes with the view. Each removal rule judged a draw on its own, and a
+    // windmill's shade went, froze, or doubled. A record here is one object, from a source that knows it:
+    // an animated doodad the files place (kind 1), or a game object the server spawned (kind 2). It lives as
+    // long as its source lists it within reach, not by what a frame drew. Each draw whose bones stand on its
+    // place is filed under it, one slot per part (the part's first index in its buffer), the last pose of
+    // each; a batch is split, each object keeping its own bones and the others' zeroed. A part the client
+    // did not draw keeps its last pose. A draw from another buffer (another distance) replaces the parts.
+    struct ObjRec
+    {
+        int         kind = 0;
+        float       place[3] = {};
+        std::string model;             // kind 1: the files' name for its model
+        unsigned    display = 0;       // kind 2: its GameObjectDisplayInfo row
+        double      listed = 0.0;      // when its source last listed it
+        const void* vb = nullptr;      // the buffer its parts come from now
+        std::map<UINT, Entry> parts;   // by the part's first index in that buffer
+    };
+    std::vector<ObjRec> g_objects;
+    // Bones a copy of a model's part holds, by buffer, shader and the part's first index, learnt from a draw of
+    // one copy: a batch of N copies holds N groups of that many (2026-10-04).
+    std::unordered_map<unsigned long long, int> g_bonesPerCopy;
+    unsigned g_objDraws = 0, g_objFiled = 0;   // this frame: draws filed, and copies made of them
+    constexpr float kObjBone  = 2.0f;    // yards from the place a bone must stand to file the draw under it
+    constexpr float kObjReach = 40.0f;   // yards from the place an object's own bones lie (a windmill: about 25)
+
+    void AddRefRec(Rec& r)
+    {
+        if (r.vs)     r.vs->lpVtbl->AddRef(r.vs);
+        if (r.decl)   r.decl->lpVtbl->AddRef(r.decl);
+        if (r.vb[0])  r.vb[0]->lpVtbl->AddRef(r.vb[0]);
+        if (r.vb[1])  r.vb[1]->lpVtbl->AddRef(r.vb[1]);
+        if (r.ib)     r.ib->lpVtbl->AddRef(r.ib);
+        if (r.tex0)   r.tex0->lpVtbl->AddRef(r.tex0);
+    }
+
+    void ClearObjParts(ObjRec& o)
+    {
+        for (auto& kv : o.parts)
+            ReleaseRec(kv.second.rec);
+        o.parts.clear();
+    }
+
+    void ClearObjects()
+    {
+        for (ObjRec& o : g_objects)
+            ClearObjParts(o);
+        g_objects.clear();
+    }
+
     void ClearCache()
     {
+        ClearObjects();
+        g_bonesPerCopy.clear();
         g_leafModels.clear();
+        g_leafParts.clear();
         g_unitModels.clear();
         for (auto& kv : g_cache)
             for (Entry& e : kv.second)
@@ -524,6 +744,269 @@ namespace
                                    r.numVertices * r.vbStride[1], seq))
             return true;
         return WrittenOver(r.ib, 0, 0xFFFFFFFFu, seq);
+    }
+
+    // The records, from their sources, within `reach` of the player: the files' animated doodads and the game
+    // objects. A record its source no longer lists goes, and a part whose buffer the client wrote over.
+    void RefreshObjects(const float player[3], float reach, double now)
+    {
+        static float anim[256][3];
+        static std::string animNames[256];
+        static ClientObject gos[512];
+        const int na = MapAnimatedDoodads(player, reach, anim, 256, animNames);
+        const int ng = ClientGameObjects(gos, 512);
+        const auto upsert = [&](int kind, const float p[3], const std::string& model, unsigned display) {
+            for (ObjRec& o : g_objects)
+            {
+                const float dx = o.place[0] - p[0], dy = o.place[1] - p[1], dz = o.place[2] - p[2];
+                if (o.kind == kind && dx * dx + dy * dy + dz * dz < 1.0f && o.model == model && o.display == display)
+                {
+                    memcpy(o.place, p, sizeof(o.place));
+                    o.listed = now;
+                    return;
+                }
+            }
+            ObjRec o;
+            o.kind = kind;
+            o.model = model;
+            o.display = display;
+            memcpy(o.place, p, sizeof(o.place));
+            o.listed = now;
+            g_objects.push_back(std::move(o));
+        };
+        for (int i = 0; i < na; ++i)
+            upsert(1, anim[i], animNames[i], 0);
+        for (int i = 0; i < ng; ++i)
+        {
+            const float dx = gos[i].pos[0] - player[0], dy = gos[i].pos[1] - player[1];
+            if (dx * dx + dy * dy <= reach * reach)
+                upsert(2, gos[i].pos, std::string(), gos[i].display);
+        }
+        for (size_t i = 0; i < g_objects.size();)
+        {
+            ObjRec& o = g_objects[i];
+            if (o.listed != now)
+            {
+                static int told = 0;
+                if (told < 60 && !o.parts.empty())
+                {
+                    ++told;
+                    Log("shadow: object at (%.1f %.1f %.1f) left the table with %u parts: its source no longer lists it",
+                        o.place[0], o.place[1], o.place[2], static_cast<unsigned>(o.parts.size()));
+                }
+                ClearObjParts(o);
+                g_objects.erase(g_objects.begin() + i);
+                continue;
+            }
+            for (auto it = o.parts.begin(); it != o.parts.end();)
+            {
+                if (OverwrittenSince(it->second.rec, it->second.seq))
+                {
+                    static int told = 0;
+                    if (told < 60)
+                    {
+                        ++told;
+                        Log("shadow: object at (%.1f %.1f %.1f): part start %u dropped, its buffer written over",
+                            o.place[0], o.place[1], o.place[2], it->second.rec.startIndex);
+                    }
+                    ReleaseRec(it->second.rec);
+                    it = o.parts.erase(it);
+                }
+                else
+                    ++it;
+            }
+            ++i;
+        }
+    }
+
+    bool UnitModelNear(const Rec& r, const float pos[3], bool& known);
+    UINT RecVertices(const Rec& r);
+
+    // A draw whose own bones stand on records' places: filed under each (a copy, its references held), and
+    // true; the caller then lets the draw go. Not a unit's own model (UnitModelNear): a character standing on
+    // a doodad's place is still a character.
+    bool FileUnderObjects(const Rec& r, const D3DMATRIX& absolute, const float pos[3], double now)
+    {
+        if (!r.vs || g_objects.empty())
+            return false;
+        bool nearAny = false;
+        for (const ObjRec& o : g_objects)
+        {
+            const float dx = o.place[0] - pos[0], dy = o.place[1] - pos[1], dz = o.place[2] - pos[2];
+            if (dx * dx + dy * dy + dz * dz < 400.0f * 400.0f)   // a batch's first bone: up to 300 yards off
+            {
+                nearAny = true;
+                break;
+            }
+        }
+        if (!nearAny)
+            return false;
+        const float* c = &g_constPool[r.consts];
+        const UINT nregs = (std::min)(r.nregs, r.nregsOwn);
+        float bw[64][3];
+        int nb = 0;
+        for (UINT k = 0; 34 + 3 * k <= nregs && k < 64; ++k, ++nb)
+        {
+            const float b[3] = { c[(31 + 3 * k) * 4 + 3], c[(32 + 3 * k) * 4 + 3], c[(33 + 3 * k) * 4 + 3] };
+            for (int j = 0; j < 3; ++j)
+                bw[nb][j] = b[0] * absolute.m[0][j] + b[1] * absolute.m[1][j] + b[2] * absolute.m[2][j] +
+                            absolute.m[3][j];
+        }
+        // Its own model alone (2026-10-04): on the development map each windmill stands with a lighthouse 2.9
+        // yards off and a barrel 27 yards up, and a bone of the lighthouse's draw stood within 2 yards of the
+        // windmill's place. Filed under it, the two models took turns at its parts, every frame, and the
+        // blades blinked. A draw is an object's when its buffer holds a whole number of copies of one of its
+        // model's views (one: the model; several: a batch). Unknown yet: not filed, the cache takes it.
+        const UINT verts = RecVertices(r);
+        // The number of copies of the object's model the draw holds (1: the model itself; more: a batch), or 0
+        // when the draw is not its model.
+        const auto ownCopies = [&](const ObjRec& o) -> UINT {
+            const std::vector<uint32_t>* views = nullptr;
+            if (o.kind == 1)
+                views = MapModelViews(o.model);
+            else if (const std::string* name = MapGameObjectModel(o.display))
+                views = MapModelViews(*name);
+            if (!views || !verts)
+                return 0;
+            for (uint32_t v : *views)
+                if (v && verts >= v && verts % v == 0)
+                    return verts / v;
+            return 0;
+        };
+        struct Hit { ObjRec* o; UINT copies; int bone; };
+        std::vector<Hit> hit;
+        for (ObjRec& o : g_objects)
+            for (int k = 0; k < nb; ++k)
+            {
+                const float dx = bw[k][0] - o.place[0], dy = bw[k][1] - o.place[1], dz = bw[k][2] - o.place[2];
+                if (dx * dx + dy * dy + dz * dz < kObjBone * kObjBone)
+                {
+                    const UINT copies = ownCopies(o);
+                    if (copies)
+                        hit.push_back({ &o, copies, k });
+                    break;
+                }
+            }
+        if (hit.empty())
+            return false;
+        bool known = true;
+        if (UnitModelNear(r, pos, known))
+            return false;
+        // How many copies the draw holds: one first bone on each object's place (a record's, or an animated
+        // doodad's the files place). Not from the buffer's size: a buffer of 16 windmills (7,520 vertices) was
+        // drawn with 7 of them, 21 bones, and split as 16 it was not split at all: one record held all 7 copies,
+        // frozen when it was not drawn, under the near windmill's own turning blades (2026-10-04).
+        struct Root { int bone; float place[3]; };
+        std::vector<Root> roots;
+        for (int k = 0; k < nb; ++k)
+        {
+            bool known2 = false;
+            for (const Root& rt : roots)
+            {
+                const float dx = bw[k][0] - rt.place[0], dy = bw[k][1] - rt.place[1], dz = bw[k][2] - rt.place[2];
+                if (dx * dx + dy * dy + dz * dz < 10.0f * 10.0f)
+                {
+                    known2 = true;   // a bone of a copy already counted
+                    break;
+                }
+            }
+            if (known2)
+                continue;
+            bool onPlace = MapAnimatedDoodadAt(bw[k], kObjBone);
+            for (const ObjRec& o : g_objects)
+            {
+                if (onPlace)
+                    break;
+                const float dx = bw[k][0] - o.place[0], dy = bw[k][1] - o.place[1], dz = bw[k][2] - o.place[2];
+                onPlace = dx * dx + dy * dy + dz * dz < kObjBone * kObjBone;
+            }
+            if (onPlace)
+                roots.push_back({ k, { bw[k][0], bw[k][1], bw[k][2] } });
+        }
+        const unsigned long long partKey = ModelKey(r.vb[0], r.vs) * 1000003ull + r.startIndex;
+        int per = nb;   // one copy: every bone is the object's
+        if (roots.size() == 1)
+            g_bonesPerCopy[partKey] = nb;
+        else if (roots.size() > 1)
+        {
+            per = 0;
+            const auto learnt = g_bonesPerCopy.find(partKey);
+            if (learnt != g_bonesPerCopy.end())
+                per = learnt->second;
+            else
+            {
+                // The spacing of the copies' first bones: the greatest common divisor of their gaps, so a copy
+                // whose place is not known (its tile not loaded) leaves a double gap and not an odd one.
+                int d = 0;
+                for (size_t i = 1; i < roots.size(); ++i)
+                {
+                    int a2 = roots[i].bone - roots[i - 1].bone, b2 = d;
+                    while (b2) { const int t = a2 % b2; a2 = b2; b2 = t; }
+                    d = a2;
+                }
+                if (d > 0 && roots[0].bone % d == 0)
+                    per = d;
+            }
+            if (per <= 0 || nb % per != 0)
+            {
+                static int told = 0;
+                if (told < 20)
+                {
+                    ++told;
+                    Log("shadow: a batch of %u copies, %d bones, left out: its copies could not be told apart",
+                        static_cast<unsigned>(roots.size()), nb);
+                }
+                ++g_objDraws;
+                return true;   // neither filed nor cached: it would cast its other copies frozen
+            }
+        }
+        for (const Hit& h : hit)
+        {
+            ObjRec* o = h.o;
+            if (o->vb != r.vb[0])
+            {
+                static int told = 0;   // why a record's parts were replaced (2026-10-04): up to 60 a session
+                if (o->vb && told < 60)
+                {
+                    ++told;
+                    Log("shadow: object at (%.1f %.1f %.1f): its %u parts replaced by a draw from another buffer (%u "
+                        "vertices, part start %u, %u triangles)", o->place[0], o->place[1], o->place[2],
+                        static_cast<unsigned>(o->parts.size()), RecVertices(r), r.startIndex, r.primCount);
+                }
+                ClearObjParts(*o);
+                o->vb = r.vb[0];
+            }
+            Entry& part = o->parts[r.startIndex];
+            if (part.rec.vs)
+                ReleaseRec(part.rec);
+            part.rec = r;
+            AddRefRec(part.rec);
+            part.absolute = absolute;
+            part.consts.assign(c, c + static_cast<size_t>(r.nregs) * 4);
+            // A batch: its own bones alone, those of the other copies collapsed to a point. A batch holds one
+            // equal group of bones a copy (per); its group is the one holding the bone on its place. By groups, not
+            // by where each bone's matrix puts its origin (2026-10-04): a turning bone's offset swings as it
+            // turns, the hub of a windmill's blades passed 40 yards from its place for a few seconds of each
+            // turn, and its cap, motor and blades went with it. A draw of the model itself is not touched.
+            if (per < nb)
+            {
+                const int own = h.bone / per;
+                for (int k = 0; k < nb; ++k)
+                    if (k / per != own)
+                        for (int q = 0; q < 12; ++q)
+                            part.consts[(31 + 3 * k) * 4 + q] = 0.0f;
+            }
+            memcpy(part.pos, o->place, sizeof(part.pos));
+            part.spread = kObjReach;
+            part.lastSeen = now;
+            part.seq = r.seq;
+            part.unit = false;
+            part.mobile = false;
+            ++part.drawnFor;
+            ++g_objFiled;
+        }
+        ++g_objDraws;
+        return true;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -838,14 +1321,72 @@ namespace
     int g_refusedLogs = 0;
     std::unordered_map<long long, std::vector<int>> g_filesUnitCells;
     float g_filesUnits[512][3];
+    unsigned g_filesUnitModels[512][2];   // each unit's display id and mount display id (0: none)
+    bool g_filesUnitStealthed[512];       // stealthed, and not the player
+    unsigned g_filesUnitBytes1[512];      // UNIT_FIELD_BYTES_1 as read, for the probe
+    bool g_filesUnitSelf[512];
+    int g_filesUnitCount = 0;
 
     void TakeUnits()
     {
         g_filesUnitCells.clear();
-        const int n = ClientUnits(g_filesUnits, 512);
+        static ClientUnit list[512];
+        const int n = ClientUnitList(list, 512);
+        g_filesUnitCount = n;
         for (int i = 0; i < n; ++i)
+        {
+            memcpy(g_filesUnits[i], list[i].pos, sizeof(list[i].pos));
+            g_filesUnitModels[i][0] = list[i].display;
+            g_filesUnitModels[i][1] = list[i].mount;
+            g_filesUnitStealthed[i] = list[i].stealthed && !list[i].self;
+            g_filesUnitBytes1[i] = list[i].bytes1;
+            g_filesUnitSelf[i] = list[i].self;
             g_filesUnitCells[(static_cast<long long>(floorf(g_filesUnits[i][0] * 0.5f)) << 32) ^
                              (static_cast<long long>(floorf(g_filesUnits[i][1] * 0.5f)) & 0xFFFFFFFFll)].push_back(i);
+        }
+    }
+
+    // A unit's own model, by what it draws (2026-10-04). The client draws a unit's model, and its mount, from a
+    // vertex buffer holding one view of the model's file: the Charger's 3,332 vertices are view 1 of
+    // PVPWarHorse, a female dwarf's 19,033 view 3 of DwarfFemale (MapCreatureModelViews). So a draw is a unit's
+    // when its buffer holds as many vertices as a view of the model a unit within kUnitModelReach wears. By
+    // place alone, a water trough a player stood in was a unit's: its root lay 0.38 yards from the player's
+    // feet. `known` is false when a unit within reach wears a model not read yet.
+    constexpr float kUnitModelReach = 8.0f;   // yards from the unit: a Charger's parts place 2 to 2.7 yards off
+    UINT RecVertices(const Rec& r)
+    {
+        if (!r.vb[0] || !r.vbStride[0])
+            return 0;
+        D3DVERTEXBUFFER_DESC d = {};
+        if (FAILED(r.vb[0]->lpVtbl->GetDesc(r.vb[0], &d)))
+            return 0;
+        return d.Size / r.vbStride[0];
+    }
+    bool UnitModelNear(const Rec& r, const float pos[3], bool& known)
+    {
+        known = true;
+        const UINT verts = RecVertices(r);
+        for (int i = 0; i < g_filesUnitCount; ++i)
+        {
+            const float dx = pos[0] - g_filesUnits[i][0], dy = pos[1] - g_filesUnits[i][1],
+                        dz = pos[2] - g_filesUnits[i][2];
+            if (dx * dx + dy * dy > kUnitModelReach * kUnitModelReach || dz < -kUnitModelReach || dz > kUnitModelReach)
+                continue;
+            for (int k = 0; k < 2; ++k)
+            {
+                if (!g_filesUnitModels[i][k])
+                    continue;
+                const std::vector<uint32_t>* views = MapCreatureModelViews(g_filesUnitModels[i][k]);
+                if (!views || !verts)
+                {
+                    known = false;
+                    continue;
+                }
+                if (std::find(views->begin(), views->end(), verts) != views->end())
+                    return true;
+            }
+        }
+        return false;
     }
 
     bool UnitAt(const float pos[3])
@@ -972,21 +1513,27 @@ namespace
         }
         if (!r.vs)       // a building's group is drawn with the placement's matrix
             return !r.alphaTest && MapBuildingCovers(pos);
-        if (UnitAt(pos))
-            return false;
+        // A doodad the files place: at its reference point, at its origin, or at any bone the draw uploaded
+        // itself, to a tenth of a yard (a canopy tree's placement is in its bones).
         const float origin[3] = { absolute.m[3][0], absolute.m[3][1], absolute.m[3][2] };
-        if (MapDoodadCovers(pos) || MapDoodadCovers(origin))
-            return !UnitAt(origin);
-        for (UINT k = 0; consts && 34 + 3 * k <= nregs && k < 64; ++k)
+        bool covered = MapDoodadCovers(pos) || MapDoodadCovers(origin);
+        for (UINT k = 0; !covered && consts && 34 + 3 * k <= nregs && k < 64; ++k)
         {
             const float b[3] = { consts[(31 + 3 * k) * 4 + 3], consts[(32 + 3 * k) * 4 + 3], consts[(33 + 3 * k) * 4 + 3] };
             float w[3];
             for (int j = 0; j < 3; ++j)
                 w[j] = b[0] * absolute.m[0][j] + b[1] * absolute.m[1][j] + b[2] * absolute.m[2][j] + absolute.m[3][j];
-            if (MapDoodadCovers(w, 0.1f))
-                return true;
+            covered = MapDoodadCovers(w, 0.1f);
         }
-        return false;
+        if (!covered)
+            return false;
+        // A unit's own model is never the files' (UnitModelNear, 2026-10-04): a character standing on a
+        // doodad's place is still a character. A doodad is theirs wherever a unit stands: until 2026-10-04 one
+        // with a unit within half a yard was kept, and became that unit's model (a water trough the player
+        // stood in). Nothing falls back on the place while a unit's model is read: an entry made then stays a
+        // unit's (atUnit is sticky). A unit's own draw refused for those few frames is only not kept for them.
+        bool known = true;
+        return !UnitModelNear(r, pos, known);
     }
     constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
 
@@ -1125,6 +1672,13 @@ namespace
                 e.absolute.m[3][1] += cam[1];
                 e.absolute.m[3][2] += cam[2];
                 pos[0] = e.absolute.m[3][0]; pos[1] = e.absolute.m[3][1]; pos[2] = e.absolute.m[3][2];
+            }
+            // An object's draw goes to its record (the object table), not to the cache.
+            if (r.vs && FileUnderObjects(r, e.absolute, pos, now))
+            {
+                ReleaseRec(r);
+                r = Rec{};
+                continue;
             }
             if (FromFiles(r, pos, e.absolute, r.vs ? &g_constPool[r.consts] : nullptr, (std::min)(r.nregs, r.nregsOwn)))
             {
@@ -1455,6 +2009,20 @@ namespace
                     if (e.rec.primCount > b.prims || (e.rec.primCount == b.prims && e.lastSeen > b.seen))
                         b = { e.rec.primCount, e.lastSeen };
                 }
+        // One pose of an animated doodad (2026-10-04): a Westfall windmill turns its blades, and each pose the
+        // client drew past kMatchRadius from the last became an entry of its own. Held while their shade was in
+        // view, with a batch of windmills' bones 300 yards about (out of reach never fired), they made a near
+        // solid disc under the moving blades, up to 4 minutes old. Of the entries of one model at one animated
+        // doodad's place (its first bone, at the placement), those drawn last stay; the older go. By the place
+        // alone, whatever the model: from afar the client draws the windmills in one batch from another buffer
+        // (7,520 vertices) than the one near by (470), and a pose from afar outlived the switch.
+        // By every bone the entry uploaded, not its first alone (2026-10-04): from afar the client draws several
+        // windmills in one batch, filed at the first one's place with bones 114 to 266 yards about. Such a batch,
+        // not drawn for seconds, held a frozen windmill under the one turning near by, whose own parts were
+        // drawn every frame at another place. An entry not drawn this frame goes when any of its bones stands
+        // on an animated doodad that a newer entry has drawn since.
+        const std::vector<AnimPlace> animPlaces = AnimPlaces();
+        const auto olderPose = [&](const Entry& e) { return OlderAnimPose(e, animPlaces); };
         for (auto kv = g_cache.begin(); kv != g_cache.end(); )
         {
             std::vector<Entry>& list = kv->second;
@@ -1496,6 +2064,16 @@ namespace
                 {
                     gone = true; ++g_nEvictView;   // a finer or later version of the same chunk is held
                     why = "finer chunk";
+                }
+                else if (e.lastSeen < now && e.rec.vs && !e.unit && !animPlaces.empty() && [&] {
+                             const HeldDoodads h = HeldAnim(e, animPlaces);
+                             if (h.newer > 0 && h.newer < h.held)
+                                 DropAnimPoses(e, h.newerPlaces);
+                             return h.held > 0 && h.newer == h.held;
+                         }())
+                {
+                    gone = true; ++g_nEvictAge;
+                    why = "an older pose of an animated doodad";
                 }
                 else if (e.lastSeen < now)
                 {
@@ -1551,14 +2129,19 @@ namespace
                         // Anything that has moved since it was first seen, once it stops being drawn, at any
                         // distance and in view or not (2026-09-30): a ship's pieces that it left out of view
                         // stayed as a dark outline of the ship until staleTime.
-                        if (e.mobile || e.drifts || (e.unit && !UnitAt(e.pos)) || brief ||
+                        // A unit's model is gone when no unit near it wears that model (2026-10-04), not when
+                        // its first bone is off the half yard: a Warhorse's lies yards from its feet, and its
+                        // entry went each time the client did not draw it.
+                        bool known = true;
+                        const bool unitGone = e.unit && !UnitAt(e.pos) && !UnitModelNear(e.rec, e.pos, known) && known;
+                        if (e.mobile || e.drifts || unitGone || brief ||
                             ((dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ||
                               (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
                               (s.mapTerrain && s.staleTime > 0.0f && now - e.lastSeen > s.staleTime)) &&
                              !shadeInView(e)))
                         {
                             gone = true; ++g_nEvictAge;
-                            why = e.mobile ? "moving" : e.drifts ? "has moved" : (e.unit && !UnitAt(e.pos)) ? "unit gone" :
+                            why = e.mobile ? "moving" : e.drifts ? "has moved" : unitGone ? "unit gone" :
                                   brief ? "brief" : dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ? "out of reach" :
                                   "unseen too long";
                         }
@@ -2500,6 +3083,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     double tCache = t0;   // where the replay's own timing starts
     if (g_fullFrame)
     {
+        g_objDraws = g_objFiled = 0;
+        RefreshObjects(pl, g_cfg.shadow.range + g_cfg.shadow.keepMargin, now);
         Merge(camVP, camVPInv, cam, cam, now);
         const double tMerged = Now();
         g_samplesLeft = 0;
@@ -2636,6 +3221,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     {
         g_shadowVP    = sunVP;
         g_mapAbsToSun = fromAbsToSun;
+        for (auto& kv : g_cache)
+            for (Entry& e : kv.second)
+                e.inFar = false;
     }
     else
     {
@@ -2782,10 +3370,37 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     unitCells.clear();
     if (doLeaves)
     {
+        std::unordered_set<unsigned long long> touched;
+        std::vector<const Entry*> leafSeen;
         for (const auto& kv : g_cache)
             for (const Entry& e : kv.second)
-                if (e.rec.vs && e.rec.alphaTest)
-                    g_leafModels.insert(ModelKey(e.rec.vb[0], e.rec.vs));
+                leafSeen.push_back(&e);
+        for (const ObjRec& o : g_objects)
+            for (const auto& kv : o.parts)
+                leafSeen.push_back(&kv.second);
+        for (const Entry* ep : leafSeen)
+            {
+                const Entry& e = *ep;
+                if (!e.rec.vs)
+                    continue;
+                const unsigned long long key = ModelKey(e.rec.vb[0], e.rec.vs);
+                LeafPart& part = g_leafParts[key][e.rec.startIndex];
+                part.prims = (std::max)(part.prims, e.rec.primCount);
+                part.alpha = part.alpha || e.rec.alphaTest;
+                if (e.rec.alphaTest)
+                    touched.insert(key);
+            }
+        for (unsigned long long key : touched)
+        {
+            UINT all = 0, alpha = 0;
+            for (const auto& pp : g_leafParts[key])
+            {
+                all += pp.second.prims;
+                alpha += pp.second.alpha ? pp.second.prims : 0;
+            }
+            if (all && alpha >= kLeafShare * all)
+                g_leafModels.insert(key);
+        }
         const int n = ClientUnits(units, 512);
         for (int i = 0; i < n; ++i)
             unitCells[(static_cast<long long>(floorf(units[i][0] * 0.5f)) << 32) ^
@@ -2799,15 +3414,16 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // a frame, and he cast as leaves, at part shade. The entry follows him from frame to frame, so it keeps
     // the answer.
     auto atUnit = [&](const Entry& e) {
-        // A unit within half a yard across the ground and 4 up or down, found through this cell and those
-        // around it: a character's reference point is its root bone, at the unit's feet. The player's own
-        // models within 3 yards (2026-10-02): a Charger's parts have their root bones 2 to 2.7 yards off.
-        if (havePlayer)
-        {
-            const float ox = e.pos[0] - pl[0], oy = e.pos[1] - pl[1], oz = e.pos[2] - pl[2];
-            if (ox * ox + oy * oy + oz * oz < 9.0f)
-                return true;
-        }
+        // A unit's own model or its mount, by what it draws (UnitModelNear, 2026-10-04). It replaced a rule
+        // that took any of the player's models within 3 yards (2026-10-02, for a Charger's parts, whose root
+        // bones lie 2 to 2.7 yards off): a water trough the player stood in was taken too, and its shadow got
+        // a character's extra darkness.
+        bool known = true;
+        if (UnitModelNear(e.rec, e.pos, known))
+            return true;
+        // Else a unit within half a yard across the ground and 4 up or down, found through this cell and those
+        // around it: a character's reference point is its root bone, at the unit's feet. What is left here is
+        // drawn at a unit and is not its model: a weapon in its hand. The files' doodads never get this far.
         if (unitCells.empty())
             return false;
         const long long cx = static_cast<long long>(floorf(e.pos[0] * 0.5f));
@@ -2928,9 +3544,16 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (nearPass) nearDoodads += n; else if (midPass) midDoodads += n; else farDoodads += n;
     }
     IDirect3DPixelShader9* passPs = nullptr;   // the UV alpha mask bound, if any (UvOutput)
-    for (auto& kv : g_cache)
-    for (const Entry& e : kv.second)
+    std::vector<const Entry*> replayList;   // the cache's entries and the object table's parts (2026-10-04)
+    for (const auto& kv : g_cache)
+        for (const Entry& e : kv.second)
+            replayList.push_back(&e);
+    for (const ObjRec& o : g_objects)
+        for (const auto& kv : o.parts)
+            replayList.push_back(&kv.second);
+    for (const Entry* replayEntry : replayList)
     {
+        const Entry& e = *replayEntry;
         const Rec&   r = e.rec;
         if (e.lastSeen < now && pass < 2)
             ++unseen;
@@ -2966,7 +3589,11 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             }
             // Small models far off stay out of the far map ([shadow] minTriangles): a flower or a stone
             // 60 yards away is a few texels, and each costs a draw (about 1 microsecond) all the same.
-            if (pass < 2 && r.primCount < static_cast<UINT>(s.minTriangles) &&
+            // By the whole model, not the part (2026-10-04): a Westfall windmill is drawn in parts of 108, 88,
+            // 60 and 30 triangles, 286 in all. Each part was under 200, so past 60 yards its blades (leaves,
+            // the far map alone) were gone, and past 100 (the middle map's reach) the tower too: coming in
+            // from afar its shade arrived in steps, the building, then the blades.
+            if (pass < 2 && ModelTriangles(r) < static_cast<UINT>(s.minTriangles) &&
                 dx * dx + dy * dy > 60.0f * 60.0f)
             {
                 ++skipped;
@@ -3018,6 +3645,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             d->DrawPrimitive(dev, r.prim, r.baseVertex, r.primCount);
         if (logThis)
             g_replayed[&e] |= (nearPass || midPass) ? 2 : 1;
+        if (pass < 2)
+            e.inFar = true;
         if (r.vb[1])
             d->SetStreamSource(dev, 1, nullptr, 0, 0);
         if (unitPass)
@@ -3083,6 +3712,89 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 }
             Log("shadow: %u cache entries within 150 yd not drawn for over 1 s", total);
         }
+        // The units within 40 yards with their models and stealth (2026-10-04): the see-through rule takes a
+        // stealthed unit's model alone.
+        for (int i = 0; i < g_filesUnitCount; ++i)
+        {
+            const float dx = g_filesUnits[i][0] - pl[0], dy = g_filesUnits[i][1] - pl[1];
+            if (dx * dx + dy * dy > 40.0f * 40.0f)
+                continue;
+            Log("shadow:   unit at (%.1f %.1f %.1f), %.1f yd: display %u, mount %u, UNIT_FIELD_BYTES_1 0x%08X%s%s",
+                g_filesUnits[i][0], g_filesUnits[i][1], g_filesUnits[i][2], sqrtf(dx * dx + dy * dy),
+                g_filesUnitModels[i][0], g_filesUnitModels[i][1], g_filesUnitBytes1[i],
+                g_filesUnitStealthed[i] ? ", stealthed" : "", g_filesUnitSelf[i] ? ", you" : "");
+        }
+        // The object table (2026-10-04): each record within 300 yards and its parts.
+        {
+            unsigned parts = 0, kinds[3] = {}, listed = 0;
+            for (const ObjRec& o : g_objects)
+            {
+                parts += static_cast<unsigned>(o.parts.size());
+                ++kinds[o.kind == 1 ? 1 : 2];
+            }
+            Log("shadow: object table: %u records (%u animated doodads from the files, %u game objects), %u parts; this "
+                "frame %u draws filed under them (%u copies)", static_cast<unsigned>(g_objects.size()), kinds[1], kinds[2],
+                parts, g_objDraws, g_objFiled);
+            for (const ObjRec& o : g_objects)
+            {
+                const float dx = o.place[0] - pl[0], dy = o.place[1] - pl[1];
+                const float d = sqrtf(dx * dx + dy * dy);
+                if (d > 300.0f || o.parts.empty() || listed >= 40)
+                    continue;
+                ++listed;
+                for (const auto& kv : o.parts)
+                {
+                    const Entry& e = kv.second;
+                    const bool leaves = e.rec.alphaTest || g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs)) != 0;
+                    // Its bones: how many the draw uploaded, and how many are still live (not zeroed as another
+                    // object's in a batch).
+                    unsigned bonesAll = 0, bonesLive = 0;
+                    const UINT nregs = (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn);
+                    for (UINT k = 0; 34 + 3 * k <= nregs && k < 64; ++k)
+                    {
+                        ++bonesAll;
+                        bool zero = true;
+                        for (int q = 0; q < 12 && zero; ++q)
+                            zero = e.consts[(31 + 3 * k) * 4 + q] == 0.0f;
+                        bonesLive += zero ? 0 : 1;
+                    }
+                    Log("shadow:   object part: %s at (%.1f %.1f %.1f), %.0f yd; part start %u, %u triangles, buffer %u "
+                        "vertices; drawn %.1f s ago, %u times; bones %u live of %u; the far map's last redraw: %s; casts as %s%s",
+                        o.kind == 1 ? "animated doodad" : "game object", o.place[0], o.place[1], o.place[2], d,
+                        e.rec.startIndex, e.rec.primCount, RecVertices(e.rec), now - e.lastSeen, e.drawnFor, bonesLive,
+                        bonesAll, e.inFar ? "in it" : "not in it", leaves ? "leaves" : "solid", e.rec.alphaTest ? ", alpha tested" : "");
+                }
+            }
+        }
+        // Every entry at an animated doodad within 300 yards (2026-10-04), wherever you stand: a windmill's parts,
+        // which buffer and part each is, when the client last drew it, and whether this redraw put it in a map.
+        {
+            unsigned listed = 0;
+            const std::vector<AnimPlace> places = AnimPlaces();
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                {
+                    if (!e.rec.vs || listed >= 60 || !MapAnimatedDoodadAt(e.pos, 2.0f))
+                        continue;
+                    const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                    const float d = sqrtf(dx * dx + dy * dy);
+                    if (d > 300.0f)
+                        continue;
+                    ++listed;
+                    auto f = g_replayed.find(&e);
+                    const unsigned char bits = f == g_replayed.end() ? 0 : f->second;
+                    Log("shadow:   animated doodad entry: M2 %uv %up start %u, its buffer %u vertices, at (%.1f %.1f %.1f), "
+                        "%.0f yd from you (its bones %.0f yd about); the game drew it %.1f s ago, on %u redraws%s%s; this "
+                        "redraw: near or middle map %s; the far map's last redraw: %s; a newer pose of a doodad it holds: %s; "
+                        "it casts as %s",
+                        e.rec.numVertices, e.rec.primCount, e.rec.startIndex, RecVertices(e.rec), e.pos[0], e.pos[1],
+                        e.pos[2], d, e.spread, now - e.lastSeen, e.drawnFor, e.rec.alphaTest ? ", alpha tested" : "",
+                        e.unit ? ", at a unit" : "", (bits & 2) ? "yes" : "no", e.inFar ? "in it" : "not in it",
+                        OlderAnimPose(e, places) ? "yes" : "no",
+                        (e.rec.alphaTest || g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs))) ? "leaves" : "solid");
+                }
+            Log("shadow: %u cache entries at animated doodads within 300 yd", listed);
+        }
         // Every entry within 25 yards (2026-09-30), for a shadow that is missing while you stand still: where
         // its place is held, when the game last drew it, and whether this redraw put it in either map.
         {
@@ -3097,13 +3809,39 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                     ++listed;
                     auto f = g_replayed.find(&e);
                     const unsigned char bits = f == g_replayed.end() ? 0 : f->second;
+                    // The buffer's vertex count and whether that is a unit's model near it (2026-10-04), and
+                    // whether the files would refuse it now.
+                    bool known = true;
+                    const bool unitModel = e.rec.vs && UnitModelNear(e.rec, e.pos, known);
+                    const bool files = FromFiles(e.rec, e.pos, e.absolute, e.consts.empty() ? nullptr : e.consts.data(),
+                                                 (std::min)(static_cast<UINT>(e.consts.size() / 4), e.rec.nregsOwn));
+                    float share = 0.0f;
+                    bool leaves = e.rec.alphaTest != 0;
+                    if (e.rec.vs)
+                    {
+                        const unsigned long long key = ModelKey(e.rec.vb[0], e.rec.vs);
+                        UINT all = 0, alpha = 0;
+                        auto lp = g_leafParts.find(key);
+                        if (lp != g_leafParts.end())
+                            for (const auto& pp : lp->second)
+                            {
+                                all += pp.second.prims;
+                                alpha += pp.second.alpha ? pp.second.prims : 0;
+                            }
+                        share = all ? static_cast<float>(alpha) / all : 0.0f;
+                        leaves = leaves || (!e.unit && g_leafModels.count(key) != 0);
+                    }
                     Log("shadow:   near you: %s %uv %up start %u at (%.1f %.1f %.1f), %.1f yd (its bones %.1f yd about); the game drew it %.1f s ago, "
-                        "on %u redraws%s%s%s%s; this redraw: far map %s, near map %s; the files place a doodad there: %s",
+                        "on %u redraws%s%s%s%s; this redraw: far map %s, near map %s; the files place a doodad there: %s; "
+                        "its buffer %u vertices, %s; the files refuse it now: %s; its model %.0f%% alpha tested, this part "
+                        "casts as %s",
                         e.rec.vs ? "M2" : "ff",
                         e.rec.numVertices, e.rec.primCount, e.rec.startIndex, e.pos[0], e.pos[1], e.pos[2], d,
                         e.spread, now - e.lastSeen, e.drawnFor, e.unit ? ", at a unit" : "", e.mobile ? ", moving" : "",
                         e.drifts ? ", has moved" : "", e.rec.alphaTest ? ", alpha tested" : "",
-                        (bits & 1) ? "yes" : "no", (bits & 2) ? "yes" : "no", MapDoodadAt(e.pos) ? "yes" : "no");
+                        (bits & 1) ? "yes" : "no", (bits & 2) ? "yes" : "no", MapDoodadAt(e.pos) ? "yes" : "no",
+                        RecVertices(e.rec), unitModel ? "a unit's model" : known ? "no unit's model" : "a unit's model not read yet",
+                        files ? "yes" : "no", share * 100.0f, leaves ? "leaves" : "solid");
                 }
             Log("shadow: %u cache entries within 25 yd", listed);
             // Every fixed-function entry (2026-10-03): the coarse ground the client draws from afar is one, and
@@ -3380,6 +4118,88 @@ bool ShadowDrawPosition(IDirect3DDevice9* dev, float pos[3])
     return true;
 }
 
+bool ShadowDrawPlaces(IDirect3DDevice9* dev, const float ref[3], int bones, float& originD, float& boneD,
+                      int& boneAt, bool& projOnly)
+{
+    if (!g_havePlace || bones < 1 || bones > 64)
+        return false;
+    float c[16], b[64 * 12];
+    if (FAILED(dev->lpVtbl->GetVertexShaderConstantF(dev, 2, c, 4)) ||
+        FAILED(dev->lpVtbl->GetVertexShaderConstantF(dev, 31, b, 3 * bones)))
+        return false;
+    D3DMATRIX m, a;
+    FromRegisters(c, m);
+    projOnly = IsProjection(m) && g_haveWorldCam;
+    if (projOnly)
+    {
+        a = {};
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                a.m[i][j] = g_worldView.m[j][i];
+        a.m[3][0] = g_placeCamModels[0]; a.m[3][1] = g_placeCamModels[1]; a.m[3][2] = g_placeCamModels[2];
+        a.m[3][3] = 1.0f;
+    }
+    else
+        Mul(m, g_placeCamOut, a);
+    const auto dist = [&](const float p[3]) {
+        const float dx = p[0] - ref[0], dy = p[1] - ref[1], dz = p[2] - ref[2];
+        return sqrtf(dx * dx + dy * dy + dz * dz);
+    };
+    const float o[3] = { a.m[3][0], a.m[3][1], a.m[3][2] };
+    originD = dist(o);
+    boneD = 1e9f;
+    boneAt = -1;
+    for (int k = 0; k < bones; ++k)
+    {
+        const float* r = b + k * 12;
+        float p[3];
+        for (int j = 0; j < 3; ++j)
+            p[j] = r[3] * a.m[0][j] + r[7] * a.m[1][j] + r[11] * a.m[2][j] + a.m[3][j];
+        const float d = dist(p);
+        if (d < boneD)
+        {
+            boneD = d;
+            boneAt = k;
+        }
+    }
+    return true;
+}
+
+bool ShadowIsStealthedUnitDraw(IDirect3DDevice9* dev)
+{
+    bool any = false;
+    for (int i = 0; i < g_filesUnitCount && !any; ++i)
+        any = g_filesUnitStealthed[i];
+    if (!any)
+        return false;
+    IDirect3DVertexBuffer9* vb = nullptr;
+    UINT offset = 0, stride = 0;
+    if (FAILED(dev->lpVtbl->GetStreamSource(dev, 0, &vb, &offset, &stride)) || !vb)
+        return false;
+    D3DVERTEXBUFFER_DESC d = {};
+    const UINT verts = SUCCEEDED(vb->lpVtbl->GetDesc(vb, &d)) && stride ? d.Size / stride : 0;
+    SafeRelease(vb);
+    float p[3];
+    if (!verts || !ShadowDrawPosition(dev, p))
+        return false;
+    for (int i = 0; i < g_filesUnitCount; ++i)
+    {
+        if (!g_filesUnitStealthed[i])
+            continue;
+        const float dx = p[0] - g_filesUnits[i][0], dy = p[1] - g_filesUnits[i][1], dz = p[2] - g_filesUnits[i][2];
+        if (dx * dx + dy * dy > kUnitModelReach * kUnitModelReach || dz < -kUnitModelReach || dz > kUnitModelReach)
+            continue;
+        for (int k = 0; k < 2; ++k)
+        {
+            const std::vector<uint32_t>* views =
+                g_filesUnitModels[i][k] ? MapCreatureModelViews(g_filesUnitModels[i][k]) : nullptr;
+            if (views && std::find(views->begin(), views->end(), verts) != views->end())
+                return true;
+        }
+    }
+    return false;
+}
+
 bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
 {
     IDirect3DVertexShader9* vs = nullptr;
@@ -3392,28 +4212,8 @@ bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
     bool unit = vb && !g_unitModels.empty() && g_unitModels.count(ModelKey(vb, vs)) != 0;
     SafeRelease(vb);
     SafeRelease(vs);
-    // The player's own models, always (2026-10-02): a model placed (ShadowDrawPosition) within 3 yards of the
-    // player. A paladin's Charger was a unit's only on the frames where one of its parts had its root bone
-    // within half a yard of the player (atUnit), 2 to 2.7 yards off for most of them (a signpost beside the
-    // player was 4): the body mask flickered on it, and off the mask it took the world's slack and shaded
-    // itself in blotches. The player is read once a frame.
-    if (!unit)
-    {
-        static unsigned frame = 0;
-        static bool     have  = false;
-        static float    pl[3];
-        if (frame != g_frameId)
-        {
-            frame = g_frameId;
-            have  = ClientPlayer(pl);
-        }
-        float p[3];
-        if (have && ShadowDrawPosition(dev, p))
-        {
-            const float dx = p[0] - pl[0], dy = p[1] - pl[1], dz = p[2] - pl[2];
-            unit = dx * dx + dy * dy + dz * dz < 9.0f;
-        }
-    }
+    // A mount is the cache's by what it draws (UnitModelNear, 2026-10-04), so the 3-yard rule for the player's
+    // models went: it marked a water trough the player stood in as a body.
     return unit;
 }
 

@@ -35,6 +35,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <set>
+#include <string>
 
 namespace
 {
@@ -68,6 +70,9 @@ namespace
     unsigned g_clientStencilFrames = 0;
     // The probe (2026-10-02): for a few frames, every depth-writing model draw near the player, marked or not.
     int      g_probeFrames = 0, g_probeLines = 0, g_probeFrame = 0;
+    // The draws logged this probe frame (2026-10-04): each one once, by buffer, shader, body or not, colour writes
+    // and blend. The player's own parts filled 60 of the 80 lines, and a trough beside them went unlogged.
+    std::set<std::string> g_probeSeen;
     unsigned g_probeMarked = 0, g_probeUnmarked = 0;
 
     // The mask.
@@ -222,18 +227,30 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
         {
             const float dx = p[0] - pl[0], dy = p[1] - pl[1], dz = p[2] - pl[2];
             const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
-            if (dist < 6.0f)
+            if (dist < 8.0f)
             {
-                ++(ref ? g_probeMarked : g_probeUnmarked);
+                ++((ref & kBit) ? g_probeMarked : g_probeUnmarked);
                 IDirect3DVertexBuffer9* vb = nullptr;
                 UINT off = 0, stride = 0;
                 d->GetStreamSource(dev, 0, &vb, &off, &stride);
                 DWORD cw = 0, blend = 0;
                 d->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &cw);
                 d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
-                if (g_probeLines++ < 80)
-                    Log("bodymask: frame %d: model draw %s, root bone %.2f yd from you, vs %p vb %p offset %u, colour "
-                        "writes 0x%X, blend %u", g_probeFrame, ref ? "MARKED" : "not marked", dist, vs, vb, off, cw, blend);
+                // The model's origin and its nearest bone (2026-10-04), to tell the player's mount from a
+                // doodad beside the player.
+                float originD = -1.0f, boneD = -1.0f;
+                int boneAt = -1;
+                bool projOnly = false;
+                ShadowDrawPlaces(dev, pl, 32, originD, boneD, boneAt, projOnly);
+                D3DVERTEXBUFFER_DESC vd = {};
+                if (vb) vb->lpVtbl->GetDesc(vb, &vd);
+                char seenKey[96];
+                snprintf(seenKey, sizeof(seenKey), "%p %p %u %lu %lu", vs, vb, static_cast<unsigned>(ref), cw, blend);
+                if (g_probeSeen.insert(seenKey).second && g_probeLines++ < 120)
+                    Log("bodymask: frame %d: model draw %s, root bone %.2f yd from you, origin %.2f yd%s, nearest of 32 "
+                        "bones %.2f yd (bone %d), vs %p vb %p (%u bytes, stride %u) offset %u, colour writes 0x%X, blend %u",
+                        g_probeFrame, (ref & kBit) ? "a BODY" : ref ? "a model, not a body" : "not marked", dist, originD, projOnly ? " (the camera: c2..c5 a projection)" : "",
+                        boneD, boneAt, vs, vb, vd.Size, stride, off, cw, blend);
                 if (vb) vb->lpVtbl->Release(vb);
             }
         }
@@ -269,12 +286,13 @@ void BodyMarkWorldEnded(IDirect3DDevice9* dev)
     g_valid = false;
     if (g_probeFrames > 0)
     {
-        Log("bodymask: frame %d ended: %s; near you %u model draws marked, %u not", g_probeFrame,
+        Log("bodymask: frame %d ended: %s; near you %u model draws marked as bodies, %u not", g_probeFrame,
             g_skipFrame ? "skipped (the client's stencil)" : g_started ? (g_anyUnit ? "mask built" : "no unit drawn, no mask")
                         : "the mark never began", g_probeMarked, g_probeUnmarked);
         --g_probeFrames;
         ++g_probeFrame;
         g_probeLines = 0;
+        g_probeSeen.clear();
         g_probeMarked = g_probeUnmarked = 0;
     }
     const bool started = g_started, any = g_anyUnit || g_anyModel;

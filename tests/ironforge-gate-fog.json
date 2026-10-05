@@ -4,7 +4,7 @@
     "config": {
         "character": 1,
         "flight": false,
-        "camera": 6,
+        "camera": 10,
         "start": { "map": 0, "x": -5030.8, "y": -820.8, "z": 495.1, "about": "the owner's place, read with ComfyTest pos; the camera faced 108 degrees, 22 down, about 16 yards behind" },
         "sun": { "azimuth": 45, "elevation": 28.7 },
         "cvars": { "comfyMistMorning": 0 }

@@ -4,7 +4,7 @@
     "config": {
         "character": 1,
         "flight": false,
-        "camera": 6,
+        "camera": 10,
         "start": { "map": 0, "x": -8779.8, "y": 790.2, "z": 94.4, "facing": -49.5, "about": "the owner's place and heading on the surface, read with ComfyTest pos and a short swim" },
         "sun": { "azimuth": 45, "elevation": 40 }
     },

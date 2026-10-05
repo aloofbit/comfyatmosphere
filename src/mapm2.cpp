@@ -306,16 +306,23 @@ bool M2Load(const std::string& name, M2Model& out)
             if (U32(d, t) == 0)
                 b.tex = TextureName(d, U32(d, t + 12), U32(d, t + 8));
         }
-        if (b.blend == 1)
-        {
-            if (b.tex.empty())
-                continue;   // a cut-out with no file to cut it by: it cannot cast its shape
-            out.alpha = true;
-        }
+        if (b.blend == 1 && b.tex.empty())
+            continue;   // a cut-out with no file to cut it by: it cannot cast its shape
         out.batches.push_back(std::move(b));
     }
     if (out.batches.empty() && nTris)
         out.batches.push_back({ 0, nTris, 0, std::string() });
+    // The whole model casts as leaves when its alpha-keyed batches are a quarter of its triangles or more, as a
+    // tree's canopy is (2026-10-04). Any one such batch made a Westfall lighthouse leaves, its walls part shade.
+    uint32_t all = 0, keyed = 0;
+    for (const M2Model::Batch& b : out.batches)
+    {
+        if (b.blend > 1)
+            continue;
+        all += b.count;
+        keyed += b.blend == 1 ? b.count : 0;
+    }
+    out.alpha = keyed && keyed * 4 >= all;
     Flame(d, out, nSub, ofsSub, nUnits, ofsUnits, nMat, ofsMat);
     return true;
 }

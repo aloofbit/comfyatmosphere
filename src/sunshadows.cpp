@@ -387,7 +387,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // on the ground lies within the unit's height, whatever the sun's, and the water under a bridge, already
     // in the bridge's shade, showed the player's shape darker. At the outer edge the nearest unit among the
     // corner taps is taken, so no ring is left.
-    float unit = 0.0;
+    float unit = 0.0, unitShade = 0.0;
     [branch] if (gU.w > 0.5 && wn > 0.0)
     {
         // The unit's depth from the four texels around the point, blended by where it falls between them,
@@ -418,7 +418,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // reaches the feet, where the near map's slack (5.5 texels with a low sun) left a gap.
         float4 su = float4(sn.xy, sn.z + gBody.z * (1.0 - bodyS), sn.w);
         float  us = 1.0 - Lit5(sUnit, su, float2(0.0, 0.0), lerp(gU.y * 0.25, gNB.x, bodyS), gU.z);
-        shade = max(shade, us * wn);
+        unitShade = us * wn;
         unit = us * wn * away * (1.0 - smoothstep(gU2.z, gU2.w, below));
         // Nor on a surface in the shade of the world behind the unit (2026-10-01): the underside of a bridge's
         // deck, a yard under the player standing on it, and the side of the bridge under its edge. The facing
@@ -444,11 +444,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             unit *= 1.0 - off;
         }
     }
-    // Character Backside Shadow ([sunshadows] bodyShade, 2026-10-01): the shade on a body, scaled.
+    // Character Backside Shadow ([sunshadows] bodyShade, 2026-10-01): the shade on a body, scaled. Only the
+    // units' own (2026-10-04): the world's maps leave the units out, so their shade on a body is a hill's, a
+    // house's or a tree's, and stays in full. Scaled as a whole, a horse, a trough and a fence post within 3
+    // yards of the player (a unit's, by the Charger's rule) came out lit inside a hill's shade.
     {
         float k = lerp(1.0, gBody.x, body);
-        shade *= k;
-        unit  *= k;
+        shade = max(shade, unitShade * k);
+        unit *= k;
     }
     if (gL.y > 1.5)
         return float4(1.0 - leaf, 1.0 - leaf, 1.0 - leaf, 1.0);            // debug 2: the leaves alone

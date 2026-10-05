@@ -690,6 +690,15 @@ void SunStatsText(std::string& out)
         snprintf(line, sizeof(line), "camyaw=%.2f;campitch=%.2f;", yaw, pitch);
         out += line;
     }
+    // The camera's distance from the player (2026-10-04), for wow-test-tool's camdist: a test sets the camera
+    // as far back as the owner had it.
+    float cam[3], pl[3];
+    if (ClientCamera(cam) && ClientPlayer(pl))
+    {
+        const float dx = cam[0] - pl[0], dy = cam[1] - pl[1], dz = cam[2] - pl[2];
+        snprintf(line, sizeof(line), "camdist=%.2f;", sqrtf(dx * dx + dy * dy + dz * dz));
+        out += line;
+    }
 }
 
 bool SunSecondDirection(float dir[3])

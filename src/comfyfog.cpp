@@ -1604,22 +1604,17 @@ namespace
         return g_cfg.depth.waterDepth && VolumeActive();
     }
 
-    // Whether the see-through rules below may take this draw (2026-10-02): another player's or a creature's
-    // model, never the player's own and never the world's. The client draws more than stealthed units as a
-    // depth pass and a blended colour pass: a doodad fading in at distance (a Stormwind banner lost its lion
-    // to its own back faces, a statue went see-through), and the player's mount as the camera nears it, out
-    // to 15.6 yards measured, past the 15 seeThroughNearMounted allowed. A unit is a model the shadow cache
-    // has at one (ShadowIsUnitDraw); the player's own is a model placed (ShadowDrawPosition) within 4 yards
-    // of the player.
+    // Whether the see-through rules below may take this draw: a stealthed unit's model, never the player's own
+    // (ShadowIsStealthedUnitDraw, 2026-10-04). The client draws more than stealthed units as a depth pass and a
+    // blended colour pass: a doodad fading in at distance (a Stormwind banner lost its lion to its own back
+    // faces, a statue went see-through, 2026-10-02), the player's mount as the camera nears it, and any
+    // creature the camera comes close to. Until 2026-10-04 the rule took any unit's model more than 4 yards
+    // from the player: walking away from a horse at the Eastvale paddock brought the camera onto it, the
+    // client faded it, and with its depth pass skipped and its depth writes off it flickered in see-through
+    // triangles. The unit's stealth is its own flag (UNIT_BYTE1_FLAGS_CREEP), read with the units.
     bool SeeThroughUnit(IDirect3DDevice9* dev)
     {
-        if (!ShadowIsUnitDraw(dev))
-            return false;
-        float p[3], pl[3];
-        if (!ShadowDrawPosition(dev, p) || !ClientPlayer(pl))
-            return true;
-        const float dx = p[0] - pl[0], dy = p[1] - pl[1], dz = p[2] - pl[2];
-        return dx * dx + dy * dy + dz * dz > 16.0f;
+        return ShadowIsStealthedUnitDraw(dev);
     }
 
     // A see-through model ([depth] seeThrough, 2026-09-30): a model (vertex shader) drawn alpha blended with

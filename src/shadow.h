@@ -26,6 +26,14 @@ IDirect3DTexture9* ShadowNearUnits();    // players and creatures alone, the nea
 // Where the shader draw about to be made stands in the world (its first bone), as the cache places it; false
 // before the cache has a camera.
 bool ShadowDrawPosition(IDirect3DDevice9* dev, float pos[3]);
+// The probe (2026-10-04): the draw's model origin (c2..c5 with the camera taken out; with a projection alone
+// there, none) and its nearest bone of the first `bones`, each as yards from `ref`. Bones past those the draw
+// uploaded may be an earlier model's.
+bool ShadowDrawPlaces(IDirect3DDevice9* dev, const float ref[3], int bones, float& originD, float& boneD,
+                      int& boneAt, bool& projOnly);
+// The draw about to be made is the model of a stealthed unit, not the player's own (2026-10-04): its vertex
+// buffer holds a view of the model a stealthed unit within reach wears.
+bool ShadowIsStealthedUnitDraw(IDirect3DDevice9* dev);
 bool ShadowIsUnitDraw(IDirect3DDevice9* dev);   // the draw about to be made is a model the cache has at a unit
 // This frame's replay, for the volume trace: how it ended (0 = drawn) and how many entries it drew.
 // counts: refreshed, added, evicted in view, aged out, over the cap. newInfo: the first new entries.

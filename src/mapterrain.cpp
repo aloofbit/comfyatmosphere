@@ -124,6 +124,7 @@ namespace
         std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
         std::vector<float>     dAnim;           // the places of the animated ones, left out: the client's
         std::vector<std::string> dAnimName;     // draws of them cast instead (a gryphon roost)
+        std::vector<std::string> dAnimFull;     // ...their models' full names, for the object table (shadow.cpp)
         std::vector<MapLight>  dLights;         // the doodads that give light, in the world (LightModelWord)
         std::vector<std::string> dName;         // ...its model and scale, for the probe
         std::vector<float>     dScale;
@@ -286,35 +287,46 @@ namespace
         const auto bake = [&](const M2Model& md, const float rot[3][3], const float pos[3], const std::string& name,
                               float sc) {
             const size_t nv = md.pos.size() / 3;
-            std::vector<float>& vout = md.alpha ? m.dLeaf : m.dSolid;
-            const uint32_t base = static_cast<uint32_t>(vout.size() / (md.alpha ? 5 : 3));
-            for (size_t i = 0; i < nv; ++i)
-            {
-                const float* p = &md.pos[i * 3];
-                float w[3];
-                for (int j = 0; j < 3; ++j)
-                    w[j] = p[0] * rot[0][j] + p[1] * rot[1][j] + p[2] * rot[2][j] + pos[j];
-                vout.push_back(w[0] - x1);
-                vout.push_back(w[1] - y1);
-                vout.push_back(w[2]);
-                if (md.alpha)
+            // The vertices into the solid or the leaf buffer, the first time a batch needs them there: a model
+            // that is not a tree casts its opaque batches solid and its alpha-keyed ones as leaves (2026-10-04).
+            int64_t baseSolid = -1, baseLeaf = -1;
+            const auto emit = [&](bool leaf) -> uint32_t {
+                int64_t& base = leaf ? baseLeaf : baseSolid;
+                if (base >= 0)
+                    return static_cast<uint32_t>(base);
+                std::vector<float>& vout = leaf ? m.dLeaf : m.dSolid;
+                base = static_cast<int64_t>(vout.size() / (leaf ? 5 : 3));
+                for (size_t i = 0; i < nv; ++i)
                 {
-                    vout.push_back(md.uv[i * 2]);
-                    vout.push_back(md.uv[i * 2 + 1]);
+                    const float* p = &md.pos[i * 3];
+                    float w[3];
+                    for (int j = 0; j < 3; ++j)
+                        w[j] = p[0] * rot[0][j] + p[1] * rot[1][j] + p[2] * rot[2][j] + pos[j];
+                    vout.push_back(w[0] - x1);
+                    vout.push_back(w[1] - y1);
+                    vout.push_back(w[2]);
+                    if (leaf)
+                    {
+                        vout.push_back(md.uv[i * 2]);
+                        vout.push_back(md.uv[i * 2 + 1]);
+                    }
+                    m.dMinZ = (std::min)(m.dMinZ, w[2]);
+                    m.dMaxZ = (std::max)(m.dMaxZ, w[2]);
+                    for (int j = 0; j < 2; ++j)
+                    {
+                        m.dLo[j] = (std::min)(m.dLo[j], w[j]);
+                        m.dHi[j] = (std::max)(m.dHi[j], w[j]);
+                    }
                 }
-                m.dMinZ = (std::min)(m.dMinZ, w[2]);
-                m.dMaxZ = (std::max)(m.dMaxZ, w[2]);
-                for (int j = 0; j < 2; ++j)
-                {
-                    m.dLo[j] = (std::min)(m.dLo[j], w[j]);
-                    m.dHi[j] = (std::max)(m.dHi[j], w[j]);
-                }
-            }
+                return static_cast<uint32_t>(base);
+            };
             for (const M2Model::Batch& b : md.batches)
             {
                 if (b.blend > 1)
                     continue;   // blended: the client's draw of it casts nothing either
-                std::vector<uint32_t>& idx = md.alpha ? groups[b.blend == 1 ? b.tex : std::string()] : m.dSolidIdx;
+                const bool leaf = md.alpha || b.blend == 1;
+                const uint32_t base = emit(leaf);
+                std::vector<uint32_t>& idx = leaf ? groups[b.blend == 1 ? b.tex : std::string()] : m.dSolidIdx;
                 for (uint32_t k = b.start; k < b.start + b.count; ++k)
                     idx.push_back(base + md.tris[k]);
             }
@@ -418,6 +430,7 @@ namespace
             {
                 m.dAnim.insert(m.dAnim.end(), pos, pos + 3);
                 m.dAnimName.push_back(name.substr(name.find_last_of('\\') + 1));
+                m.dAnimFull.push_back(name);
                 continue;
             }
             float r[3][3], rot[3][3];
@@ -473,6 +486,7 @@ namespace
                 {
                     m.dAnim.insert(m.dAnim.end(), pos, pos + 3);
                     m.dAnimName.push_back(name.substr(name.find_last_of('\\') + 1));
+                    m.dAnimFull.push_back(name);
                     continue;
                 }
                 // The doodad's turn (row vector: v * Q = q v q*) and scale, then the building's turn.
@@ -676,7 +690,7 @@ namespace
 
     // --- the loader thread ---------------------------------------------------------------------------
 
-    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject, kJobLooseTexture };
+    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject, kJobLooseTexture, kJobCreature, kJobModelViews };
     struct Job { JobKind kind; std::string name; int a, b; unsigned gen; bool groundOnly = false; };   // name: the map, the WMO, the BLP
                                                                                                     // a: a game object's display id
     struct Loaded { std::string name; unsigned gen; bool ok; WmoMesh mesh; double ms; };
@@ -694,6 +708,41 @@ namespace
         float       pos[kMaxFlames][3] = {};
         float       colour[3] = {};
     };
+
+    // A creature display's model (2026-10-04): the vertex count of each of its views, read once by the loader.
+    struct CreatureModel
+    {
+        unsigned              display = 0;
+        bool                  done = false, ok = false;
+        std::string           model;
+        std::vector<uint32_t> views;
+    };
+    std::unordered_map<unsigned, CreatureModel> g_creatureModels;   // by display id; the render thread's
+    std::deque<CreatureModel>                   g_doneCreature;
+
+    // A model file's views by its name (2026-10-04), for the object table: the vertex count of each.
+    struct ModelViews { bool done = false, ok = false; std::vector<uint32_t> views; };
+    std::unordered_map<std::string, ModelViews> g_modelViews;        // the render thread's
+    std::deque<std::pair<std::string, ModelViews>> g_doneModelViews;
+
+    // The vertex count of each view of an M2 (as a tile or a DBC names it, .mdx or .m2): the loader's.
+    std::vector<uint32_t> ReadM2Views(const std::string& model)
+    {
+        std::vector<uint32_t> views;
+        std::string name = model;
+        const size_t dot = name.find_last_of('.');
+        if (dot != std::string::npos)
+            name = name.substr(0, dot);
+        name += ".m2";
+        std::vector<uint8_t> f;
+        if (MpqRead(name.c_str(), f) && f.size() >= 0x54 && U32(f, 0) == 0x3032444D)   // "MD20"
+        {
+            const uint32_t nViews = U32(f, 0x4C), ofs = U32(f, 0x50);
+            for (uint32_t v = 0; v < nViews && v < 8 && ofs + (v + 1) * 44 <= f.size(); ++v)
+                views.push_back(U32(f, ofs + v * 44));
+        }
+        return views;
+    }
 
     std::mutex              g_mx;
     std::condition_variable g_cv;
@@ -726,6 +775,83 @@ namespace
                 tried = true;
             }
             const double t0 = Now();
+            if (job.kind == kJobModelViews)
+            {
+                ModelViews v;
+                v.done = true;
+                if (open)
+                    v.views = ReadM2Views(job.name);
+                v.ok = !v.views.empty();
+                std::lock_guard<std::mutex> lock(g_mx);
+                g_doneModelViews.push_back({ job.name, std::move(v) });
+                continue;
+            }
+            if (job.kind == kJobCreature)
+            {
+                // CreatureDisplayInfo.dbc (the id, field 0; the model's row, field 1) and CreatureModelData.dbc
+                // (the id, field 0; the model's name, field 2, an offset into the strings), read once.
+                static std::unordered_map<unsigned, unsigned>    displayModel;
+                static std::unordered_map<unsigned, std::string> modelName;
+                static bool read = false;
+                if (!read && open)
+                {
+                    read = true;
+                    std::vector<uint8_t> dbc;
+                    if (MpqRead("DBFilesClient\\CreatureDisplayInfo.dbc", dbc) && dbc.size() >= 20 &&
+                        U32(dbc, 0) == 0x43424457)   // "WDBC"
+                    {
+                        const uint32_t rows = U32(dbc, 4), size = U32(dbc, 12);
+                        if (size >= 8 && 20 + static_cast<size_t>(rows) * size <= dbc.size())
+                            for (uint32_t r = 0; r < rows; ++r)
+                                displayModel[U32(dbc, 20 + static_cast<size_t>(r) * size)] =
+                                    U32(dbc, 20 + static_cast<size_t>(r) * size + 4);
+                    }
+                    dbc.clear();
+                    if (MpqRead("DBFilesClient\\CreatureModelData.dbc", dbc) && dbc.size() >= 20 &&
+                        U32(dbc, 0) == 0x43424457)
+                    {
+                        const uint32_t rows = U32(dbc, 4), size = U32(dbc, 12), strSize = U32(dbc, 16);
+                        const size_t strs = 20 + static_cast<size_t>(rows) * size;
+                        if (size >= 12 && strs + strSize <= dbc.size())
+                            for (uint32_t r = 0; r < rows; ++r)
+                            {
+                                const uint32_t off = U32(dbc, 20 + static_cast<size_t>(r) * size + 8);
+                                std::string name;
+                                for (size_t k = strs + off; off < strSize && k < dbc.size() && dbc[k]; ++k)
+                                    name += static_cast<char>(dbc[k]);
+                                modelName[U32(dbc, 20 + static_cast<size_t>(r) * size)] = name;
+                            }
+                    }
+                    Log("map terrain: CreatureDisplayInfo.dbc: %u displays; CreatureModelData.dbc: %u models",
+                        static_cast<unsigned>(displayModel.size()), static_cast<unsigned>(modelName.size()));
+                }
+                CreatureModel c;
+                c.display = static_cast<unsigned>(job.a);
+                c.done = true;
+                const auto d = displayModel.find(c.display);
+                const auto m = d != displayModel.end() ? modelName.find(d->second) : modelName.end();
+                if (m != modelName.end())
+                {
+                    c.model = m->second;
+                    std::string name = c.model;
+                    const size_t dot = name.find_last_of('.');
+                    if (dot != std::string::npos)
+                        name = name.substr(0, dot);
+                    name += ".m2";   // the DBC says .mdx; the archives hold .m2
+                    std::vector<uint8_t> f;
+                    // The views: their count at 0x4C and offset at 0x50, 44 bytes each, the vertex count first.
+                    if (MpqRead(name.c_str(), f) && f.size() >= 0x54 && U32(f, 0) == 0x3032444D)   // "MD20"
+                    {
+                        const uint32_t nViews = U32(f, 0x4C), ofs = U32(f, 0x50);
+                        for (uint32_t v = 0; v < nViews && v < 8 && ofs + (v + 1) * 44 <= f.size(); ++v)
+                            c.views.push_back(U32(f, ofs + v * 44));
+                    }
+                    c.ok = !c.views.empty();
+                }
+                std::lock_guard<std::mutex> lock(g_mx);
+                g_doneCreature.push_back(std::move(c));
+                continue;
+            }
             if (job.kind == kJobObject)
             {
                 // GameObjectDisplayInfo.dbc, read once: the id is field 0 and the model's name field 1, an
@@ -920,6 +1046,10 @@ namespace
         // A display id still asked for loses its job here: forget it, so the next walk asks again.
         for (auto it = g_objectLights.begin(); it != g_objectLights.end();)
             it = it->second.done ? std::next(it) : g_objectLights.erase(it);
+        for (auto it = g_creatureModels.begin(); it != g_creatureModels.end();)
+            it = it->second.done ? std::next(it) : g_creatureModels.erase(it);
+        for (auto it = g_modelViews.begin(); it != g_modelViews.end();)
+            it = it->second.done ? std::next(it) : g_modelViews.erase(it);
         g_objLights.clear();
         std::lock_guard<std::mutex> lock(g_mx);
         g_jobs.clear();
@@ -1286,6 +1416,23 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
                     o.display, o.model.c_str(), o.word, o.count, o.count == 1 ? "" : "s", o.reach, o.colour[0],
                     o.colour[1], o.colour[2]);
             g_objectLights[o.display] = std::move(o);
+        }
+        while (!g_doneModelViews.empty())
+        {
+            auto mv = std::move(g_doneModelViews.front());
+            g_doneModelViews.pop_front();
+            g_modelViews[mv.first] = std::move(mv.second);
+        }
+        while (!g_doneCreature.empty())
+        {
+            CreatureModel c = std::move(g_doneCreature.front());
+            g_doneCreature.pop_front();
+            std::string views;
+            for (uint32_t v : c.views)
+                views += (views.empty() ? "" : ", ") + std::to_string(v);
+            Log("map terrain: creature display %u (%s): %s", c.display, c.model.empty() ? "no model row" : c.model.c_str(),
+                c.ok ? ("views of " + views + " vertices").c_str() : "its views could not be read");
+            g_creatureModels[c.display] = std::move(c);
         }
         while (!g_doneTex.empty())
         {
@@ -1834,6 +1981,27 @@ void MapLogDoodadsNear(const float from[3], float radius)
     }
 }
 
+int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max, std::string* names)
+{
+    int n = 0;
+    for (const auto& kv : g_tiles)
+    {
+        const std::vector<float>& a = kv.second.mesh.dAnim;
+        const std::vector<std::string>& full = kv.second.mesh.dAnimFull;
+        for (size_t i = 0; i + 2 < a.size() && n < max; i += 3)
+        {
+            const float dx = a[i] - at[0], dy = a[i + 1] - at[1];
+            if (dx * dx + dy * dy > radius * radius)
+                continue;
+            out[n][0] = a[i]; out[n][1] = a[i + 1]; out[n][2] = a[i + 2];
+            if (names)
+                names[n] = i / 3 < full.size() ? full[i / 3] : std::string();
+            ++n;
+        }
+    }
+    return n;
+}
+
 bool MapAnimatedDoodadAt(const float pos[3], float tol)
 {
     for (const auto& kv : g_tiles)
@@ -2246,6 +2414,44 @@ const char* MapTerrainInfo()
 // A texture by name, read on the loader thread (the archives are read from that thread only). The first call
 // asks for it, later ones return 0 while it loads, 1 with the texture, -1 if it could not be read. The
 // loader starts with the map terrain ([shadow] mapTerrain): until then the answer is 0.
+const std::vector<uint32_t>* MapModelViews(const std::string& name)
+{
+    if (name.empty())
+        return nullptr;
+    const auto it = g_modelViews.find(name);
+    if (it != g_modelViews.end())
+        return it->second.done && it->second.ok ? &it->second.views : nullptr;
+    if (!g_started)
+        return nullptr;
+    g_modelViews[name];
+    std::lock_guard<std::mutex> lock(g_mx);
+    g_jobs.push_front({ kJobModelViews, name, 0, 0, g_gen });   // a small read
+    g_cv.notify_one();
+    return nullptr;
+}
+
+const std::string* MapGameObjectModel(unsigned display)
+{
+    const auto it = g_objectLights.find(display);
+    return it != g_objectLights.end() && it->second.done && !it->second.model.empty() ? &it->second.model : nullptr;
+}
+
+const std::vector<uint32_t>* MapCreatureModelViews(unsigned display)
+{
+    if (!display)
+        return nullptr;
+    const auto it = g_creatureModels.find(display);
+    if (it != g_creatureModels.end())
+        return it->second.done && it->second.ok ? &it->second.views : nullptr;
+    if (!g_started)
+        return nullptr;
+    g_creatureModels[display].display = display;
+    std::lock_guard<std::mutex> lock(g_mx);
+    g_jobs.push_front({ kJobCreature, std::string(), static_cast<int>(display), 0, g_gen });   // a small read
+    g_cv.notify_one();
+    return nullptr;
+}
+
 int MapRequestTexture(const char* name, BlpData& out)
 {
     static std::unordered_map<std::string, int> asked;   // 0 asked, 1 taken, -1 failed

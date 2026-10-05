@@ -1,0 +1,264 @@
+{
+    "name": "development-windmill",
+    "about": "On the development map (451), a Westfall windmill seen from beside it, flying in its blades' shade, in first person; then 200 yards out, the camera turned all the way round, and back (2026-10-04, the owner). Four faults of its shade, all on this windmill: its parts were too small for the far map one by one (minTriangles), so its shade came in steps; batches of windmills drawn from afar held frozen poses under the turning blades; the windmill's blades, out of view in first person, went as an \"older pose\" when its tower's edge was drawn; and its stone tower cast as leaves because its sails are alpha tested. The owner's snapshot controls; the owner's snapshot place and sun. Last, from 90 yards, flying, in first person, where its parts must all be in the far map; the probe is taken there. Shots in the normal view and in Debug View 5 (the shade alone): before going out, after coming back, and from 90 yards. Since 2026-10-04 the windmill is a record in the object table, its parts filed under it.",
+    "config": {
+        "character": 1,
+        "flight": true,
+        "camera": 0,
+        "start": {
+            "map": 451,
+            "x": 4346.2,
+            "y": -230.4,
+            "z": 306.1,
+            "facing": -139.3,
+            "about": "the owner's snapshot: 12 yards over the ground (293.9) beside the windmill, in its blades' shade; the camera faced -139.3 degrees, 28.2 down, in first person; the sun from their probe, azimuth 45, elevation 47.1"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 47.1
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 70,
+            "comfyClouds": 1,
+            "comfyRays": 1,
+            "comfyRaysStrength": 25,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 45,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 10,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 11,
+            "comfyVolumeDistance": 180,
+            "comfyVolumeDirection": 195,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 40,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 65,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 35,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 100,
+            "comfyMistSky": 25,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 65,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 0,
+            "comfyWaveSize": 200,
+            "comfyWater": 1,
+            "comfyWaterColour": 35,
+            "comfyWaterClarity": 50,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 100,
+            "comfyWaterFoam": 20,
+            "comfyWaterSwash": 0,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 15,
+            "comfyWaterEdgeWidth": 2,
+            "comfyWaterBright": 60,
+            "comfyWaterRippleDepth": 220
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": -139.3,
+                "pitch": -28.2
+            }
+        },
+        {
+            "wait": 4
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 5"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        },
+        {
+            "hop": {
+                "heading": 40.7,
+                "to": 200,
+                "step": 10
+            }
+        },
+        {
+            "wait": 2
+        },
+        {
+            "face": {
+                "heading": -49.3
+            }
+        },
+        {
+            "wait": 1
+        },
+        {
+            "face": {
+                "heading": 40.7
+            }
+        },
+        {
+            "wait": 1
+        },
+        {
+            "face": {
+                "heading": 130.7
+            }
+        },
+        {
+            "wait": 1
+        },
+        {
+            "face": {
+                "heading": -139.3
+            }
+        },
+        {
+            "wait": 1
+        },
+        {
+            "hop": {
+                "heading": 40.7,
+                "to": 0,
+                "step": 10
+            }
+        },
+        {
+            "face": {
+                "heading": -139.3,
+                "pitch": -28.2
+            }
+        },
+        {
+            "wait": 4
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 5"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        },
+        {
+            "chat": ".go xyz 4385.7 -301.9 314.4 451"
+        },
+        {
+            "wait": 4
+        },
+        {
+            "face": {
+                "heading": 122.1,
+                "pitch": -11.5
+            }
+        },
+        {
+            "wait": 4
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 5"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        }
+    ],
+    "expect": [
+        {
+            "about": "At the start, in first person with the windmill behind the camera, its blades are kept in its record",
+            "probeAt": 1,
+            "probe": "object part: animated doodad at [(]4359[.]7 -215[.]4 .*30 triangles.*alpha tested",
+            "min": 1
+        },
+        {
+            "about": "All four of its parts are in the far map (each alone is under minTriangles)",
+            "probe": "object part: animated doodad at [(]4359[.]7 -215[.]4 .*, (108|88|60|30) triangles,.*the far map's last redraw: in it",
+            "min": 4
+        },
+        {
+            "about": "One record holds the windmill: the cache keeps no entry at an animated doodad, so no second pose",
+            "probe": "^shadow: 0 cache entries at animated doodads within 300 yd",
+            "min": 1
+        },
+        {
+            "about": "Its tower (108 triangles) casts as solid",
+            "probe": "object part: animated doodad at [(]4359[.]7 -215[.]4 .*, 108 triangles,.*casts as solid",
+            "min": 1
+        },
+        {
+            "about": "Its sails (alpha tested, 30 triangles) cast as leaves",
+            "probe": "object part: animated doodad at [(]4359[.]7 -215[.]4 .*, 30 triangles,.*casts as leaves",
+            "min": 1
+        }
+    ]
+}

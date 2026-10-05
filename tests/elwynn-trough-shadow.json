@@ -1,0 +1,53 @@
+{
+    "name": "elwynn-trough-shadow",
+    "about": "Standing in the water trough at the Eastvale paddock, the camera zoomed in. The trough's shadow got a character's extra darkness: a rule took any model within 3 yards of the player for the player's (2026-10-04, the owner). The trough must not be marked a body.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 2,
+        "start": {
+            "map": 0,
+            "x": -9439.2,
+            "y": -1377.3,
+            "z": 47.2,
+            "facing": -2.4,
+            "about": "the owner's place, read with ComfyTest pos; the camera faced -2.4 degrees, 23.8 down; the sun from the owner's probe, (0.62 0.62 0.48)"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 28.7
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": -2.4,
+                "pitch": -23.8
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        }
+    ],
+    "expect": [
+        {
+            "about": "The trough is drawn near you, as a model and not a body",
+            "probe": "model draw a model, not a body.*[(]78336 bytes",
+            "min": 1
+        },
+        {
+            "about": "The trough (a 78,336-byte buffer) is not marked a body, so its shadow has no extra darkness",
+            "probe": "model draw a BODY.*[(]78336 bytes",
+            "max": 0
+        }
+    ]
+}

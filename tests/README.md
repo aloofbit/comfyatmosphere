@@ -34,9 +34,17 @@ A test is a `.json` file here:
 
 | Part | What it holds |
 | --- | --- |
-| `config` | `character` (the slot on character select), `flight` (cast "Toggle GM Flight Mode"), `camera` (0 first person, 1 to 9 that many steps back out, 10 all the way out), `flySpeed` (yards a second), `start` (`map`, `x`, `y`, `z`, by `.go xyz`; `facing`, the character's heading in degrees, counter-clockwise from +x), `sun` (`azimuth`, `elevation`: a fixed sun), `ini` (`"section.key": value` pairs, by `/atmos`), `debugView` (the Debug View number), `cvars` (`"name": value` pairs for the Atmosphere page's controls, which `/atmos` refuses) |
-| `steps` | one key each: `wait` seconds, `down` and `up` (hold a key such as `W` over the steps between), `jump` times, `hop` (`.go xyz` along a line), `fly` yards, `back` yards, `turn` degrees to the left, `face` (`heading`, `pitch`: the camera, in degrees, checked against comfyfog.dll's stats; `leftDrag` tilts it by left-drags, which leave a swimmer level), `probe`, `screenshot`, `atmos`, `cvar`, `chat` |
-| `expect` | checks against the last probe: `probe` is a pattern for its lines, `max` and `min` the count allowed. Or against a screenshot: `shot` (which, from 1), `row`, `from`, `to` (columns), and `min` (the darkest pixel allowed) or `mean` (the least average) along that row. Or `shot` and `box` (`[left, top, right, bottom]`) with `jumpMax`, the percent of pixels allowed that differ sharply from the next one (speckle) |
+| `config` | `character` (the slot on character select), `flight` (cast "Toggle GM Flight Mode"), `camera` (0 first person, 1 to 9 that many notches of the mouse wheel back out, 10 all the way out; 1 notch is 2.5 yards, 2 is 3.4, 4 is 5.3), `flySpeed` (yards a second), `start` (`map`, `x`, `y`, `z`, by `.go xyz`; `facing`, the character's heading in degrees, counter-clockwise from +x), `sun` (`azimuth`, `elevation`: a fixed sun), `ini` (`"section.key": value` pairs, by `/atmos`), `debugView` (the Debug View number), `cvars` (`"name": value` pairs for the Atmosphere page's controls, which `/atmos` refuses), `summon` (`entry`, `name`, `x`, `y`, `z`: a creature summoned there before the start and deleted by its name after the steps; only a creature with no world spawn, since `.npc delete` removes a world spawn from the database) |
+| `steps` | one key each: `wait` seconds, `down` and `up` (hold a key such as `W` over the steps between), `jump` times, `hop` (`.go xyz` along a line), `fly` yards, `back` yards, `turn` degrees to the left, `face` (`heading`, `pitch`: the camera, in degrees, checked against comfyfog.dll's stats; `leftDrag` tilts it by left-drags, which leave a swimmer level), `probe`, `screenshot`, `atmos`, `cvar`, `chat`, `type` (a slash command typed into the chat box, such as `/target Pinto`), `camera` (the camera's distance partway through, as `config.camera`) |
+| `expect` | checks against the last probe (or the one `probeAt` names, from 1): `probe` is a pattern for its lines, `max` and `min` the count allowed. Or against a screenshot: `shot` (which, from 1), `row`, `from`, `to` (columns), and `min` (the darkest pixel allowed), `mean` (the least average) or `meanMax` (the most average, for a row that must stay in shade) along that row. Or `shot` and `box` (`[left, top, right, bottom]`) with `jumpMax`, the percent of pixels allowed that differ sharply from the next one (speckle) |
+
+## Snapshot
+
+When the owner says **"snapshot"**, run `.\Snapshot.ps1` while they stand where the test is to start. It reads,
+without moving anything: the place and map, the camera's heading, pitch and distance, flight (more than 3 yards
+over the ground), the sun the shadows use, and every Atmosphere page control. It prints a test's `config` block
+and the first `face` step, and saves them to `results\<time>-snapshot.json`. `cameraDistance` (yards) sets the
+camera as far back as the owner had it; under 1.5 yards it is `camera: 0`.
 
 ## The tests
 
@@ -48,3 +56,6 @@ A test is a `.json` file here:
 | `ironforge-gate-fog` | Stand on the road outside Ironforge's gate, under the mountain. The fog must let the road and the trees show (2026-10-04). |
 | `stormwind-tower-speckle` | Stand on the bridge into Stormwind facing the sun over the gate. The left tower, where the sun grazes it, must show no speckled shade (2026-10-04). |
 | `stormwind-canal-wake` | Swim through a canal inside Stormwind, the camera looking down. Ripples and a wake must trail the swimmer, on a building's water as on the map's (2026-10-04). |
+| `elwynn-trough-shadow` | Stand in the Eastvale water trough, the camera zoomed in. The trough must not be marked a body, so its shadow has no character's extra darkness (2026-10-04). |
+| `development-horse-seethrough` | On the development map with a summoned Warhorse and Charger beside you. No horse may be taken as see-through, and the Warhorse must stay a body in every frame (2026-10-04). |
+| `development-windmill` | Stand 17 yards from a Westfall windmill in its blades' shade, then 200 yards out, the camera turned round, and back. All its parts must be in the far map, no older pose of it kept, its tower solid and its sails leaves (2026-10-04). |

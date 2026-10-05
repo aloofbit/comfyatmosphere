@@ -159,6 +159,47 @@ int ClientUnits(float (*out)[3], int max)
         return n;
     }
 
+// The same walk with each unit's display ids (2026-10-04), from its update fields (the pointer at +0x8), as
+// ClientPlayerMounted reads the mount: the shadow cache tells a unit's own model by the model it wears.
+int ClientUnitList(ClientUnit* out, int max)
+    {
+        const ClientSettings& b = g_cfg.client;
+        if (!b.objMgrAddr || !b.playerPosOff || max <= 0)
+            return 0;
+        DWORD mgr = 0;
+        if (!SafeCopy(static_cast<uintptr_t>(b.objMgrAddr + Slide()), &mgr, 4) || !mgr)
+            return 0;
+        DWORD link = 0, obj = 0, me[2] = {};
+        if (!SafeCopy(mgr + 0xA4, &link, 4) || !SafeCopy(mgr + 0xAC, &obj, 4) || !SafeCopy(mgr + 0xC0, me, 8))
+            return 0;
+        int n = 0;
+        for (int i = 0; i < 16384 && obj && !(obj & 1) && n < max; ++i)
+        {
+            DWORD type = 0;
+            if (!SafeCopy(obj + 0x14, &type, 4))
+                break;
+            ClientUnit& u = out[n];
+            if ((type == 3 || type == 4) && SafeCopy(obj + b.playerPosOff, u.pos, 12) && SaneWorld(u.pos))
+            {
+                // The fields from UNIT_FIELD_DISPLAYID (0x83) to UNIT_FIELD_BYTES_1 (0x8A).
+                DWORD fields = 0, f[8] = {}, guid[2] = {};
+                if (!SafeCopy(obj + 0x8, &fields, 4) || !fields || !SafeCopy(fields + 0x83 * 4, f, sizeof(f)))
+                    memset(f, 0, sizeof(f));
+                u.display   = f[0];
+                u.mount     = f[2];
+                u.bytes1    = f[7];
+                u.stealthed = ((f[7] >> 24) & 0x02) != 0;
+                u.self      = SafeCopy(obj + 0x30, guid, 8) && guid[0] == me[0] && guid[1] == me[1];
+                ++n;
+            }
+            DWORD next = 0;
+            if (!SafeCopy(obj + link + 4, &next, 4))
+                break;
+            obj = next;
+        }
+        return n;
+    }
+
 // Every game object (type 5) out of the object manager, by the same walk (2026-10-01). Its fields (the pointer at
 // +0x8) are 1.12's update fields: the scale at 0x4, then GAMEOBJECT_DISPLAYID at 0x8 and POS_X, POS_Y, POS_Z,
 // FACING at 0xF..0x12. In Stormwind's Trade District a torch and two lampposts are game objects: no map file

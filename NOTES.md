@@ -1826,6 +1826,206 @@ pixels was tried first and missed the speckle once it came as hard black and whi
 The runner now logs in once for a whole run and keeps track of flight, which the cast toggles: all five tests in
 4.2 minutes, where each had taken about a minute and a half with its own login.
 
+## A unit's model by what it draws (2026-10-04)
+
+Standing inside the Eastvale water trough, the trough's shadow got as dark as the player's. The trough was taken
+for the player's model, by two rules that went by place alone:
+
+- **The Charger's 3-yard rule** (2026-10-02): any model placed within 3 yards of the player was the player's.
+- **The half-yard rule**: a model whose first bone is within half a yard of a unit is that unit's. Standing
+  inside the trough put its root 0.38 yards from the player's feet. In `FromFiles` the same rule kept a doodad
+  the files place out of their hands where a unit stood, and an entry once a unit's stays one (sticky).
+
+**What the client draws tells the model apart.** A unit's model, and a mount, is drawn from a vertex buffer
+that holds one view (skin profile) of its M2 file, and nothing else. Measured: the Charger's buffer holds
+3,332 vertices, view 1 of `Creature\WarHorse\PVPWarHorse`; Pinto's 4,835, view 0 of `RidingHorse`; a female
+dwarf's 19,033, view 3 of `DwarfFemale` (its file holds 70,803: the views list the vertices shown).
+
+- `ClientUnitList` reads each unit's `UNIT_FIELD_DISPLAYID` (0x83) and `UNIT_FIELD_MOUNTDISPLAYID` (0x85).
+- The map loader reads `CreatureDisplayInfo.dbc` (the model's row, field 1), `CreatureModelData.dbc` (its
+  file, field 2) and the M2's views (count at 0x4C, offset at 0x50, 44 bytes each, the vertex count first):
+  `MapCreatureModelViews`. Each display is read once; the log lists it ("creature display").
+- `UnitModelNear`: a draw is a unit's when its buffer's vertex count is a view of the model a unit within 8
+  yards wears, as its display or its mount.
+- **The cache** takes a unit's model and its mount by that. The 3-yard rule is gone, and other players'
+  mounts are found the same way. The half-yard rule is left for what is drawn at a unit and is not its model:
+  a weapon in its hand.
+- **The files' doodads** (`FromFiles`): a doodad the files place (its reference point, its origin, or a bone
+  to a tenth of a yard) is theirs unless its buffer is a unit's model. Nothing falls back on the place while a
+  unit's model is read: an entry made then would stay a unit's. A unit's own draw refused for those few frames
+  is only not kept for them.
+- **The body mask** marks the cache's units alone (`ShadowIsUnitDraw`).
+
+The probe's body mask lines say "a BODY" or "a model, not a body", with the buffer's size; until now every
+model drawn was "MARKED", body or not. The cache's "near you" lines add the buffer's vertex count, whether a
+unit wears that model, and whether the files refuse it. Matching took 1.48 ms at the trough before and 1.5
+to 1.9 ms after.
+
+Test: `tests/elwynn-trough-shadow.json`, the owner's place in the trough, zoomed in: the trough's 78,336-byte
+buffer is never a body. Measured by hand on 2026-10-04 and not kept as tests: mounted with `.aura 23214`, the
+Charger's 159,936 was a body and the trough's was not.
+
+## The object table (2026-10-04)
+
+The shadow cache records the client's draws, and its rules judged each draw on its own. A draw is not an
+object: a windmill is four draws (tower, cap, motor, blades); from afar the client draws several windmills
+in one draw, a bone set each, filed at the first one's place; the same windmill is drawn from another buffer
+at another distance; and what is drawn changes with the view. So a windmill's shade froze, doubled (a batch's
+copy and the near model's), or went when it stood behind the camera ("in view, not drawn", "brief", and the
+older-pose rules of the same day each took a way of drawing it that had stopped for one that had begun).
+
+A record is one object, from a source that knows it:
+- **kind 1**, an animated doodad the files place (`MapAnimatedDoodads`), and **kind 2**, a game object the
+  server spawned (`ClientGameObjects`), within the map's reach.
+- It lives while its source lists it (`RefreshObjects`, before each merge): never because a frame did not draw
+  it. A part whose buffer the client wrote over goes.
+- A shader draw whose own bones stand on a record's place (2 yards) is filed under it (`FileUnderObjects`), in
+  one slot per part (its first index in its buffer), the last pose of each, and never enters the cache. A
+  batch is split: each record's copy keeps the bones within 40 yards of its place and zeroes the rest. A part
+  not drawn keeps its last pose. A draw from another buffer replaces the record's parts. A unit's own model
+  (`UnitModelNear`) is not filed.
+- The replay draws the records' parts with the cache's entries, by the same rules (solid or leaves, the near,
+  middle and far maps); the leaf shares see them too.
+
+The windmill: one record, four parts; the cache holds no entry at an animated doodad. At the start of the test,
+with the windmill behind the camera in first person, the record kept the blades drawn 7.6 seconds before.
+In the owner's area: 26 records (11 animated doodads, 15 game objects), 54 parts. The probe's "object table"
+and "object part" lines list them. Creatures and players stay in the cache, filed by model (`UnitModelNear`).
+A part the client never drew (the tower, behind the camera since login) is not in the record yet.
+
+## A windmill's shade arriving in steps from afar (2026-10-04)
+
+Flying toward a Westfall windmill, its shade came in steps: the building, then the cap, then the blades. At 90
+yards the lighthouse's shade showed and the windmill's tower and blades did not.
+
+- The probe's new list of entries at animated doodads (within 300 yards, wherever you stand) had the
+  windmill's four parts drawn every frame, in the near or middle map and in no far map.
+- **`[shadow] minTriangles`** (200) keeps small models out of the far map past 60 yards, a flower or a stone.
+  It judged each part: the windmill is drawn in parts of 108, 88, 60 and 30 triangles, all under 200. Past 60
+  yards its blades (leaves, the far map alone) were gone; past the middle map's 100 yards, the tower too.
+- **Now by the whole model** (`ModelTriangles`: all its parts seen, from `g_leafParts`): 286 for the windmill.
+- The far map is redrawn every `farEvery` replays, so the probe frame often does not redraw it. Each entry
+  now remembers whether the far map's last redraw drew it (`inFar`), and the probe says so.
+
+Test: `tests/development-windmill.json`, the owner's place 90 yards off, flying, in first person: all four
+parts in the far map, and the shade view shows the tower's shade with the blades at its tip.
+
+## A dark octagon in a windmill's shade (2026-10-04)
+
+Below the windmill's blades its shade had a darker part. Character Shadow Strength 0 left it, so no unit was in
+it. Debug View 24 showed the windmill's whole shade green (leaves) and a yellow octagon (solid and leaves) in
+it. The map file places a doodad WESTFALLLIGHTHOUSE 3 yards from the windmill, inside it.
+
+- **A model with any alpha-keyed part cast whole as leaves** (2026-09-29, for a tree's trunk: by draw alone it
+  threw a dark bar through the canopy's part shade). The windmill's sails are 30 of its 286 triangles, so its
+  stone tower gave part shade, and the solid shape inside it showed through, darker.
+- **Now by share**, in both places: a model goes whole to the leaves when its alpha-keyed parts are a quarter
+  of its triangles or more. Otherwise those parts alone cast as leaves (cut by their texture) and the rest
+  casts solid.
+  - The cache: `g_leafParts` holds each model's parts seen (triangles, alpha tested), as long as
+    `g_leafModels`, and a model joins `g_leafModels` only past `kLeafShare` (0.25). The probe's "near you"
+    lines give the model's share and whether the part casts as leaves or solid.
+  - The files: `M2Load` sets `alpha` by the same share; `bake` puts a model that is not a tree into both
+    buffers, its opaque batches solid and its alpha-keyed ones as leaves.
+- The windmill: 10% alpha tested; its tower casts solid, its sails leaves, and its shade is even.
+
+Test: `tests/development-windmill.json`, the owner's place and sun: the windmill's opaque parts cast solid
+and its sails as leaves.
+
+## A windmill's blades as a solid disc (2026-10-04)
+
+On the development map a Westfall windmill's blades cast a near-solid disc with the turning blades over it,
+as the gryphons at Lakeshire had two shadows (2026-09-30). The files leave WESTFALLWINDMILL to the client's
+draws (an animated doodad), so the static copy came from the cache.
+
+- **The probe**: entries at the windmill's placement (each one's first bone) that the client last drew 42 to
+  238 seconds before. From afar the client draws several windmills in one batch from a 7,520-vertex buffer,
+  its bones up to 300 yards about; near by, one windmill from a 470-vertex buffer. Each pose the client drew
+  past kMatchRadius from the last became an entry, and the not-drawn rules kept them: the shade in view, and
+  with 300 yards of bones "out of reach" never fired.
+- **The fix**: of the entries at one animated doodad's place (`MapAnimatedDoodadAt` at the first bone, 2
+  yards), those the client drew last stay and the older go ("an older pose of an animated doodad"). By the
+  place alone, whatever the model: a pose from the far batch outlived the switch to the near buffer.
+- A windmill out of view keeps the pose it was last drawn in: one pose, not a disc.
+- **Every bone, not the first** (later the same day). The owner's probe still held a frozen windmill under the
+  turning one: five batch entries filed at other windmills' places, 73 to 227 yards off, not drawn for 3.6 to
+  11.8 seconds, with bones 114 to 266 yards about; the near windmill was among them. The rule keyed on an
+  entry's first instance never compared them. Now an entry not drawn this frame goes when any bone it uploaded
+  stands on an animated doodad (2 yards) that a newer entry has drawn since (`AnimPlaces`, `OlderAnimPose`).
+  The probe lists every entry at an animated doodad within 300 yards and says whether it holds such an older
+  pose. `tests/development-windmill.json`: from the owner's probe, 200 yards back and in again; 42 entries
+  went as older poses on the way, and none held one at the end.
+- **Like with like** (later still). In first person, with the windmill behind the camera, the client drew the
+  edge of its tower and not its blades, and the blades' shade went: their entry counted as an older pose
+  because another part had been drawn since. Now an entry is an older pose only when a newer draw of the same
+  part (buffer and first index) stands at the doodad, or the doodad is drawn from another buffer now (the far
+  batch against the near model). A part the client culled stays. The runner's checks can name a probe
+  (`probeAt`), and the windmill test probes at its start: the blades must still be in the cache there.
+
+Test: `tests/development-windmill.json`: the owner's place, camera and sun (azimuth 45, elevation 68),
+and the shots. From a fresh login the client draws only the near windmill there, so it passes on the old build
+too. Measured by hand: after 10 seconds looking from 125 yards up and going down, the old build held 4 entries
+42 seconds old at the windmill and the blades were a gear-shaped disc; the new one held none.
+
+## Horses in see-through triangles at the paddock (2026-10-04)
+
+At the Eastvale paddock, walking away from a horse, the horse flickered and showed see-through triangles,
+mostly on its saddle cloth. Sun Shadows off did not change it; Volumetric Light off did, and Debug View 15
+flickered on the horse. With `[depth] seeThrough 0` alone (the owner, in the game) it was gone.
+
+- **The client fades a unit** in some cases (a Warhorse 2 yards from the player, Pinto in one frame of three):
+  a depth pass with colour writes off, then the colour blended. Measured in the owner's F12: both Warhorse
+  batches drawn that way, 3 see-through draws and 3 depth passes skipped.
+- **The see-through rule** (`IsSeeThroughModel`, `IsDepthOnlyModel`) was written for stealthed lions: it
+  skips the depth pass and turns off depth writes on the colour pass, so the shadows and the light do not
+  outline a stealthed unit. It took any unit's model more than 4 yards from the player, so a faded horse
+  lost its depth pass and showed its back faces through its front. The unit flag flickering between frames
+  turned the rule on and off.
+- **The rule now asks the unit.** The server marks stealth with `UNIT_BYTE1_FLAGS_CREEP` (0x02) in byte 3 of
+  `UNIT_FIELD_BYTES_1` (0x8A), read with the units (`ClientUnitList`). `ShadowIsStealthedUnitDraw`: the
+  draw's buffer holds a view of the model a stealthed unit within reach wears, and the unit is not the
+  player. The 4-yard rule for the player's own models is gone.
+- A unit invisible by another aura (`SPELL_AURA_MOD_INVISIBILITY`) does not set the flag and is not taken.
+
+The probe lists each unit within 40 yards with its displays, `UNIT_FIELD_BYTES_1` and whether it is stealthed.
+
+- **Why it flickered.** A unit's cache entry was evicted as "unit gone" when the game did not draw it that
+  frame and its first bone was off the half yard (`UnitAt`); a Warhorse's lies 6 yards from its feet. With its
+  depth pass skipped, the cache recorded nothing for it, the entry went, the next frame it was not a unit, its
+  depth pass was drawn, and it came back as one. The eviction now asks `UnitModelNear` too: an entry goes only
+  when no unit near it wears that model.
+
+Tests: `tests/development-horse-seethrough.json`, the owner's place on the development map (451) where it
+happened standing still. The runner summons a Warhorse and a Charger where the owner's stood (the test's `summon`)
+and deletes them after the steps: each selected by its name, and `.npc delete` sent only when the selection
+has that name. `.npc delete` unsummons a summon and writes nothing;
+on a world spawn it removes the row from the database, so `summon` takes only creatures with no world spawn
+(none of 9158 or 14565 has one). Before the fix: 4 see-through draws. After: 0, and the Warhorse, drawn as
+a depth pass and a blended pass, a body in all three probed frames. Measured by hand and not kept as a test: Pinto
+with `.aura 1784 20` (Stealth, 20 seconds) gave 5 see-through draws. A stealthed unit drops off the target, so
+an `.unaura` after it lands on the player. The runner gained a `type` step (a slash command), and the probe's slice
+now starts at its `--- probe:` line, where the see-through counts are.
+
+## Things lit inside a hill's shade as you came near (2026-10-04)
+
+At a paddock in Eastvale, one step toward a water trough and the trough and a horse beside it came out lit
+inside a hill's shade, while the ground round them stayed shaded. Walking on, the fence lit up too.
+
+- **Debug View 24** gave the trough the full solid shade of the ground. **Debug View 25** was black: the hill
+  check took nothing off. **Debug View 5** showed the trough, the horse, a fence post and the character at
+  178 of 255, the ground at 0.
+- **The cause.** Since the Charger (2026-10-02), any model within 3 yards of the player counts as a unit, in
+  the cache and in the body mask. On a body, Character Backside Shadow (`bodyShade`, 30) scaled all of the
+  shade, so a body kept 30% of a hill's shade. That held for every unit in a hill's or a house's shade; the
+  3-yard rule brought the trough and the fence into it as you came near.
+- **The fix.** `bodyShade` scales the units' map shade alone: `shade = max(world, units x bodyShade)`. The
+  world's maps leave the units out, so their shade on a body is a hill's, a house's or a tree's, and stays in
+  full. A character's shade on its own back is still the units' map, and still scaled.
+
+Measured by hand from the owner's place: Debug View 5 before and after a 1.5-yard step, a row across the
+trough averaged 178 before the fix and 0 after. The runner's row check gained `meanMax`. The paddock's test is
+`tests/elwynn-trough-shadow.json`.
+
 ## No ripple or wake in Stormwind's canals (2026-10-04)
 
 The owner swam in a canal inside Stormwind and saw no ripple and no wake. The canals are a WMO's liquid. The map
@@ -1869,7 +2069,8 @@ Charger went see-through. With every effect off they were right.
   probe's body mask lines (F12, three frames, every depth-writing model draw within 6 yards, marked or
   not) showed 0 draws near the player. After the fix: 18 of 18 marked, three frames running.
 
-Other players' mounts can still flicker the same way; only the player's own models get the 3-yard rule.
+Other players' mounts can still flicker the same way; only the player's own models get the 3-yard rule. Replaced on 2026-10-04: a unit's model and its mount are told by the model they draw (see "A unit's
+model by what it draws").
 
 ## Frame drops while turning, and wow-test-tool (2026-10-02)
 

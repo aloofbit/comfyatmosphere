@@ -127,6 +127,17 @@ foreach ($file in $files) {
         $lines += $flightOff
         $flying = $false
     }
+    # Creatures the test needs (2026-10-04): summoned where each stands (.npc summon puts it at the player), on the
+    # start's map, before the start. Each is deleted after the steps (below). Only a creature with no world
+    # spawn: the delete goes by its name.
+    if ($cfg.summon) {
+        foreach ($u in $cfg.summon) {
+            $lines += "chat .go xyz $($u.x) $($u.y) $($u.z) $($cfg.start.map)"
+            $lines += 'wait 2'
+            $lines += "chat .npc summon $($u.entry)"
+            $lines += 'wait 1'
+        }
+    }
     if ($cfg.start) {
         $s = $cfg.start
         $lines += "chat .go xyz $($s.x) $($s.y) $($s.z) $($s.map)"
@@ -150,12 +161,16 @@ foreach ($file in $files) {
         foreach ($p in $cfg.cvars.PSObject.Properties) { $lines += "cvar $($p.Name) $($p.Value)" }
     }
     if ($null -ne $cfg.debugView) { $lines += "cvar comfyDebugView $($cfg.debugView)" }
-    # The camera by a number (the owner, 2026-10-03): 0 first person, 1 to 9 that many steps back out from it,
-    # 10 all the way out. "zoomed" is 0 and "far" is 10.
-    if ($null -ne $cfg.camera) {
+    # The camera by a number (the owner, 2026-10-03): 0 first person, 1 to 9 that many notches of the mouse wheel
+    # back out from it, 10 all the way out. "zoomed" is 0 and "far" is 10. By the wheel since 2026-10-04: zoom out
+    # (CameraZoomOut) went all the way out whatever its number, so every test before then ran at 10. A notch: 1
+    # put the camera 2.5 yards back, 2 at 3.4, 4 at 5.3.
+    # Or by yards (cameraDistance, 2026-10-04): as far back as the owner had it, from a snapshot.
+    if ($null -ne $cfg.cameraDistance) { $lines += "camdist $($cfg.cameraDistance)" }
+    elseif ($null -ne $cfg.camera) {
         $cam = if ($cfg.camera -eq 'zoomed') { 0 } elseif ($cfg.camera -eq 'far') { 10 } else { [int]$cfg.camera }
         $lines += 'zoom -30'
-        if ($cam -ge 10) { $lines += 'zoom 30' } elseif ($cam -gt 0) { $lines += "zoom $cam" }
+        if ($cam -ge 10) { $lines += 'zoom 30' } elseif ($cam -gt 0) { $lines += 'wait 1'; $lines += "wheel $cam" }
     }
     # hop: .go xyz along a line from the start at the start's height, in steps (2026-10-03). Exact where turning
     # and flight speed were not. $along is how far along the line the last hop left the character.
@@ -198,8 +213,24 @@ foreach ($file in $files) {
             'atmos'      { $lines += "atmos $v" }
             'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
             'chat'       { $lines += "chat $v" }
+            'type'       { $lines += "type $v" }
+            'camera'     {   # the camera's distance partway through, as config.camera: 0 first person, 1 to 9 notches out, 10 all the way
+                $lines += 'zoom -30'
+                if ([int]$v -ge 10) { $lines += 'zoom 30' } elseif ([int]$v -gt 0) { $lines += 'wait 1'; $lines += "wheel $([int]$v)" }
+            }   # typed into the chat box as a player types: a slash command (/target Pinto)
             default      { throw "$($t.name): unknown step '$($p.Name)'" }
         }
+    }
+    # The summoned creatures go again: each selected by its name and deleted. .npc delete takes a world spawn out
+    # of the database for good, so it is sent only when the selection has exactly that name.
+    if ($cfg.summon) {
+        foreach ($u in $cfg.summon) {
+            $lines += "type /target $($u.name)"
+            $lines += 'wait 0.5'
+            $lines += "type /script if UnitName(""target"") == ""$($u.name)"" then SendChatMessage("".npc delete"") end"
+            $lines += 'wait 0.5'
+        }
+        $lines += 'type /script ClearTarget()'
     }
     # Put back what the test set.
     $lines += 'cvarsback'
@@ -214,19 +245,26 @@ foreach ($file in $files) {
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
     # The last probe of this run: from its header to the next report or the end. The frame it logs comes
-    # before the header (2026-10-04: the water's lines), from its "begin frame" line.
+    # before the header (2026-10-04: the water's lines), and before that the probe's own start: from its
+    # "--- probe:" line (the see-through counts), or else its "begin frame" line.
     $new = if (Test-Path $log) { @(Get-Content $log | Select-Object -Skip $logStart) } else { @() }
     $heads = @(for ($i = 0; $i -lt $new.Count; $i++) { if ($new[$i] -match '^=== client report \((F12|/atmos probe)\) ===') { $i } })
-    $probe = @()
-    if ($heads.Count) {
-        $from = $heads[-1]
+    # Each probe of the run (2026-10-04): a check reads the last unless it names one (probeAt, from 1). A probe's
+    # lines end at the next probe's own start, or its report.
+    $probes = @()
+    foreach ($hd in $heads) {
+        $from = $hd
+        $begin = -1
         for ($i = $from - 1; $i -ge 0 -and $new[$i] -notmatch '^=== (end of )?client report'; $i--) {
-            if ($new[$i] -match '^--- begin frame \d+ capture ---') { $from = $i; break }
+            if ($new[$i] -match '^--- probe: ') { $begin = $i; break }
+            if ($begin -lt 0 -and $new[$i] -match '^--- begin frame \d+ capture ---') { $begin = $i }
         }
+        if ($begin -ge 0) { $from = $begin }
         $to = $new.Count
-        for ($i = $from + 1; $i -lt $new.Count; $i++) { if ($new[$i] -match '^=== client report') { $to = $i; break } }
-        $probe = $new[$from..($to - 1)]
+        for ($i = $hd + 1; $i -lt $new.Count; $i++) { if ($new[$i] -match '^=== client report|^--- probe: ') { $to = $i; break } }
+        $probes += ,@($new[$from..($to - 1)])
     }
+    $probe = if ($probes.Count) { $probes[-1] } else { @() }
 
     # Every screenshot of the run, in order: a test can take one in each debug view.
     $shots = @(Get-ChildItem (Join-Path $Client 'Screenshots') -File -ErrorAction SilentlyContinue |
@@ -279,14 +317,25 @@ foreach ($file in $files) {
             }
             finally { $bmp.Dispose() }
             $avg = if ($count) { [int]($sum / $count) } else { 0 }
-            $ok = ($null -eq $e.min -or $low -ge [int]$e.min) -and ($null -eq $e.mean -or $avg -ge [int]$e.mean)
+            # meanMax (2026-10-04): the most the average may be, for a row that must stay in shade.
+            $ok = ($null -eq $e.min -or $low -ge [int]$e.min) -and ($null -eq $e.mean -or $avg -ge [int]$e.mean) -and
+                  ($null -eq $e.meanMax -or $avg -le [int]$e.meanMax)
+            $wantAvg = @()
+            if ($null -ne $e.mean) { $wantAvg += "at least $($e.mean)" }
+            if ($null -ne $e.meanMax) { $wantAvg += "at most $($e.meanMax)" }
+            $wantAvg = if ($wantAvg.Count) { $wantAvg -join ' and ' } else { 'any' }
             if (-not $ok) { $pass = $false }
-            $results += ('{0}  {1}: row {2} averages {3}, its darkest pixel {4} at column {5} (wanted: average {6}, darkest {7})' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $e.row, $avg, $low, $at, $(if ($null -ne $e.mean) { "at least $($e.mean)" } else { 'any' }), $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' }))
-            $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('row {0} averages {1}, its darkest pixel {2} at column {3} (wanted: average {4}, darkest {5})' -f $e.row, $avg, $low, $at, $(if ($null -ne $e.mean) { "at least $($e.mean)" } else { 'any' }), $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' })); shot = $n }
+            $results += ('{0}  {1}: row {2} averages {3}, its darkest pixel {4} at column {5} (wanted: average {6}, darkest {7})' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $e.row, $avg, $low, $at, $wantAvg, $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' }))
+            $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('row {0} averages {1}, its darkest pixel {2} at column {3} (wanted: average {4}, darkest {5})' -f $e.row, $avg, $low, $at, $wantAvg, $(if ($null -ne $e.min) { "at least $($e.min)" } else { 'any' })); shot = $n }
             continue
         }
         if (-not $heads.Count) { $results += "FAIL  no probe in the log: $($e.about)"; $checks += [pscustomobject]@{ ok = $false; about = $e.about; got = 'no probe in the log'; shot = 0 }; $pass = $false; continue }
-        $hits = @($probe | Where-Object { $_ -match $e.probe })
+        $slice = $probe
+        if ($null -ne $e.probeAt) {
+            $k = [int]$e.probeAt
+            $slice = if ($k -ge 1 -and $k -le $probes.Count) { $probes[$k - 1] } else { @() }
+        }
+        $hits = @($slice | Where-Object { $_ -match $e.probe })
         $ok = $true
         if ($null -ne $e.max -and $hits.Count -gt [int]$e.max) { $ok = $false }
         if ($null -ne $e.min -and $hits.Count -lt [int]$e.min) { $ok = $false }
