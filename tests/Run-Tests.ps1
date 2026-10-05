@@ -151,6 +151,9 @@ foreach ($file in $files) {
         if ($null -ne $s.facing) { $lines += "heading $($s.facing)" }
     }
     $lines += 'wait 1.2'; $lines += 'pos start'   # the place comes from comfyStats, up to a second old
+    # No weather (the owner, 2026-10-05): rain or snow changes the light and the fog from run to run. The
+    # weather is the zone's, so it is cleared here, at the start.
+    $lines += 'chat .wchange 0 0'
     # comfyfog's values: none left from before, then this test's.
     $lines += 'atmos reset'
     if ($cfg.sun) {
