@@ -145,9 +145,9 @@ foreach ($file in $files) {
         $s = $cfg.start
         $lines += "chat .go xyz $($s.x) $($s.y) $($s.z) $($s.map)"
         $lines += 'wait 5'
-        # The character's heading (2026-10-04): .go xyz keeps the old one. The camera turns to it, and a
-        # right-click turns the character after it.
-        if ($null -ne $s.facing) { $lines += "face $($s.facing)"; $lines += 'rclick'; $lines += 'wait 0.5' }
+        # The character's heading (2026-10-04): .go xyz keeps the old one. Turned by right-drags, the camera
+        # with it (2026-10-05): the camera turned alone and a right-click did not bring the character after it.
+        if ($null -ne $s.facing) { $lines += "heading $($s.facing)" }
     }
     $lines += 'wait 1.2'; $lines += 'pos start'   # the place comes from comfyStats, up to a second old
     # comfyfog's values: none left from before, then this test's.
@@ -210,7 +210,7 @@ foreach ($file in $files) {
             'back'       { $lines += ('hold S {0:0.##}' -f ([double]$v / ($speed * 0.64))); $lines += 'wait 1.2'; $lines += "pos after back $v" }   # backing up is 64% of the speed
             'turn'       { if ([double]$v -eq 180) { $lines += 'keys ctrl+shift+f' } else { $lines += ('hold Q {0:0.##}' -f ([double]$v / 180.0)) }; $lines += 'wait 1.2'; $lines += "pos after turn $v" }               # the keys turn 180 degrees a second
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
-            'face'       { $lines += "face $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the camera, checked against comfyStats: ComfyTest turns, wow-test-tool tilts
+            'face'       { $lines += "heading $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the character and the camera, checked against comfyStats: right-drags turn, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
             'screenshot' { $shotViews += $view; $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
             'atmos'      { $lines += "atmos $v" }
@@ -244,7 +244,7 @@ foreach ($file in $files) {
     $logStart = if (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
     $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String
-    $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|face|pitch) ' })
+    $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|face|heading|pitch) ' })
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
     # The last probe of this run: from its header to the next report or the end. The frame it logs comes

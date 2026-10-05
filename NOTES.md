@@ -1784,6 +1784,27 @@ averages 37, and the far wall and the gate show through a haze.
 change it, and checks the average of row 250 of the Debug View 12 shot (at least 25). The runner's screenshot
 check gained `mean` for this: fog is a gradient, and the darkest pixel says little about it.
 
+## A second ridgeline in the fog (2026-10-05)
+
+In eastern Elwynn, looking at ridges one behind another, the fog drew each ridge twice: a pale band in the
+shape of the ridge, partway down its face. The terrain is really there; the fog stepped across it.
+
+- **Measured, not guessed.** The probe now reads the march's output down three columns of the screen: what
+  gets through (T) and the distance at each point, and in Debug View 4 the raw depth and whether the fog took
+  the point for far land or sky. On one ridge face T went 0.88 to 0.75 between 456 and 452 yards, with the
+  distance hardly changing.
+- **Land taken for sky.** The march took a point for sky when its depth through the world's camera reached
+  0.9999. With that camera (near 0.1 yards, far 777) that is about 437 yards: every point past it took the
+  sky's fog (`skyDistance`) and not the reach. Now a point is sky only past the world's depth slice and not
+  far land, or at the cleared depth: from the raw depth, as far land already was. The composite's test for
+  the sun and moon discs is the same.
+- **What is left.** The far range behind those ridges writes no depth at all (raw 1.0, the empty sky's), so
+  the fog still takes it for sky. With Fog Sky below Fog Reach a small step stays at the ridgeline itself. The
+  owner, with Fog Sky at 25 and at 200: it looks right.
+
+Test: `tests/elwynn-ridge-fog.json`, the owner's snapshot: shots with the fog off and on, then Debug Views 12
+and 14, and a probe in Debug View 4 for the columns of raw depth. No check reads the shots yet.
+
 ## Fog at the foot of Ironforge's mountain (2026-10-04)
 
 On the road outside Ironforge's gate the fog hid the trees 60 yards off. The mountain the city lies under rises
@@ -2074,6 +2095,17 @@ Test: `tests/stormwind-canal-wake.json`. The owner's first place was read during
 surface, where no ripple starts; the test starts at their place on the surface, with their heading.
 The runner gained `facing` (a `face` and a right-click), `jump`, and `down`/`up`. The tool's `pitch ... left`
 tilts by left-drags: a right-drag also tilts a swimmer, which then dives.
+
+Later (2026-10-05):
+- **The game's own wake showed in the test.** Its texture is learnt from the first batch of additive particles
+  on the water near a unit, and only on a river's or the sea's surface from the map files. The canal is a
+  building's water, so on a fresh login there it was never learnt, and the game's V and ring showed beside
+  ours. A batch on a building's water (`CityWaterAt`) counts now, with the same 15-yard reach as the map's
+  water grid. The test checks that the game's wake is found and hidden.
+- **The swim went off the camera.** `face` turns the camera alone (FlipCameraYaw), and the right-click meant
+  to turn the character after it did not: the character kept its old heading and the camera stayed offset.
+  wow-test-tool's `heading` turns the character by right-drags, the camera with it, read back from the stats;
+  the runner uses it for the start and for every `face` step.
 
 ## Banners, a statue and the Charger (2026-10-02)
 

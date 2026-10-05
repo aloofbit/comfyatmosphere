@@ -2597,8 +2597,12 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
     if (fabsf(r[3]) < 1e-6f)
         return false;
     const float p[3] = { r[0] / r[3] + cam[0], r[1] / r[3] + cam[1], r[2] / r[3] + cam[2] };
+    // A river's or the sea's surface, or a building's water (2026-10-05): on a fresh login in Stormwind's canals,
+    // which are a building's, no batch was ever taken, and the game's V and ring showed beside ours.
     float wz = 0.0f;
-    const bool wet = MapWaterHeight(p[0], p[1], wz);
+    const bool mapWet = MapWaterHeight(p[0], p[1], wz) && fabsf(p[2] - wz) <= 0.6f;
+    const bool cityWet = !mapWet && CityWaterAt(p[0], p[1], p[2], wz);
+    const bool wet = mapWet || cityWet;
     float pl[3] = {};
     ClientPlayer(pl);
     if (g_probeOn || ++told <= 30)
@@ -2621,7 +2625,8 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
         const float m = fabsf(a / kCellYd - roundf(a / kCellYd)) * kCellYd;
         return m < 0.02f;
     };
-    const float reach = onGrid(p[0]) && onGrid(p[1]) && fabsf(p[2] - wz) < 0.1f ? 15.0f : 6.0f;
+    // A building's water has its own grid, not the map's: up to the same 15 yards.
+    const float reach = (cityWet || (onGrid(p[0]) && onGrid(p[1]))) && fabsf(p[2] - wz) < 0.1f ? 15.0f : 6.0f;
     for (int i = 0; i < g_unitCount; ++i)
     {
         const float dx = g_units[i][0] - p[0], dy = g_units[i][1] - p[1];
@@ -2631,8 +2636,8 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
             g_wakeNot.erase(tex);
             char info[96];
             TexInfo(tex, info, sizeof(info));
-            Log("water: the game's wake is drawn with texture %s: particles at (%.1f %.1f %.1f) by a unit, on the "
-                "water at %.1f", info, p[0], p[1], p[2], wz);
+            Log("water: the game's wake is drawn with texture %s: particles at (%.1f %.1f %.1f) by a unit, on %s "
+                "at %.1f", info, p[0], p[1], p[2], cityWet ? "a building's water" : "the water", wz);
             ++g_wakeDraws;
             return true;
         }

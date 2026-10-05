@@ -1,0 +1,161 @@
+{
+    "name": "elwynn-ridge-fog",
+    "about": "Standing in eastern Elwynn, first person, looking at ridges one behind another. The fog makes a second ridgeline: it does not fade smoothly into the terrain, and each ridge shows twice (2026-10-05, the owner). A shot with fog off (comfyMist 0), then with fog on; with fog on there must be no second ridgeline that stands out. Then Debug View 12 (how much of the light gets through the fog) and Debug View 14 (where mist collects). No check reads the shots yet: the owner judges them.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 0,
+        "start": {
+            "map": 0,
+            "x": -9416.7,
+            "y": -2248,
+            "z": 67.8,
+            "facing": 53,
+            "about": "the owner's snapshot (2026-10-05): on the ground, first person, facing 53 degrees and 11.7 up, toward the ridges; the sun from their probe"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 48.1
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 25,
+            "comfyClouds": 0,
+            "comfyRays": 1,
+            "comfyRaysStrength": 40,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 25,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 0,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 16,
+            "comfyVolumeDistance": 190,
+            "comfyVolumeDirection": 70,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 20,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 25,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 120,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 200,
+            "comfyMistSky": 75,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 100,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 10,
+            "comfyWaveSize": 200,
+            "comfyWater": 1,
+            "comfyWaterColour": 25,
+            "comfyWaterClarity": 100,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 60,
+            "comfyWaterFoam": 80,
+            "comfyWaterSwash": 60,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 100,
+            "comfyWaterEdgeWidth": 4,
+            "comfyWaterBright": 70,
+            "comfyWaterRippleDepth": 100
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": 53,
+                "pitch": 11.7
+            }
+        },
+        {
+            "wait": 2
+        },
+        {
+            "cvar": "comfyMist 0"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyMist 1"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 12"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 14"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 4"
+        },
+        {
+            "wait": 1.5
+        },
+        {
+            "probe": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        }
+    ],
+    "expect": []
+}

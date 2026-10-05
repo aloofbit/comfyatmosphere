@@ -173,8 +173,15 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // is land, not sky: it takes the fog's full reach (2026-10-03). Taken for sky, its fog went by its height on
     // the screen once the sky's fog grew toward the horizon, and changed along the ridgeline.
     const bool farLand = raw > gZ.x + 1.0 / gZ.y + 1e-5 && raw < 0.99;
+    // The sky: past the world's slice, and not far land (2026-10-05). It was d >= 0.9999, and with the world's
+    // camera (near 0.1 yards, far 777) d passes 0.9999 at about 437 yards: everything past that took the sky's
+    // fog, 75 yards and not the reach. In eastern Elwynn the fog stepped where a ridge's face crossed 450 yards
+    // (0.88 of the light through above, 0.75 below), and the ridgeline showed twice.
+    // Or the cleared depth itself, for a world slice that fills the whole range.
+    const bool sky = (raw > gZ.x + 1.0 / gZ.y + 1e-5 && !farLand) || raw >= 0.999999;
     if (gP.x > 2.5 && gP.x < 3.5)
-        return float4(d, 0.0, 0.0, 1.0);                                  // debug 3: the depth it reads
+        return float4(d, raw, farLand ? 1.0 : 0.0, sky ? 1.0 : 0.0);      // debug 3: the depth it reads (the probe's
+                                                                          // columns: raw, far land, sky)
     float2 ndc  = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp   = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
     float3 P    = wp.xyz / max(wp.w, 1e-6);
@@ -185,7 +192,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // game's fog to its end: the fog in front of it is then the fog above it, and it fades out as in the game.
     // A line stopped at a ridge 170 yards out gathered less fog and glow than the line above it to 200, and
     // a range of spires the game hides stood out as a dark second ridgeline.
-    float  carry = (gZ.w > gZ.z + 1.0 && d < 0.9999) ? smoothstep(lerp(gZ.z, gZ.w, 0.5), gZ.w, dist) : 0.0;
+    float  carry = (gZ.w > gZ.z + 1.0 && !sky && !farLand) ? smoothstep(lerp(gZ.z, gZ.w, 0.5), gZ.w, dist) : 0.0;
     float  distM = lerp(dist, max(dist, gG.z), carry);
     float  len  = min(distM, gP.y);
     float3 e    = dir * len;
@@ -214,7 +221,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // skyDistance 6 degrees up. With 75 yards on the sky and 200 on the sea just below it, the sea's fog, lit
     // from behind by a low moon, glowed as a bright line along the horizon with a hard edge above it.
     float  skyEnd   = gF.w > 0.0 ? lerp(gG.z, min(gF.w, gG.z), smoothstep(0.0, 0.1, dir.z)) : 0.0;
-    float  reachEnd = (d >= 0.9999 && !farLand) ? skyEnd : gG.z;
+    float  reachEnd = sky ? skyEnd : gG.z;
     float  fadeK    = 1.0 / max(0.4 * reachEnd, 1.0);
 
     float  stepLen = len * gL.y;
@@ -258,7 +265,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 
     // Past maxDistance, the rest of the line of sight up to the reach: the integral of the height fog in
     // closed form, taken as lit by the sun (gG.y), with the fade-out taken at its middle.
-    float tEnd = min((d >= 0.9999) ? reachEnd : distM, reachEnd);
+    float tEnd = min((sky || farLand) ? reachEnd : distM, reachEnd);
     [branch] if (gF.x > 0.0 && tEnd > len)
     {
         // Taken as exponential between its two ends, which it is over flat ground.
@@ -397,7 +404,8 @@ float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
 }
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
-    float  d    = min(saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y), 0.99999);
+    float  raw  = tex2Dlod(sDepth, float4(uv, 0, 0)).r;
+    float  d    = min(saturate((raw - gZ.x) * gZ.y), 0.99999);
     float2 ndc  = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp   = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
     float  dist = min(length(wp.xyz / max(wp.w, 1e-6)), 30000.0);
@@ -412,7 +420,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The sun and the moons through the fog on the sky (2026-10-04): the fog dims what lies behind it, and the
     // discs went with it, a low moon most (the sky near the horizon takes the full reach). Round each disc the
     // fog lets the light through, 4 degrees in full, gone by 9, so the disc keeps its brightness in a foggy sky.
-    if (d > 0.9999)
+    if (raw >= 0.99)   // the sky, not land past 437 yards or the far horizon (see the march)
     {
         const float3 vd = normalize(wp.xyz / max(wp.w, 1e-6));
         const float  k  = max(smoothstep(0.98769, 0.99756, dot(vd, gDisc0.xyz)) * gDisc0.w,
@@ -1041,8 +1049,30 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                     const double px = static_cast<double>(g_a.w) * g_a.h;
                     n += _snprintf_s(line + n, sizeof(line) - n, _TRUNCATE, "  mean %.5f, lit %.1f%%", sum / px, 100.0 * lit / px);
                 }
-                sys->lpVtbl->UnlockRect(sys);
                 Log("volume: march output (debug %d) at screen points:%s", g_cfg.volume.debug, line);
+                // Three columns down the middle of the screen (2026-10-05): what gets through (T) and the distance
+                // at each point, to find where the fog steps across a ridgeline. In debug 0 only.
+                if (g_cfg.volume.debug == 0 || g_cfg.volume.debug == 3)
+                    for (float cx : { 0.35f, 0.55f, 0.75f })
+                    {
+                        char col[1024] = {};
+                        int k = 0;
+                        for (float cy = 0.20f; cy < 0.651f; cy += 0.015f)
+                        {
+                            const UINT x = static_cast<UINT>(cx * (g_a.w - 1)), y = static_cast<UINT>(cy * (g_a.h - 1));
+                            const auto* px = reinterpret_cast<const unsigned short*>(static_cast<const char*>(lr.pBits) +
+                                                                                    y * lr.Pitch) + x * 4;
+                            if (g_cfg.volume.debug == 3)   // the depth, raw, and whether it is far land or sky
+                                k += _snprintf_s(col + k, sizeof(col) - k, _TRUNCATE, " %.3f:%.5f%s%s", cy,
+                                                 HalfToFloat(px[1]), HalfToFloat(px[2]) > 0.5f ? " far" : "",
+                                                 HalfToFloat(px[3]) > 0.5f ? " sky" : "");
+                            else
+                                k += _snprintf_s(col + k, sizeof(col) - k, _TRUNCATE, " %.3f:T%.3f/%.0fyd", cy,
+                                                 HalfToFloat(px[2]), HalfToFloat(px[3]));
+                        }
+                        Log("volume: column x %.2f, down the screen (y: what gets through / distance):%s", cx, col);
+                    }
+                sys->lpVtbl->UnlockRect(sys);
             }
         }
         sys->lpVtbl->Release(sys);
