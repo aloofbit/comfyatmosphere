@@ -116,7 +116,16 @@ foreach ($r in $Records) {
         $got = [IO.Path]::GetFileName($r.recordings[$i])
         $sheet = $got -replace '\.mp4$', '-sheet.jpg'
         [void]$sb.Append("<div class=""shot""><h3>Recording ${n}: $(Html $label)</h3>")
-        [void]$sb.Append("<video src=""$(Html $got)"" autoplay muted loop playsinline controls></video>")
+        # Beside the accepted one (expected\<test>-rec<n>.mp4, 2026-10-05), as a screenshot is.
+        $expName = "$($r.name)-rec$n.mp4"
+        [void]$sb.Append("<div class=""pair""><figure><video src=""$(Html $got)"" autoplay muted loop playsinline controls></video><figcaption>This run</figcaption></figure>")
+        if (Test-Path (Join-Path $ExpectedDir $expName)) {
+            [void]$sb.Append("<figure><video src=""../expected/$(Html $expName)"" autoplay muted loop playsinline controls></video><figcaption>Expected</figcaption></figure>")
+        }
+        else {
+            [void]$sb.Append("<figure><div class=""none"">No expected recording yet. Run with -Accept to take this one.</div><figcaption>Expected</figcaption></figure>")
+        }
+        [void]$sb.Append("</div>")
         [void]$sb.Append("<details><summary>20 frames of it</summary><a href=""$(Html $sheet)""><img class=""sheet"" src=""$(Html $sheet)"" alt=""20 frames of recording $n"" loading=""lazy""></a></details></div>`n")
     }
     if (-not $r.shots.Count -and -not $r.recordings.Count) { [void]$sb.Append("<p class=""about"">No screenshot taken.</p>`n") }

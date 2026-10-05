@@ -397,6 +397,13 @@ foreach ($file in $files) {
             Copy-Item $shotCopies[$i] (Join-Path $expectedDir "$($t.name)-$($i + 1)$([IO.Path]::GetExtension($shotCopies[$i]))") -Force
         }
     }
+    # The recordings too (2026-10-05): expected\<test>-rec<n>.mp4, played beside this run's on the page.
+    if ($Accept -and $recCopies.Count) {
+        New-Item -ItemType Directory -Force $expectedDir | Out-Null
+        for ($i = 0; $i -lt $recCopies.Count; $i++) {
+            Copy-Item $recCopies[$i] (Join-Path $expectedDir "$($t.name)-rec$($i + 1).mp4") -Force
+        }
+    }
     $records += [pscustomobject]@{
         name = $t.name; about = $t.about; pass = $pass; stamp = $stamp; checks = $checks
         positions = $positions; warnings = $warnings; shots = $shotCopies; views = $shotViews
