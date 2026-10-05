@@ -54,6 +54,13 @@
 // of the march 4 to 16 yards and more under the terrain takes that floor as its ground. Each point decides for
 // itself, so walking out of the gate changes nothing at once.
 //
+// A point under the terrain with no floor found takes its own height as its ground, and a floor above the point
+// counts as at the point (2026-10-05). Until then such a point kept the mountain top as its ground, 100 yards and
+// more over it, and took the fog's cap. Seen from the road outside Ironforge's gate, the city filled with fog to
+// the brim: until the city's building file loads there is no floor at all, and once it has loaded, the hall and
+// the auction house stand higher than the 4 yards over your feet the floor is looked for. The same made the
+// auction house braziers glow 24 times as bright through the hall's walls (FogThicknessAt, Lamps in Mist).
+//
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
 // shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
@@ -144,9 +151,11 @@ float FogAt(float3 P)
         // The larger of the two, not both (2026-10-04): low ground and water are one mist gathering. Multiplied,
         // the canal outside Stormwind's gate, water 30 yards under the city, took 2.5 x 3.1 and hid its far bank.
         mult = max(1.0 + gW.z * saturate((g.b - g.r) * gW.y), 1.0 + gW.w * g.g);
-        // Under the terrain, on the floor of the building there (.a; the same as .r where there is none).
-        float under = saturate((g.r + gGr.w - P.z - 4.0) * (1.0 / 12.0)) * step(1.0, g.r - g.a);
-        base = lerp(base, g.a + gGr.w, under);
+        // Under the terrain, on the floor of the building there (.a; the same as .r where there is none). Never
+        // a floor above the point, and with no floor found the point's own height (2026-10-05): see the top.
+        float under   = saturate((g.r + gGr.w - P.z - 4.0) * (1.0 / 12.0));
+        float floorAt = (g.r - g.a >= 1.0) ? min(g.a + gGr.w, P.z) : P.z;
+        base = lerp(base, floorAt, under);
         mult = lerp(mult, 1.0, under);
     }
     return gF.x * mult * exp(min((base - P.z) * gF.y, 4.0));
@@ -1835,11 +1844,13 @@ float FogThicknessAt(const float rel[3])
         const float low = (g_gSmooth[k] - g_gSurf[k]) / fs.lowDepth;
         mult = (std::max)(1.0f + fs.lowGround * (low < 0.0f ? 0.0f : (low > 1.0f ? 1.0f : low)), 1.0f + fs.water * g_gWet[k]);   // as the shader
         // Under the terrain, as the shader does.
-        if (g_gFloor.size() == g_gSurf.size() && g_gSurf[k] - g_gFloor[k] >= 1.0f)
+        float u = (g_gSurf[k] - p[2] - 4.0f) / 12.0f;
+        u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
+        if (u > 0.0f)
         {
-            float u = (g_gSurf[k] - p[2] - 4.0f) / 12.0f;
-            u = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
-            base += (g_gFloor[k] - base) * u;
+            const bool known = g_gFloor.size() == g_gSurf.size() && g_gSurf[k] - g_gFloor[k] >= 1.0f;
+            const float floorAt = known ? (std::min)(g_gFloor[k], p[2]) : p[2];
+            base += (floorAt - base) * u;
             mult += (1.0f - mult) * u;
         }
     }

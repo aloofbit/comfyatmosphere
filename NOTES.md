@@ -2286,6 +2286,30 @@ the game's own colour, 0 grey, 200 the most) are on a new **Color** tab of the w
 Test: `tests/development-saturation.json`. The test client's clock is day (comfytime), so it checks Day
 Saturation at 0 and 200, and that Night Saturation does nothing by day. Night needs Ctrl+End in game.
 
+## Ironforge full of fog from the gate, and a glow through the hall (2026-10-05)
+
+From the road outside Ironforge's gate the owner saw a glow with no source at the statue's foot, and the city
+filled with fog to the brim. The braziers of the auction house, behind the statue, were in the probe with
+`mist x54.60`: the cap of `FogThicknessAt` (`exp(4)`). With Lamps in Mist at 50 their glow was 24 times as bright,
+and the lamp glow is not stopped by walls, so it came through the hall.
+
+The cause is the rule for buildings under the terrain (2026-10-01). The map files hold only the mountain top
+over the city, so a point in it lies 100 yards and more under the fog's ground, unless the fog finds the floor of
+the building there. It found none in two cases:
+
+- **The city not loaded yet.** After a start or a teleport the building file loads for some time (15 s after a
+  start: 18 models loading, 197 lights of 1,057, no floors), and the whole city took the cap.
+- **A floor higher than your feet.** The floor is looked for no more than 4 yards over your feet, to pick the
+  floor you stand on in a building of several levels. The hall and the auction house stand higher than the road.
+
+**The fix:** under the terrain, a point with no floor found takes its own height as its ground, and a floor above
+the point counts as at the point. Such a point gets the fog of open ground. In the fog shader (`FogAt`) and in the
+lamps' copy (`FogThicknessAt`). A first try in the lamps' copy alone was taken back: with it the owner saw the
+city full of fog, which was the city not loaded yet after the restart, not that change.
+
+Test: `tests/ironforge-ah-glow.json`. It waits 45 s for the city to load before its probe; no lamp may take the
+cap, and the braziers must be in the list (at x1.00 after the fix).
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

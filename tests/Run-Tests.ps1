@@ -52,7 +52,8 @@
   .\Run-Tests.ps1 -Accept                 # and take this run's screenshots as the expected ones
 
   Each run writes a page, results\<time>-report.html, and opens it (-NoOpen does not): every test, its checks,
-  and each screenshot beside the expected one in expected\<test>-<n>.jpg.
+  and each screenshot beside the expected one in expected\<test>-<n>.jpg. results\last-results.html is always the
+  newest run's page: keep a tab open on it and refresh.
 #>
 param(
     [Parameter(Position = 0)][string[]]$Name,
@@ -444,6 +445,9 @@ $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-end.s
 # The page (2026-10-04): every test, its checks, and each screenshot beside the expected one.
 & (Join-Path $here 'Write-Report.ps1') -Records $records -Page (Join-Path $resultsDir "$runStamp-report.html") `
     -ExpectedDir $expectedDir -ViewNames $viewNames -Started $runStarted
+# The same page as results\last-results.html (2026-10-05): a tab kept open on it shows the newest run when
+# refreshed. Its links are relative to results\, so the copy works there unchanged.
+Copy-Item (Join-Path $resultsDir "$runStamp-report.html") (Join-Path $resultsDir 'last-results.html') -Force
 
 Write-Host ''
 Write-Host ($summary -join "`r`n")

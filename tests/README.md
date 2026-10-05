@@ -24,7 +24,7 @@ runs. The result, the script it ran, the probe and the screenshots go to `result
 
 ## The page
 
-Each run writes `results\<time>-report.html` and opens it (`-NoOpen` does not). It shows every test, its checks
+Each run writes `results\<time>-report.html` and opens it (`-NoOpen` does not). The same page is copied to `results\last-results.html`: keep a tab open on it and refresh it after each run. It shows every test, its checks
 and what they measured, and each screenshot beside the expected one, with the Debug View it was taken in. A
 check that reads a screenshot sits with that screenshot. The expected shots are in `expected\<test>-<n>.jpg`,
 in git. Each recording plays beside its expected one, `expected\<test>-rec<n>.mp4`. When a change is meant to
@@ -57,6 +57,7 @@ camera as far back as the owner had it; under 1.5 yards it is `camera: 0`.
 | `ashenvale-edge-strips` | Fly over the Barrens at the Ashenvale border, facing a sun at 29 degrees over the ridges. No long strip of shade may cross the slope that faces away from the sun (2026-10-04). |
 | `stormwind-canal-fog` | Stand on the canal's bank outside Stormwind's gate. The fog over the water must let the far side show (2026-10-04). |
 | `ironforge-gate-fog` | Stand on the road outside Ironforge's gate, under the mountain. The fog must let the road and the trees show (2026-10-04). |
+| `ironforge-ah-glow` | On the road outside Ironforge's gate, facing the statue in the hall. The auction house braziers behind it took the fog's cap (x54.6) as buried under the mountain, and their glow came through the hall's walls. After 45 s for the city to load, no lamp may take the cap, and the braziers must be in the probe's list. Shots in the normal view and in Debug View 6 (2026-10-05). |
 | `stormwind-tower-speckle` | Stand on the bridge into Stormwind facing the sun over the gate. The left tower, where the sun grazes it, must show no speckled shade (2026-10-04). |
 | `stormwind-canal-wake` | Swim through a canal inside Stormwind, the camera looking down. Ripples and a wake must trail the swimmer, on a building's water as on the map's (2026-10-04). |
 | `elwynn-trough-shadow` | Stand in the Eastvale water trough, the camera zoomed in. The trough must not be marked a body, so its shadow has no character's extra darkness (2026-10-04). |
