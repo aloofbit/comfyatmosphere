@@ -1715,15 +1715,59 @@ namespace
         return false;
     }
 
+    bool WearsModel(int i, UINT verts)
+    {
+        for (int k = 0; k < 2; ++k)
+        {
+            const std::vector<uint32_t>* views =
+                g_filesUnitModels[i][k] ? MapCreatureModelViews(g_filesUnitModels[i][k]) : nullptr;
+            if (views && std::find(views->begin(), views->end(), verts) != views->end())
+                return true;
+        }
+        return false;
+    }
+
+    // A model attached to a stealthed unit (2026-10-05). A Stormwind City Guard's helmet, shoulders and weapons are
+    // models of their own, not views of the unit's, and the client draws them stealthed too: a depth pass, then a
+    // blended one. Not known as the unit's, the depth passes went into the shadow cache as solid casters, and the
+    // owner saw a helmet, shoulders and a sword on the ground under a guard with no body. An attachment stands at
+    // its unit: a stealthed unit (not the player) stands within kAttachReach across the ground, and no unit within
+    // kUnitModelReach wears a model with that many vertices. The guard's parts stood 0.2 to 0.6 yards from his
+    // place, 0.7 to 1.4 yards up. Any stealthed unit there, not the nearest unit: with the player inside the guard,
+    // the nearest was the player, and the parts cast again. The player's own parts are not taken by this: the
+    // draw rules ask it only of a draw made as a stealthed unit's (a depth pass or a blended one), and the cache
+    // only of an entry not drawn this frame.
+    constexpr float kAttachReach = 1.5f;
+    bool AttachedToStealthed(UINT verts, const float pos[3])
+    {
+        bool stealthedNear = false;
+        for (int i = 0; i < g_filesUnitCount; ++i)
+        {
+            const float dx = pos[0] - g_filesUnits[i][0], dy = pos[1] - g_filesUnits[i][1],
+                        dz = pos[2] - g_filesUnits[i][2];
+            const float d2 = dx * dx + dy * dy;
+            if (d2 > kUnitModelReach * kUnitModelReach || dz < -kUnitModelReach || dz > kUnitModelReach)
+                continue;
+            if (WearsModel(i, verts))
+                return false;   // a unit's own model: the views decide
+            if (g_filesUnitStealthed[i] && d2 <= kAttachReach * kAttachReach && dz > -1.0f && dz < 4.0f)
+                stealthedNear = true;
+        }
+        return stealthedNear;
+    }
+
     // Whether the nearest unit wearing a draw's model is stealthed (2026-10-05). A unit's entry stays while a unit
     // near it wears its model (UnitModelNear), and a stealthed unit's draws never enter the cache, so a horse
     // recorded in the second before it went into stealth kept that pose's shadow for as long as it stood there.
-    // The nearest wearer: a second horse of the same model beside it, not stealthed, keeps its own.
+    // The nearest wearer: a second horse of the same model beside it, not stealthed, keeps its own. A model no unit
+    // wears is a stealthed unit's when it is attached to one (AttachedToStealthed).
     bool UnitStealthedNear(const Rec& r, const float pos[3])
     {
         const UINT verts = RecVertices(r);
         if (!verts)
             return false;
+        if (AttachedToStealthed(verts, pos))
+            return true;
         float best = kUnitModelReach * kUnitModelReach;
         bool stealthed = false;
         for (int i = 0; i < g_filesUnitCount; ++i)
@@ -4581,7 +4625,7 @@ bool ShadowIsStealthedUnitDraw(IDirect3DDevice9* dev)
                 return true;
         }
     }
-    return false;
+    return AttachedToStealthed(verts, p);
 }
 
 bool ShadowIsUnitDraw(IDirect3DDevice9* dev)

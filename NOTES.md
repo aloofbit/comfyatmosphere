@@ -2213,9 +2213,18 @@ spots where a leg crossed his body. With the mod off he was flat: one see-throug
   it solid black (two sets of passes for about 50 frames), and fades the black out triangle by triangle. All
   of it is the same with the mod off. A creature meant to stealth, the Mountain Lion (2406, Prowl on spawn,
   Alterac's foothills), changes cleanly: the owner checked it.
+- **A stealthed guard's helmet, shoulders and weapons cast on the ground** (2026-10-05). They are models of their
+  own (345, 131, 465 and 64 vertices), not views of the unit's model, so the views did not tell them. The client
+  draws them stealthed too, and their depth passes went into the cache as solid casters. A model no unit within
+  8 yards wears, standing within 1.5 yards of a stealthed unit (0 to 4 yards up), is now taken as that unit's
+  (`AttachedToStealthed`): drawn into the scratch, and dropped from the cache. Any stealthed unit there, not the
+  nearest unit: with the player inside the guard, the nearest was the player, and the parts cast again. The
+  player's own parts are not taken: the rule is asked only of a draw made the stealthed way, and only of a cache
+  entry not drawn this frame.
 
-Tests: `tests/development-pinto-stealth.json` (a Pinto summoned on the development map and given Stealth: its
-draws go into the scratch with one copy, and the shot shows it flat with no shadow) and
+Tests: `tests/development-guard-stealth.json` (the owner's Stormwind City Guard on the development map given
+Stealth: recordings as it goes on and off, a shot in stealth and one with the character inside him; his draws
+go into the scratch with one copy, and his parts leave the cache) and
 `tests/elwynn-own-face.json` (the owner's character with the camera 1.8 yards back: nothing taken as
 stealthed).
 

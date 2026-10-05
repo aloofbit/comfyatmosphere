@@ -126,6 +126,10 @@ foreach ($file in $files) {
     # The config and the steps into a wow-test-tool script.
     $speed = if ($cfg.flySpeed) { [double]$cfg.flySpeed } else { 7.0 }
     $lines = @("# $($t.name), made by Run-Tests.ps1 from $([IO.Path]::GetFileName($file))")
+    # GM mode on first (the owner, 2026-10-05): a hostile creature, summoned or near the start, leaves the
+    # character alone.
+    $lines += 'chat .gm on'
+    $lines += 'wait 0.5'
     # Flight first, then the start: a start in the air holds only with flight on. The character must be on the
     # ground when flight goes on, or it can stick in the air (the owner, 2026-10-03): wow-test-tool's ground waits
     # until its height has stayed on the map files' ground for half a second.
@@ -133,7 +137,7 @@ foreach ($file in $files) {
     if ($cfg.flight -and -not $flying) {
         # To the start first (2026-10-04): the test before may leave the character swimming, where the ground
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
-        if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += 'wait 3' }
+        if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += "arrive $($cfg.start.x) $($cfg.start.y) $($cfg.start.z)" }
         $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
         $lines += 'ground 60'; $lines += 'flight'; $lines += 'wait 0.5'
         $flying = $true
@@ -148,7 +152,7 @@ foreach ($file in $files) {
     if ($cfg.summon) {
         foreach ($u in $cfg.summon) {
             $lines += "chat .go xyz $($u.x) $($u.y) $($u.z) $($cfg.start.map)"
-            $lines += 'wait 2'
+            $lines += "arrive $($u.x) $($u.y) $($u.z)"
             $lines += "chat .npc summon $($u.entry)"
             $lines += 'wait 1'
         }
@@ -156,12 +160,14 @@ foreach ($file in $files) {
     if ($cfg.start) {
         $s = $cfg.start
         $lines += "chat .go xyz $($s.x) $($s.y) $($s.z) $($s.map)"
-        $lines += 'wait 5'
+        # Until the character is there, then 1 s (2026-10-05): it was 5 s every time, and the tool's arrive line
+        # notes the place, so the pos line after it went too. Without comfytest.dll, arrive waits 5 s.
+        $lines += "arrive $($s.x) $($s.y) $($s.z)"
         # The character's heading (2026-10-04): .go xyz keeps the old one. Turned by right-drags, the camera
         # with it (2026-10-05): the camera turned alone and a right-click did not bring the character after it.
         if ($null -ne $s.facing) { $lines += "heading $($s.facing)" }
     }
-    $lines += 'wait 1.2'; $lines += 'pos start'   # the place comes from comfyStats, up to a second old
+    if (-not $cfg.start) { $lines += 'wait 1.2'; $lines += 'pos start' }   # the place comes from comfyStats, up to a second old
     # No weather (the owner, 2026-10-05): rain or snow changes the light and the fog from run to run. The
     # weather is the zone's, so it is cleared here, at the start.
     $lines += 'chat .wchange 0 0'
@@ -275,7 +281,7 @@ foreach ($file in $files) {
     $logStart = if (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
     $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String
-    $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|face|heading|pitch) ' })
+    $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|arrive|face|heading|pitch) ' })
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
     # The last probe of this run: from its header to the next report or the end. The frame it logs comes

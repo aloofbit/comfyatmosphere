@@ -18,7 +18,7 @@ steps in the game.
 
 The runner restarts the test client and logs in once, unless `-NoLogin` is given, and runs every test in that one session. It logs in again only for a test that wants another character, and casts flight when a test's `flight` differs from the state it is in. A run ends with flight off and the camera behind the character. It sends `/atmos reset` before and after each test,
 and puts every CVar it set back as it was, so a test leaves no values behind. It clears the weather at each
-test's start (`.wchange 0 0`). With comfytest.dll in the client (wow-test-tool's `dll\`) a run needs no mouse or
+test's start (`.wchange 0 0`), and turns GM mode on first (`.gm on`), so a hostile creature leaves the character alone. With comfytest.dll in the client (wow-test-tool's `dll\`) a run needs no mouse or
 keyboard, and the game may stay behind other windows; without it, do not touch the mouse or keyboard while a test
 runs. The result, the script it ran, the probe and the screenshots go to `results\`, which git ignores.
 
@@ -61,7 +61,7 @@ camera as far back as the owner had it; under 1.5 yards it is `camera: 0`.
 | `stormwind-canal-wake` | Swim through a canal inside Stormwind, the camera looking down. Ripples and a wake must trail the swimmer, on a building's water as on the map's (2026-10-04). |
 | `elwynn-trough-shadow` | Stand in the Eastvale water trough, the camera zoomed in. The trough must not be marked a body, so its shadow has no character's extra darkness (2026-10-04). |
 | `development-horse-seethrough` | On the development map with a summoned Warhorse and Charger beside you. No horse may be taken as see-through, and the Warhorse must stay a body in every frame (2026-10-04). |
-| `development-pinto-stealth` | On the development map with a summoned Pinto given Stealth. Its draws must go into the scratch depth with one copy of the world's depth, and it must look flat with no shadow (2026-10-05). |
+| `development-guard-stealth` | On the development map, the owner's Stormwind City Guard given Stealth. A recording as Stealth goes on, a shot in stealth, a recording as it goes off, then a shot with the character inside him. His draws, his helmet, shoulders and weapons among them, must go into the scratch depth, and none of them may cast a shadow (2026-10-05). |
 | `elwynn-own-face` | At the Eastvale paddock with the camera 1.8 yards behind the character, where the game fades it. Nothing may be taken as a stealthed unit, so the face never shows through the head (2026-10-04). |
 | `development-windmill` | Stand 17 yards from a Westfall windmill in its blades' shade, then 200 yards out, the camera turned round, and back. All its parts must be in the far map, no older pose of it kept, its tower solid and its sails leaves (2026-10-04). |
 | `westfall-beach-swash` | Fly 40 yards over a Westfall beach, looking down at the shore. 10 second recordings at the swash's defaults, then with Swash Height 100 (no higher than the wet sand), Length 10 and Speed 300, to compare by eye (2026-10-05). |
