@@ -1,0 +1,137 @@
+{
+    "name": "elwynn-stump-edge",
+    "about": "In eastern Elwynn, the back of a tree stump, turned away from the sun. Its shade stopped short of the top edge: a lighter strip along it, about 0.1 yards (2026-10-05, the owner). The shadow lookup moves each point a little along its facing (normalBias); the stump's back leans in toward its top, so its facing points a little up, and near the edge the point rose over the stump into the sun. On a face turned from the sun the point now moves straight away from the sun. Shots in the normal view and in Debug View 5 (the shade alone).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 0,
+        "start": {
+            "map": 0,
+            "x": -9413.2,
+            "y": -2235.6,
+            "z": 67.4,
+            "facing": 61.1,
+            "about": "the owner's snapshot (2026-10-05): on the ground in first person, facing 61.1 degrees and 11.8 down, at the back of a stump that faces away from the sun"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 28.7
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 25,
+            "comfyClouds": 0,
+            "comfyRays": 1,
+            "comfyRaysStrength": 40,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 25,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 0,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 16,
+            "comfyVolumeDistance": 190,
+            "comfyVolumeDirection": 70,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 20,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 15,
+            "comfyMistHeight": 15,
+            "comfyMistBrightness": 120,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 200,
+            "comfyMistSky": 50,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 100,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 10,
+            "comfyWaveSize": 200,
+            "comfyWater": 1,
+            "comfyWaterColour": 25,
+            "comfyWaterClarity": 100,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 60,
+            "comfyWaterFoam": 80,
+            "comfyWaterSwash": 60,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 100,
+            "comfyWaterEdgeWidth": 4,
+            "comfyWaterBright": 70,
+            "comfyWaterRippleDepth": 100
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": 61.1,
+                "pitch": -11.8
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 5"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        }
+    ],
+    "expect": [
+        {
+            "about": "The back face's rim is in the stump's shade up to the top edge, in the shade alone (Debug View 5): row 222 crosses the rim, which the camera sees from below its top. Before the fix columns 520 to 690 averaged 155 (lit), after it 39",
+            "shot": 2,
+            "row": 222,
+            "from": 520,
+            "to": 690,
+            "meanMax": 80
+        }
+    ]
+}

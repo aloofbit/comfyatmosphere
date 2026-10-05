@@ -1828,6 +1828,24 @@ until the runner gained `cvars` in the config. ComfyTest's `cvar` now keeps each
 change, and `cvarsback` at the end of every test puts them back. The game saves CVars in Config.wtf, and a
 test would otherwise leave the owner's controls moved.
 
+## A lit strip at the top of a stump's back (2026-10-05)
+
+In eastern Elwynn the back of a tree stump, turned from the sun, was in its own shade except for a strip
+along its top edge, about 0.1 yards: the shade seemed to start lower than the edge.
+
+- The camera stood below the stump's top, so the strip was the back face itself (a brown rim of bark), not
+  the top. In Debug View 5 it read 249 to 255 (lit) and the bark under it 39.
+- The shadow lookup moves each point along its facing before it reads the map (`normalBias`, grown by `graze`
+  where the sun grazes the surface or is behind it), so a lit surface does not shade itself in stripes. The
+  stump's back leans in toward its top, so its facing points a little up, and near the edge the move lifted
+  the point over the stump's top, where the sun reaches it.
+- On a face turned from the sun the point now moves straight away from the sun (`offDir`), blended in as the
+  sun goes behind the face; the stump stays between the point and the sun up to the edge. A face the sun
+  reaches keeps the move along its facing.
+
+Test: `tests/elwynn-stump-edge.json`, the owner's snapshot: row 222 across the rim in the shade view averaged
+155 before the fix and 39 after (the check allows 80).
+
 ## Speckle on Stormwind's gate tower (2026-10-04)
 
 On the bridge into Stormwind, facing the sun over the gate, the side of the left tower the sun grazes showed a

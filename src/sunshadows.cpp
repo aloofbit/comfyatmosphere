@@ -260,6 +260,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The normal offset stays off the bodies (2026-10-02): a body's facing from the depth is per triangle,
     // and the offset put its triangles on the character. Walls and the ground take all of it.
     float offK = 1.0 - body;
+    // Which way the offset goes (2026-10-05). Along the facing where the sun reaches the surface. On a face
+    // turned from the sun, straight away from the sun instead: the back of a stump in Elwynn leans in toward
+    // its top, so its facing points a little up, and near the top edge the offset lifted the point over the
+    // stump's top into the sun: a lit strip along the edge. Away from the sun, the stump stays between the
+    // point and the sun to the edge.
+    float3 offDir = normalize(lerp(N, -gSun.xyz, saturate(-ndl * 5.0)));
 
     // The near map where it reaches, blended into the far one over the band from 80% to 90% of its
     // half-width. The far map is read only where the near map does not cover all of the shade.
@@ -267,7 +273,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float4 sn = 0.0;
     [branch] if (gNB.w > 0.5)
     {
-        float3 Qn = P + N * (gNB.y * graze * offK) + gSun.xyz * gT.y;
+        float3 Qn = P + offDir * (gNB.y * graze * offK) + gSun.xyz * gT.y;
         sn = Qn.x * gN0 + Qn.y * gN1 + Qn.z * gN2 + gN3;
         float2 en = abs(sn.xy);
         wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
@@ -284,7 +290,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float wm = 0.0, litM = 1.0;
     [branch] if (wn < 1.0 && gMB.w > 0.5)
     {
-        float3 Qm = P + N * (gMB.y * graze * offK) + gSun.xyz * gT.y;
+        float3 Qm = P + offDir * (gMB.y * graze * offK) + gSun.xyz * gT.y;
         float4 sm = Qm.x * gM0 + Qm.y * gM1 + Qm.z * gM2 + gM3;
         float2 em = abs(sm.xy);
         wm = saturate((0.9 - max(em.x, em.y)) * 10.0);
@@ -306,7 +312,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float away = saturate(-ndl * 5.0) * (1.0 - bodyM.y);
     [branch] if (gCh.w > 0.5 && (wn < 1.0 || gTr.y > 0.5))
     {
-        float3 Qf = P + N * (gB.y * graze * offK) + gSun.xyz * gT.y;
+        float3 Qf = P + offDir * (gB.y * graze * offK) + gSun.xyz * gT.y;
         float4 sf = Qf.x * gSh0 + Qf.y * gSh1 + Qf.z * gSh2 + gSh3;
         float2 ef = abs(sf.xy);
         float  fade = saturate((1.0 - max(ef.x, ef.y)) * 10.0);
