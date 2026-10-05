@@ -42,6 +42,8 @@ int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max
 // The vertex counts of a model file's views (2026-10-04): a draw of the model holds one view's vertices, or a
 // whole number of copies of them (a batch). Null while the loader reads it, or if it could not be read.
 const std::vector<uint32_t>* MapModelViews(const std::string& name);
+// The same model's bones and animations, read with its views; null until then, or if none of its bones moves.
+const struct M2Anim* MapModelAnim(const std::string& name);
 // A game object's model file, by its display (GameObjectDisplayInfo.dbc), once the loader has read it; else null.
 const std::string* MapGameObjectModel(unsigned display);   // an animated doodad the files place there, left out
 unsigned MapFilesVersion();   // changes whenever what the files cover changes

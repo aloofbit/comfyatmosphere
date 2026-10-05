@@ -256,6 +256,16 @@
             "min": 1
         },
         {
+            "about": "Its clock is set from the client's pose: all four parts know their bones, and the match is close",
+            "probe": "object clock: animated doodad at [(]4359[.]7 -215[.]4 [0-9.]+[)]: timed, .*error 0[.]00.*parts' bones( [0-9]+:0,1,2){4}$",
+            "min": 1
+        },
+        {
+            "about": "Every windmill's clock is set, the batched ones far off too, so each one's blades turn out of view",
+            "probe": "object clock: animated doodad .*not timed",
+            "max": 0
+        },
+        {
             "about": "Its sails (alpha tested, 30 triangles) cast as leaves",
             "probe": "object part: animated doodad at [(]4359[.]7 -215[.]4 .*, 30 triangles,.*casts as leaves",
             "min": 1

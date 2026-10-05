@@ -720,13 +720,14 @@ namespace
     std::unordered_map<unsigned, CreatureModel> g_creatureModels;   // by display id; the render thread's
     std::deque<CreatureModel>                   g_doneCreature;
 
-    // A model file's views by its name (2026-10-04), for the object table: the vertex count of each.
-    struct ModelViews { bool done = false, ok = false; std::vector<uint32_t> views; };
+    // A model file's views by its name (2026-10-04), for the object table: the vertex count of each, and its
+    // bones and animations (null if it has none that move).
+    struct ModelViews { bool done = false, ok = false; std::vector<uint32_t> views; std::shared_ptr<const M2Anim> anim; };
     std::unordered_map<std::string, ModelViews> g_modelViews;        // the render thread's
     std::deque<std::pair<std::string, ModelViews>> g_doneModelViews;
 
     // The vertex count of each view of an M2 (as a tile or a DBC names it, .mdx or .m2): the loader's.
-    std::vector<uint32_t> ReadM2Views(const std::string& model)
+    std::vector<uint32_t> ReadM2Views(const std::string& model, std::shared_ptr<const M2Anim>& anim)
     {
         std::vector<uint32_t> views;
         std::string name = model;
@@ -740,6 +741,9 @@ namespace
             const uint32_t nViews = U32(f, 0x4C), ofs = U32(f, 0x50);
             for (uint32_t v = 0; v < nViews && v < 8 && ofs + (v + 1) * 44 <= f.size(); ++v)
                 views.push_back(U32(f, ofs + v * 44));
+            auto a = std::make_shared<M2Anim>();
+            if (M2AnimRead(f, *a) && a->moves)
+                anim = std::move(a);
         }
         return views;
     }
@@ -780,7 +784,7 @@ namespace
                 ModelViews v;
                 v.done = true;
                 if (open)
-                    v.views = ReadM2Views(job.name);
+                    v.views = ReadM2Views(job.name, v.anim);
                 v.ok = !v.views.empty();
                 std::lock_guard<std::mutex> lock(g_mx);
                 g_doneModelViews.push_back({ job.name, std::move(v) });
@@ -2428,6 +2432,13 @@ const std::vector<uint32_t>* MapModelViews(const std::string& name)
     g_jobs.push_front({ kJobModelViews, name, 0, 0, g_gen });   // a small read
     g_cv.notify_one();
     return nullptr;
+}
+
+const M2Anim* MapModelAnim(const std::string& name)
+{
+    if (!MapModelViews(name))
+        return nullptr;
+    return g_modelViews[name].anim.get();
 }
 
 const std::string* MapGameObjectModel(unsigned display)

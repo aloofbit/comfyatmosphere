@@ -19,6 +19,7 @@
 #include "mpq.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace
@@ -325,6 +326,211 @@ bool M2Load(const std::string& name, M2Model& out)
     out.alpha = keyed && keyed * 4 >= all;
     Flame(d, out, nSub, ofsSub, nUnits, ofsUnits, nMat, ofsMat);
     return true;
+}
+
+// The animation, as tools/model-browser/lib/pose.js reads it (its header comment has how the layout was
+// confirmed). Sequences are 68 bytes: id at +0, start and end (ms) at +4 and +8, frequency at +20. A track is
+// 28 bytes: interpolation, global sequence, then three arrays of a count and an offset: the ranges (a pair of
+// key indices a sequence), the times and the keys. A view's submesh is 32 bytes: its index count at +10, its
+// bone count and first entry in the bone lookup (0x8C) at +12 and +14. The draw's bone constants are that
+// submesh's palette, in that order: the Westfall windmill's four submeshes all hold bones 0, 1, 2.
+bool M2AnimRead(const std::vector<uint8_t>& d, M2Anim& out)
+{
+    out = M2Anim();
+    if (d.size() < 0x100 || U32(d, 0) != 0x3032444D || (U32(d, 4) != 256 && U32(d, 4) != 257))
+        return false;
+    const auto fits = [&](uint64_t ofs, uint64_t n, uint64_t size) { return ofs + n * size <= d.size(); };
+    const uint32_t nSeq = U32(d, 0x1C), ofsSeq = U32(d, 0x20);
+    if (fits(ofsSeq, nSeq, 68))
+        for (uint32_t i = 0; i < nSeq; ++i)
+        {
+            const size_t o = ofsSeq + i * 68ull;
+            M2Anim::Sequence s;
+            s.id = U16(d, o);
+            s.start = U32(d, o + 4);
+            s.end = U32(d, o + 8);
+            memcpy(&s.freq, &d[o + 20], 2);
+            out.seqs.push_back(s);
+        }
+    const auto readTrack = [&](size_t o, int floats, M2Anim::Track& t) {
+        memcpy(&t.interp, &d[o], 2);
+        memcpy(&t.globalSeq, &d[o + 2], 2);
+        const uint32_t nR = U32(d, o + 4), oR = U32(d, o + 8), nT = U32(d, o + 12), oT = U32(d, o + 16);
+        const uint32_t nK = U32(d, o + 20), oK = U32(d, o + 24);
+        if (!nT || !fits(oR, nR, 8) || !fits(oT, nT, 4) || !fits(oK, nK, floats * 4ull))
+            return;
+        // Hermite and Bezier keys carry two tangents after each value; the value alone is kept.
+        const uint32_t stride = nK == nT * 3 ? 3 : 1;
+        if (nK != nT * stride)
+            return;
+        t.ranges.resize(nR * 2ull);
+        memcpy(t.ranges.data(), &d[oR], nR * 8ull);
+        t.times.resize(nT);
+        memcpy(t.times.data(), &d[oT], nT * 4ull);
+        t.values.resize(static_cast<size_t>(nT) * floats);
+        for (uint32_t k = 0; k < nT; ++k)
+            memcpy(&t.values[static_cast<size_t>(k) * floats], &d[oK + k * stride * floats * 4ull], floats * 4ull);
+    };
+    // Whether a track changes inside a sequence: two keys of one range that differ.
+    const auto changes = [](const M2Anim::Track& t, int floats) {
+        if (t.globalSeq >= 0 || t.times.size() < 2)
+            return false;
+        const size_t nRange = t.ranges.size() / 2;
+        for (size_t s = 0; s < (nRange ? nRange : 1); ++s)
+        {
+            size_t first = 0, last = t.times.size() - 1;
+            if (nRange)
+            {
+                first = t.ranges[s * 2];
+                last = (std::min)(static_cast<size_t>(t.ranges[s * 2 + 1]), t.times.size() - 1);
+            }
+            for (size_t k = first + 1; k <= last && k < t.times.size(); ++k)
+                for (int q = 0; q < floats; ++q)
+                    if (fabsf(t.values[k * floats + q] - t.values[first * floats + q]) > 1e-4f)
+                        return true;
+        }
+        return false;
+    };
+    const uint32_t nBones = U32(d, 0x34), ofsBones = U32(d, 0x38);
+    if (!fits(ofsBones, nBones, 108))
+        return false;
+    for (uint32_t i = 0; i < nBones; ++i)
+    {
+        const size_t o = ofsBones + i * 108ull;
+        M2Anim::Bone b;
+        int16_t parent;
+        memcpy(&parent, &d[o + 8], 2);
+        b.parent = parent >= 0 && static_cast<uint32_t>(parent) < i ? parent : -1;   // parents come first
+        b.flags = U32(d, o + 4);
+        memcpy(b.pivot, &d[o + 96], 12);
+        readTrack(o + 12, 3, b.t);
+        readTrack(o + 40, 4, b.r);
+        readTrack(o + 68, 3, b.s);
+        // A billboard (flags 0x8 to 0x40) faces the camera: its matrix is the camera's, not the file's.
+        b.moves = !(b.flags & 0x78) && (changes(b.t, 3) || changes(b.r, 4) || changes(b.s, 3) ||
+                                        (b.parent >= 0 && out.bones[b.parent].moves));
+        out.moves = out.moves || b.moves;
+        out.size = (std::max)(out.size, sqrtf(b.pivot[0] * b.pivot[0] + b.pivot[1] * b.pivot[1] +
+                                              b.pivot[2] * b.pivot[2]));
+        out.bones.push_back(std::move(b));
+    }
+    const uint32_t nLookup = U32(d, 0x8C), ofsLookup = U32(d, 0x90);
+    const uint32_t nViews = U32(d, 0x4C), ofsViews = U32(d, 0x50);
+    if (!fits(ofsLookup, nLookup, 2) || !fits(ofsViews, nViews, 44))
+        return true;
+    for (uint32_t v = 0; v < nViews && v < 8; ++v)
+    {
+        const size_t o = ofsViews + v * 44ull;
+        M2Anim::View view;
+        view.verts = U32(d, o);
+        const uint32_t nSub = U32(d, o + 24), ofsSub = U32(d, o + 28);
+        if (fits(ofsSub, nSub, 32))
+            for (uint32_t i = 0; i < nSub; ++i)
+            {
+                const size_t q = ofsSub + i * 32ull;
+                M2Anim::Sub s;
+                s.tris = U16(d, q + 10) / 3u;
+                const uint32_t count = U16(d, q + 12), first = U16(d, q + 14);
+                for (uint32_t k = 0; k < count && first + k < nLookup; ++k)
+                    s.bones.push_back(U16(d, ofsLookup + (first + k) * 2ull));
+                view.subs.push_back(std::move(s));
+            }
+        out.views.push_back(std::move(view));
+    }
+    return true;
+}
+
+namespace
+{
+    // A track's value for a sequence at ms: the keys of the sequence's range, linear between them (a rotation
+    // the short way round, normalised), held before the first and after the last. False: no keys.
+    bool TrackValue(const M2Anim::Track& t, int floats, int seq, float ms, float* out)
+    {
+        if (t.times.empty())
+            return false;
+        size_t first = 0, last = t.times.size() - 1;
+        if (t.globalSeq >= 0)
+            last = 0;
+        else if (seq >= 0 && static_cast<size_t>(seq) * 2 + 1 < t.ranges.size())
+        {
+            first = (std::min)(static_cast<size_t>(t.ranges[seq * 2]), t.times.size() - 1);
+            last = (std::min)(static_cast<size_t>(t.ranges[seq * 2 + 1]), t.times.size() - 1);
+            if (last < first)
+                last = first;
+        }
+        size_t k = first;
+        while (k < last && static_cast<float>(t.times[k + 1]) <= ms)
+            ++k;
+        const float* a = &t.values[k * floats];
+        if (k == last || t.interp == 0 || ms <= static_cast<float>(t.times[k]))
+        {
+            memcpy(out, a, floats * sizeof(float));
+            return true;
+        }
+        const float* b = &t.values[(k + 1) * floats];
+        const float span = static_cast<float>(t.times[k + 1] - t.times[k]);
+        const float f = span > 0.0f ? (ms - static_cast<float>(t.times[k])) / span : 0.0f;
+        float sign = 1.0f;
+        if (floats == 4 && a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0.0f)
+            sign = -1.0f;
+        for (int q = 0; q < floats; ++q)
+            out[q] = a[q] + (sign * b[q] - a[q]) * f;
+        if (floats == 4)
+        {
+            const float len = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2] + out[3] * out[3]);
+            if (len > 1e-6f)
+                for (int q = 0; q < 4; ++q)
+                    out[q] /= len;
+            else
+            {
+                out[0] = out[1] = out[2] = 0.0f;
+                out[3] = 1.0f;
+            }
+        }
+        return true;
+    }
+
+    // a = a * b, both rows of a 3x4.
+    void Mul34(float a[12], const float b[12])
+    {
+        float r[12];
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+                r[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j] + a[i * 4 + 2] * b[8 + j];
+            r[i * 4 + 3] += a[i * 4 + 3];
+        }
+        memcpy(a, r, sizeof(r));
+    }
+}
+
+void M2AnimBone(const M2Anim& m, int bone, int seq, float ms, float out[12])
+{
+    // The chain from the root down to the bone.
+    int chain[64];
+    int n = 0;
+    for (int b = bone; b >= 0 && b < static_cast<int>(m.bones.size()) && n < 64; b = m.bones[b].parent)
+        chain[n++] = b;
+    static const float ident[12] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0 };
+    memcpy(out, ident, sizeof(ident));
+    for (int i = n - 1; i >= 0; --i)
+    {
+        const M2Anim::Bone& b = m.bones[chain[i]];
+        float t[3] = { 0, 0, 0 }, q[4] = { 0, 0, 0, 1 }, s[3] = { 1, 1, 1 };
+        TrackValue(b.t, 3, seq, ms, t);
+        TrackValue(b.r, 4, seq, ms, q);
+        TrackValue(b.s, 3, seq, ms, s);
+        // pivot, then the translation, the rotation and the scale, then back from the pivot (pose.js).
+        const float x = q[0], y = q[1], z = q[2], w = q[3];
+        float l[12];
+        l[0] = (1 - 2 * (y * y + z * z)) * s[0]; l[1] = 2 * (x * y - w * z) * s[1]; l[2] = 2 * (x * z + w * y) * s[2];
+        l[4] = 2 * (x * y + w * z) * s[0]; l[5] = (1 - 2 * (x * x + z * z)) * s[1]; l[6] = 2 * (y * z - w * x) * s[2];
+        l[8] = 2 * (x * z - w * y) * s[0]; l[9] = 2 * (y * z + w * x) * s[1]; l[10] = (1 - 2 * (x * x + y * y)) * s[2];
+        for (int r = 0; r < 3; ++r)
+            l[r * 4 + 3] = b.pivot[r] + t[r] -
+                           (l[r * 4] * b.pivot[0] + l[r * 4 + 1] * b.pivot[1] + l[r * 4 + 2] * b.pivot[2]);
+        Mul34(out, l);
+    }
 }
 
 bool BlpLoad(const std::string& name, BlpData& out)

@@ -76,6 +76,7 @@
 #include "shadow.h"
 #include "terrainshade.h"
 #include "mapterrain.h"
+#include "mapm2.h"
 
 #include <algorithm>
 #include <cmath>
@@ -649,6 +650,29 @@ namespace
         double      listed = 0.0;      // when its source last listed it
         const void* vb = nullptr;      // the buffer its parts come from now
         std::map<UINT, Entry> parts;   // by the part's first index in that buffer
+        // Its parts turned while the client does not draw them (2026-10-04): see AnimateObjects.
+        struct PartAnim
+        {
+            std::vector<float> base;     // the constants as the client last drew the part
+            int   slot0 = 0, per = 0;    // its own bones: per of them from slot0 (one copy in a batch)
+            UINT  copies = 1;            // copies of the model the draw's buffer holds
+            int   drawn = 1;             // copies the draw itself drew: its triangles are that many submeshes'
+            int   seq = -1;              // the clock when the client drew it; -1: not known
+            float ms = 0.0f;
+            std::vector<int> bones;      // the model's bone for each of its own slots; empty: not found
+            bool  tried = false;         // the bones looked for in the model's submeshes
+        };
+        std::map<UINT, PartAnim> anims;  // by the part's first index, as parts
+        struct Obs { int ref, bone; float rel[12]; };   // a bone's matrix against a still one's, as drawn
+        bool     timed = false;          // seq and ms hold its clock, as at clockAt
+        int      seq = -1;
+        float    ms = 0.0f;
+        double   clockAt = 0.0;
+        unsigned rng = 0x9E3779B9u;
+        std::vector<Obs> prevObs;        // the last drawn frame's, to tell a slow turn from a fast one
+        double   prevAt = -1.0, searchedAt = -1.0;
+        float    syncErr = -1.0f;        // the probe: the last match's error, matches, full searches
+        unsigned syncs = 0, searches = 0;
     };
     std::vector<ObjRec> g_objects;
     // Bones a copy of a model's part holds, by buffer, shader and the part's first index, learnt from a draw of
@@ -673,6 +697,7 @@ namespace
         for (auto& kv : o.parts)
             ReleaseRec(kv.second.rec);
         o.parts.clear();
+        o.anims.clear();
     }
 
     void ClearObjects()
@@ -810,6 +835,7 @@ namespace
                             o.place[0], o.place[1], o.place[2], it->second.rec.startIndex);
                     }
                     ReleaseRec(it->second.rec);
+                    o.anims.erase(it->first);
                     it = o.parts.erase(it);
                 }
                 else
@@ -996,6 +1022,18 @@ namespace
                         for (int q = 0; q < 12; ++q)
                             part.consts[(31 + 3 * k) * 4 + q] = 0.0f;
             }
+            ObjRec::PartAnim& pa = o->anims[r.startIndex];
+            if (pa.per != per || pa.copies != h.copies || pa.drawn != nb / per)
+            {
+                pa.bones.clear();
+                pa.tried = false;
+            }
+            pa.base = part.consts;
+            pa.slot0 = per < nb ? (h.bone / per) * per : 0;
+            pa.per = per;
+            pa.copies = h.copies;
+            pa.drawn = nb / per;
+            pa.seq = -1;   // AnimateObjects sets the clock
             memcpy(part.pos, o->place, sizeof(part.pos));
             part.spread = kObjReach;
             part.lastSeen = now;
@@ -1007,6 +1045,286 @@ namespace
         }
         ++g_objDraws;
         return true;
+    }
+
+    // Turning an object while the client does not draw it (2026-10-04). The client animates only the models it
+    // draws: a windmill behind the camera kept the pose of its last draw, and its blades' shade stood still.
+    // So the object table plays the model's animation from its file (M2AnimRead), from where the client was.
+    //
+    // A part's bone constants are C * M_b: C takes the model to the client's space, M_b is bone b's matrix in
+    // the model's own (M2AnimBone). C is the same for every bone of a draw, so for two bones r and k of one draw
+    // P_r^-1 P_k = M_r^-1 M_k, whatever C is: the client's pose, without its placement or camera. Each frame
+    // the client draws the object, that pose is matched against the model's sequences to find which one plays
+    // and at what time (the clock); first near the time the clock predicts, then, if that fails, through every
+    // sequence, with the frame before as well, since a pose alone cannot tell the windmill's slow turn from
+    // its fast one. While the client does not draw it the clock runs on, and each part's own bones become
+    // P_k(drawn) * M_b(then)^-1 * M_b(now): the drawn constants, turned by what the bone has done since.
+    constexpr float kSyncErr = 0.01f;   // the largest mean error a match may have (about 4 degrees)
+
+    void Inv34(const float a[12], float out[12])
+    {
+        const float* m = a;
+        const float c00 = m[5] * m[10] - m[6] * m[9], c01 = m[6] * m[8] - m[4] * m[10], c02 = m[4] * m[9] - m[5] * m[8];
+        const float det = m[0] * c00 + m[1] * c01 + m[2] * c02;
+        const float id = fabsf(det) > 1e-12f ? 1.0f / det : 0.0f;
+        out[0] = c00 * id;
+        out[1] = (m[2] * m[9] - m[1] * m[10]) * id;
+        out[2] = (m[1] * m[6] - m[2] * m[5]) * id;
+        out[4] = c01 * id;
+        out[5] = (m[0] * m[10] - m[2] * m[8]) * id;
+        out[6] = (m[2] * m[4] - m[0] * m[6]) * id;
+        out[8] = c02 * id;
+        out[9] = (m[1] * m[8] - m[0] * m[9]) * id;
+        out[10] = (m[0] * m[5] - m[1] * m[4]) * id;
+        for (int r = 0; r < 3; ++r)
+            out[r * 4 + 3] = -(out[r * 4] * m[3] + out[r * 4 + 1] * m[7] + out[r * 4 + 2] * m[11]);
+    }
+
+    // out = a * b, rows of 3x4 (out may not be a or b).
+    void Mul34(const float a[12], const float b[12], float out[12])
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+                out[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j] + a[i * 4 + 2] * b[8 + j];
+            out[i * 4 + 3] += a[i * 4 + 3];
+        }
+    }
+
+    const M2Anim* ObjAnim(const ObjRec& o)
+    {
+        if (o.kind == 1)
+            return MapModelAnim(o.model);
+        const std::string* name = MapGameObjectModel(o.display);
+        return name ? MapModelAnim(*name) : nullptr;
+    }
+
+    // The model's bone for each of a part's own slots: the palette of the submesh with the part's triangles, in
+    // the view with the copy's vertex count. A batch draws its copies' submeshes in one: 7 windmills drew 756
+    // triangles, 7 of the tower's 108, and matched against 108 alone found no submesh (2026-10-04). Not found, or two submeshes that differ: none, and it stays still.
+    void PartBones(const M2Anim& m, const Entry& e, ObjRec::PartAnim& pa)
+    {
+        if (pa.tried)
+            return;
+        pa.tried = true;
+        const UINT verts = RecVertices(e.rec) / (pa.copies ? pa.copies : 1);
+        const std::vector<uint16_t>* found = nullptr;
+        for (const M2Anim::View& v : m.views)
+        {
+            if (v.verts != verts)
+                continue;
+            for (const M2Anim::Sub& sub : v.subs)
+            {
+                if (sub.tris * static_cast<UINT>(pa.drawn) != e.rec.primCount || sub.bones.empty() || sub.bones.size() > static_cast<size_t>(pa.per))
+                    continue;
+                if (found && *found != sub.bones)
+                    return;
+                found = &sub.bones;
+            }
+        }
+        if (found)
+            for (uint16_t b : *found)
+                pa.bones.push_back(b < m.bones.size() ? b : -1);
+    }
+
+    float ObsError(const M2Anim& m, const std::vector<ObjRec::Obs>& obs, int seq, float ms)
+    {
+        float err = 0.0f;
+        for (const ObjRec::Obs& ob : obs)
+        {
+            float a[12], b[12], inv[12], rel[12];
+            M2AnimBone(m, ob.ref, seq, ms, a);
+            M2AnimBone(m, ob.bone, seq, ms, b);
+            Inv34(a, inv);
+            Mul34(inv, b, rel);
+            for (int r = 0; r < 3; ++r)
+            {
+                for (int c = 0; c < 3; ++c)
+                {
+                    const float d = rel[r * 4 + c] - ob.rel[r * 4 + c];
+                    err += d * d;
+                }
+                const float d = (rel[r * 4 + 3] - ob.rel[r * 4 + 3]) / m.size;
+                err += d * d;
+            }
+        }
+        return obs.empty() ? 1e9f : err / static_cast<float>(obs.size());
+    }
+
+    // The sequence that follows seq: one of the same id, by the file's frequencies (the client's choice).
+    int NextSeq(const M2Anim& m, ObjRec& o, int seq)
+    {
+        int total = 0;
+        for (const M2Anim::Sequence& q : m.seqs)
+            if (q.id == m.seqs[seq].id && q.freq > 0)
+                total += q.freq;
+        if (total <= 0)
+            return seq;
+        o.rng ^= o.rng << 13; o.rng ^= o.rng >> 17; o.rng ^= o.rng << 5;
+        int pick = static_cast<int>(o.rng % static_cast<unsigned>(total));
+        for (size_t i = 0; i < m.seqs.size(); ++i)
+            if (m.seqs[i].id == m.seqs[seq].id && m.seqs[i].freq > 0 && (pick -= m.seqs[i].freq) < 0)
+                return static_cast<int>(i);
+        return seq;
+    }
+
+    void AnimateObjects(double now)
+    {
+        for (ObjRec& o : g_objects)
+        {
+            if (o.parts.empty())
+                continue;
+            const M2Anim* m = ObjAnim(o);
+            if (!m || m->seqs.empty())
+                continue;
+            // The clock runs on.
+            if (o.timed)
+            {
+                o.ms += static_cast<float>((now - o.clockAt) * 1000.0);
+                o.clockAt = now;
+                for (int n = 0; n < 8 && o.ms > static_cast<float>(m->seqs[o.seq].end); ++n)
+                {
+                    const float over = o.ms - static_cast<float>(m->seqs[o.seq].end);
+                    o.seq = NextSeq(*m, o, o.seq);
+                    o.ms = static_cast<float>(m->seqs[o.seq].start) + over;
+                }
+                if (o.ms > static_cast<float>(m->seqs[o.seq].end))
+                    o.ms = static_cast<float>(m->seqs[o.seq].start);
+            }
+            // The pose the client drew this frame, if it drew the object.
+            std::vector<ObjRec::Obs> obs;
+            for (auto& kv : o.parts)
+            {
+                if (kv.second.lastSeen != now)
+                    continue;
+                ObjRec::PartAnim& pa = o.anims[kv.first];
+                PartBones(*m, kv.second, pa);
+                if (pa.bones.size() < 2)
+                    continue;
+                int ref = -1;
+                for (size_t j = 0; j < pa.bones.size() && ref < 0; ++j)
+                    if (pa.bones[j] >= 0 && !m->bones[pa.bones[j]].moves)
+                        ref = static_cast<int>(j);
+                if (ref < 0)
+                    ref = 0;
+                for (size_t j = 0; j < pa.bones.size() && obs.size() < 6; ++j)
+                {
+                    const int b = pa.bones[j], br = pa.bones[ref];
+                    if (static_cast<int>(j) == ref || b < 0 || br < 0 || !m->bones[b].moves)
+                        continue;
+                    bool have = false;
+                    for (const ObjRec::Obs& ob : obs)
+                        have = have || (ob.ref == br && ob.bone == b);
+                    const size_t kr = (31 + 3 * (pa.slot0 + ref)) * 4;
+                    const size_t kb = (31 + 3 * (pa.slot0 + static_cast<int>(j))) * 4;
+                    if (have || kr + 12 > pa.base.size() || kb + 12 > pa.base.size())
+                        continue;
+                    ObjRec::Obs ob;
+                    ob.ref = br;
+                    ob.bone = b;
+                    float inv[12];
+                    Inv34(&pa.base[kr], inv);
+                    Mul34(inv, &pa.base[kb], ob.rel);
+                    obs.push_back(ob);
+                }
+            }
+            if (!obs.empty())
+            {
+                int bestSeq = -1;
+                float bestMs = 0.0f, bestErr = 1e9f;
+                const auto consider = [&](int q, float t, float e) {
+                    if (e < bestErr)
+                    {
+                        bestErr = e;
+                        bestSeq = q;
+                        bestMs = t;
+                    }
+                };
+                if (o.timed)   // near where the clock says
+                {
+                    const M2Anim::Sequence& q = m->seqs[o.seq];
+                    for (float t = (std::max)(static_cast<float>(q.start), o.ms - 150.0f);
+                         t <= (std::min)(static_cast<float>(q.end), o.ms + 150.0f); t += 2.0f)
+                        consider(o.seq, t, ObsError(*m, obs, o.seq, t));
+                }
+                if (bestErr > kSyncErr && now - o.searchedAt > 0.5)   // everywhere, at most twice a second
+                {
+                    o.searchedAt = now;
+                    ++o.searches;
+                    const bool prev = !o.prevObs.empty() && now - o.prevAt < 0.5;
+                    const float dt = static_cast<float>((now - o.prevAt) * 1000.0);
+                    bestErr = 1e9f;
+                    bestSeq = -1;
+                    const auto both = [&](int q, float t) {
+                        float e = ObsError(*m, obs, q, t);
+                        if (prev && t - dt >= static_cast<float>(m->seqs[q].start))
+                            e = 0.5f * (e + ObsError(*m, o.prevObs, q, t - dt));
+                        return e;
+                    };
+                    for (size_t q = 0; q < m->seqs.size(); ++q)
+                        for (float t = static_cast<float>(m->seqs[q].start); t <= static_cast<float>(m->seqs[q].end);
+                             t += 10.0f)
+                            consider(static_cast<int>(q), t, both(static_cast<int>(q), t));
+                    if (bestSeq >= 0)
+                    {
+                        const int q = bestSeq;
+                        const float mid = bestMs;
+                        for (float t = mid - 10.0f; t <= mid + 10.0f; t += 1.0f)
+                            if (t >= static_cast<float>(m->seqs[q].start) && t <= static_cast<float>(m->seqs[q].end))
+                                consider(q, t, both(q, t));
+                    }
+                }
+                o.syncErr = bestErr;
+                if (bestSeq >= 0 && bestErr <= kSyncErr)
+                {
+                    o.timed = true;
+                    o.seq = bestSeq;
+                    o.ms = bestMs;
+                    o.clockAt = now;
+                    ++o.syncs;
+                }
+                else
+                    o.timed = false;
+                o.prevObs = obs;
+                o.prevAt = now;
+                for (auto& kv : o.parts)
+                    if (kv.second.lastSeen == now)
+                    {
+                        ObjRec::PartAnim& pa = o.anims[kv.first];
+                        pa.seq = o.timed ? o.seq : -1;
+                        pa.ms = o.ms;
+                    }
+            }
+            if (!o.timed)
+                continue;
+            // The parts the client did not draw, turned from their last draw to now.
+            for (auto& kv : o.parts)
+            {
+                Entry& e = kv.second;
+                if (e.lastSeen == now)
+                    continue;
+                const auto it = o.anims.find(kv.first);
+                if (it == o.anims.end())
+                    continue;
+                ObjRec::PartAnim& pa = it->second;
+                PartBones(*m, e, pa);
+                if (pa.seq < 0 || pa.bones.empty() || pa.base.size() != e.consts.size())
+                    continue;
+                for (size_t j = 0; j < pa.bones.size(); ++j)
+                {
+                    const int b = pa.bones[j];
+                    const size_t k = (31 + 3 * (pa.slot0 + j)) * 4;
+                    if (b < 0 || !m->bones[b].moves || k + 12 > pa.base.size())
+                        continue;
+                    float then[12], nowM[12], inv[12], turn[12];
+                    M2AnimBone(*m, b, pa.seq, pa.ms, then);
+                    M2AnimBone(*m, b, o.seq, o.ms, nowM);
+                    Inv34(then, inv);
+                    Mul34(inv, nowM, turn);
+                    Mul34(&pa.base[k], turn, &e.consts[k]);
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -3086,6 +3404,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         g_objDraws = g_objFiled = 0;
         RefreshObjects(pl, g_cfg.shadow.range + g_cfg.shadow.keepMargin, now);
         Merge(camVP, camVPInv, cam, cam, now);
+        AnimateObjects(now);
         const double tMerged = Now();
         g_samplesLeft = 0;
         Evict(camVP, cam, pl, now);
@@ -3742,6 +4061,28 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 if (d > 300.0f || o.parts.empty() || listed >= 40)
                     continue;
                 ++listed;
+                if (const M2Anim* m = ObjAnim(o))
+                {
+                    char bones[96] = "";
+                    int len = 0;
+                    for (const auto& kv : o.anims)
+                    {
+                        len += _snprintf_s(bones + len, sizeof(bones) - len, _TRUNCATE, "%s%u:", len ? " " : "", kv.first);
+                        if (kv.second.bones.empty())
+                            len += _snprintf_s(bones + len, sizeof(bones) - len, _TRUNCATE, "none");
+                        for (size_t j = 0; j < kv.second.bones.size(); ++j)
+                            len += _snprintf_s(bones + len, sizeof(bones) - len, _TRUNCATE, "%s%d", j ? "," : "",
+                                               kv.second.bones[j]);
+                        if (len < 0 || len >= static_cast<int>(sizeof(bones)) - 1)
+                            break;
+                    }
+                    Log("shadow:   object clock: %s at (%.1f %.1f %.1f): %s, sequence %d (id %u) at %.0f ms, error %.4f; "
+                        "%u matches, %u full searches; %u bones, %u sequences; parts' bones %s",
+                        o.kind == 1 ? "animated doodad" : "game object", o.place[0], o.place[1], o.place[2],
+                        o.timed ? "timed" : "not timed", o.seq, o.seq >= 0 ? m->seqs[o.seq].id : 0u, o.ms, o.syncErr,
+                        o.syncs, o.searches, static_cast<unsigned>(m->bones.size()),
+                        static_cast<unsigned>(m->seqs.size()), bones);
+                }
                 for (const auto& kv : o.parts)
                 {
                     const Entry& e = kv.second;

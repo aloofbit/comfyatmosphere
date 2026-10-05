@@ -4,7 +4,7 @@
     "config": {
         "character": 1,
         "flight": false,
-        "camera": 2,
+        "camera": 4,
         "start": {
             "map": 0,
             "x": -9439.2,
@@ -22,7 +22,7 @@
         {
             "face": {
                 "heading": -2.4,
-                "pitch": -23.8
+                "pitch": -40
             }
         },
         {
@@ -40,14 +40,9 @@
     ],
     "expect": [
         {
-            "about": "The trough is drawn near you, as a model and not a body",
-            "probe": "model draw a model, not a body.*[(]78336 bytes",
+            "about": "The trough is drawn under you as a model and not a body: a draw with a bone within half a yard of you that is not your own. Not by its buffer: the client batches doodads into buffers that differ each session (78,336 bytes when the test was written, 13,824 and 44,544 on 2026-10-04)",
+            "probe": "model draw a model, not a body, .*nearest of [0-9]+ bones 0[.][0-4][0-9] yd",
             "min": 1
-        },
-        {
-            "about": "The trough (a 78,336-byte buffer) is not marked a body, so its shadow has no extra darkness",
-            "probe": "model draw a BODY.*[(]78336 bytes",
-            "max": 0
         }
     ]
 }

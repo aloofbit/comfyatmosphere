@@ -92,8 +92,10 @@ if (Test-Path $cvarsSrc) {
     }
 }
 # Flight off: the same cast. In the air the character falls, which a GM survives; between tests the next
-# start's .go xyz follows at once.
-$flightOff = @('type /cast Toggle GM Flight Mode', 'wait 0.5')
+# start's .go xyz follows at once. With flight off the character stays in the air until it moves (the owner,
+# 2026-10-04): a .go xyz after it kept it there, and the next test's ground wait ran out 84 yards over a hill.
+# So it walks for half a second.
+$flightOff = @('type /cast Toggle GM Flight Mode', 'wait 0.5', 'hold W 0.5', 'wait 0.5')
 
 foreach ($file in $files) {
     if (-not (Test-Path $file)) { throw "No test $file" }
@@ -120,6 +122,7 @@ foreach ($file in $files) {
         # To the start first (2026-10-04): the test before may leave the character swimming, where the ground
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
         if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += 'wait 3' }
+        $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
         $lines += 'ground 60'; $lines += 'type /cast Toggle GM Flight Mode'; $lines += 'wait 0.5'
         $flying = $true
     }

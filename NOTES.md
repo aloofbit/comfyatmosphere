@@ -1893,6 +1893,36 @@ In the owner's area: 26 records (11 animated doodads, 15 game objects), 54 parts
 and "object part" lines list them. Creatures and players stay in the cache, filed by model (`UnitModelNear`).
 A part the client never drew (the tower, behind the camera since login) is not in the record yet.
 
+## An object's animation while the client does not draw it (2026-10-04)
+
+The client animates only the models it draws. A windmill behind the camera kept the pose of its last draw,
+and its blades' shade stood still until you looked at it again. Making the client draw what is out of view
+was the other way, and was not taken: it means finding and patching the client's culling, with no sure sign
+that a culled model is animated even once drawn, and every model round you drawn each frame.
+
+So the object table plays the animation itself (`AnimateObjects`, after each merge):
+- **The file.** `M2AnimRead` (mapm2.cpp) reads the bones, their tracks and the sequences, in the layout
+  `tools/model-browser/lib/pose.js` confirmed, and each view's submeshes with their palettes (the bone lookup
+  at 0x8C). The model views job reads it with the views (`MapModelAnim`). `M2AnimBone` gives a bone's matrix
+  for a sequence and a time: linear keys, a rotation the short way round, the parents' matrices included.
+- **The bones of a part.** A draw's bone constants are its submesh's palette, in order. The submesh is the
+  one with the part's triangles, in the view with one copy's vertices. A batch draws its copies' submeshes in
+  one: 7 windmills drew 756 triangles, 7 of the tower's 108, so the triangles are divided by the copies drawn.
+- **The clock.** A part's constants for bone b are C M_b, where C is the placement and the camera, the same
+  for every bone of the draw. So P_r^-1 P_k = M_r^-1 M_k for any two of its bones: the pose alone. Each frame
+  the client draws the object, that pose is matched against the file: near the time the clock predicts, and
+  if that fails, through every sequence, with the frame before as well. The pose alone cannot tell the
+  windmill's slow turn (one turn in 10 seconds) from its fast one (five turns in 10 seconds).
+- **The turn.** While the client does not draw it the clock runs on, into the next sequence of the same id
+  by the file's frequencies, and each part's own bones become P_k(drawn) M_b(then)^-1 M_b(now).
+- Not turned: a billboard bone (it faces the camera), a track on a global sequence (read at its first key),
+  and a model with one bone in each draw (no still bone to match against).
+
+The Westfall windmill: 3 bones, a still root, the hub (the blades) and a cap on it; two Stand sequences, slow
+and fast. Across 7 windmills on the development map, each match came out at 0.0003 or less, with 1 to 6 full
+searches against 1,000 to 4,000 matches, and the clocks found that the client plays 6 of them in step. The
+probe's "object clock" line gives each record's clock, its error, its counts and each part's bones.
+
 ## A windmill's shade arriving in steps from afar (2026-10-04)
 
 Flying toward a Westfall windmill, its shade came in steps: the building, then the cap, then the blades. At 90

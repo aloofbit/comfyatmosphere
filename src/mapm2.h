@@ -39,6 +39,41 @@ struct M2Model
 // The model named as a tile names it (.mdx or .m2); false if it cannot be read.
 bool M2Load(const std::string& name, M2Model& out);
 
+// A model's bones and their animations (2026-10-04), for the object table to turn a doodad's parts while the
+// client does not draw them (shadow.cpp, AnimateObjects). Version 256 and 257 only.
+struct M2Anim
+{
+    struct Track
+    {
+        int16_t interp = 0, globalSeq = -1;
+        std::vector<uint32_t> ranges;   // first and last key of each sequence, two words a sequence
+        std::vector<uint32_t> times;    // ms, across all the sequences
+        std::vector<float>    values;   // 3 floats a key (4 for a rotation: x y z w); tangents dropped
+    };
+    struct Bone
+    {
+        int      parent = -1;
+        uint32_t flags = 0;
+        float    pivot[3] = {};
+        Track    t, r, s;
+        bool     moves = false;   // keys that change inside a sequence, or a parent that moves
+    };
+    struct Sequence { uint16_t id = 0; uint32_t start = 0, end = 0; int16_t freq = 0; };
+    struct Sub { uint32_t tris = 0; std::vector<uint16_t> bones; };   // a submesh: triangles, and its palette
+    struct View { uint32_t verts = 0; std::vector<Sub> subs; };
+    std::vector<Bone>     bones;
+    std::vector<Sequence> seqs;
+    std::vector<View>     views;
+    float                 size = 1.0f;   // the farthest pivot from the origin, at least 1: the error's scale
+    bool                  moves = false;
+};
+
+// From a model file's bytes; false if it is not a model of this version.
+bool M2AnimRead(const std::vector<uint8_t>& d, M2Anim& out);
+// Bone `bone`'s matrix in the model's space for sequence `seq` at `ms` (absolute, as the file's times are):
+// rows of a 3x4, the parents' included. A track on a global sequence is read at its first key.
+void M2AnimBone(const M2Anim& m, int bone, int seq, float ms, float out[12]);
+
 struct BlpData
 {
     int      format = 0;   // 0 DXT1, 1 DXT3, 2 DXT5, 3 A8R8G8B8
