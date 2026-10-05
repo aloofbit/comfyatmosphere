@@ -4,8 +4,8 @@
     "config": {
         "character": 1,
         "flight": false,
-        "camera": 10,
-        "start": { "map": 0, "x": -8984.2, "y": 496.4, "z": 96.5, "about": "the owner's place, read with ComfyTest pos; the camera faced 41.6 degrees, level, about 11 yards behind" },
+        "cameraZoom": 0,
+        "start": { "map": 0, "x": -8983.2, "y": 497.3, "z": 96.5, "facing": 40.8, "about": "the owner's snapshot (2026-10-05): on the bridge, first person, facing 40.8 degrees, 15 up" },
         "sun": { "azimuth": 45, "elevation": 28.7 },
         "cvars": {
             "comfyVolume": 1,
@@ -84,7 +84,7 @@
     },
     "steps": [
         { "wait": 3 },
-        { "face": { "heading": 41.6, "pitch": 0.1 } },
+        { "face": { "heading": 40.8, "pitch": 15 } },
         { "wait": 3 },
         { "probe": true },
         { "screenshot": true },
