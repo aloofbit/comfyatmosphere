@@ -214,12 +214,12 @@ foreach ($file in $files) {
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
             'face'       { $lines += "heading $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the character and the camera, checked against comfyStats: right-drags turn, wow-test-tool tilts
             'probe'      { $lines += 'atmos probe' }
-            'screenshot' { $shotViews += $view; $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'keys alt+z' }   # without the UI (Alt+Z), then the UI back
+            'screenshot' { $shotViews += $view; $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'ui show' }   # without the UI, then the UI back (Alt+Z without comfytest.dll)
             'record'     {   # a video, without the UI as a screenshot: { seconds, label } or the seconds alone
                 $secs = if ($null -ne $v.seconds) { [double]$v.seconds } else { [double]$v }
                 $recLabels += $(if ($v.label) { $v.label } else { '' })
                 $recViews += $view
-                $lines += 'keys alt+z'; $lines += 'wait 0.2'; $lines += "record $secs"; $lines += 'keys alt+z'
+                $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += "record $secs"; $lines += 'ui show'
             }
             'atmos'      { $lines += "atmos $v" }
             'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
