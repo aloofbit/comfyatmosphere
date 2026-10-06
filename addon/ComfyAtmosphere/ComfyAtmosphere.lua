@@ -45,6 +45,7 @@ COMFYATMOSPHERE_SUN_SHADOW_STRENGTH = "Sun Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_NIGHT  = "Night Shadows";
 COMFYATMOSPHERE_SHADOWS_UNIT_STRENGTH = "Character Shadow Strength";
 COMFYATMOSPHERE_SHADOWS_BODY   = "Character Backside Shadow";
+COMFYATMOSPHERE_SHADOW_ON_WATER = "Shadow on Water";
 COMFYATMOSPHERE_SUN_GLIDE      = "Sun Smoothing";
 COMFYATMOSPHERE_SHADOWS_WORLD  = "World / Object Shadows";
 COMFYATMOSPHERE_SHADOWS_UNITS  = "Player / Creature Shadows";
@@ -541,6 +542,18 @@ local ENTRIES = {
 		type = "slider",
 		cvar = "comfySunShadowsBody",
 		dependency = { "comfySunShadowsUnits", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: comfyfog.dll divides by 100 for [sunshadows] water.
+		name = "COMFYATMOSPHERE_SHADOW_ON_WATER",
+		desc = "How dark a shadow is on the water's surface, against one on the ground, with a soft edge. The bed under clear water keeps its own shadow. 0 is none on the surface.",
+		type = "slider",
+		cvar = "comfyShadowOnWater",
+		dependency = { "comfySunShadows", "1" },
 		minval = 0,
 		maxval = 100,
 		step = 5,
@@ -1408,10 +1421,10 @@ local ENTRIES = {
 			.. "13 fog: the sky's light on it alone\n"
 			.. "14 fog: where mist collects (low ground, water)\n"
 			.. "15 sun shadows: the bodies it finds\n"
-			.. "16 water: the depth under it (blue shallow, red deep)\n"
+			.. "16 water: as drawn, over what lies under it: magenta the far slice, orange untextured draws, cyan terrain past 80 yards\n"
 			.. "17 water: the foam alone\n"
 			.. "18 water: the wet sand alone\n"
-			.. "19 water: what lies under it, bent and tinted\n"
+			.. "19 water: what lies under it (red: the far terrain, blue: only sky behind)\n"
 			.. "20 water: ripples (red, green) and the wake (blue)\n"
 			.. "21 water: the game's own water drawn (red), other liquid (magenta), ours off\n"
 			.. "22 water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)\n"
@@ -1419,11 +1432,13 @@ local ENTRIES = {
 			.. "24 sun shadows: where the shade comes from (red solid, green leaves, blue hills)\n"
 			.. "25 sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)\n"
 			.. "26 sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)\n"
-			.. "27 water: the drawn foam (white) over its age (red), the open water's foam (blue)",
+			.. "27 water: the drawn foam (white) over its age (red), the open water's foam (blue)\n"
+			.. "28 sun shadows: the water it finds (blue: the water's depth over a bed, grey: none, so the shade falls on what the depth shows)\n"
+			.. "29 water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 27,
+		maxval = 29,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -1498,7 +1513,7 @@ local WINDOW_SECTIONS = {
 	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
-	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfySunGlide", "comfyTreeShade", "comfySunlight", "comfyShadeTint",
+	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfyShadowOnWater", "comfySunGlide", "comfyTreeShade", "comfySunlight", "comfyShadeTint",
 	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery",
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
@@ -1988,10 +2003,10 @@ local DEBUG_VIEWS = {
 	"fog: the sky's light on it alone",
 	"fog: where mist collects (low ground, water)",
 	"sun shadows: the bodies it finds",
-	"water: the depth under it (blue shallow, red deep)",
+	"water: as drawn, over what lies under it: magenta the far slice, orange untextured draws, cyan terrain past 80 yards",
 	"water: the foam alone",
 	"water: the wet sand alone",
-	"water: what lies under it, bent and tinted",
+	"water: what lies under it (red: the far terrain, blue: only sky behind)",
 	"water: ripples (red, green) and the wake (blue)",
 	"water: the game's own water drawn (red), other liquid (magenta), ours off",
 	"water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)",
@@ -2000,6 +2015,8 @@ local DEBUG_VIEWS = {
 	"sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)",
 	"sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)",
 	"water: the drawn foam (white) over its age (red), the open water's foam (blue)",
+	"sun shadows: the water it finds (blue: the water's depth over a bed, grey: none, so the shade falls on what the depth shows)",
+	"water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)",
 };
 
 local PANEL_BACKDROP = {

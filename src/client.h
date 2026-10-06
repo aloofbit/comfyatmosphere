@@ -23,3 +23,6 @@ struct ClientObject
     unsigned display;   // GameObjectDisplayInfo.dbc row
 };
 int  ClientGameObjects(ClientObject* out, int max);   // every game object; the count
+// The probe (2026-10-06): every transport game object (type 15, a ship or a zeppelin; 11, an elevator), its update
+// fields, and each place in its own memory within 400 yards of at, to find where a ship under way is kept.
+void ClientTransportsLog(const float at[3]);

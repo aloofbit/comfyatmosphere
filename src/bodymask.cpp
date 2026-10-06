@@ -55,6 +55,10 @@ namespace
     // The ground (2026-10-05): a draw through the client's terrain shader. The water's foam round objects skips it,
     // so the shoreline is left to the shore's foam: taken for an object it drew a second foam line (the owner).
     constexpr DWORD kGroundBit = 0x10;
+    // Bare (2026-10-06): a depth-writing draw with no vertex shader, no pixel shader and no texture. The game draws
+    // its untextured terrain chunks far off so, and under the water they showed as a smooth dark ridge (the owner).
+    // Debug View 16 shows them; buildings, the dock walls among them, are drawn with a texture and never carry it.
+    constexpr DWORD kBareBit = 0x08;
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -215,7 +219,7 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_STENCILENABLE, TRUE);
     DWORD zw = 0;
     d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
-    const DWORD writeMask = zw ? kBit | kModelBit | kLeafBit | kGroundBit : 0;
+    const DWORD writeMask = zw ? kBit | kModelBit | kLeafBit | kGroundBit | kBareBit : 0;
     IDirect3DVertexShader9* mvs = nullptr;
     if (zw)
         d->GetVertexShader(dev, &mvs);
@@ -228,6 +232,15 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
         IDirect3DPixelShader9* gps = nullptr;
         d->GetPixelShader(dev, &gps);
         ground = gps && TerrainShadeIsTerrainPs(gps) ? kGroundBit : 0;
+        if (!gps)
+        {
+            IDirect3DBaseTexture9* t0 = nullptr;
+            d->GetTexture(dev, 0, &t0);
+            if (t0)
+                t0->lpVtbl->Release(t0);
+            else
+                ground = kBareBit;
+        }
         if (gps) gps->lpVtbl->Release(gps);
     }
     const DWORD ref = zw && ShadowIsUnitDraw(dev) ? kBit | kModelBit
@@ -438,6 +451,11 @@ IDirect3DTexture9* BodyMaskLeavesNow(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_RED);
         d->SetRenderState(dev, D3DRS_STENCILREF,          kGroundBit);
         d->SetRenderState(dev, D3DRS_STENCILMASK,         kGroundBit);
+        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+        // And the bare draws, the untextured terrain far off, in green (2026-10-06).
+        d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_GREEN);
+        d->SetRenderState(dev, D3DRS_STENCILREF,          kBareBit);
+        d->SetRenderState(dev, D3DRS_STENCILMASK,         kBareBit);
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
         if (g_msSurf)
             d->StretchRect(dev, g_msSurf, nullptr, g_texSurf, nullptr, D3DTEXF_NONE);

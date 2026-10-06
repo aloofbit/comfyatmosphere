@@ -119,7 +119,8 @@ float4 gM2   : register(c30);
 float4 gM3   : register(c31);
 float4 gMB   : register(c32);       // middle map: depth bias, normal offset, one texel, 1 if there is one
 float4 gTr   : register(c33);       // the terrain: terrainShade, 1 if there is a map of it, its least depth bias
-float4 gWt   : register(c34);       // the water: 1 if the depth under it is there, light absorbed a yard
+float4 gWt   : register(c34);       // the water: 1 if the depth under it is there, light absorbed a yard;
+                                    // w Shadow on Water (0..1)
                                     // (map units)
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
@@ -181,7 +182,37 @@ float Lit5(sampler2D m, float4 s, float2 g, float bias, float texel)
               + Tap(m, uv + float2(-o,  o), z, uv, g, bias, n, texel) + Tap(m, uv + float2( o,  o), z, uv, g, bias, n, texel);
     return lit / 5.0;
 }
+// The shade on the water's own surface (2026-10-06, the owner): solid things and leaves (a ship's sails are alpha
+// tested) from the near map, else the far one, with no facing, slope or hill check (the surface is flat), its taps
+// three texels apart for a soft edge. 1 shaded, 0 lit.
+float SurfaceShade(float3 Q)
+{
+    Q += gSun.xyz * gT.y;
+    float sh = 0.0, wn = 0.0;
+    [branch] if (gNB.w > 0.5)
+    {
+        float4 sn = Q.x * gN0 + Q.y * gN1 + Q.z * gN2 + gN3;
+        float2 en = abs(sn.xy);
+        wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
+        [branch] if (wn > 0.0)
+        {
+            float leaf = gCh.y > 0.5 ? 1.0 - Lit5(sNearL, sn, 0.0, gNB.x, gNB.z * 3.0) : 0.0;
+            sh = 1.0 - Lit(sNear, sn, 0.0, gNB.x, gNB.z * 3.0) * (1.0 - gCh.x * leaf);
+        }
+    }
+    [branch] if (wn < 1.0 && gCh.w > 0.5)
+    {
+        float4 sf   = Q.x * gSh0 + Q.y * gSh1 + Q.z * gSh2 + gSh3;
+        float2 ef   = abs(sf.xy);
+        float  fade = saturate((1.0 - max(ef.x, ef.y)) * 10.0);
+        float  leaf = gCh.z > 0.5 ? 1.0 - Lit5(sFarL, sf, 0.0, gB.x, gB.z * 3.0) : 0.0;
+        float  shF  = (1.0 - Lit(sShadow, sf, 0.0, gB.x, gB.z * 3.0) * (1.0 - gCh.x * leaf)) * fade;
+        sh = lerp(shF, sh, wn);
+    }
+    return sh;
+}
 static bool g_underWater = false;   // this pixel's point is the bed under the water: its neighbours are too
+static bool g_onWater    = false;   // the water drew its own depth over what was there (with a bed under it or not)
 float Raw(float2 uv)
 {
     float r = saturate((tex2Dlod(sDepth, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
@@ -213,6 +244,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     if (raw >= 0.99999)
         return gL.y > 0.5 ? 1.0 : 0.5;                                     // the sky: no change
     float3 P   = PointAt(uv, raw);
+    const float3 Ps = P;   // what the depth shows: under the water, its surface (the Sunlight and the sun tint go there)
     // Under the water the shade falls on the bed, seen through it, and not on the surface (2026-10-02: in
     // Westfall's shallows a character's shadow lay on the water, away from where it reaches the sand under
     // it). The point is the bed's, which holds still; the shade fades as the water gets deep and hides the
@@ -222,6 +254,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     [branch] if (gWt.x > 0.5)
     {
         float rawU = saturate((tex2Dlod(sUnder, float4(uv, 0, 0)).r - gZ.x) * gZ.y);
+        g_onWater = rawU > raw + 1e-6;
         if (rawU > raw && rawU < 0.99999)
         {
             float3 Pb = PointAt(uv, rawU);
@@ -231,6 +264,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             g_underWater = true;
         }
     }
+    // debug 7 (Debug View 28, 2026-10-06): where the pass finds the water's own depth over a bed (blue), so the shade
+    // goes on the bed and fades with the water; grey where it does not, so the shade falls on what the depth shows.
+    // The owner's ridge under the sea took the sun's tint and Sunlight as if it stood in the open.
+    if (gL.y > 6.5)
+        return g_underWater ? float4(0.1, 0.45, 1.0, 1.0) : float4(0.35, 0.35, 0.35, 1.0);
     // The facing, for normalBias and slope only: from the neighbours a pixel away, nearer in depth on
     // each axis. The offset along it grows as the sun grazes the surface, and is only there where the sun
     // is within about 20 degrees of the surface or behind it (2026-10-02): on a bridge's deck, facing a
@@ -464,13 +502,34 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // The game's fog at this depth: a fogged pixel shows the fog colour, not what the shade falls on.
     float vz    = dot(P, gV.xyz) + gV.w;
     float clear = (1.0 - (gFog.z > 0.5 ? saturate((vz - gFog.x) * gFog.y) : 0.0)) * seen;
+    // Shadow on Water (gWt.w, 2026-10-06, the owner: a ship's shadow lay on the open sea as hard and dark as on the
+    // ground, and over the harbour's bed a dock cast none on the water beside it). Water with no bed in view: the
+    // shade found is the surface's own, scaled. With a bed: the bed keeps its shade through the water, and the
+    // surface's own (SurfaceShade) is added at that strength.
+    float sS = 0.0;
+    [branch] if (g_underWater && gWt.w > 0.0)
+        sS = SurfaceShade(Ps) * gWt.w;
+    if (g_onWater && !g_underWater)
+    {
+        shade *= gWt.w;
+        unit  *= gWt.w;
+    }
     float  dark  = max(shade, unit);
-    float  f     = (1.0 - gSun.w * shade * clear) * (1.0 - gU.x * unit * clear) * (1.0 + gL.x * (1.0 - dark) * clear);
+    // Under the water only the bed's shade fades with the water (seen); the Sunlight and the sun tint fall on the
+    // surface, so they go by the surface's fog, and by the bed's shade only as far as the bed is seen (2026-10-06).
+    // Faded with the shade, they left the water over a ridge without them while the open sea beside it, with no bed
+    // under it, had them in full: an edge in the ridge's shape (Debug View 28, the owner). Away from the water seen
+    // is 1 and the surface is the point, as before.
+    float vzS    = dot(Ps, gV.xyz) + gV.w;
+    float clearS = 1.0 - (gFog.z > 0.5 ? saturate((vzS - gFog.x) * gFog.y) : 0.0);
+    float sunK   = lerp(1.0, 1.0 - dark, seen) * (1.0 - sS);   // the share lit
+    float  f     = (1.0 - gSun.w * shade * clear) * (1.0 - gU.x * unit * clear) * (1.0 - gSun.w * sS * clearS) *
+                   (1.0 + gL.x * sunK * clearS);
     f = (f >= 0.0 && f <= 2.0) ? f : 1.0;
     if (gL.y > 0.5)
         return float4(f, f, f, 1.0);                                       // debug: the shade in grey
     // Shade takes the sky's cool colour and sunlight a warm one ([sunshadows] shadeTint, sunTint).
-    float3 c = f * lerp(1.0, gShC.rgb, gShC.w * dark * clear) * lerp(1.0, gSuC.rgb, gSuC.w * (1.0 - dark) * clear);
+    float3 c = f * lerp(1.0, gShC.rgb, gShC.w * max(dark * clear, sS * clearS)) * lerp(1.0, gSuC.rgb, gSuC.w * sunK * clearS);
     return float4(saturate(c * 0.5), 1.0);
 }
 )HLSL";
@@ -865,10 +924,13 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[134] = ss.terrainBias / span;
     // How far a caster's shade carries inside a hill's ([sunshadows] hillCarry, 2026-10-04); 0 is no limit.
     pc[135] = (ss.hillCarry > 0.0f ? ss.hillCarry : 1.0e6f) / span;
-    // The water (c34): the depth under it, and how fast it hides the bed (water.cpp's clarity).
+    // The water (c34): the depth under it, and how fast it hides the bed: as the water shader hides the bed itself
+    // (2026-10-06; 0.25 a yard / Water Clarity until then, some 2.5 times sooner: a ship's shade on the sea floor
+    // in Stormwind's harbour was too faint to see while the floor showed clearly).
     IDirect3DTexture9* under = WaterUnderDepth();
     pc[136] = under ? 1.0f : 0.0f;
-    pc[137] = 0.25f / g_cfg.water.clarity;
+    pc[137] = WaterBedFade() > 0.0f ? WaterBedFade() : 0.25f / g_cfg.water.clarity;
+    pc[139] = ss.water;                                              // Shadow on Water
     d->SetPixelShaderConstantF(dev, 0, pc, 35);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };

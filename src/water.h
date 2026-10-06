@@ -40,6 +40,11 @@ IDirect3DTexture9* WaterUnderDepth();
 void WaterFrameEnd();   // at Present
 // A fixed-function draw of 100 triangles or more: its world matrix's origin noted, to find the ships (Ship Wake).
 void WaterNoteHull(IDirect3DDevice9* dev, const D3DMATRIX& world);
+// Within reach of a ship under way (its hull followed from its draws): a model there is one of its parts.
+bool WaterShipNear(const float p[3]);
+// The light the water takes from what lies under it a yard, by brightness, at the current colour and Clarity (0
+// before the water was first drawn): the sun shadows fade the bed's shade by it.
+float WaterBedFade();
 void WaterNoteRain(IDirect3DDevice9* dev, UINT prims);   // a DrawPrimitive: counted if it is the game's rain
 float WaterRainAmount();                                  // how hard it rains, 0..1, eased
 void WaterReset();      // before Reset, and for a new device

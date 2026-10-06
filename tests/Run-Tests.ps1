@@ -15,6 +15,8 @@
     camera      0 first person, 1 to 9 that many steps back out, 10 all the way out ("zoomed" is 0, "far" 10)
     flySpeed    yards a second while flying with W, to turn "fly" yards into seconds (7 is the run speed)
     start       { map, x, y, z }: where the test begins, by .go xyz
+    flightFrom  { x, y, z }: with flight, where it is turned on, on land, before the start (2026-10-06): a start in
+                the air over deep water dropped the character into the water, where the ground wait never ends
     sun         { azimuth, elevation } in degrees: a fixed sun ([sun] fixed), the same light every run
     ini         { "section.key": value, ... }: comfyfog.ini values for this test, by /atmos. /atmos reset runs
                 before and after, so nothing stays set
@@ -125,7 +127,9 @@ foreach ($file in $files) {
         $lines += Say 'flight on'
         # To the start first (2026-10-04): the test before may leave the character swimming, where the ground
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
-        if ($cfg.start) { $lines += "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)"; $lines += "arrive $($cfg.start.x) $($cfg.start.y) $($cfg.start.z)" }
+        # Or to flightFrom, on land, when the start is over deep water (2026-10-06).
+        $f = if ($cfg.flightFrom) { $cfg.flightFrom } else { $cfg.start }
+        if ($f) { $lines += "chat .go xyz $($f.x) $($f.y) $($f.z) $($cfg.start.map)"; $lines += "arrive $($f.x) $($f.y) $($f.z)" }
         $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
         $lines += 'ground 60 unlessflying'; $lines += 'flight on'
     }

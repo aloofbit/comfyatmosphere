@@ -1,0 +1,187 @@
+{
+    "name":  "stormwind-harbour-ship-shadow",
+    "about":  "A moored ship\u0027s shadow under the water, seen from the dock (2026-10-06, the owner: under the water the ship\u0027s and the dock\u0027s shadows show on the sea floor; from above they should too). Shot 1: the normal view. Shot 2: Debug View 5, the shade alone: the soft shade on the water\u0027s surface beside the hull (Shadow on Water). Shot 3: Debug View 24, where the shade comes from, red solid, on the floor where the shadows find it. Shot 4: Debug View 28, blue where the shadows find the floor under the water.",
+    "config":  {
+                   "character":  1,
+                   "flight":  true,
+                   "cameraZoom":  0,
+                   "start":  {
+                                 "map":  0,
+                                 "x":  -8603.8,
+                                 "y":  1374,
+                                 "z":  37.7,
+                                 "facing":  -24.2,
+                                 "about":  "the owner\u0027s snapshot (2026-10-06): in Stormwind\u0027s harbour, looking at a moored ship\u0027s shadow under the water"
+                             },
+                   "sun":  {
+                               "azimuth":  45,
+                               "elevation":  43.7
+                           },
+                   "cvars":  {
+                                 "comfyVolume":  1,
+                                 "comfyVolumeStrength":  25,
+                                 "comfyClouds":  0,
+                                 "comfyRays":  1,
+                                 "comfyRaysStrength":  40,
+                                 "comfyVolumeQuality":  3,
+                                 "comfyNightStrength":  25,
+                                 "comfyRaysSoften":  1,
+                                 "comfyRaysSmooth":  0,
+                                 "comfyShadowResolution":  3,
+                                 "comfyShadowSoftness":  1,
+                                 "comfyShadowEvery":  1,
+                                 "comfySunShadows":  1,
+                                 "comfySunShadowStrength":  20,
+                                 "comfyAtmosphere":  1,
+                                 "comfySunlight":  35,
+                                 "comfyVolumeDensity":  16,
+                                 "comfyVolumeDistance":  190,
+                                 "comfyVolumeDirection":  70,
+                                 "comfySunShadowsWorld":  1,
+                                 "comfySunShadowsUnits":  1,
+                                 "comfyShadowLock":  0,
+                                 "comfyShadowTilt":  15,
+                                 "comfyShadeTint":  65,
+                                 "comfySunTint":  95,
+                                 "comfyLampGlow":  26,
+                                 "comfyLampDistance":  260,
+                                 "comfyNightDarkness":  20,
+                                 "comfyMoonlight":  65,
+                                 "comfyMist":  1,
+                                 "comfyMistDensity":  25,
+                                 "comfyMistHeight":  25,
+                                 "comfyMistBrightness":  120,
+                                 "comfyMistSun":  40,
+                                 "comfyMistPatches":  50,
+                                 "comfyMistWind":  15,
+                                 "comfyMistWindDir":  45,
+                                 "comfyMistReach":  200,
+                                 "comfyMistSky":  75,
+                                 "comfyMistLow":  150,
+                                 "comfyMistWater":  210,
+                                 "comfyMistMorning":  100,
+                                 "comfyMistLamps":  50,
+                                 "comfySunShadowsNight":  100,
+                                 "comfySunShadowsUnitStrength":  45,
+                                 "comfySunGlide":  3,
+                                 "comfyLamps":  1,
+                                 "comfyTorchLight":  23,
+                                 "comfyLanternLight":  69,
+                                 "comfyIndoorLamps":  29,
+                                 "comfyLampsDay":  51,
+                                 "comfySunShadowsBody":  30,
+                                 "comfyShadowNear":  32,
+                                 "comfyTreeShade":  60,
+                                 "comfyWaveHeight":  10,
+                                 "comfyWaveSize":  200,
+                                 "comfyWater":  1,
+                                 "comfyWaterColour":  25,
+                                 "comfyWaterClarity":  400,
+                                 "comfyWaterReflect":  15,
+                                 "comfyWaterBend":  25,
+                                 "comfyWaterCover":  50,
+                                 "comfyWaterWake":  85,
+                                 "comfyWaterFoam":  80,
+                                 "comfyWaterSwash":  1,
+                                 "comfyWaterGlint":  100,
+                                 "comfyWaterMoonGlint":  60,
+                                 "comfyWaterGlintSize":  100,
+                                 "comfyWaterEdge":  10,
+                                 "comfyWaterEdgeWidth":  1,
+                                 "comfyWaterBright":  70,
+                                 "comfyWaterRippleDepth":  100,
+                                 "comfyWaterSwashHeight":  5,
+                                 "comfyWaterSwashLength":  90,
+                                 "comfyWaterSwashSpeed":  30,
+                                 "comfyDaySaturation":  100,
+                                 "comfyNightSaturation":  100,
+                                 "comfyColor":  1,
+                                 "comfyWaterRippleMoving":  340,
+                                 "comfyWaterRippleSpread":  50,
+                                 "comfyWaterRippleSpreadMoving":  100,
+                                 "comfyWaterFoamDrawn":  1,
+                                 "comfyWaterFoamSize":  9,
+                                 "comfyWaterFoamReach":  30,
+                                 "comfyWaterOpenFoam":  1,
+                                 "comfyWaterOpenFoamAmount":  30,
+                                 "comfyWaterFoamEdge":  60,
+                                 "comfyWaterWakeFoam":  50,
+                                 "comfyWaterObjectFoam":  60,
+                                 "comfyWaterObjectFoamWidth":  8,
+                                 "comfyWaterLakeSwash":  0,
+                                 "comfyWaterLakeFoam":  30,
+                                 "comfyWaterLakeWaves":  0,
+                                 "comfyWaterRain":  100,
+                                 "comfyLighthouses":  1,
+                                 "comfyLighthouseBeam":  12,
+                                 "comfyLighthouseBeacon":  200,
+                                 "comfyLighthouseLength":  400,
+                                 "comfyLighthouseWidth":  5,
+                                 "comfyLighthouseSpread":  35,
+                                 "comfyLighthouseSpeed":  12,
+                                 "comfyLighthouseTwoBeams":  0,
+                                 "comfyLighthouseGlint":  200,
+                                 "comfyLighthouseFace":  160,
+                                 "comfyLighthouseFaceTilt":  50,
+                                 "comfyLighthouseFaceSoft":  80,
+                                 "comfyLighthouseWaterWidth":  150,
+                                 "comfyRainDarkness":  30,
+                                 "comfyWaterShipWake":  0,
+                                 "comfyWaterShipForward":  15,
+                                 "comfyWaterShipDepth":  200,
+                                 "comfyShadowOnWater":  65
+                             },
+                   "flightFrom":  {
+                                      "x":  -8605.6,
+                                      "y":  1278.1,
+                                      "z":  5.2
+                                  }
+               },
+    "steps":  [
+                  {
+                      "face":  {
+                                   "heading":  -24.2,
+                                   "pitch":  -36.9
+                               }
+                  },
+                  {
+                      "wait":  3
+                  },
+                  {
+                      "probe":  true
+                  },
+                  {
+                      "screenshot":  true
+                  },
+                  {
+                      "cvar":  "comfyDebugView 5"
+                  },
+                  {
+                      "wait":  1
+                  },
+                  {
+                      "screenshot":  true
+                  },
+                  {
+                      "cvar":  "comfyDebugView 24"
+                  },
+                  {
+                      "wait":  1
+                  },
+                  {
+                      "screenshot":  true
+                  },
+                  {
+                      "cvar":  "comfyDebugView 28"
+                  },
+                  {
+                      "wait":  1
+                  },
+                  {
+                      "screenshot":  true
+                  },
+                  {
+                      "cvar":  "comfyDebugView 0"
+                  }
+              ]
+}

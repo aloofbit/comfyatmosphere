@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include "client.h"
+#include "common.h"
 #include "config.h"
 
 #include <cmath>
@@ -240,6 +241,71 @@ int ClientGameObjects(ClientObject* out, int max)
             obj = next;
         }
         return n;
+    }
+
+// The transports for the probe (2026-10-06, the owner: tie a ship's sails to the ship's object). A ship at
+// Stormwind's harbour was in none of the object table's records along its path, so where the object list keeps a
+// ship under way is not known. The update fields (OBJECT_END 6): DISPLAYID 0x8, FLAGS 0x9, ROTATION 0xA..0xD,
+// STATE 0xE, POS_X..Z 0xF..0x11, FACING 0x12, TYPE_ID 0x15. And the object's own memory, scanned for any three
+// floats that make a place within 400 yards of at: two probes, the ship moving and gone, say which follows it.
+void ClientTransportsLog(const float at[3])
+    {
+        const ClientSettings& b = g_cfg.client;
+        if (!b.objMgrAddr)
+            return;
+        DWORD mgr = 0;
+        if (!SafeCopy(static_cast<uintptr_t>(b.objMgrAddr + Slide()), &mgr, 4) || !mgr)
+            return;
+        DWORD link = 0, obj = 0;
+        if (!SafeCopy(mgr + 0xA4, &link, 4) || !SafeCopy(mgr + 0xAC, &obj, 4))
+            return;
+        int found = 0, objects = 0;
+        for (int i = 0; i < 16384 && obj && !(obj & 1); ++i)
+        {
+            DWORD type = 0;
+            if (!SafeCopy(obj + 0x14, &type, 4))
+                break;
+            DWORD fields = 0;
+            uint32_t f[0x17] = {};
+            if (type == 5 && SafeCopy(obj + 0x8, &fields, 4) && fields && SafeCopy(fields, f, sizeof(f)))
+            {
+                ++objects;
+                const uint32_t goType = f[0x15];
+                if (goType == 15 || goType == 11)
+                {
+                    ++found;
+                    float pos[3], facing;
+                    memcpy(pos, &f[0xF], 12);
+                    memcpy(&facing, &f[0x12], 4);
+                    Log("client: transport %d: object %08lX, game object type %u, display %u, state %u, flags 0x%X; "
+                        "its fields' place (%.1f %.1f %.1f), facing %.2f", found, static_cast<unsigned long>(obj),
+                        goType, f[0x8], f[0xE], f[0x9], pos[0], pos[1], pos[2], facing);
+                    static float mem[0x1000 / 4];
+                    if (SafeCopy(obj, mem, sizeof(mem)))
+                    {
+                        int shown = 0;
+                        for (int k = 0; k + 2 < 0x1000 / 4 && shown < 16; ++k)
+                        {
+                            const float x = mem[k], y = mem[k + 1], z = mem[k + 2];
+                            if (x == x && y == y && z == z && fabsf(x - at[0]) < 400.0f && fabsf(y - at[1]) < 400.0f &&
+                                fabsf(z - at[2]) < 200.0f && (fabsf(x) > 1.0f || fabsf(y) > 1.0f))
+                            {
+                                Log("client:   +0x%03X (%.2f %.2f %.2f)", k * 4, x, y, z);
+                                ++shown;
+                                k += 2;
+                            }
+                        }
+                        if (!shown)
+                            Log("client:   no place within 400 yards in its first 0x1000 bytes");
+                    }
+                }
+            }
+            DWORD next = 0;
+            if (!SafeCopy(obj + link + 4, &next, 4))
+                break;
+            obj = next;
+        }
+        Log("client: %d transports among %d game objects", found, objects);
     }
 
 // The current map's folder name under World\Maps: the buffer the client formats its tile names with

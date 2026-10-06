@@ -303,6 +303,8 @@ struct SunShadowSettings
     float hillCarry    = 30.0f;   // yards: inside a hill's shade, a tree's or a wall's shade is kept in full
                                   // this far from what it falls on, and gone at twice as far (2026-10-04).
                                   // 0 = no limit
+    float water        = 0.4f;    // 0..1: the shade on the water's own surface, as a share of the ground's, soft
+                                  // edged (Shadow on Water, 2026-10-06); the bed under it keeps its own
     float leafShade  = 0.6f;      // 0..1: the share of the sun that leaves stop. Under a forest canopy
                                   // everything solid shades the rest, so characters no longer float
     float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
@@ -506,8 +508,9 @@ struct WaterSettings
                                  // take their place
     DWORD foamColor = 0xEEF4F6;  // the foam's colour by day; the night darkens it
     float fadeEnd   = 150.0f;    // yards: the foam fades out over the last 40% of this distance
-    int   debug     = 0;         // 1 = the depth under the water (blue shallow, red at 4 x foamWidth);
-                                 // 2 = the foam alone, white on black; 3 = the wet sand alone
+    int   debug     = 0;         // 1 = the water as drawn, marked over what lies under it (Debug View 16);
+                                 // 2 = the foam alone, white on black; 3 = the wet sand alone; 10 = the depth
+                                 // under the water on a doubling scale (Debug View 29)
 };
 
 // Lighthouses at night (beacon.cpp, 2026-10-05): a beacon in the lamp room and two turning beams.

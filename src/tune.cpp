@@ -134,6 +134,7 @@ namespace
         { "sunshadows.night",    "Night Shadows" },
         { "sunshadows.unitStrength", "Character Shadow Strength" },
         { "sunshadows.bodyShade", "Character Backside Shadow" },
+        { "sunshadows.water",    "Shadow on Water" },
         { "sun.glide",           "Sun Smoothing" },
         { "sunshadows.sunlight", "Sunlight" },
         { "rays.enabled",        "Sun Rays" },

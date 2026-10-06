@@ -77,6 +77,7 @@
 #include "terrainshade.h"
 #include "mapterrain.h"
 #include "mapm2.h"
+#include "water.h"
 
 #include <algorithm>
 #include <cmath>
@@ -2156,6 +2157,13 @@ namespace
                 if (d2 <= bestD2) { bestD2 = d2; best = &cand; }
             }
             bool moved = false;
+            // A ship's part (2026-10-06, the owner): a draw within reach of a ship under way, its sails, rigging and
+            // lanterns as well as its hull. It counts as moving: no still rule, it follows the ship, and it goes the
+            // moment it is not drawn. A ship easing away from the dock moved its sails under stillRadius a frame, so
+            // each was held, then left behind as a new entry took over further on: 9 of them along its path at
+            // Stormwind's harbour, their shade on the water up to 19.5 s after it had sailed (kept while in view).
+            // The object list could not say where a ship is: a transport's place fields are 0 (two probes).
+            const bool shipPart = WaterShipNear(pos);
             if (!best)
             {
                 float moveD2 = kMoveRadius * kMoveRadius;
@@ -2268,8 +2276,8 @@ namespace
                 // models, moved under 0.3 yards a frame, were held for a frame or two and then jumped, while its
                 // hull (a building) followed every frame. What stands still never gets that far.
                 const bool within = sx * sx + sy * sy + sz * sz < sr * sr;
-                if (!within)
-                    best->drifts = true;   // fixed-function too: a ship's hull (see Evict)
+                if (!within || shipPart)
+                    best->drifts = true;   // fixed-function too: a ship's hull (see Evict); a ship's part
                 // Nor for an animated doodad the files leave to the client's draws (2026-09-30): a gryphon at a
                 // flight master stands still and moves its wings.
                 const bool still = r.vs && !moved && !playerModel && within && !best->drifts &&
@@ -2295,7 +2303,7 @@ namespace
                 if (r.nregsOwn > best->rec.nregsOwn)
                     best->rec.nregsOwn = r.nregsOwn;
                 best->seq = r.seq;
-                best->mobile = best->mobile || moved;
+                best->mobile = best->mobile || moved || shipPart;
                 best->unit = best->unit || (r.vs && UnitAt(pos));
                 best->lastSeen = now;
                 ++best->drawnFor;
@@ -2315,7 +2323,7 @@ namespace
                     e.posEnd[j] = pos[j] + delta[j];
                 if (g_cfg.trace && r.vs && r.numVertices > 4000)
                     ++g_bigNew;
-                e.mobile = false;
+                e.mobile = shipPart;
                 e.unit = r.vs && UnitAt(pos);
                 e.seq = r.seq;
                 e.lastSeen = now;

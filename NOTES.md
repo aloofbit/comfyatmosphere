@@ -2421,6 +2421,40 @@ ring at its own place and moment, spreading and fading each cycle; a cell fires 
 into the wake's slope, so the glint and the sky break up; out from 25 to 45 yards. Rain on Water (`[water] rain`, 1)
 is how strong; `c223`. The parting's particles went from 11 to 10 to make room for it.
 
+## A ridge under the sea, and Debug Views 16, 19, 28 and 29 (2026-10-06)
+
+The owner: in Stormwind's harbour a ridge under the sea, far terrain textured and not, stood as a dark shape with a
+hard edge in front of the open water at any Water Clarity, lower clarity making it stand out more.
+
+Finding it took a run of debug views. View 16 was the depth, blue to red over 4 yards (made for the foam), so the
+sea was all one red; depth scales to 40 and 256 yards, and the distance to the water, did not answer either. View 19
+(what lies under the water) now colours the far terrain's slice of the depth range red and cleared depth (only sky
+behind) blue: the owner's ridge was neither, so it is in the world's slice. View 16 is now the water as drawn with
+marks over what lies under it: magenta the far slice, orange the bare draws (a depth-writing draw with no shader and
+no texture, the game's untextured terrain far off: bodymask.cpp's bit 0x08, the mask's green), cyan textured terrain
+(the ground bit) over 80 yards off. The ridge was orange with a cyan lane down it: far terrain, textured or not.
+
+The cause was the sun shadows, which the owner found by turning them off. View 28 (the water the sun shadows find:
+blue where they find the water's depth over a bed, grey where not) showed the water over the ridge blue and the
+open sea beside it grey, as it has no bed under it. The pass adds Sunlight and the warm sun tint where it is lit,
+and both went by `clear`, which carries `seen`, the bed's fade under the water: over the ridge they faded with the
+bed, while the open sea had them in full on its surface. Now only the bed's shade fades with the water; the Sunlight
+and the tint go by the surface's own fog, and by the bed's shade only as far as the bed is seen (`sunK`). Away from
+the water nothing changes. The test `stormwind-harbour-ridge` keeps the place.
+
+Tried on the way and taken out: Clarity by its square under 100; the bed faded by mapK (which goes by the water's
+distance); Underwater Fog (`[water] underFog`), the bed faded into the water's colour by its distance from the
+camera, which hid the ridge but left the edge, and overlapped Clarity (the owner: one of them is enough; Clarity is
+the physical one). Debug View 29 keeps one view made on the way, the depth under the water on a doubling scale (blue
+through cyan, green and yellow to red over 0 to 256 yards, a dark line at 1, 2, 4, 8 ... 256, hatched where the map's
+depth is used): it found nothing here, but the owner liked it.
+
+The bed's shade under the water now fades as the water shader fades the bed itself (`WaterBedFade`: the absorption a
+yard of the channel the water lets through best, the one that keeps the bed in view, at the current Water Colour and
+Clarity; weighted by brightness first, it was still 3 times sooner, as red is absorbed fastest and counts most). It was 0.25 a yard / Clarity, some 2.5 times sooner: a
+ship's shade on the harbour floor was too faint to see while the floor showed clearly (the owner; View 24 showed
+the floor in the ship's solid shade).
+
 ## A ship's wake (2026-10-06)
 
 The owner asked for a wake behind the ships. Every pixel shader constant is in use (c0 to c223), so a ship takes
@@ -2444,6 +2478,38 @@ The owner: it worked, but only at the back of the ship, and was hard to notice. 
 and the wake fades in over its first 0.6 x sc yards. `shipWakeForward` (Ship Wake Forward, 15 yards) moves the
 point the trail follows that far ahead of the origin, along the way the ship moves; `shipWakeDepth` (Ship Wake
 Depth, 2) multiplies the slope of its waves, sent in the head point's z, which a ship does not need (it floats).
+
+## A ship's shade left on the water (2026-10-06)
+
+The owner: a ship leaving Stormwind's harbour left its shade on the water, still there after it had gone. Two probes:
+9 shadow cache entries for its models (the sails, 5,200 triangles alpha tested, and a 1,068-triangle part) kept
+undrawn at points along its path from the dock, (-8613.5 1364.2) out to (-8564.3 1398.8), up to 19.5 s, none marked
+as moved. Easing away from the dock, the sails moved under stillRadius (0.3 yards) a frame, so the still rule held
+each entry, and a new one took over further on. Undrawn, an entry in view goes only within evictDistance (20 yards)
+or when brief (under 20 redraws; these had 23 to 84), and the age rules wait while its shade is in view.
+
+The owner's idea: one object, the ship, with its parts. The object list has the transports (type 15; displays 3015,
+3031 and 7087 here), but their place fields are 0 and their own memory holds no place near (a probe scanned it), so
+it cannot say where a ship is. The hull can: water.cpp follows it from its draws (A ship's wake). The tracker now
+always runs; a hull over 0.4 yards a second at the water is a ship under way (`WaterShipNear`, within 35 yards and
+45 up or down), and every draw the shadow cache files there is one of its parts: moving from the first frame, so the
+still rule does not hold it, it follows the ship, and it goes the moment it is not drawn. A probe lists each ship under
+way (`water:   a ship under way at ...`).
+
+## Shadow on Water (2026-10-06)
+
+The owner: a moving ship's shadow lay on the open sea as hard and dark as on the ground, and some things cast none on
+the water. Two rules met there. Where the sun shadows find a bed under the water (the water drew its own depth over
+it), the shade goes on the bed, seen through the water (2026-10-02): in the deep harbour a dock's shade landed yards
+down, shifted along the sun and dimmed, and almost none showed on the water beside the dock. Where there is no bed in
+view (the open sea, over far terrain or sky), the shade went on the surface at full strength.
+
+`[sunshadows] water` (Shadow on Water, 0.4): on water with no bed in view, the shade found is the surface's own and
+is scaled by it; on water with a bed, the bed keeps its shade and the surface's own is added at that strength
+(`SurfaceShade`: near map else far, solid and leaves, as a ship's sails are alpha tested, no facing or hill check,
+taps three texels apart for a soft edge). Real water shows a boat's shadow as a soft, faint, darker patch; clear
+shallow water shows it on the bottom. A pixel is water where the depth under the water (copied before it drew) lies
+farther than the depth after it. The units' map is not read for the surface: a character's shadow stays on the bed.
 
 ## Lighthouses at night (2026-10-05)
 

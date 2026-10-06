@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -206,6 +206,7 @@ namespace
         "comfyWaterShipWake",
         "comfyWaterShipForward",
         "comfyWaterShipDepth",
+        "comfyShadowOnWater",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -230,10 +231,10 @@ namespace
         { "fog: the sky's light on it alone",                 0, 0, 0, 0, 2 },
         { "fog: where mist collects (low ground, water)",     7, 0, 0, 0, 0 },
         { "sun shadows: the bodies it finds",                 0, 3, 0, 0, 0 },
-        { "water: the depth under it (blue shallow, red deep)", 0, 0, 0, 0, 0, 1 },
+        { "water: as drawn, over what lies under it: magenta the far slice, orange untextured draws, cyan terrain past 80 yards", 0, 0, 0, 0, 0, 1 },
         { "water: the foam alone",                            0, 0, 0, 0, 0, 2 },
         { "water: the wet sand alone",                        0, 0, 0, 0, 0, 3 },
-        { "water: what lies under it, bent and tinted",       0, 0, 0, 0, 0, 4 },
+        { "water: what lies under it (red: the far terrain, blue: only sky behind)", 0, 0, 0, 0, 0, 4 },
         { "water: ripples (red, green) and the wake (blue)",  0, 0, 0, 0, 0, 5 },
         { "water: the game's own water drawn (red), other liquid (magenta), ours off", 0, 0, 0, 0, 0, 6 },
         { "water: the height over the water, in contours every 0.1 yards (green above, red below, blue the dry cells)", 0, 0, 0, 0, 0, 7 },
@@ -242,6 +243,8 @@ namespace
         { "sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)", 0, 5, 0, 0, 0 },
         { "sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill; 15 yards full at terrainBias 1.5)", 0, 6, 0, 0, 0 },
         { "water: the drawn foam (white) over its age (red), the open water's foam (blue)", 0, 0, 0, 0, 0, 9 },
+        { "sun shadows: the water it finds (blue: the water's depth over a bed, grey: none, so the shade falls on what the depth shows)", 0, 7, 0, 0, 0 },
+        { "water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)", 0, 0, 0, 0, 0, 10 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;
@@ -402,6 +405,7 @@ namespace
         case kShipWake:       snprintf(out, cap, "%.0f", s.water.shipWake); break;
         case kShipForward:    snprintf(out, cap, "%.0f", s.water.shipWakeForward); break;
         case kShipDepth:      snprintf(out, cap, "%.0f", s.water.shipWakeDepth * 100.0f); break;   // percent
+        case kShadowWater:    snprintf(out, cap, "%.0f", s.sunShadows.water * 100.0f); break;   // percent
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -522,6 +526,7 @@ namespace
         if (c[kShipWake].seen)       s.water.shipWake = Clamp(c[kShipWake].value, 0.0f, 20.0f);
         if (c[kShipForward].seen)    s.water.shipWakeForward = Clamp(c[kShipForward].value, 0.0f, 60.0f);
         if (c[kShipDepth].seen)      s.water.shipWakeDepth = Clamp(c[kShipDepth].value * 0.01f, 0.0f, 6.0f);
+        if (c[kShadowWater].seen)    s.sunShadows.water = Clamp(c[kShadowWater].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);

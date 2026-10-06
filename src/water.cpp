@@ -913,14 +913,21 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         clip(-1.0);   // debug 3: the wet sand pass shows alone
     if (gFoam.w > 1.5 && gFoam.w < 2.5)
         return float4(foam.xxx, 1.0);
+    if (gFoam.w > 9.5 && gFoam.w < 10.5)
+    {
+        // debug 10 (Debug View 29), the depth on a doubling scale: from blue through cyan, green and yellow to red
+        // over 0 to 256 yards, a dark line at 1, 2, 4, 8 ... 256 yards, hatched where the map's depth is used (mapK
+        // over a half). Made while looking for far terrain under the sea (2026-10-06); kept as the owner liked it.
+        float  dl2   = log2(1.0 + max(depth, 0.0));
+        float  dk    = saturate(dl2 / 8.0);
+        float3 ramp  = saturate(1.5 - abs(4.0 * dk - float3(3.0, 2.0, 1.0)));
+        float  band  = depth > 0.5 && frac(log2(max(depth, 0.5)) + 0.03) < 0.06 ? 0.35 : 1.0;   // not 'line': HLSL's
+        float  hatch = mapK > 0.5 && frac((vpos.x + vpos.y) / 8.0) < 0.5 ? 0.7 : 1.0;
+        return depth > -0.05 ? float4(ramp * band * hatch, 1.0) : float4(0, 0, 0, 1);
+    }
     if (gFoam.w > 4.5 && gFoam.w < 5.5)   // debug 5: the ripples' foam red, their waves green, the wake blue
         return float4(saturate(ring * gReach.y), saturate(length(ringSlope * gReach.y * 2.5) * 4.0),
                       saturate(wakeFoam * gWake.y + length(wakeSlope) * 4.0), 1.0);
-    if (gFoam.w > 0.5 && gFoam.w < 1.5)
-    {
-        float g = saturate(depth * gFoam.x * 0.25);
-        return depth > -0.05 ? float4(g, 0.15, 1.0 - g, 1.0) : float4(0, 0, 0, 1);
-    }
     float  fogF = gFog.z > 0.5 ? saturate((dist - gFog.x) * gFog.y) : 0.0;
     float3 c = lerp(gCol.rgb, gFogC.rgb, fogF);
     float fade = saturate((gCol.w - dist) * gFogC.w);
@@ -1044,8 +1051,17 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float3 fcol  = c * lit + glint * 0.25;
     fcol = lerp(water + 0.12 * c, fcol, saturate(fa * 1.6));
     water = lerp(water, fcol, saturate(fa * 1.25));
+    // debug 4 (Debug View 19): what lies under the water, bent and tinted, by where it comes from (2026-10-06):
+    // the near world as it is, the far terrain's slice of the depth range red, nothing behind (cleared depth, the
+    // sky) blue.
     if (gFoam.w > 3.5 && gFoam.w < 4.5)
-        return float4(bed, 1.0);   // debug 4: what lies under the water, bent and tinted
+    {
+        float  rawU = tex2Dlod(sUnder, float4(ruv, 0, 0)).r;
+        float  lumU = dot(bed, float3(0.299, 0.587, 0.114));
+        float3 src  = rawU > 0.9999 ? float3(0.25, 0.45, 1.0)
+                                    : (rawU > gZ.z + 1.0 / gZ.w - 1e-5 ? float3(1.0, 0.3, 0.25) : bed);
+        return float4(rawU > gZ.z + 1.0 / gZ.w - 1e-5 ? src * (0.4 + 0.6 * saturate(lumU * 3.0)) : bed, 1.0);
+    }
     // The water over the sand's foam and wet sand, mixed as colour times cover: mixed as plain colours, the foam's
     // white came in where our water fades in at the edge even with no foam there, a light line along the shore
     // (2026-10-02).
@@ -1061,9 +1077,27 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // depth it was wide on a gentle beach and a few centimetres on a steep bank.
     float  edgeK = saturate((1.0 - smoothstep(0.0, gGlint.w, depthS / slope)) * gFT.w);
     outC = lerp(outC, c, edgeK);
-    if (hideGame)
-        return float4(lerp(lerp(lerp(under0, land, a), water, wv), c, edgeK), 1.0);
-    return float4(outC, outA);
+    float4 res = hideGame ? float4(lerp(lerp(lerp(under0, land, a), water, wv), c, edgeK), 1.0) : float4(outC, outA);
+    // debug 1 (Debug View 16, 2026-10-06): the water as drawn, magenta where far terrain lies under it: the game's
+    // far terrain slice (not the sky), or in the world's slice a bed over 150 yards from the camera (the water's
+    // distance x the bed's view depth / the water's). The owner's target was a smooth untextured ridge far off that
+    // View 19 did not show red, so in the world's slice. The water keeps its own cover.
+    // Magenta for the far terrain slice. Orange for untextured terrain in the world's slice: the mask's green, the
+    // bare draws (bodymask.cpp: no shader and no texture). By distance (a bed over 150 yards off) it took detailed
+    // terrain that was only far off and the dock walls too (the owner).
+    if (gFoam.w > 0.5 && gFoam.w < 1.5)
+    {
+        if (farSlice && raw <= 0.9999)
+            res.rgb = float3(1.0, 0.0, 1.0);
+        float2 maskU = gFog.w > 0.5 ? tex2Dlod(sLeaves, float4(ruv, 0, 0)).rg : 0.0;
+        if (!farSlice && maskU.y > 0.5)
+            res.rgb = float3(1.0, 0.55, 0.0);
+        // Cyan: textured terrain (the ground bit) over 80 yards off, to tell it from the bare draws: a lane down the
+        // middle of the owner's untextured ridge carried neither colour.
+        if (!farSlice && maskU.x > 0.5 && dist * zg / zw > 80.0)
+            res.rgb = float3(0.0, 0.9, 1.0);
+    }
+    return res;
 }
 )HLSL";
 
@@ -1351,13 +1385,18 @@ float4 main(float2 vpos : VPOS) : COLOR
         float  pos[3];
         float  vel[2];
         double seen;
-        bool   ship;
+        bool   ship;           // over 1.5 yards a second: its wake (Ship Wake)
+        bool   moving = false; // over 0.4: a ship under way, whose parts the shadow cache follows (WaterShipNear)
     };
     constexpr int     kHullsMax = 128;
     float             g_hullRel[kHullsMax][3];   // this frame's origins, camera-relative, as drawn
     int               g_hullRelN = 0;
     std::vector<Hull> g_hulls;
     double            g_hullLast = 0.0;
+    // The ships under way this frame, for the shadow cache (2026-10-06): their places, a short list, so the check
+    // for each model it files costs nothing when no ship moves.
+    std::vector<std::array<float, 3>> g_movingShips;
+    float g_bedFade = 0.0f;   // the light the water takes from the bed a yard, by brightness (WaterBedFade)
 
     // Last frame's units, to tell how fast each moves: a unit is the one nearest its place last frame.
     float  g_lastUnits[256][3];
@@ -2099,6 +2138,12 @@ float4 main(float2 vpos : VPOS) : COLOR
         const float dmax = (std::max)((std::max)(deep[0], deep[1]), deep[2]) + 1e-4f;
         for (int i = 0; i < 3; ++i)
             k[176 + i] = (0.04f + 0.35f * (1.0f - deep[i] / dmax)) / w.clarity;
+        // For the sun shadows' shade on the bed (2026-10-06): the fade of the channel the water lets through best, the
+        // one that keeps the bed in view, so the shade stays in view as long as the bed does. Their own 0.25 a yard /
+        // clarity took it some 2.5 times sooner; weighted by brightness it was still 3 times sooner at Water Colour 25
+        // (red, absorbed fastest, counts most): a moored ship's shade on the harbour floor, 45 yards of water off,
+        // kept 26% where the floor kept 64% (the owner).
+        g_bedFade = (std::min)((std::min)(k[176], k[177]), k[178]);
         k[179] = w.refraction;
         k[180] = ((w.skyColor >> 16) & 0xFF) / 255.0f * day;
         k[181] = ((w.skyColor >> 8) & 0xFF) / 255.0f * day;
@@ -3312,9 +3357,26 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
     return false;
 }
 
+float WaterBedFade()
+{
+    return g_bedFade;
+}
+
+bool WaterShipNear(const float p[3])
+{
+    for (const auto& s : g_movingShips)
+    {
+        const float dx = p[0] - s[0], dy = p[1] - s[1], dz = p[2] - s[2];
+        if (dx * dx + dy * dy < 35.0f * 35.0f && fabsf(dz) < 45.0f)
+            return true;
+    }
+    return false;
+}
+
 void WaterNoteHull(IDirect3DDevice9* dev, const D3DMATRIX& world)
 {
-    if (g_hullRelN >= kHullsMax || g_cfg.water.shipWake <= 0.0f)
+    // Always, not only with Ship Wake (2026-10-06): the shadow cache files a ship's sails under it (WaterShipNear).
+    if (g_hullRelN >= kHullsMax)
         return;
     const float x = world.m[3][0], y = world.m[3][1], z = world.m[3][2];
     for (int i = 0; i < g_hullRelN; ++i)
@@ -3384,7 +3446,7 @@ void WaterFrameEnd()
             {
                 if (match[i] < 0)
                 {
-                    g_hulls.push_back({ { pos[i][0], pos[i][1], pos[i][2] }, { 0.0f, 0.0f }, now, false });
+                    g_hulls.push_back({ { pos[i][0], pos[i][1], pos[i][2] }, { 0.0f, 0.0f }, now, false, false });
                     continue;
                 }
                 if (static_cast<size_t>(match[i]) >= before)
@@ -3402,7 +3464,9 @@ void WaterFrameEnd()
                 const bool water = MapWaterHeight(h.pos[0], h.pos[1], wz) ? fabsf(h.pos[2] - wz) < 4.0f
                                                                            : !MapGroundHeight(h.pos[0], h.pos[1], gz);
                 const bool was = h.ship;
-                h.ship = water && h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1] > 1.5f * 1.5f;
+                const float sp2 = h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1];
+                h.ship = water && sp2 > 1.5f * 1.5f;
+                h.moving = water && sp2 > 0.4f * 0.4f;
                 if (h.ship && !was)
                     Log("water: a ship at (%.1f %.1f %.1f), %.1f yards a second: its wake (Ship Wake %.0f)", h.pos[0],
                         h.pos[1], h.pos[2], sqrtf(h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1]), g_cfg.water.shipWake);
@@ -3417,6 +3481,10 @@ void WaterFrameEnd()
         }
         if (g_hulls.size() > 1024)
             g_hulls.clear();
+        g_movingShips.clear();
+        for (const Hull& h : g_hulls)
+            if (h.moving && now - h.seen < 0.5)
+                g_movingShips.push_back({ h.pos[0], h.pos[1], h.pos[2] });
         if (g_probeOn)
         {
             int ships = 0;
@@ -3424,6 +3492,14 @@ void WaterFrameEnd()
                 ships += h.ship ? 1 : 0;
             Log("water: ships: %d building origins this frame, %d followed, %d of them ships", g_hullRelN,
                 static_cast<int>(g_hulls.size()), ships);
+            for (const Hull& h : g_hulls)
+                if (h.moving)
+                    Log("water:   a ship under way at (%.1f %.1f %.1f), %.1f yards a second: the shadow cache files the "
+                        "models within 35 yards of it as its parts", h.pos[0], h.pos[1], h.pos[2],
+                        sqrtf(h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1]));
+            float me[3];
+            if (ClientPlayer(me))
+                ClientTransportsLog(me);
         }
         g_hullRelN = 0;
         g_hullLast = now;
@@ -3590,6 +3666,7 @@ void WaterReset()
     g_trails.clear();
     g_hulls.clear();
     g_hullRelN = 0;
+    g_movingShips.clear();
     g_cityNow.clear();
     g_cityLast.clear();
     g_cityPtsNow.clear();
