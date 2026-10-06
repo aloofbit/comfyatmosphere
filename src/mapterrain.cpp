@@ -41,6 +41,8 @@
 //              models, and the models with an alpha-keyed part (trees, bushes: leaves, the trunk with
 //              them), grouped by texture, so a tile is a handful of draws where the cache made one for
 //              each model. Around Northshire: 9,180 doodads from 383 models, 1.6 million triangles.
+//              Each tile's indices are sorted into 8 x 8 blocks of 66.7 yards, each with its box, and a map
+//              draws only the blocks that reach it; a building, only the groups that reach it (2026-10-06).
 //   Loading    On a thread of its own, nearest tile first, so no frame waits on a file: about 2 MB of
 //              zlib a tile. The terrain meshes stay in memory while their tile is in reach (0.8 MB each);
 //              a building's mesh goes once it is on the GPU. Each goes to the GPU as one vertex and one
@@ -79,6 +81,14 @@ namespace
     constexpr float kChunk = kTile / 16.0f;
     constexpr float kUnit  = kChunk / 8.0f;
     constexpr float kMid   = 32.0f * kTile;      // 17066.67: the world's centre in placement coordinates
+    // A tile's doodads in blocks of kBlocks x kBlocks, 66.7 yards a side, each culled by its own box
+    // (2026-10-06). Each doodad goes to the block that holds its place.
+    constexpr int   kBlocks   = 8;
+    constexpr int   kBlockAll = kBlocks * kBlocks;
+    constexpr float kBlock    = kTile / kBlocks;
+    // Yards added to each side of a block's or a building group's box. The box is in absolute floats, the
+    // vertices relative to a tile's corner or a building's place: this covers the rounding between the two.
+    constexpr float kBoxSlack = 1.0f;
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -114,13 +124,20 @@ namespace
         double                 ms = 0.0;        // time to read and build
 
         // The doodads, world space relative to the tile's corner. Leaf batches: a texture to cut the
-        // shape by, or none (a tree's trunk, which casts with its leaves).
-        struct Batch { std::string tex; uint32_t start, count; };
+        // shape by, or none (a tree's trunk, which casts with its leaves). The indices are sorted by block
+        // (2026-10-06): the solid ones block after block; the leaves texture after texture, and within a
+        // texture block after block (Run), so one texture is still one SetTexture and its visible blocks
+        // next to each other are one draw.
+        struct Run   { uint32_t start, count; uint8_t block; };
+        struct Batch { std::string tex; uint32_t start, count; std::vector<Run> runs; };
         std::vector<float>     dSolid;          // x y z
         std::vector<uint32_t>  dSolidIdx;
+        std::vector<uint32_t>  dSolidFirst;     // kBlockAll + 1: block k's solid indices start at dSolidFirst[k]
         std::vector<float>     dLeaf;           // x y z u v
         std::vector<uint32_t>  dLeafIdx;
         std::vector<Batch>     dBatches;
+        std::vector<float>     dSolidBox, dLeafBox;   // kBlockAll x 6: each block's box in the world (lo, hi),
+                                                      // from its triangles' corners, with kBoxSlack; lo > hi if empty
         float                  dMinZ = 0.0f, dMaxZ = 0.0f;
         float                  dLo[2] = { 1e9f, 1e9f }, dHi[2] = { -1e9f, -1e9f };   // the doodads' x and y: what they cover
         std::vector<float>     dPos;            // each doodad's place, x y z: to know the client's own draws
@@ -280,7 +297,22 @@ namespace
         const double t0 = Now();
         const float x1 = CornerX(m.b), y1 = CornerY(m.a);
         const float deg = 3.14159265f / 180.0f;
-        std::unordered_map<std::string, std::vector<uint32_t>> groups;   // leaf indices by texture
+        // The indices by block until the end, where they are laid out block after block (2026-10-06): the
+        // solid ones, and the leaves' by texture and then by block.
+        std::vector<std::vector<uint32_t>> solid(kBlockAll);
+        std::unordered_map<std::string, std::vector<std::vector<uint32_t>>> groups;   // leaf indices by texture
+        const auto leafIdx = [&](const std::string& tex, int blk) -> std::vector<uint32_t>& {
+            std::vector<std::vector<uint32_t>>& g = groups[tex];
+            if (g.empty())
+                g.resize(kBlockAll);
+            return g[blk];
+        };
+        // The block that holds a point of this tile.
+        const auto blockOf = [&](float x, float y) {
+            const int bx = (std::min)((std::max)(static_cast<int>((x1 - x) / kBlock), 0), kBlocks - 1);
+            const int by = (std::min)((std::max)(static_cast<int>((y1 - y) / kBlock), 0), kBlocks - 1);
+            return bx * kBlocks + by;
+        };
         m.dMinZ = 1e9f;
         m.dMaxZ = -1e9f;
         m.dLo[0] = m.dLo[1] = 1e9f;
@@ -322,13 +354,14 @@ namespace
                 }
                 return static_cast<uint32_t>(base);
             };
+            const int blk = blockOf(pos[0], pos[1]);   // the whole model goes with its place
             for (const M2Model::Batch& b : md.batches)
             {
                 if (b.blend > 1)
                     continue;   // blended: the client's draw of it casts nothing either
                 const bool leaf = md.alpha || b.blend == 1;
                 const uint32_t base = emit(leaf);
-                std::vector<uint32_t>& idx = leaf ? groups[b.blend == 1 ? b.tex : std::string()] : m.dSolidIdx;
+                std::vector<uint32_t>& idx = leaf ? leafIdx(b.blend == 1 ? b.tex : std::string(), blk) : solid[blk];
                 for (uint32_t k = b.start; k < b.start + b.count; ++k)
                     idx.push_back(base + md.tris[k]);
             }
@@ -525,7 +558,7 @@ namespace
                 if (!(cx <= x1 && cx > x1 - kTile && cy <= y1 && cy > y1 - kTile))
                     continue;
                 const uint32_t base = static_cast<uint32_t>(m.dLeaf.size() / 5);
-                std::vector<uint32_t>& idx = groups[lv.tex[lv.texOf[t]]];
+                std::vector<uint32_t>& idx = leafIdx(lv.tex[lv.texOf[t]], blockOf(cx, cy));
                 for (int c = 0; c < 3; ++c)
                 {
                     const float* p = &lv.tri[t * 15 + c * 5];
@@ -546,11 +579,59 @@ namespace
                 ++m.wmoLeafTris;
             }
         }
+        // Each block's box from the corners of its triangles: every triangle lies in the box of its corners, so
+        // a block whose box cannot mark a map has no triangle that can.
+        m.dSolidBox.assign(kBlockAll * 6, 0.0f);
+        m.dLeafBox.assign(kBlockAll * 6, 0.0f);
+        for (std::vector<float>* box : { &m.dSolidBox, &m.dLeafBox })
+            for (int k = 0; k < kBlockAll; ++k)
+                for (int j = 0; j < 3; ++j)
+                {
+                    (*box)[k * 6 + j]     = 1e30f;
+                    (*box)[k * 6 + 3 + j] = -1e30f;
+                }
+        const auto grow = [&](std::vector<float>& box, int k, const std::vector<float>& v, size_t stride,
+                              const std::vector<uint32_t>& idx) {
+            for (uint32_t i : idx)
+                for (int j = 0; j < 3; ++j)
+                {
+                    const float c = v[i * stride + j] + (j == 0 ? x1 : j == 1 ? y1 : 0.0f);
+                    box[k * 6 + j]     = (std::min)(box[k * 6 + j], c);
+                    box[k * 6 + 3 + j] = (std::max)(box[k * 6 + 3 + j], c);
+                }
+        };
+        m.dSolidFirst.assign(kBlockAll + 1, 0);
+        for (int k = 0; k < kBlockAll; ++k)
+        {
+            m.dSolidFirst[k] = static_cast<uint32_t>(m.dSolidIdx.size());
+            grow(m.dSolidBox, k, m.dSolid, 3, solid[k]);
+            m.dSolidIdx.insert(m.dSolidIdx.end(), solid[k].begin(), solid[k].end());
+            std::vector<uint32_t>().swap(solid[k]);
+        }
+        m.dSolidFirst[kBlockAll] = static_cast<uint32_t>(m.dSolidIdx.size());
         for (auto& g : groups)
         {
-            m.dBatches.push_back({ g.first, static_cast<uint32_t>(m.dLeafIdx.size()), static_cast<uint32_t>(g.second.size()) });
-            m.dLeafIdx.insert(m.dLeafIdx.end(), g.second.begin(), g.second.end());
+            Mesh::Batch b = { g.first, static_cast<uint32_t>(m.dLeafIdx.size()), 0, {} };
+            for (int k = 0; k < kBlockAll; ++k)
+            {
+                const std::vector<uint32_t>& idx = g.second[k];
+                if (idx.empty())
+                    continue;
+                b.runs.push_back({ static_cast<uint32_t>(m.dLeafIdx.size()), static_cast<uint32_t>(idx.size()),
+                                   static_cast<uint8_t>(k) });
+                grow(m.dLeafBox, k, m.dLeaf, 5, idx);
+                m.dLeafIdx.insert(m.dLeafIdx.end(), idx.begin(), idx.end());
+            }
+            b.count = static_cast<uint32_t>(m.dLeafIdx.size()) - b.start;
+            m.dBatches.push_back(std::move(b));
         }
+        for (std::vector<float>* box : { &m.dSolidBox, &m.dLeafBox })
+            for (int k = 0; k < kBlockAll; ++k)
+                for (int j = 0; j < 3; ++j)
+                {
+                    (*box)[k * 6 + j]     -= kBoxSlack;
+                    (*box)[k * 6 + 3 + j] += kBoxSlack;
+                }
         m.dMs = 1000.0 * (Now() - t0);
     }
 
@@ -982,6 +1063,7 @@ namespace
     std::vector<MapLight>                  g_objLights;
     std::unordered_map<long long, std::vector<float>> g_doodadGrid;   // doodads drawn from the files, 4-yard cells
     unsigned                               g_dDrawnLast[2] = {};    // solid, leaf batches drawn into the last map
+    unsigned                               g_dTrisLast[2] = {};     // ...and their triangles (2026-10-06)
     unsigned                               g_texRead = 0, g_texFailed = 0;
     unsigned                               g_filesVersion = 0;   // bumped whenever what the files cover changes
     double                                 g_dMs = 0.0;
@@ -989,12 +1071,15 @@ namespace
     // lo, hi: the box culled by, once the model is ready: the tile's box and the model's own box turned
     // into place, together. The tile's box takes in the furniture and the props (measured: the abbey's is 3
     // yards bigger, Stormwind's 196); the model's own can be the bigger where a patch changed the building.
-    // draw: the groups that cast, as runs of indices (first, triangles), once Buried has checked them; buried:
-    // how many groups lie under the ground (-1 until the ground under all of them is read).
+    // draw: the groups that cast, in the order of their indices, once Buried has checked them; buried: how
+    // many groups lie under the ground (-1 until the ground under all of them is read).
+    // A group's indices (first, triangles) and its box in the world, with kBoxSlack (2026-10-06): each map
+    // draws only the groups whose boxes reach it, and those next to each other as one draw.
+    struct InstGroup { UINT first, tris; float lo[3], hi[3]; };
     struct Inst
     {
         const Placement* p; Model* m; float lo[3], hi[3];
-        std::vector<std::pair<UINT, UINT>> draw;
+        std::vector<InstGroup> draw;
         int    buried = -1;
         double nextCheck = 0.0;
     };
@@ -1005,8 +1090,9 @@ namespace
     IDirect3DDevice9*             g_dev = nullptr;
     unsigned                      g_drawnLast = 0, g_loadedTotal = 0, g_missingTotal = 0;
     unsigned                      g_wmoDrawnLast = 0, g_wmoRead = 0, g_wmoFailed = 0;
+    unsigned                      g_wmoTrisLast = 0;   // the buildings' triangles drawn into the last map
     double                        g_loadMs = 0.0, g_wmoMs = 0.0;
-    char                          g_info[1000] = {};
+    char                          g_info[1400] = {};   // 1000 until 2026-10-06: the triangle counts made it longer
 
     int Key(int a, int b) { return (a << 8) | (b & 0xFF); }
     long long CellKey(long long cx, long long cy) { return (cx << 32) ^ (cy & 0xFFFFFFFFll); }
@@ -1179,7 +1265,13 @@ namespace
     }
 
     // Every corner of a box past the same side of the clip volume: it cannot mark the map.
-    bool Outside(const D3DMATRIX& m, const float lo[3], const float hi[3])
+    // sidesOnly (2026-10-06): the four side planes alone, not the near and far ones. The doodads and the
+    // buildings are culled by the depth slice (shadow.cpp, passCut), which is narrower along the sun than
+    // the projection they are drawn with: a tile or a building that reaches into the slice is drawn whole,
+    // and its parts past the slice still mark the map. Its blocks and groups are culled by the sides only,
+    // which are the same in the slice's matrix and the projection's, so each part dropped is one the GPU
+    // would have clipped away.
+    bool Outside(const D3DMATRIX& m, const float lo[3], const float hi[3], bool sidesOnly = false)
     {
         int out[6] = {};
         for (int i = 0; i < 8; ++i)
@@ -1195,7 +1287,8 @@ namespace
             out[4] += c[2] < 0.0f;
             out[5] += c[2] > c[3];
         }
-        return out[0] == 8 || out[1] == 8 || out[2] == 8 || out[3] == 8 || out[4] == 8 || out[5] == 8;
+        return out[0] == 8 || out[1] == 8 || out[2] == 8 || out[3] == 8 ||
+               (!sidesOnly && (out[4] == 8 || out[5] == 8));
     }
 
     // The buildings of the tiles held, each once, and the models they need.
@@ -2246,24 +2339,64 @@ unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float c
                         DWORD alphaFunc)
 {
     auto* d = dev->lpVtbl;
-    unsigned drawn = 0;
+    unsigned drawn = 0, tris = 0;
     bool set = false;
     // The sampler states the leaves need, put back afterwards: the cache's own draws after these in the
     // same pass inherit whatever is left.
     static const D3DSAMPLERSTATETYPE kSamp[] = { D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MINFILTER,
                                                  D3DSAMP_MAGFILTER, D3DSAMP_MIPFILTER };
     DWORD saved[5] = {};
+    // A tile's draws into this map: a texture (null: none, or the solid models), first index and triangles.
+    struct Run { IDirect3DTexture9* tex; UINT first, tris; };
+    static std::vector<Run> runs;
     for (auto& kv : g_tiles)
     {
         const Tile& t = kv.second;
-        if (!t.dOnGpu || (leaves ? !t.dLeafVb : !t.dSolidVb))
+        const Mesh& me = t.mesh;
+        if (!t.dOnGpu || (leaves ? !t.dLeafVb : !t.dSolidVb) || me.dSolidFirst.size() != kBlockAll + 1)
             continue;
-        const float x1 = CornerX(t.mesh.b), y1 = CornerY(t.mesh.a);
+        const float x1 = CornerX(me.b), y1 = CornerY(me.a);
         // What the doodads cover: a giant tree reaches far past its tile's edge.
-        const float lo[3] = { (std::min)(x1 - kTile - 60.0f, t.mesh.dLo[0]), (std::min)(y1 - kTile - 60.0f, t.mesh.dLo[1]),
-                              t.mesh.dMinZ },
-                    hi[3] = { (std::max)(x1 + 60.0f, t.mesh.dHi[0]), (std::max)(y1 + 60.0f, t.mesh.dHi[1]), t.mesh.dMaxZ };
+        const float lo[3] = { (std::min)(x1 - kTile - 60.0f, me.dLo[0]), (std::min)(y1 - kTile - 60.0f, me.dLo[1]),
+                              me.dMinZ },
+                    hi[3] = { (std::max)(x1 + 60.0f, me.dHi[0]), (std::max)(y1 + 60.0f, me.dHi[1]), me.dMaxZ };
         if (Outside(m, lo, hi))
+            continue;
+        // The blocks that reach this map (2026-10-06). Each map drew every tile in reach whole: the near map,
+        // 64 yards across, drew two or three tiles of about 79,000 triangles each, in each of its two passes.
+        const std::vector<float>& box = leaves ? me.dLeafBox : me.dSolidBox;
+        bool vis[kBlockAll];
+        for (int k = 0; k < kBlockAll; ++k)
+            vis[k] = box[k * 6] <= box[k * 6 + 3] && !Outside(m, &box[k * 6], &box[k * 6 + 3], true);
+        runs.clear();
+        const auto add = [&](IDirect3DTexture9* tex, UINT first, UINT n) {
+            if (!runs.empty() && runs.back().tex == tex && runs.back().first + runs.back().tris * 3 == first)
+                runs.back().tris += n;   // the block before it in the buffer: one draw
+            else
+                runs.push_back({ tex, first, n });
+        };
+        if (!leaves)
+        {
+            for (int k = 0; k < kBlockAll; ++k)
+                if (vis[k] && me.dSolidFirst[k + 1] > me.dSolidFirst[k])
+                    add(nullptr, me.dSolidFirst[k], (me.dSolidFirst[k + 1] - me.dSolidFirst[k]) / 3);
+        }
+        else
+            for (const Mesh::Batch& b : me.dBatches)
+            {
+                IDirect3DTexture9* tex = nullptr;
+                if (!b.tex.empty())
+                {
+                    auto it = g_texs.find(b.tex);
+                    if (it == g_texs.end() || !it->second.tex)
+                        continue;   // not loaded yet, or missing: an uncut leaf card would be a solid square
+                    tex = it->second.tex;
+                }
+                for (const Mesh::Run& r : b.runs)
+                    if (vis[r.block])
+                        add(tex, r.start, r.count / 3);
+            }
+        if (runs.empty())
             continue;
         if (!set)
         {
@@ -2291,32 +2424,28 @@ unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float c
         w.m[3][1] = y1 - cam[1];
         w.m[3][2] = -cam[2];
         d->SetTransform(dev, D3DTS_WORLD, &w);
-        if (!leaves)
+        if (leaves)
+        {
+            d->SetStreamSource(dev, 0, t.dLeafVb, 0, 20);
+            d->SetIndices(dev, t.dLeafIb);
+        }
+        else
         {
             d->SetStreamSource(dev, 0, t.dSolidVb, 0, 12);
             d->SetIndices(dev, t.dSolidIb);
-            d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, static_cast<UINT>(t.mesh.dSolid.size() / 3), 0,
-                                    static_cast<UINT>(t.mesh.dSolidIdx.size() / 3));
-            ++drawn;
-            continue;
         }
-        d->SetStreamSource(dev, 0, t.dLeafVb, 0, 20);
-        d->SetIndices(dev, t.dLeafIb);
-        const UINT nv = static_cast<UINT>(t.mesh.dLeaf.size() / 5);
-        for (const Mesh::Batch& b : t.mesh.dBatches)
+        const UINT nv = static_cast<UINT>(leaves ? me.dLeaf.size() / 5 : me.dSolid.size() / 3);
+        for (size_t k = 0; k < runs.size(); ++k)
         {
-            IDirect3DTexture9* tex = nullptr;
-            if (!b.tex.empty())
+            const Run& r = runs[k];
+            if (leaves && (k == 0 || r.tex != runs[k - 1].tex))
             {
-                auto it = g_texs.find(b.tex);
-                if (it == g_texs.end() || !it->second.tex)
-                    continue;   // not loaded yet, or missing: an uncut leaf card would be a solid square
-                tex = it->second.tex;
+                d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(r.tex));
+                d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, r.tex ? TRUE : FALSE);
             }
-            d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(tex));
-            d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, tex ? TRUE : FALSE);
-            d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, nv, b.start, b.count / 3);
+            d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, nv, r.first, r.tris);
             ++drawn;
+            tris += r.tris;
         }
     }
     if (set && leaves)
@@ -2326,6 +2455,7 @@ unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float c
         d->SetTexture(dev, 0, nullptr);
     }
     g_dDrawnLast[leaves ? 1 : 0] = drawn;
+    g_dTrisLast[leaves ? 1 : 0]  = tris;
     return drawn;
 }
 
@@ -2435,10 +2565,14 @@ static void Buried(Inst& i)
             ++buried;
             continue;
         }
-        if (!i.draw.empty() && i.draw.back().first + i.draw.back().second * 3 == s.first)
-            i.draw.back().second += s.count / 3;
-        else
-            i.draw.push_back({ s.first, s.count / 3 });
+        // The box of the span's own triangles (WmoLoad), turned into place: it holds them all.
+        InstGroup g = { s.first, s.count / 3, {}, {} };
+        for (int j = 0; j < 3; ++j)
+        {
+            g.lo[j] = lo[j] - kBoxSlack;
+            g.hi[j] = hi[j] + kBoxSlack;
+        }
+        i.draw.push_back(g);
     }
     i.buried = unknown ? -1 : buried;
 }
@@ -2446,7 +2580,7 @@ static void Buried(Inst& i)
 unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float cam[3])
 {
     auto* d = dev->lpVtbl;
-    unsigned drawn = 0;
+    unsigned drawn = 0, tris = 0;
     bool set = false;
     const double now = Now();
     for (Inst& i : g_insts)
@@ -2464,6 +2598,20 @@ unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float
         }
         if (!mo.spans.empty() && i.draw.empty())
             continue;   // every group under the ground
+        // The groups that reach this map (2026-10-06). Stormwind is one building: each map drew all of it.
+        static std::vector<std::pair<UINT, UINT>> runs;   // first index, triangles
+        runs.clear();
+        for (const InstGroup& g : i.draw)
+        {
+            if (Outside(m, g.lo, g.hi, true))
+                continue;
+            if (!runs.empty() && runs.back().first + runs.back().second * 3 == g.first)
+                runs.back().second += g.tris;
+            else
+                runs.push_back({ g.first, g.tris });
+        }
+        if (!mo.spans.empty() && runs.empty())
+            continue;
         if (!set)
         {
             d->SetVertexShader(dev, nullptr);
@@ -2484,13 +2632,20 @@ unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float
         d->SetStreamSource(dev, 0, mo.vb, 0, 12);
         d->SetIndices(dev, mo.ib);
         if (mo.spans.empty())
+        {
             d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, mo.nv, 0, mo.ntri);
+            tris += mo.ntri;
+        }
         else
-            for (const auto& r : i.draw)
+            for (const auto& r : runs)
+            {
                 d->DrawIndexedPrimitive(dev, D3DPT_TRIANGLELIST, 0, 0, mo.nv, r.first, r.second);
+                tris += r.second;
+            }
         ++drawn;
     }
     g_wmoDrawnLast = drawn;
+    g_wmoTrisLast  = tris;
     return drawn;
 }
 
@@ -2545,17 +2700,17 @@ const char* MapTerrainInfo()
     _snprintf_s(g_info, sizeof(g_info), _TRUNCATE,
                 "map terrain: map \"%s\", %u archives; tiles in reach: %u ready (%u of them the ground alone), %u loading, %u without ground; "
                 "%u drawn into the last map; since the start %u read, %u not found, %.0f ms a tile. Buildings: %u "
-                "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map, %u groups under "
+                "placed (%u ready), %u models (%u ready, %u loading, %u failed), %u drawn into the last map (%u triangles), %u groups under "
                 "the ground left out of %u; "
                 "%.0f ms a model. Doodads: %u (%u of them the buildings', %u models unreadable), %llu triangles, on the GPU for %u tiles (%u "
                 "settled), %.0f ms a tile to build; leaf textures %u ready, %u loading, %u failed; draws into the "
-                "last map %u solid, %u leaf. Lights from the buildings (candles, lanterns, fires): %u; game "
+                "last map %u solid, %u leaf (%u and %u triangles). Lights from the buildings (candles, lanterns, fires): %u; game "
                 "objects %u, %u of them lit, %u lights, %u display ids read",
                 g_map.c_str(), MpqArchiveCount(), ready, ground, pending, empty, g_drawnLast, g_loadedTotal, g_missingTotal,
                 done ? g_loadMs / done : 0.0, static_cast<unsigned>(g_insts.size()), instReady,
-                static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast, buriedGroups, buriedIn,
+                static_cast<unsigned>(g_models.size()), mReady, mLoading, mFailed, g_wmoDrawnLast, g_wmoTrisLast, buriedGroups, buriedIn,
                 wDone ? g_wmoMs / wDone : 0.0, doodads, wmoD, missing, dTris, dTiles, settled,
-                g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1],
+                g_dTiles ? g_dMs / g_dTiles : 0.0, tReady, tLoading, tFailed, g_dDrawnLast[0], g_dDrawnLast[1], g_dTrisLast[0], g_dTrisLast[1],
                 static_cast<unsigned>(g_fileLights.size()), g_objSeen, g_objLit,
                 static_cast<unsigned>(g_objLights.size()), static_cast<unsigned>(g_objectLights.size()));
     return g_info;

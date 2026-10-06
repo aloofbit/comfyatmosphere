@@ -40,6 +40,7 @@
 #include <d3d9.h>
 
 #include "beacon.h"
+#include "bench.h"
 #include "bodymask.h"
 #include "client.h"
 #include "common.h"
@@ -53,11 +54,13 @@
 #include "shadercache.h"
 
 #include <algorithm>
+#include <intrin.h>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <string>
 #include <vector>
@@ -283,13 +286,20 @@ float Lace(float2 p, float t)
 // broad noise so some stretches hold more foam than others. p is in cells. The cellular noise was worked out here
 // at first: 18 cell lookups a pixel left the shader no temporary registers (ps_3_0 has 32), and the texture's
 // mips keep it clean far off.
-float FoamField(float2 p, float t)
+// The level of a 256-texel texture laid over the water at `scale` repeats a yard, for a pixel `ypp` yards across.
+float LodAt(float ypp, float scale)
+{
+    return log2(max(ypp * scale * 256.0, 1e-6));
+}
+// lod: the texture's level for the first read, from the yards a pixel covers (2026-10-06): the reads were by the
+// pixels beside, which cannot be done inside a branch.
+float FoamField(float2 p, float t, float lod)
 {
     float2 w  = float2(ValueNoise(p * 0.45 + float2(t * 0.05, 0.0)), ValueNoise(p * 0.45 + float2(7.3, -t * 0.04))) - 0.5;
     float2 q  = p + w * 1.1;
     float2 qr = float2(q.x * 0.8 - q.y * 0.6, q.x * 0.6 + q.y * 0.8);
-    float  a  = tex2D(sFoamBody, q * 0.125).r;
-    float  b  = tex2D(sFoamBody, qr * 0.093 + 0.37).r;
+    float  a  = tex2Dlod(sFoamBody, float4(q * 0.125, 0.0, lod)).r;
+    float  b  = tex2Dlod(sFoamBody, float4(qr * 0.093 + 0.37, 0.0, lod - 0.43)).r;   // 0.093 / 0.125
     float  broad = ValueNoise(q * 0.3 - t * 0.02);
     return saturate(a * 0.6 + b * 0.25 + broad * 0.3);
 }
@@ -423,6 +433,11 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // Two parts (2026-10-02): the water, depth tested and writing depth, and the sand beside it, not tested.
     // Each pixel belongs to one: where our water is drawn (wv > 0), the water part.
     float  wvIs = smoothstep(0.0, 0.03, depth) * gDeep.w * gWave.z;
+    // Whether this pixel stays (2026-10-06): each test below once cut it with clip(), and now each lowers keep.
+    // A pixel clip() drops is not stopped: DXVK turns it into a helper that runs the rest of the shader, so each
+    // of the three draws over a chunk cost the whole shader on every pixel of the chunk, about 3 ms a draw at
+    // the harbour. Past the tests a real branch leaves (below).
+    float  keep = 1.0;
     if (gWave.y > 0.5)
     {
         // The first 0.15 yards of water go with the sand part, untested: there the water's plane lies a hair
@@ -430,7 +445,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         // and the game's own water showed through as a light line along the shore (2026-10-02). There is no
         // swell that near the shore, so nothing needs the test there.
         const bool waterPart = wvIs > 0.0 && depth > 0.15;
-        clip(gWave.y > 1.5 ? (waterPart ? 1.0 : -1.0) : (waterPart ? -1.0 : 1.0));
+        keep = min(keep, gWave.y > 1.5 ? (waterPart ? 1.0 : -1.0) : (waterPart ? -1.0 : 1.0));
     }
     // Above the water nothing is left to draw here: the foam, the lip, the ripples and the wake are all on the
     // water, and the wet sand and the swash have a pass of their own. So such a pixel leaves now, before the rest:
@@ -438,11 +453,11 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // and all in front of the sea behind them (2026-10-02: once every chunk was ours, the frame rate fell
     // through the floor). Without the swash the lip reaches 0.4 yards up the sand.
     // With the swash on, up to its highest climb (gGlint.z): the water itself runs up the sand (2026-10-03).
-    clip(depth + (gWake.z > 0.5 ? gGlint.z + 0.05 : 0.45));
+    keep = min(keep, depth + (gWake.z > 0.5 ? gGlint.z + 0.05 : 0.45));
     // And from the depth copy, before the map's depth stood in (2026-10-03). The map knows no hill between you
     // and the water: from 40 yards out the shore, its foam, lip and edge line, drawn without the depth test,
     // showed through the hill in front of it. Not past the world's slice, nor on a body.
-    clip(farSlice || onBody ? 1.0 : depthSeen + (gWake.z > 0.5 ? gGlint.z + 0.05 : 0.45));
+    keep = min(keep, farSlice || onBody ? 1.0 : depthSeen + (gWake.z > 0.5 ? gGlint.z + 0.05 : 0.45));
     // A cell the game leaves dry (2026-10-03): the sand part covers the whole grid, for the swash past the last
     // wet cell, but there only above the flat water: the game draws no water in a dry cell, so nothing under its
     // level is ours to fill either.
@@ -450,8 +465,9 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         const float2 rc  = clamp(floor(-cell * 0.24), 0.0, 7.0);     // row, column (4.1667 yards a cell)
         const float  bits = rc.x < 2.0 ? gCells.x : rc.x < 4.0 ? gCells.y : rc.x < 6.0 ? gCells.z : gCells.w;
         const float  wet = fmod(floor(bits * exp2(-(fmod(rc.x, 2.0) * 8.0 + rc.y))), 2.0);
-        clip(wet > 0.5 ? 1.0 : -depth);
+        keep = min(keep, wet > 0.5 ? 1.0 : -depth);
     }
+    clip(keep);
 
     // The wake runs here, near the start, since 2026-10-05: with the drawn foam the shader ran out of temporary
     // registers in this loop (ps_3_0 has 32), and here few values are held through it. It takes the amount alone;
@@ -556,13 +572,46 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             wakeSlope += dv / max(dd, 1e-3) * (dh * (1.0 - cyc) * (1.0 - cyc) * on * rainK * 0.007 / cellS);   // 0.012 at first: shallower
         }
     }
+
+    // What takes a gradient, worked out before the branch below (2026-10-06), after the wake's loop, which held
+    // the most registers: a gradient, or a texture read
+    // that takes its level from one, cannot be inside a branch, and the compiler would undo the branch. Each is
+    // used further down, where it was worked out before.
+    // Yards a pixel, for the foam round objects.
+    float  ypp  = max(length(ddx(rel)), length(ddy(rel)));
+    // For far terrain, the bed's slope from the pixels beside (see grad below).
+    float2 farGrad = 0.0;
+    {
+        const float dF = depth - (rel.z - z0) * (1.0 - mapK);   // depthF, below
+        float2 gx = ddx(rel.xy), gy = ddy(rel.xy);
+        float  ex = ddx(dF), ey = ddy(dF);
+        float  det = gx.x * gy.y - gx.y * gy.x;
+        farGrad = abs(det) > 1e-8 ? float2(ex * gy.y - gx.y * ey, gx.x * ey - gy.x * ex) / det : float2(0, 0);
+    }
+    // Whether the ground the line of sight meets lies flat (the lip, below).
+    float  flat;
+    {
+        float3 P = rel * (zg / zw);
+        float3 n = cross(ddx(P), ddy(P));
+        flat = abs(n.z) > 0.85 * length(n) ? 1.0 : 0.0;
+    }
+    // How fast the drawn foam's body changes across a pixel, for its edges. The body itself is read again below,
+    // inside the branch: held through it, it and the values above ran the shader out of registers.
+    float  foamAA;
+    {
+        const float2 swS0 = amp * SwellSlope(rel.xy + gCam.xy, gScr.z, gWave.x);
+        const float  f0   = FoamField((rel.xy + gCam.xy + swS0 * 1.5) * gFD.y, t, LodAt(ypp, gFD.y * 0.125));
+        foamAA = max(fwidth(f0) * 0.75, 0.015);
+    }
+    [branch] if (keep < 0.0)
+        return float4(0.0, 0.0, 0.0, 0.0);
+
     // Foam round objects in the water (2026-10-05, the owner): posts, rocks, piers, cliffs, legs. Points round this
     // pixel on the screen, out to Object Foam Width in yards, are rebuilt from the depth under the water (BedAt);
     // one rising out of the water, not the ground and not foliage, is something standing through the surface,
     // and the foam is the more the nearer it is. It works from what the screen shows: the water behind an object is hidden by
     // it anyway. Yards a pixel from the surface's own change across it, taken outside the branch.
     float objF = 0.0;
-    float ypp  = max(length(ddx(rel)), length(ddy(rel)));
     [branch] if (gFD.x > 0.5 && gBright.z > 0.0 && gFog.w > 0.5 && !farSlice && !onBody && dist < 60.0)
     {
         float  rPix = gBright.w / max(ypp, 1e-4);
@@ -640,11 +689,12 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  wya = (yb.z * yb.z + 1e-4) / (ya.z * ya.z + yb.z * yb.z + 2e-4);
     float3 bX  = xa * wxa + xb * (1.0 - wxa);
     float3 bY  = ya * wya + yb * (1.0 - wya);
-    float2 gx  = farSlice ? ddx(rel.xy) : bX.xy, gy = farSlice ? ddy(rel.xy) : bY.xy;
-    float  ex  = farSlice ? ddx(depthF) : -bX.z;   // the depth grows as the bed goes down
-    float  ey  = farSlice ? ddy(depthF) : -bY.z;
+    float2 gx  = bX.xy, gy = bY.xy;
+    float  ex  = -bX.z;   // the depth grows as the bed goes down
+    float  ey  = -bY.z;
     float  det = gx.x * gy.y - gx.y * gy.x;
-    float2 grad = abs(det) > 1e-8 ? float2(ex * gy.y - gx.y * ey, gx.x * ey - gy.x * ex) / det : float2(0, 0);
+    float2 grad = farSlice ? farGrad   // from the pixels beside, above the branch
+                : abs(det) > 1e-8 ? float2(ex * gy.y - gx.y * ey, gx.x * ey - gy.x * ex) / det : float2(0, 0);
     float  slope = clamp(length(grad), 0.02, 4.0);
     float  reach = depthF / slope;
     // Debug View 23: the slope the swash and the shore waves use: brighter up to 0.3, a dark line every 0.05.
@@ -683,9 +733,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // standing in the water gives the same depth and reach as sand, and was darkened too (2026-10-02). The
     // ground's facing is from the point the line of sight meets, P, and its neighbours. The water's chunks
     // reach onto the sand in steps of a cell (4 yards), and the wet sand ends where they do.
-    float3 P    = rel * (zg / zw);
-    float3 n    = cross(ddx(P), ddy(P));
-    float  flat = abs(n.z) > 0.85 * length(n) ? 1.0 : 0.0;
+    // (flat, whether that ground lies flat, is worked out above the branch.)
     // The swash: the water's edge runs up the beach and back, up to 0.7 yards, a little out of step along the
     // shore. A thin broken lip of foam rides on it. Until 2026-10-02 the waterline was a solid white line.
     float  swash = -0.7 * (0.5 + 0.5 * sin(t * 0.7 + soft * 4.0));
@@ -768,17 +816,19 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     }
     ring = saturate(ring * gReach.y) * (0.3 + 0.7 * soft) * (depth > -0.05 ? 1.0 : 0.0);
 
-    // The game's foam texture, for the old style's shore foam and wake.
+    // The game's foam texture, for the old style's shore foam and wake. At a level from the yards a pixel covers
+    // (2026-10-06): inside the branch above, the pixels beside cannot give it.
     float2 fp  = (rel.xy + gCam.xy + swS * 1.5) * gFT.y;
-    float  fa1 = tex2D(sFoamTex, fp + float2(t * 0.010, t * 0.006)).a;
-    float  fa2 = tex2D(sFoamTex, fp * 0.71 + float2(0.37 - t * 0.007, 0.21 + t * 0.011)).a;
+    float  ftl = LodAt(ypp, gFT.y);
+    float  fa1 = tex2Dlod(sFoamTex, float4(fp + float2(t * 0.010, t * 0.006), 0.0, ftl)).a;
+    float  fa2 = tex2Dlod(sFoamTex, float4(fp * 0.71 + float2(0.37 - t * 0.007, 0.21 + t * 0.011), 0.0, ftl - 0.49)).a;
     float  ftx = 0.6 * fa1 + 0.4 * fa2;
 
 )HLSL"
     R"HLSL(
     // The drawn foam's body, once a pixel, after the loops (it holds registers): the shore, the wake and the open water all cut it.
-    float  foamN = FoamField((rel.xy + gCam.xy + swS * 1.5) * gFD.y, t);
-    float  foamAA = max(fwidth(foamN) * 0.75, 0.015);
+    // foamAA, how fast it changes across a pixel, is worked out above the branch.
+    float  foamN = FoamField((rel.xy + gCam.xy + swS * 1.5) * gFD.y, t, LodAt(ypp, gFD.y * 0.125));
 
     // Shore waves (2026-10-02): crests along the shore that roll in toward it. Their phase is the distance to
     // the waterline (reach), so they come about 4 yards apart on any slope: by depth they bunched into thin
@@ -834,6 +884,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // all. The swash was a flat film of its own in the wet sand pass, and where it met this water, at the flat
     // waterline, it showed as a second shoreline whatever its colour. Above the moving edge, nothing.
     clip(depthS + 0.02);
+    [branch] if (depthS + 0.02 < 0.0)
+        return float4(0.0, 0.0, 0.0, 0.0);
     float  shoreS = saturate(1.0 - max(depthS * gFoam.x * (1.0 + slope * 4.0), reachS * gReach.x));
     float  bandS  = sin(reachS * 4.0 + t * 1.6) * 0.5 + 0.5;
     float  fshape = shoreS * (0.55 + 0.45 * bandS);
@@ -879,7 +931,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float capsD = 0.0;
     float2 A3    = rel.xy + gCam.xy;
     float2 alongW = float2(dot(A3, float2(0.7071, 0.7071)) * 0.45, dot(A3, float2(-0.7071, 0.7071)));
-    float  capN2  = FoamField(alongW * gFD.y * 0.8 + 31.0, t);   // outside the branch: it reads a texture
+    float  capN2  = FoamField(alongW * gFD.y * 0.8 + 31.0, t, LodAt(ypp, gFD.y * 0.1));
     if (gFD.w > 0.0)
     {
         float  crestO = smoothstep(0.62, 0.92, Swell(A3, gScr.z, gWave.x));
@@ -1308,6 +1360,23 @@ float4 main(float2 vpos : VPOS) : COLOR
     bool               g_copyOk = false;
     bool               g_copyFailLogged = false;
     float              g_psc[90 * 4];           // this frame's pixel constants: c120 to c209
+
+    // The pass's frame state (2026-10-06). Until then each chunk set all of c120 to c223 and our five textures
+    // with their sampler states, and took the textures off again after its draws: about 50 calls a chunk, and
+    // Stormwind's harbour draws some 400 chunks. These registers and samplers are the water's alone. The client's
+    // shaders are ps_2_0 at most, which reads no register past c31 (its water shader reads c0, s0 and s1, the
+    // probe's disassembly), and its fixed-function draws have 8 stages. No other pass of the DLL sets them while
+    // the world is drawn: the other passes use c71 and s9 at the most, and those that run in the world (the body
+    // mask's leaves, the wet sand) put every state back with a state block. So the frame's part is set once, at
+    // its first chunk (SetFrameState), and holds through every run of water in the world, a building's after the
+    // sea's too. Each chunk sets only its own registers (c167, c168, c210, c211), and only when the value changes
+    // (SetChunkReg). The textures go at the world's end, before the body mask is built again into the texture
+    // g_leaves is, and at Present for a world that never ended (UnbindFrame). Water is never drawn after the
+    // world's end (WaterKind, comfyfog.cpp).
+    struct ChunkReg { float v[4]; bool known; };   // what the pass last put in one of a chunk's own registers
+    bool     g_frameSet = false;      // the frame's constants and textures are on the device
+    unsigned g_boundSamplers = 0;     // our samplers with a texture on them, a bit each
+    ChunkReg g_c167 = {}, g_c168 = {}, g_c210 = {}, g_c211 = {};
 
     // The ripples, in the world. A unit in the water starts one where it stands about once a second, and one
     // each time it has moved a yard and a half: walking leaves a trail. Until 2026-10-02 the rings were drawn
@@ -2701,6 +2770,21 @@ namespace
         Log("water: the foam texture is on the GPU, %ux%u, format %d, %u levels", b.width, b.height, b.format,
             static_cast<unsigned>(b.levels.size()));
     }
+
+    // Our textures off the samplers, and the frame's constants to be set again at the next chunk (see g_frameSet).
+    void UnbindFrame(IDirect3DDevice9* dev)
+    {
+        for (DWORD s = 0; s < 16; ++s)
+            if (g_boundSamplers & (1u << s))
+                dev->lpVtbl->SetTexture(dev, s, nullptr);
+        g_boundSamplers = 0;
+        g_frameSet = false;
+    }
+}
+
+namespace
+{
+    bool g_spanOpen = false;   // kBenchWaterSpan begun this frame
 }
 
 void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
@@ -2708,6 +2792,19 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
     if (g_copied || !WaterWanted())
         return;
     g_copied = true;
+    // The water's GPU time (2026-10-06): its copies and the wet sand here, and the span from here to the world's
+    // end, with our draws over each chunk in it (and the game's own, which cannot be taken apart from them).
+    BenchSectionBegin(dev, kBenchWaterSpan);
+    g_spanOpen = true;
+    BenchSectionBegin(dev, kBenchWaterPrep);
+    struct PrepEnd
+    {
+        IDirect3DDevice9* dev;
+        ~PrepEnd() { BenchSectionEnd(dev, kBenchWaterPrep, true); }
+    } prepEnd = { dev };
+    // Nothing of ours is bound while the copies below are made into our textures, and the constants made below
+    // go up at the next chunk (2026-10-06).
+    UnbindFrame(dev);
     g_copyOk = EnsureShaders(dev) && CopyUnder(dev);
     if (!g_copyOk)
         return;
@@ -2753,6 +2850,93 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
 namespace
 {
     const float kAllWet[4] = { 65535.0f, 65535.0f, 65535.0f, 65535.0f };
+    constexpr UINT kFrameRegs = 104;   // c120 to c223, the last register ps_3_0 has
+
+    // One of a chunk's own pixel registers: set only when it differs from what the pass last put there. Valid
+    // while g_frameSet holds: SetFrameState writes every one of them and notes what it wrote.
+    void SetChunkReg(IDirect3DDevice9* dev, UINT reg, ChunkReg& last, const float v[4])
+    {
+        if (last.known && memcmp(last.v, v, sizeof(last.v)) == 0)
+            return;
+        dev->lpVtbl->SetPixelShaderConstantF(dev, reg, v, 1);
+        memcpy(last.v, v, sizeof(last.v));
+        last.known = true;
+    }
+
+    void BindSampler(IDirect3DDevice9* dev, DWORD s, IDirect3DTexture9* tex, D3DTEXTUREFILTERTYPE filter,
+                     D3DTEXTUREFILTERTYPE mip, D3DTEXTUREADDRESS address)
+    {
+        auto* d = dev->lpVtbl;
+        d->SetTexture(dev, s, reinterpret_cast<IDirect3DBaseTexture9*>(tex));
+        d->SetSamplerState(dev, s, D3DSAMP_MINFILTER, filter);
+        d->SetSamplerState(dev, s, D3DSAMP_MAGFILTER, filter);
+        d->SetSamplerState(dev, s, D3DSAMP_MIPFILTER, mip);
+        d->SetSamplerState(dev, s, D3DSAMP_ADDRESSU, address);
+        d->SetSamplerState(dev, s, D3DSAMP_ADDRESSV, address);
+        d->SetSamplerState(dev, s, D3DSAMP_SRGBTEXTURE, FALSE);
+        g_boundSamplers |= 1u << s;
+    }
+
+    // The frame's part of the water pass, at its first chunk (see g_frameSet): c120 to c223 in one call, with each
+    // chunk's own registers at the sea's values, and our textures with their sampler states. After the wet sand
+    // pass, whose state block puts back what it changes (c200 to c212, s12 to s15).
+    void SetFrameState(IDirect3DDevice9* dev)
+    {
+        const WaterSettings& w = g_cfg.water;
+        float k[kFrameRegs * 4];
+        memcpy(k, g_psc, sizeof(g_psc));                    // c120 to c209 (c167 and c168 the chunk's, below)
+        memcpy(k + 90 * 4, kAllWet, sizeof(kAllWet));      // c210: FullGridDraw sets a shore chunk's and puts this back
+        // c211, the swash's length along the shore and its speed (2026-10-05): as the wet sand pass's c212. And the
+        // share of the shore foam and of the swash, 1 on the sea; a lake's chunk sets its own.
+        const float sw[4] = { 30.0f / w.swashLength, 0.55f * w.swashSpeed, 1.0f, 1.0f };
+        memcpy(k + 91 * 4, sw, sizeof(sw));
+        // c212, the drawn foam (2026-10-05): on, 1 / its size, 1 / its reach, the open water's foam.
+        const float fd[4] = { w.foamDrawn && g_foamBody ? 1.0f : 0.0f, 1.0f / w.foamCell, 1.0f / w.foamLife,
+                              w.openFoam ? w.whitecaps : 0.0f };
+        memcpy(k + 92 * 4, fd, sizeof(fd));
+        static_assert(kParts == 8, "the parting's particles are c213 to c220");
+        memcpy(k + 93 * 4, g_partOut, sizeof(g_partOut));   // c213 to c220, the parting's particles
+        // c221, the lighthouse's light on the water, tuned on the Lamps tab (2026-10-05).
+        const LighthouseSettings& ls = g_cfg.lighthouse;
+        const float lt[4] = { ls.faceStrength, ls.faceTilt, (std::max)(ls.faceSoft, 0.001f),
+                              (std::max)(ls.beamSpread * ls.waterWidth, 0.002f) };
+        memcpy(k + 101 * 4, lt, sizeof(lt));
+        // c222, the nearest lighthouse's lamp, for its glitter on the water (2026-10-05). The lamps are found at the
+        // lighthouse pass, after the world: the same for every chunk.
+        float lh[1][3];
+        float lc[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        if (BeaconLamps(lh, 1) == 1)
+        {
+            lc[0] = lh[0][0] - g_psc[28]; lc[1] = lh[0][1] - g_psc[29]; lc[2] = lh[0][2] - g_psc[30];
+            lc[3] = BeaconGlint();
+        }
+        memcpy(k + 102 * 4, lc, sizeof(lc));
+        // c223, the rain (eased at Present) and the beam's way. One angle for the whole frame: it was read again
+        // for each chunk, a few microseconds apart.
+        float way[2] = { 0.0f, 0.0f };
+        bool two = false;
+        const bool beam = BeaconBeamWay(way, two);
+        const float wl = beam ? (two ? 2.0f : 1.0f) : 0.0f;
+        const float rain[4] = { g_rain, w.rain, way[0] * wl, way[1] * wl };
+        memcpy(k + 103 * 4, rain, sizeof(rain));
+        dev->lpVtbl->SetPixelShaderConstantF(dev, kPsReg, k, kFrameRegs);
+        auto note = [&](ChunkReg& r, UINT reg) { memcpy(r.v, k + (reg - kPsReg) * 4, sizeof(r.v)); r.known = true; };
+        note(g_c167, kPsReg + 47);
+        note(g_c168, kPsReg + 48);
+        note(g_c210, kPsReg + 90);
+        note(g_c211, kPsReg + 91);
+
+        BindSampler(dev, kUnderSampler, g_under, D3DTEXF_POINT, D3DTEXF_NONE, D3DTADDRESS_CLAMP);
+        if (g_foamTex)
+            BindSampler(dev, kFoamSampler, g_foamTex, D3DTEXF_LINEAR, D3DTEXF_LINEAR, D3DTADDRESS_WRAP);
+        if (g_leaves)
+            BindSampler(dev, kLeavesSampler, g_leaves, D3DTEXF_POINT, D3DTEXF_NONE, D3DTADDRESS_CLAMP);
+        if (g_foamBody)
+            BindSampler(dev, kFoamBodySampler, g_foamBody, D3DTEXF_LINEAR, D3DTEXF_LINEAR, D3DTADDRESS_WRAP);
+        if (g_sceneOk)
+            BindSampler(dev, kSceneSampler, g_scene, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTADDRESS_CLAMP);
+        g_frameSet = true;
+    }
 
     // A building's water draw: its surface for the next frame's ripples and wakes (MaybeInWater). Its indices
     // and vertices are read each frame, as the land's indices are (WetCells): a building's water is a few
@@ -2828,7 +3012,38 @@ namespace
         vb->lpVtbl->Release(vb);
     }
 
-    bool WetCells(IDirect3DDevice9* dev, const WaterChunk& c)
+    // A part of the water's CPU time (2026-10-06), while the bench or the frame log runs.
+    struct WaterTick
+    {
+        BenchCpu part;
+        unsigned long long t0;
+        explicit WaterTick(BenchCpu p) : part(p), t0(BenchTiming() ? __rdtsc() : 0) {}
+        ~WaterTick() { if (t0) BenchCpuAddTicks(part, __rdtsc() - t0); }
+    };
+
+    // A chunk's wet cells, kept (2026-10-06): reading them locked the game's index buffer for each chunk, each
+    // frame, 1 ms a frame at the harbour, for an answer that changes only when the game writes the buffer again.
+    struct WetKey
+    {
+        const void* ib; UINT start, prims, minIndex; D3DPRIMITIVETYPE prim;
+        bool operator==(const WetKey& o) const
+        {
+            return ib == o.ib && start == o.start && prims == o.prims && minIndex == o.minIndex && prim == o.prim;
+        }
+    };
+    struct WetKeyHash
+    {
+        size_t operator()(const WetKey& k) const
+        {
+            return std::hash<const void*>()(k.ib) ^ (static_cast<size_t>(k.start) * 2654435761u) ^
+                   (static_cast<size_t>(k.prims) << 7) ^ (static_cast<size_t>(k.minIndex) << 17);
+        }
+    };
+    struct WetKept { float cells[4]; unsigned long long seq; };
+    std::unordered_map<WetKey, WetKept, WetKeyHash> g_wetKept;
+
+    // The chunk's wet cells, as c210 and c251 take them, into `cells`.
+    bool WetCells(IDirect3DDevice9* dev, const WaterChunk& c, float cells[4])
     {
         static bool told = false;
         if (c.prim != D3DPT_TRIANGLESTRIP && c.prim != D3DPT_TRIANGLELIST)
@@ -2837,6 +3052,19 @@ namespace
         IDirect3DIndexBuffer9* ib = nullptr;
         if (FAILED(d->GetIndices(dev, &ib)) || !ib)
             return false;
+        const WetKey key = { ib, c.startIndex, c.primCount, c.minIndex, c.prim };
+        unsigned long long seq = 0;
+        const bool followed = ShadowBufferLastWrite(ib, seq);
+        if (followed && !g_probeOn)
+        {
+            const auto kept = g_wetKept.find(key);
+            if (kept != g_wetKept.end() && kept->second.seq == seq)
+            {
+                ib->lpVtbl->Release(ib);
+                memcpy(cells, kept->second.cells, sizeof(kept->second.cells));
+                return true;
+            }
+        }
         D3DINDEXBUFFER_DESC desc = {};
         ib->lpVtbl->GetDesc(ib, &desc);
         const UINT isz = desc.Format == D3DFMT_INDEX32 ? 4 : 2;
@@ -2888,8 +3116,15 @@ namespace
             Log("water: wet cells of the chunk at (%.1f %.1f %.1f), %u triangles from index %u, base %d: rows %02X %02X "
                 "%02X %02X %02X %02X %02X %02X", c.world->m[3][0], c.world->m[3][1], c.world->m[3][2], c.primCount,
                 c.startIndex, c.baseVertex, rows[0], rows[1], rows[2], rows[3], rows[4], rows[5], rows[6], rows[7]);
-        d->SetPixelShaderConstantF(dev, kPsReg + 90, m, 1);
-        d->SetVertexShaderConstantF(dev, kVsReg + 11, m, 1);
+        memcpy(cells, m, sizeof(m));
+        if (followed)
+        {
+            if (g_wetKept.size() >= 8192)
+                g_wetKept.clear();
+            WetKept& k = g_wetKept[key];
+            memcpy(k.cells, m, sizeof(m));
+            k.seq = seq;
+        }
         return true;
     }
 
@@ -2929,19 +3164,43 @@ namespace
                 Log("water: no index buffer for the whole grid; the swash stops at the game's last wet cell");
             }
         }
-        if (!g_gridIb || c.city || c.numVertices != 81 || !WetCells(dev, c))
+        if (g_cfg.water.debugSkip & 1)
+            return;
+        float cells[4];
+        bool haveCells = false;
+        if (g_gridIb && !c.city && c.numVertices == 81)
         {
+            WaterTick tick(kCpuWaterCells);
+            haveCells = WetCells(dev, c, cells);
+        }
+        if (!haveCells)
+        {
+            WaterTick tick(kCpuWaterDraws);
             draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
             return;
+        }
+        // A chunk with every cell wet, the open sea's, is the kAllWet the registers already hold (2026-10-06): only
+        // a shore chunk sets its cells, and puts kAllWet back for the water part and the next chunk.
+        const bool shore = memcmp(cells, kAllWet, sizeof(cells)) != 0;
+        if (shore)
+        {
+            SetChunkReg(dev, kPsReg + 90, g_c210, cells);
+            d->SetVertexShaderConstantF(dev, kVsReg + 11, cells, 1);
         }
         IDirect3DIndexBuffer9* old = nullptr;
         d->GetIndices(dev, &old);
         d->SetIndices(dev, g_gridIb);
-        draw(dev, D3DPT_TRIANGLELIST, c.baseVertex + static_cast<INT>(c.minIndex), 0, 81, 0, 128);
+        {
+            WaterTick tick(kCpuWaterDraws);
+            draw(dev, D3DPT_TRIANGLELIST, c.baseVertex + static_cast<INT>(c.minIndex), 0, 81, 0, 128);
+        }
         d->SetIndices(dev, old);
         if (old) old->lpVtbl->Release(old);
-        d->SetPixelShaderConstantF(dev, kPsReg + 90, kAllWet, 1);
-        d->SetVertexShaderConstantF(dev, kVsReg + 11, kAllWet, 1);
+        if (shore)
+        {
+            SetChunkReg(dev, kPsReg + 90, g_c210, kAllWet);
+            d->SetVertexShaderConstantF(dev, kVsReg + 11, kAllWet, 1);
+        }
     }
 }
 
@@ -3012,95 +3271,21 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
     d->SetVertexShaderConstantF(dev, kVsReg, vc, 12);
-    d->SetPixelShaderConstantF(dev, kPsReg, g_psc, 90);
-    d->SetPixelShaderConstantF(dev, kPsReg + 90, kAllWet, 1);   // c210, set again for the sand part
+    // The frame's part: once, at the frame's first chunk (see g_frameSet).
+    if (!g_frameSet)
+        SetFrameState(dev);
     {
         // c211, the swash's length along the shore and its speed (2026-10-05): as the wet sand pass's c212.
         // And whether this chunk is the sea (its middle, 16.7 yards in from its corner), and the share a lake gets.
+        // Set when it differs from the last chunk's: the sea's chunks come in runs.
         const float mx = chunkX, my = chunkY;
         const bool sea = chunkSea;
         const float sw[4] = { 30.0f / g_cfg.water.swashLength, 0.55f * g_cfg.water.swashSpeed,
                               sea ? 1.0f : g_cfg.water.lakeFoam, sea ? 1.0f : g_cfg.water.lakeSwash };
-        d->SetPixelShaderConstantF(dev, kPsReg + 91, sw, 1);
+        SetChunkReg(dev, kPsReg + 91, g_c211, sw);
         if (g_probeOn && std::hypot(c.world->m[3][0] - 16.7f, c.world->m[3][1] - 16.7f) < 70.0f)
             Log("water: the chunk with its middle at (%.1f %.1f) is %s: swash x %.2f, shore foam x %.2f, swell %.2f yards",
                 mx, my, c.city ? "a building's water" : sea ? "the sea" : "a lake, a pond or a river", sw[3], sw[2], vc[39]);
-        // c212, the drawn foam (2026-10-05): on, 1 / its size, 1 / its reach, the open water's foam.
-        const WaterSettings& w = g_cfg.water;
-        const float fd[4] = { w.foamDrawn && g_foamBody ? 1.0f : 0.0f, 1.0f / w.foamCell, 1.0f / w.foamLife,
-                              w.openFoam ? w.whitecaps : 0.0f };
-        d->SetPixelShaderConstantF(dev, kPsReg + 92, fd, 1);
-        d->SetPixelShaderConstantF(dev, kPsReg + 93, g_partOut, kParts);   // c213..c220, the parting's particles
-        {
-            // c221, the lighthouse's light on the water, tuned on the Lamps tab (2026-10-05).
-            const LighthouseSettings& ls = g_cfg.lighthouse;
-            const float lt[4] = { ls.faceStrength, ls.faceTilt, (std::max)(ls.faceSoft, 0.001f),
-                                  (std::max)(ls.beamSpread * ls.waterWidth, 0.002f) };
-            d->SetPixelShaderConstantF(dev, kPsReg + 101, lt, 1);
-        }
-        // c222, the nearest lighthouse's lamp, for its glitter on the water (2026-10-05).
-        {
-            float lh[1][3];
-            float lc[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            if (BeaconLamps(lh, 1) == 1)
-            {
-                lc[0] = lh[0][0] - g_psc[28]; lc[1] = lh[0][1] - g_psc[29]; lc[2] = lh[0][2] - g_psc[30];
-                lc[3] = BeaconGlint();
-            }
-            d->SetPixelShaderConstantF(dev, kPsReg + 102, lc, 1);
-        }
-        float way[2] = { 0.0f, 0.0f };
-        bool two = false;
-        const bool beam = BeaconBeamWay(way, two);
-        const float wl = beam ? (two ? 2.0f : 1.0f) : 0.0f;
-        const float rain[4] = { g_rain, g_cfg.water.rain, way[0] * wl, way[1] * wl };
-        d->SetPixelShaderConstantF(dev, kPsReg + 103, rain, 1);   // c223
-    }
-    d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
-    d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
-    d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-    d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-    d->SetSamplerState(dev, kUnderSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-    d->SetSamplerState(dev, kUnderSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    if (g_foamTex)
-    {
-        d->SetTexture(dev, kFoamSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_foamTex));
-        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
-        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
-        d->SetSamplerState(dev, kFoamSampler, D3DSAMP_SRGBTEXTURE, FALSE);
-    }
-    if (g_leaves)
-    {
-        d->SetTexture(dev, kLeavesSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_leaves));
-        d->SetSamplerState(dev, kLeavesSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
-        d->SetSamplerState(dev, kLeavesSampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
-        d->SetSamplerState(dev, kLeavesSampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-        d->SetSamplerState(dev, kLeavesSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        d->SetSamplerState(dev, kLeavesSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        d->SetSamplerState(dev, kLeavesSampler, D3DSAMP_SRGBTEXTURE, FALSE);
-    }
-    if (g_foamBody)
-    {
-        d->SetTexture(dev, kFoamBodySampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_foamBody));
-        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
-        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
-        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_SRGBTEXTURE, FALSE);
-    }
-    if (g_sceneOk)
-    {
-        d->SetTexture(dev, kSceneSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_scene));
-        d->SetSamplerState(dev, kSceneSampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kSceneSampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        d->SetSamplerState(dev, kSceneSampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-        d->SetSamplerState(dev, kSceneSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        d->SetSamplerState(dev, kSceneSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        d->SetSamplerState(dev, kSceneSampler, D3DSAMP_SRGBTEXTURE, FALSE);
     }
 
     // With our surface, two draws (2026-10-02). The swell lifts a chunk over the next one on screen, and drawn
@@ -3110,13 +3295,14 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     // the fog see the waves. The sand part (wet sand, the lip of foam above the waterline) lies in front of
     // the water's plane and is drawn without the test, as before. Without our surface, one draw does both.
     const bool surface = g_sceneOk && g_cfg.water.surface > 0.0f;
+    // c167 and c168 are the chunk's own: set when they differ from what the last draw left there (2026-10-06).
     // The fourth is the sky reflection's strength: until 2026-10-02 this wrote 0 over it, and Sky Reflection
     // did nothing.
     float mode[4] = { g_psc[188], surface ? 1.0f : 0.0f, g_psc[190], g_psc[191] };
-    d->SetPixelShaderConstantF(dev, kPsReg + 47, mode, 1);
+    SetChunkReg(dev, kPsReg + 47, g_c167, mode);
     const float cityW = c.city ? 1.0f : 0.0f;
     const float sw2[4] = { g_psc[192], g_psc[193], g_psc[194], cityW };
-    d->SetPixelShaderConstantF(dev, kPsReg + 48, sw2, 1);
+    SetChunkReg(dev, kPsReg + 48, g_c168, sw2);
     FullGridDraw(dev, c, draw);
     if (surface)
     {
@@ -3134,35 +3320,36 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         d->SetRenderState(dev, D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
         d->SetRenderState(dev, D3DRS_DEPTHBIAS, biasBits);
         mode[1] = 2.0f;
-        d->SetPixelShaderConstantF(dev, kPsReg + 47, mode, 1);
-        draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+        SetChunkReg(dev, kPsReg + 47, g_c167, mode);
+        if (!(g_cfg.water.debugSkip & 2))
+        {
+            WaterTick tick(kCpuWaterDraws);
+            draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+        }
         // Once more on the bodies (the stencil's mark, bodymask.cpp), the water over a character's legs: skipped,
         // the game's own pale water showed there, and the legs under the water looked like a ghost (2026-10-02).
         // The depth test keeps it off what stands above the surface.
-        if (skipBodies)
+        if (skipBodies && !(g_cfg.water.debugSkip & 4))
         {
-            float body[4] = { g_psc[192], 1.0f, g_cfg.water.cover, cityW };
-            d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
+            WaterTick tick(kCpuWaterDraws);
+            // No draw of the pass reads c168 before the next chunk sets its own (2026-10-06): it is not put back.
+            const float body[4] = { g_psc[192], 1.0f, g_cfg.water.cover, cityW };
+            SetChunkReg(dev, kPsReg + 48, g_c168, body);
             d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);   // marked: a body or a model
+            // Without depth writes (2026-10-06): with them, and the shader's clip(), the stencil was tested after the
+            // shader ran, so the whole shader ran on every pixel of the chunk, about 3 ms a frame at the harbour.
+            // Without, the stencil turns the unmarked pixels away first. Over the legs the depth stays the game's
+            // flat water, which its own draw wrote ([depth] waterDepth), not our swell's.
+            d->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
             draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
             d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
-            body[1] = 0.0f;
-            d->SetPixelShaderConstantF(dev, kPsReg + 48, body, 1);
         }
         for (int i = 0; i < 4; ++i)
             d->SetRenderState(dev, zs[i], oz[i]);
     }
     ++g_foamDraws;
 
-    d->SetTexture(dev, kUnderSampler, nullptr);
-    if (g_sceneOk)
-        d->SetTexture(dev, kSceneSampler, nullptr);
-    if (g_foamTex)
-        d->SetTexture(dev, kFoamSampler, nullptr);
-    if (g_foamBody)
-        d->SetTexture(dev, kFoamBodySampler, nullptr);
-    if (g_leaves)
-        d->SetTexture(dev, kLeavesSampler, nullptr);
+    // Our textures stay bound until the world's end (WaterWorldEnded); the client's state goes back now.
     if (skipBodies)
         for (int i = 0; i < kStencilCount; ++i)
             d->SetRenderState(dev, kStencil[i], oldSt[i]);
@@ -3396,8 +3583,21 @@ void WaterNoteHull(IDirect3DDevice9* dev, const D3DMATRIX& world)
     ++g_hullRelN;
 }
 
-void WaterFrameEnd()
+void WaterWorldEnded(IDirect3DDevice9* dev)
 {
+    UnbindFrame(dev);
+    if (g_spanOpen)
+    {
+        BenchSectionEnd(dev, kBenchWaterSpan, true);
+        g_spanOpen = false;
+    }
+}
+
+void WaterFrameEnd(IDirect3DDevice9* dev)
+{
+    UnbindFrame(dev);   // a world that never ended (2026-10-06)
+    g_spanOpen = false;   // and its span is not timed
+
     {
         // The ships: this frame's origins followed from the last frame's (see Hull).
         const double now = Now();
@@ -3664,6 +3864,7 @@ bool WaterTextureIsWater(IDirect3DDevice9* dev)
 void WaterReset()
 {
     g_liquidTex.clear();
+    g_wetKept.clear();
     g_trails.clear();
     g_hulls.clear();
     g_hullRelN = 0;
@@ -3701,6 +3902,9 @@ void WaterReset()
     g_copied = false;
     g_copyOk = false;
     g_copyFailLogged = false;
+    // Nothing is called on the device here: it may be gone. Present has taken our textures off already.
+    g_boundSamplers = 0;
+    g_frameSet = false;
 }
 
 void WaterProbe()

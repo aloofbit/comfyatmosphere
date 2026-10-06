@@ -37,7 +37,10 @@ void WaterProbeDraw(IDirect3DDevice9* dev, const WaterChunk& c, unsigned index, 
 bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c);
 // The depth under the water this frame (copied before the first water draw), for the sun shadows; or null.
 IDirect3DTexture9* WaterUnderDepth();
-void WaterFrameEnd();   // at Present
+// The world is drawn: the water's textures come off samplers s10 to s15, before the body mask is built again into
+// one of them. The water's constants and textures are set once a world (see water.cpp, g_frameSet).
+void WaterWorldEnded(IDirect3DDevice9* dev);
+void WaterFrameEnd(IDirect3DDevice9* dev);   // at Present; also takes the textures off for a world that never ended
 // A fixed-function draw of 100 triangles or more: its world matrix's origin noted, to find the ships (Ship Wake).
 void WaterNoteHull(IDirect3DDevice9* dev, const D3DMATRIX& world);
 // Within reach of a ship under way (its hull followed from its draws): a model there is one of its parts.

@@ -6,6 +6,7 @@ bool ClientPlayer(float pos[3], bool* onShip = nullptr);   // local player world
                                                           // or zeppelin, the camera's (see client.cpp)
 bool ClientPlayerMounted(bool& mounted);   // whether the local player rides a mount
 bool ClientHour(float& hour);         // the game's time of day, 0..24
+void ClientFrameEnd();                // at Present: the player's object is looked up again next frame
 // A unit or player with its model (2026-10-04): UNIT_FIELD_DISPLAYID (0x83) and UNIT_FIELD_MOUNTDISPLAYID (0x85),
 // both CreatureDisplayInfo.dbc rows; mount 0 on foot. stealthed: UNIT_FIELD_BYTES_1 (0x8A) byte 3 has
 // UNIT_BYTE1_FLAGS_CREEP (0x02), which the server sets with a stealth aura. self: the local player.

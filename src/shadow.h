@@ -40,6 +40,9 @@ bool ShadowIsUnitDraw(IDirect3DDevice9* dev);   // the draw about to be made is 
 void ShadowWorldCameraPlanes(float& nearZ, float& farZ);   // the camera the replay is using
 // A buffer the client has written to since it was created: its contents are not ours to keep.
 void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size);
+// The number of the last write the client made to a buffer, 0 for none seen (2026-10-06). False when its writes
+// are not followed (the table is full), and the caller must read the buffer again.
+bool ShadowBufferLastWrite(const void* buffer, unsigned long long& seq);
 const char* ShadowMapCentre();   // where the map sits this frame, and the sun it uses
 const char* ShadowFrameInfo();   // the frame's first M2 entry: its absolute transform and the view
 const char* ShadowOverwritten(unsigned& count);   // entries the client overwrote under us

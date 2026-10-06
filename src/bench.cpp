@@ -37,10 +37,37 @@
 #include "shadow.h"
 
 #include <algorithm>
+#include <intrin.h>
 #include <vector>
 
 namespace
 {
+    // The hooks' timers (2026-10-06) read the CPU's time stamp counter: a few nanoseconds a read, where
+    // QueryPerformanceCounter costs tens, and a hook runs thousands of times a frame. Its rate is found
+    // against Now() over each run.
+    double g_tickSecs = 0.0;                    // seconds a tick, once known
+    unsigned long long g_calTick = 0;
+    double g_calNow = 0.0;
+
+    void CalibrateStart()
+    {
+        g_calTick = __rdtsc();
+        g_calNow = Now();
+    }
+
+    void CalibrateEnd()
+    {
+        const unsigned long long t = __rdtsc();
+        const double secs = Now() - g_calNow;
+        if (t > g_calTick && secs > 0.5)
+            g_tickSecs = secs / static_cast<double>(t - g_calTick);
+    }
+
+    double TickSecs()
+    {
+        return g_tickSecs > 0.0 ? g_tickSecs : 1.0 / 2.5e9;   // a guess until a run has measured it
+    }
+
     struct Step
     {
         const char* name;
@@ -82,6 +109,7 @@ namespace
         bool issued[kBenchSections] = {};
         bool used = false;                      // issued this round, so there is something to read
         bool measured = false;                  // issued inside a step's measure window
+        bool flMeasured = false;                // issued while the frame log ran
     };
 
     FrameQueries g_q[kRing];
@@ -104,6 +132,19 @@ namespace
     double   g_sMerge = 0.0;
     unsigned g_sStill = 0, g_sRefreshed = 0;
     char     g_setup[256] = {};
+    unsigned long long g_benchParts[kCpuParts] = {};   // this step's hook ticks, measured frames only
+
+    // The frame log's share of the same timers (2026-10-06), so the frame-rate test reports each pass.
+    bool     g_flOn = false;
+    double   g_flGpuSum[kBenchSections] = {};
+    unsigned g_flGpuRan[kBenchSections] = {};
+    unsigned g_flGpuFrames = 0;
+    double   g_flCpuSum[kBenchSections] = {};
+    unsigned long long g_flParts[kCpuParts] = {};
+
+    unsigned long long g_sectionTicks = 0;      // every pass's CPU ticks, a running sum (BenchSectionTicks)
+    unsigned long long g_secTick[kBenchSections] = {};
+    bool     g_frameBegun = false;              // the GPU frame's first timestamp is issued
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -123,6 +164,7 @@ namespace
             f = FrameQueries();
         }
         g_slot = 0;
+        g_frameBegun = false;
     }
 
     bool MakeQueries(IDirect3DDevice9* dev)
@@ -170,6 +212,15 @@ namespace
                 return;                         // not ready after four frames: drop the frame
             ms[s] = 1000.0 * static_cast<double>(b - a) / static_cast<double>(freq);
         }
+        if (f.flMeasured)
+        {
+            for (int s = 0; s < kBenchSections; ++s)
+            {
+                g_flGpuSum[s] += ms[s];
+                g_flGpuRan[s] += f.issued[s] ? 1 : 0;
+            }
+            ++g_flGpuFrames;
+        }
         if (!f.measured)
             return;
         for (int s = 0; s < kBenchSections; ++s)
@@ -209,6 +260,8 @@ namespace
         g_sDrawn = g_sEntries = g_sFrames = g_sReplays = 0;
         g_sMerge = 0.0;
         g_sStill = g_sRefreshed = 0;
+        for (unsigned long long& t : g_benchParts)
+            t = 0;
     }
 
     void FinishStep()
@@ -256,7 +309,7 @@ namespace
         {
             const Result& r = g_results[i];
             double gpu = 0.0, cpu = r.recordMs;
-            for (int s = 0; s < kBenchSections; ++s)
+            for (int s = 0; s < kBenchTop; ++s)
                 gpu += r.gpuMs[s], cpu += r.cpuMs[s];
             char gpuText[32];
             if (g_queriesFailed)
@@ -287,6 +340,19 @@ namespace
             all.gpuMs[kBenchLamps], all.cpuMs[kBenchLamps], all.ran[kBenchLamps], all.frames);
         Log("bench: the sun shadows, a frame: GPU %.2f ms, CPU %.2f ms, drawn in %u of %u frames",
             all.gpuMs[kBenchSunShadows], all.cpuMs[kBenchSunShadows], all.ran[kBenchSunShadows], all.frames);
+        Log("bench: the shadow maps on the GPU, a frame: far %.2f, far leaves %.2f, terrain %.2f, middle %.2f, "
+            "near %.2f, near leaves %.2f, units %.2f ms", all.gpuMs[kBenchMapFar], all.gpuMs[kBenchMapFarLeaf],
+            all.gpuMs[kBenchMapTerrain], all.gpuMs[kBenchMapMid], all.gpuMs[kBenchMapNear],
+            all.gpuMs[kBenchMapNearLeaf], all.gpuMs[kBenchMapUnits]);
+        Log("bench: on the GPU, a frame: the body mask and depth %.2f ms, the lighthouses %.2f ms, the saturation "
+            "%.2f ms; the GPU's whole frame %.2f ms", all.gpuMs[kBenchMask], all.gpuMs[kBenchBeacon],
+            all.gpuMs[kBenchGrade], all.gpuMs[kBenchFrame]);
+        if (all.frames)
+        {
+            const double k = 1000.0 * TickSecs() / all.frames;
+            Log("bench: our CPU in the hooks on the client's draws, a frame: %.2f ms (the water %.2f ms of it)",
+                g_benchParts[kCpuHooks] * k, g_benchParts[kCpuWater] * k);
+        }
 
         const Result& rays = g_results[kRaysStep];
         if (rays.frames && rays.ran[kBenchRays] < rays.frames / 2)
@@ -304,6 +370,7 @@ namespace
 
     void Finish()
     {
+        CalibrateEnd();
         Report();
         g_cfg = g_saved;
         g_running = false;
@@ -340,6 +407,7 @@ void BenchStart(IDirect3DDevice9* dev)
 
     g_saved = g_cfg;
     g_running = true;
+    CalibrateStart();
     ShadowTiming(true);
     for (Result& r : g_results)
         r = Result();
@@ -356,16 +424,23 @@ void BenchStart(IDirect3DDevice9* dev)
 
 bool BenchFrame(IDirect3DDevice9* dev, double frameSeconds)
 {
-    if (!g_running)
+    if (!g_running && !g_flOn)
         return false;
 
-    // Close this frame's queries, then read the oldest frame before its slot is used again.
+    // Close this frame's queries, then read the oldest frame before its slot is used again. The GPU's frame
+    // ends here, at Present. The frame log uses the same queries (2026-10-06).
+    if (g_frameBegun)
+    {
+        BenchSectionEnd(dev, kBenchFrame, true);
+        g_frameBegun = false;
+    }
     FrameQueries& cur = g_q[g_slot];
     const double now = Now();
     if (cur.freq && cur.used)
     {
         cur.freq->lpVtbl->Issue(cur.freq, D3DISSUE_END);
-        cur.measured = InMeasure(now);
+        cur.measured = g_running && InMeasure(now);
+        cur.flMeasured = g_flOn;
     }
     g_slot = (g_slot + 1) % kRing;
     FrameQueries& next = g_q[g_slot];
@@ -373,8 +448,9 @@ bool BenchFrame(IDirect3DDevice9* dev, double frameSeconds)
         Collect(next);
     for (int s = 0; s < kBenchSections; ++s)
         next.issued[s] = false;
-    next.used = next.measured = false;
-    (void)dev;
+    next.used = next.measured = next.flMeasured = false;
+    if (!g_running)
+        return false;
 
     if (InMeasure(now) && frameSeconds > 0.0)
         g_frameTimes.push_back(frameSeconds);
@@ -424,27 +500,65 @@ bool BenchRunning()
     return g_running;
 }
 
+bool BenchTiming()
+{
+    return g_running || g_flOn;
+}
+
+void BenchCpuAddTicks(BenchCpu part, unsigned long long ticks)
+{
+    if (g_running && InMeasure(Now()))
+        g_benchParts[part] += ticks;
+    if (g_flOn)
+        g_flParts[part] += ticks;
+}
+
+unsigned long long BenchSectionTicks()
+{
+    return g_sectionTicks;
+}
+
+void BenchFrameBegin(IDirect3DDevice9* dev)
+{
+    if (!BenchTiming() || g_frameBegun)
+        return;
+    g_frameBegun = true;
+    BenchSectionBegin(dev, kBenchFrame);
+}
+
 void BenchSectionBegin(IDirect3DDevice9* dev, BenchSection s)
 {
-    if (!g_running)
+    if (!BenchTiming())
         return;
+    // The frame log needs the queries too, and it starts from a chat command, without the device.
+    if (!g_queriesFailed && !g_q[0].freq && !MakeQueries(dev))
+    {
+        g_queriesFailed = true;
+        Log("bench: this d3d9.dll has no timestamp queries, so the GPU column stays empty");
+    }
     g_cpuStart[s] = Now();
+    g_secTick[s] = __rdtsc();
     FrameQueries& f = g_q[g_slot];
     if (f.begin[s])
         f.begin[s]->lpVtbl->Issue(f.begin[s], D3DISSUE_END);
-    (void)dev;
 }
 
 void BenchSectionEnd(IDirect3DDevice9* dev, BenchSection s, bool drew)
 {
-    if (!g_running)
+    if (!BenchTiming())
         return;
+    (void)dev;
     const double now = Now();
-    if (InMeasure(now))
+    // Only our passes go into the running sum the hooks take out: a part of one, or the frame, would count twice.
+    if (s < kBenchTop)
+        g_sectionTicks += __rdtsc() - g_secTick[s];
+    if (g_running && InMeasure(now))
     {
         g_cpuSum[s] += now - g_cpuStart[s];
         g_ran[s] += drew ? 1 : 0;
     }
+    if (g_flOn)
+        g_flCpuSum[s] += now - g_cpuStart[s];
     FrameQueries& f = g_q[g_slot];
     if (f.end[s])
     {
@@ -452,7 +566,6 @@ void BenchSectionEnd(IDirect3DDevice9* dev, BenchSection s, bool drew)
         f.issued[s] = true;
         f.used = true;
     }
-    (void)dev;
 }
 
 namespace
@@ -462,7 +575,6 @@ namespace
         double at, ms, record, cache, replay;
         unsigned added, evicted, copies, entries;
     };
-    bool                  g_flOn = false;
     double                g_flStart = 0.0, g_flLength = 0.0;
     std::vector<FrameRow> g_flRows;
     unsigned              g_flCopies = 0;
@@ -505,6 +617,50 @@ namespace
         Log("framelog: our CPU a frame %.2f ms (recording %.2f, cache %.2f, replay %.2f); %u new cache entries, "
             "%u copies of streamed geometry", sumOurs / n, sumRec / n, sumCache / n, sumRep / n, added, copies);
         Log("framelog: our CPU in the slowest 5%% of frames %.2f ms, in the rest %.2f ms", oursSlow, oursRest);
+        // The whole of our time (2026-10-06). The lines above count the shadow cache alone. Our CPU in all is the
+        // hooks on the client's draws (the recording among them) and our passes (the cache and the replay among
+        // them). The GPU figures are averages over the frames whose timestamps came back.
+        {
+            const double k = 1000.0 * TickSecs() / n;
+            double passes = 0.0;
+            for (int s = 0; s < kBenchTop; ++s)
+                passes += g_flCpuSum[s];
+            passes *= 1000.0 / n;
+            const double hooks = g_flParts[kCpuHooks] * k;
+            Log("framelog: our CPU in all a frame %.2f ms: %.2f ms in the hooks on the client's draws (the water "
+                "%.2f ms of it), %.2f ms in our passes (the shadow maps %.2f ms)", hooks + passes, hooks,
+                g_flParts[kCpuWater] * k, passes, 1000.0 * g_flCpuSum[kBenchShadow] / n);
+            Log("framelog: the water's CPU a frame: %.2f ms reading the wet cells, %.2f ms issuing our draws over the "
+                "chunks, %.2f ms the rest", g_flParts[kCpuWaterCells] * k, g_flParts[kCpuWaterDraws] * k,
+                (g_flParts[kCpuWater] - g_flParts[kCpuWaterCells] - g_flParts[kCpuWaterDraws]) * k);
+            if (g_flGpuFrames)
+            {
+                const double gf = 1.0 / g_flGpuFrames;
+                double gpu = 0.0;
+                for (int s = 0; s < kBenchTop; ++s)
+                    gpu += g_flGpuSum[s];
+                Log("framelog: our GPU a frame %.2f ms: shadow maps %.2f, sun shadows %.2f, light and fog %.2f, lamp "
+                    "fog %.2f, rays %.2f, lighthouses %.2f, body mask and depth %.2f, saturation %.2f ms; the GPU's "
+                    "whole frame %.2f ms (%u frames timed)", gpu * gf, g_flGpuSum[kBenchShadow] * gf,
+                    g_flGpuSum[kBenchSunShadows] * gf, g_flGpuSum[kBenchVolume] * gf, g_flGpuSum[kBenchLamps] * gf,
+                    g_flGpuSum[kBenchRays] * gf, g_flGpuSum[kBenchBeacon] * gf, g_flGpuSum[kBenchMask] * gf,
+                    g_flGpuSum[kBenchGrade] * gf, g_flGpuSum[kBenchFrame] * gf, g_flGpuFrames);
+                Log("framelog: the shadow maps on the GPU a frame: far %.2f, far leaves %.2f, terrain %.2f, middle "
+                    "%.2f, near %.2f, near leaves %.2f, units %.2f ms (drawn in %u, %u, %u, %u, %u, %u and %u of the "
+                    "frames)", g_flGpuSum[kBenchMapFar] * gf, g_flGpuSum[kBenchMapFarLeaf] * gf,
+                    g_flGpuSum[kBenchMapTerrain] * gf, g_flGpuSum[kBenchMapMid] * gf, g_flGpuSum[kBenchMapNear] * gf,
+                    g_flGpuSum[kBenchMapNearLeaf] * gf, g_flGpuSum[kBenchMapUnits] * gf, g_flGpuRan[kBenchMapFar],
+                    g_flGpuRan[kBenchMapFarLeaf], g_flGpuRan[kBenchMapTerrain], g_flGpuRan[kBenchMapMid],
+                    g_flGpuRan[kBenchMapNear], g_flGpuRan[kBenchMapNearLeaf], g_flGpuRan[kBenchMapUnits]);
+            }
+            if (g_flGpuFrames && g_flGpuRan[kBenchWaterSpan])
+                Log("framelog: the water on the GPU a frame: %.2f ms for its copies and the wet sand, %.2f ms from its "
+                    "first chunk to the world's end, the game's draws in that span included (drawn in %u of the frames)",
+                    g_flGpuSum[kBenchWaterPrep] / g_flGpuFrames, g_flGpuSum[kBenchWaterSpan] / g_flGpuFrames,
+                    g_flGpuRan[kBenchWaterSpan]);
+            if (!g_flGpuFrames)
+                Log("framelog: no GPU times: no timestamp queries came back");
+        }
         Log("framelog: the slowest frames:");
         for (size_t i = 0; i < (std::min)(n, static_cast<size_t>(10)); ++i)
         {
@@ -529,6 +685,12 @@ void FrameLogStart(double seconds)
     g_flStart = Now();
     g_flLength = seconds;
     g_flOn = true;
+    CalibrateStart();
+    for (int s = 0; s < kBenchSections; ++s)
+        g_flGpuSum[s] = g_flCpuSum[s] = 0.0, g_flGpuRan[s] = 0;
+    g_flGpuFrames = 0;
+    for (unsigned long long& t : g_flParts)
+        t = 0;
     ShadowTiming(true);
     double r, c, p;
     unsigned d, e, f, rp, failed;
@@ -561,6 +723,7 @@ void FrameLogFrame(double frameSeconds)
     if (row.at >= g_flLength)
     {
         g_flOn = false;
+        CalibrateEnd();
         ShadowTiming(false);
         FrameLogReport();
         CVarsNotice("Frame log done. The results are in comfyfog.log.");

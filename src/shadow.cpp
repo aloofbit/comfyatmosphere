@@ -69,6 +69,7 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "bench.h"
 #include "client.h"
 #include "common.h"
 #include "config.h"
@@ -903,7 +904,20 @@ namespace
         };
         struct Hit { ObjRec* o; UINT copies; int bone; };
         std::vector<Hit> hit;
+        // The box round the bones, kObjBone wider (2026-10-06): each object outside it is passed over at once,
+        // where each was tested against every bone (up to 64 bones by 768 objects, for every model draw).
+        float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+        for (int k = 0; k < nb; ++k)
+            for (int j = 0; j < 3; ++j)
+            {
+                lo[j] = (std::min)(lo[j], bw[k][j] - kObjBone);
+                hi[j] = (std::max)(hi[j], bw[k][j] + kObjBone);
+            }
         for (ObjRec& o : g_objects)
+        {
+            if (o.place[0] < lo[0] || o.place[0] > hi[0] || o.place[1] < lo[1] || o.place[1] > hi[1] ||
+                o.place[2] < lo[2] || o.place[2] > hi[2])
+                continue;
             for (int k = 0; k < nb; ++k)
             {
                 const float dx = bw[k][0] - o.place[0], dy = bw[k][1] - o.place[1], dz = bw[k][2] - o.place[2];
@@ -915,6 +929,7 @@ namespace
                     break;
                 }
             }
+        }
         if (hit.empty())
             return false;
         bool known = true;
@@ -1635,6 +1650,7 @@ namespace
     // the tiles loaded. Not a model where a unit stands: a character standing on a doodad's place is still
     // a character. The units are taken once a full frame, into 2-yard cells.
     unsigned g_nFilesRefused = 0, g_nFilesEvicted = 0;   // this frame
+    unsigned g_nRefusedEarly = 0;   // refused as they were recorded (RecordDraw), this frame
     // After a probe, the first few building draws the files cover are logged with the turn the client draws
     // them with and the turn the files give (2026-09-30): Stormwind's shade came from the wrong district, and
     // the cover test matches the place only.
@@ -1918,6 +1934,11 @@ namespace
         }
         if (!r.vs)       // a building's group is drawn with the placement's matrix
             return !r.alphaTest && MapBuildingCovers(pos);
+        // A unit's own model is never the files' (see below). Asked first (2026-10-06): the answer is the same,
+        // and a character's draw no longer looks for a doodad at each of its 64 bones first.
+        bool known = true;
+        if (UnitModelNear(r, pos, known))
+            return false;
         // A doodad the files place: at its reference point, at its origin, or at any bone the draw uploaded
         // itself, to a tenth of a yard (a canopy tree's placement is in its bones).
         const float origin[3] = { absolute.m[3][0], absolute.m[3][1], absolute.m[3][2] };
@@ -1930,15 +1951,12 @@ namespace
                 w[j] = b[0] * absolute.m[0][j] + b[1] * absolute.m[1][j] + b[2] * absolute.m[2][j] + absolute.m[3][j];
             covered = MapDoodadCovers(w, 0.1f);
         }
-        if (!covered)
-            return false;
-        // A unit's own model is never the files' (UnitModelNear, 2026-10-04): a character standing on a
-        // doodad's place is still a character. A doodad is theirs wherever a unit stands: until 2026-10-04 one
-        // with a unit within half a yard was kept, and became that unit's model (a water trough the player
+        // A unit's own model is never the files' (UnitModelNear, 2026-10-04, asked above): a character standing
+        // on a doodad's place is still a character. A doodad is theirs wherever a unit stands: until 2026-10-04
+        // one with a unit within half a yard was kept, and became that unit's model (a water trough the player
         // stood in). Nothing falls back on the place while a unit's model is read: an entry made then stays a
         // unit's (atUnit is sticky). A unit's own draw refused for those few frames is only not kept for them.
-        bool known = true;
-        return !UnitModelNear(r, pos, known);
+        return covered;
     }
     constexpr float kPlayerModels = 3.0f;   // yards from the player (1 yard above the feet): always placed again
 
@@ -1975,7 +1993,8 @@ namespace
         g_nChanged = 0; g_maxDiff = 0.0f; g_diffInfo[0] = 0;
         g_nOffWorld = 0;
         g_frameInfo[0] = 0;
-        g_nFilesRefused = 0;
+        g_nFilesRefused = g_nRefusedEarly;   // those RecordDraw refused already
+        g_nRefusedEarly = 0;
         TakeUnits();
         // The player's own models (the character, a mount, a pet) are always placed again: see below.
         float player[3] = {};
@@ -2976,6 +2995,18 @@ void ShadowNoteBufferWrite(const void* buffer, UINT offset, UINT size)
     b.next = (b.next + 1) % 16;
 }
 
+bool ShadowBufferLastWrite(const void* buffer, unsigned long long& seq)
+{
+    const auto it = g_written.find(buffer);
+    if (it == g_written.end())
+    {
+        seq = 0;
+        return g_written.size() < 8192;   // full, a write to it would not have been noted
+    }
+    seq = it->second.last;
+    return true;
+}
+
 UINT g_maxConstReg = 0;   // the highest register the client has ever set: the replay need go no further
 UINT g_maxSinceDraw = 0;  // the highest register uploaded since the last recorded model draw
 UINT g_lastOwn = 34;      // what the last model draw's own uploads reached
@@ -3158,6 +3189,7 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         // Only as far as the highest register the client has set (157 to 220 measured), not all 256:
         // this copy is made for every model draw, every frame. At least c0..c33, which Merge reads.
         r.nregs  = g_maxConstReg < 34 ? 34 : (g_maxConstReg > 256 ? 256 : g_maxConstReg);
+        const UINT ceiling = r.nregs;
         // What the replay uploads (2026-09-29): a model's bones are uploaded just before it is drawn, so
         // the uploads since the last model draw reach as far as this one uses. With none (the same model
         // drawn again), the last one's reach. Uploading up to the highest register ever set (157 to 220)
@@ -3167,6 +3199,19 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
             r.nregsOwn = r.nregs;
         g_lastOwn = r.nregsOwn;
         g_maxSinceDraw = 0;
+        // The copy itself as far as the model has ever uploaded (2026-10-06), not to the highest register the
+        // client set for anything: every reader stops at nregsOwn, and an entry keeps the largest nregsOwn its
+        // model's draws had, so a part drawn after another without uploads of its own still finds its bones.
+        // 2.4 to 3.5 KB a model draw were 0.6 to 1 KB.
+        {
+            static std::unordered_map<unsigned long long, UINT> modelOwn;
+            if (modelOwn.size() > 16384)
+                modelOwn.clear();
+            UINT& most = modelOwn[ModelKey(r.vb[0], r.vs)];
+            if (r.nregsOwn > most)
+                most = r.nregsOwn;
+            r.nregs = (std::min)(ceiling, (std::max)(most, 34u));
+        }
         r.consts = g_constPool.size();
         g_constPool.insert(g_constPool.end(), g_mirror, g_mirror + r.nregs * 4);
     }
@@ -3185,6 +3230,28 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
         VoteCamera(cv, cp, r.minZ, r.maxZ);
         r.hasProj = true;
         r.proj00 = cp.m[0][0]; r.proj22 = cp.m[2][2]; r.proj32 = cp.m[3][2];
+    }
+
+    // Ground the files hold, refused now (2026-10-06), after the votes. Merge refused the same draws
+    // (FromFiles), but only after each had been recorded and its arena geometry copied into a buffer of our
+    // own: hundreds of chunks a frame in a forest, and more as new ground came into view while turning. Only
+    // what Merge refuses on any depth slice: the client's terrain, and the ground on a chunk's corner
+    // (FilesGround), both by the tile under the chunk's corner, which the far horizon's rule tests first too.
+    // A building's group is refused by its slice, which the votes settle only at the end of the frame, so
+    // that one stays with Merge.
+    if (!r.vs && g_cfg.shadow.mapTerrain)
+    {
+        float cam[3] = { 0.0f, 0.0f, 0.0f };
+        if (ClientCamera(cam))
+        {
+            const float pos[3] = { r.world.m[3][0] + cam[0], r.world.m[3][1] + cam[1], r.world.m[3][2] + cam[2] };
+            if ((r.terrain && MapTerrainCovers(pos[0] - 1.0f, pos[1] - 1.0f)) || FilesGround(r, pos))
+            {
+                ++g_nRefusedEarly;
+                ReleaseRec(r);
+                return;
+            }
+        }
     }
 
     // Arena geometry: a buffer the client streams through, so by the end of the world pass, or a few
@@ -3899,6 +3966,18 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     const bool doTerr = doLeaves && s.terrainLeaves && g_terrSurf;
     double passTime[7] = {};
     unsigned long long bytesNow[7] = {};
+    // The cache's entries and the object table's parts (2026-10-04), listed once for the seven passes, with
+    // whether each goes to the leaves (2026-10-06): the list was built again for each pass, and isLeaf asked
+    // for each entry in each.
+    struct ReplayItem { const Entry* e; bool leaf; };
+    static std::vector<ReplayItem> replayList;
+    replayList.clear();
+    for (const auto& kv : g_cache)
+        for (const Entry& e : kv.second)
+            replayList.push_back({ &e, doLeaves && isLeaf(e) });
+    for (const ObjRec& o : g_objects)
+        for (const auto& kv : o.parts)
+            replayList.push_back({ &kv.second, doLeaves && isLeaf(kv.second) });
     for (int pass = 0; pass < 7; ++pass)
     {
     const bool unitPass = pass == 5;
@@ -3910,6 +3989,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         (leafPass && !doLeaves) || (unitPass && !doUnits) || (terrPass && !doTerr))
         continue;
     const double passStart = Now();
+    static const BenchSection kPassSection[7] = { kBenchMapFar, kBenchMapFarLeaf, kBenchMapNear, kBenchMapNearLeaf,
+                                                  kBenchMapMid, kBenchMapUnits, kBenchMapTerrain };
+    BenchSectionBegin(dev, kPassSection[pass]);   // each map's own GPU time (2026-10-06)
     const float mapRange = nearPass ? s.nearRange : midPass ? s.midRange : s.range;
     const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
     const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
@@ -3918,7 +4000,17 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : terrPass ? g_terrSurf
                                             : nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
                                             : midPass ? g_midSurf : (leafPass ? g_farLeafSurf : g_depthSurf));
-    d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+    // Depth and stencil cleared together (2026-10-06). INTZ holds a stencil, and a clear of the depth alone
+    // has to keep it: a read and a write of the whole 64 MB surface, where a clear of both can skip both.
+    // Should the device refuse it, the depth alone, as before, from then on.
+    static bool clearStencil = true;
+    if (!clearStencil || FAILED(d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0)))
+    {
+        if (clearStencil)
+            Log("shadow: the maps' clear with the stencil was refused; the depth alone from now on");
+        clearStencil = false;
+        d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+    }
     d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : midPass ? &midProj : &sunProj);
 
     // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
@@ -3959,16 +4051,20 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (nearPass) nearDoodads += n; else if (midPass) midDoodads += n; else farDoodads += n;
     }
     IDirect3DPixelShader9* passPs = nullptr;   // the UV alpha mask bound, if any (UvOutput)
-    std::vector<const Entry*> replayList;   // the cache's entries and the object table's parts (2026-10-04)
-    for (const auto& kv : g_cache)
-        for (const Entry& e : kv.second)
-            replayList.push_back(&e);
-    for (const ObjRec& o : g_objects)
-        for (const auto& kv : o.parts)
-            replayList.push_back(&kv.second);
-    for (const Entry* replayEntry : replayList)
+    // What the last draw of this pass bound (2026-10-06). Entries of one model follow each other, and each
+    // draw set its shader, format, buffers, texture and alpha test again: about ten calls a draw, each through
+    // DXVK. The files' draws above leave other state, so the pass starts from nothing known.
+    IDirect3DVertexShader9*      lastVs = reinterpret_cast<IDirect3DVertexShader9*>(1);
+    IDirect3DVertexDeclaration9* lastDecl = reinterpret_cast<IDirect3DVertexDeclaration9*>(1);
+    DWORD                        lastFvf = 0xFFFFFFFFu;
+    IDirect3DVertexBuffer9*      lastVb = reinterpret_cast<IDirect3DVertexBuffer9*>(1);
+    UINT                         lastVbOff = 0, lastVbStride = 0;
+    IDirect3DIndexBuffer9*       lastIb = reinterpret_cast<IDirect3DIndexBuffer9*>(1);
+    IDirect3DBaseTexture9*       lastTex = reinterpret_cast<IDirect3DBaseTexture9*>(1);
+    DWORD                        lastAt = 0xFFFFFFFFu, lastAref = 0xFFFFFFFFu, lastAfunc = 0xFFFFFFFFu;
+    for (const ReplayItem& item : replayList)
     {
-        const Entry& e = *replayEntry;
+        const Entry& e = *item.e;
         const Rec&   r = e.rec;
         if (e.lastSeen < now && pass < 2)
             ++unseen;
@@ -3976,7 +4072,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (terrPass != (doTerr && r.terrain != 0))
             continue;
         // With leaf maps, the leaves go there and everything else to the solid map.
-        if (!terrPass && doLeaves && isLeaf(e) != leafPass)
+        if (!terrPass && doLeaves && item.leaf != leafPass)
             continue;
         // With the units' map drawn, the units stay out of the near solid map (2026-10-01): a character's
         // shadow then comes from one map, with one outline. In both, its shadow was drawn twice with two
@@ -4008,8 +4104,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             // 60 and 30 triangles, 286 in all. Each part was under 200, so past 60 yards its blades (leaves,
             // the far map alone) were gone, and past 100 (the middle map's reach) the tower too: coming in
             // from afar its shade arrived in steps, the building, then the blades.
-            if (pass < 2 && ModelTriangles(r) < static_cast<UINT>(s.minTriangles) &&
-                dx * dx + dy * dy > 60.0f * 60.0f)
+            if (pass < 2 && dx * dx + dy * dy > 60.0f * 60.0f &&
+                ModelTriangles(r) < static_cast<UINT>(s.minTriangles))
             {
                 ++skipped;
                 continue;
@@ -4025,35 +4121,77 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             d->SetVertexShaderConstantF(dev, 0, e.consts.data(), regs);
             bytesNow[pass] += static_cast<unsigned long long>(regs) * 16;
             d->SetVertexShaderConstantF(dev, 2, c, 4);
-            d->SetVertexShader(dev, r.vs);
+            if (r.vs != lastVs)
+            {
+                d->SetVertexShader(dev, r.vs);
+                lastVs = r.vs;
+            }
             ++drawnVS;
         }
         else
         {
             D3DMATRIX w = e.absolute;
             w.m[3][0] -= cam[0]; w.m[3][1] -= cam[1]; w.m[3][2] -= cam[2];
-            d->SetVertexShader(dev, nullptr);
+            if (lastVs != nullptr)
+            {
+                d->SetVertexShader(dev, nullptr);
+                lastVs = nullptr;
+            }
             d->SetTransform(dev, D3DTS_WORLD, &w);
         }
         if (r.decl)
-            d->SetVertexDeclaration(dev, r.decl);
-        else
-            d->SetFVF(dev, r.fvf);
-        d->SetStreamSource(dev, 0, r.vb[0], r.vbOffset[0], r.vbStride[0]);
+        {
+            if (r.decl != lastDecl)
+            {
+                d->SetVertexDeclaration(dev, r.decl);
+                lastDecl = r.decl;
+                lastFvf = 0xFFFFFFFFu;
+            }
+        }
+        else if (lastDecl != nullptr || r.fvf != lastFvf)
+        {
+            d->SetFVF(dev, r.fvf);   // which sets a declaration of its own
+            lastFvf = r.fvf;
+            lastDecl = nullptr;
+        }
+        if (r.vb[0] != lastVb || r.vbOffset[0] != lastVbOff || r.vbStride[0] != lastVbStride)
+        {
+            d->SetStreamSource(dev, 0, r.vb[0], r.vbOffset[0], r.vbStride[0]);
+            lastVb = r.vb[0]; lastVbOff = r.vbOffset[0]; lastVbStride = r.vbStride[0];
+        }
         if (r.vb[1])
             d->SetStreamSource(dev, 1, r.vb[1], r.vbOffset[1], r.vbStride[1]);
-        if (r.indexed)
+        if (r.indexed && r.ib != lastIb)
+        {
             d->SetIndices(dev, r.ib);
-        d->SetTexture(dev, 0, r.tex0);
+            lastIb = r.ib;
+        }
+        if (r.tex0 != lastTex)
+        {
+            d->SetTexture(dev, 0, r.tex0);
+            lastTex = r.tex0;
+        }
         IDirect3DPixelShader9* ps = r.vs && r.alphaTest ? UvShader(dev, UvOutput(r.vs)) : nullptr;
         if (ps != passPs)
         {
             d->SetPixelShader(dev, ps);
             passPs = ps;
         }
-        d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, r.alphaTest);
-        d->SetRenderState(dev, D3DRS_ALPHAREF,        r.alphaRef);
-        d->SetRenderState(dev, D3DRS_ALPHAFUNC,       r.alphaFunc);
+        if (r.alphaTest != lastAt)
+        {
+            d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, r.alphaTest);
+            lastAt = r.alphaTest;
+        }
+        if (r.alphaRef != lastAref)
+        {
+            d->SetRenderState(dev, D3DRS_ALPHAREF, r.alphaRef);
+            lastAref = r.alphaRef;
+        }
+        if (r.alphaFunc != lastAfunc)
+        {
+            d->SetRenderState(dev, D3DRS_ALPHAFUNC, r.alphaFunc);
+            lastAfunc = r.alphaFunc;
+        }
         if (r.indexed)
             d->DrawIndexedPrimitive(dev, r.prim, r.baseVertex, r.minIndex, r.numVertices, r.startIndex, r.primCount);
         else
@@ -4078,6 +4216,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (passPs)
         d->SetPixelShader(dev, nullptr);   // the next pass draws the files' terrain and buildings first
     passTime[pass] = Now() - passStart;
+    BenchSectionEnd(dev, kPassSection[pass], true);
     }   // the maps
     if (logThis)
     {

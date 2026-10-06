@@ -17,7 +17,8 @@ bool MapTerrainCovers(float x, float y);
 // map's clip space; cam: the camera, which the world matrix is relative to; low: the copy under the
 // client's coarse far mesh ([shadow] terrainLow). Returns the tiles drawn.
 unsigned MapTerrainDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3], bool low);
-// The buildings (WMOs) the tiles place, the same way; their opaque parts only.
+// The buildings (WMOs) the tiles place, the same way; their opaque parts only, and of those the groups that
+// reach the map.
 unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3]);
 // Whether a fixed-function draw placed here (its world matrix's translation) is a building drawn from the
 // files: the client's own draw of it is then not needed.
@@ -25,7 +26,7 @@ bool MapBuildingCovers(const float pos[3]);
 // The building from the files nearest to `from`, for the probe: its place, its turn (row vectors) and name.
 bool MapBuildingNearest(const float from[3], float pos[3], float rot[3][3], char* name, int size);
 // The doodads (trees, bushes, fences, rocks) the tiles place: the solid models, or the models with leaves
-// (cut by their textures with this alpha test).
+// (cut by their textures with this alpha test). Each tile's blocks of 66.7 yards that reach the map.
 unsigned MapDoodadsDraw(IDirect3DDevice9* dev, const D3DMATRIX& absToClip, const float cam[3], bool leaves,
                         DWORD alphaRef, DWORD alphaFunc);
 // Whether a model draw whose absolute transform sits here is a doodad drawn from the files: a doodad's place

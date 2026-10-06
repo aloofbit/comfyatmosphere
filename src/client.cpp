@@ -82,8 +82,31 @@ bool ClientPlayer(float pos[3], bool* onShip)
         return true;
     }
 
+// The player's object, found once a frame (2026-10-06). Ten files ask for the player each frame, and each
+// question walked the whole object list until the guid matched. Objects are added and removed while the game
+// updates, not while it draws, so the answer holds until Present.
+static DWORD    g_playerObj = 0;
+static unsigned g_playerObjGen = 1, g_clientGen = 0;
+
+void ClientFrameEnd()
+    {
+        ++g_clientGen;
+    }
+
+static DWORD PlayerObjectWalk();
+
 // The local player's object in the object manager, or 0.
 static DWORD PlayerObject()
+    {
+        if (g_playerObjGen != g_clientGen)
+        {
+            g_playerObj = PlayerObjectWalk();
+            g_playerObjGen = g_clientGen;
+        }
+        return g_playerObj;
+    }
+
+static DWORD PlayerObjectWalk()
     {
         const ClientSettings& b = g_cfg.client;
         if (!b.objMgrAddr)

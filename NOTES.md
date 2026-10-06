@@ -2533,6 +2533,65 @@ first world frame and long before the effects needed it; 21 ms of compiling on t
 of about 1 s is left as the effects start: creating the shader objects in DXVK and the render targets, the
 4096 x 4096 shadow maps among them. Turning the effects on one at a time would spread that frame.
 
+## Performance: the timers, the shadow pipeline and the water (2026-10-06)
+
+The owner asked for more than 100 fps with the effects on. Three reviews of the code (the CPU hooks, the GPU passes,
+the shadow pipeline) came first, then timers, then changes measured with them.
+
+**The timers.** `/atmos framelog` and Alt+F12 give, besides the frame times:
+- our CPU in all: the hooks on the client's draws, read with `__rdtsc` (a few ns a read; the hooks run thousands of
+  times a frame), without the client's own draw as passed on and without our passes a hook happens to run; and our
+  passes;
+- our GPU time for each pass (timestamp queries, read four frames late), each of the seven shadow maps, the body
+  mask and depth, the lighthouses and the saturation;
+- the GPU's whole frame, from the first BeginScene to Present. Near the frame time: bound by the GPU. Well under it:
+  bound by the CPU;
+- the water: its copies and the wet sand, and the span from its first chunk to the world's end; its CPU split into
+  reading the wet cells, our draws, and the rest.
+
+With the game window in front and no frame cap, the harbour ran at 73 fps against 178 without the effects, GPU bound;
+Elwynn at 72 against 120, CPU bound on our 5 ms; Ironforge at 144 against 280. The "without" figures of the morning
+(120 at each place) had been held by a cap.
+
+**The water's clip().** The harbour's GPU frame was 13 ms, of which our timed passes were 4.8 ms. The rest was the
+water, which draws three times over each of about 400 chunks (the sand part without the depth test, the water part,
+and the bodies' part under the stencil). `[water] debugSkip` leaves out one of them, and `tests/water-cost.json`
+measures each with every effect on between them, as the laptop's GPU slows as it warms: any one of the three, even
+the bodies' part, which shows on a few pixels, cost about 3 ms. The cost was per pixel of the chunk, not per pixel
+drawn: DXVK turns `clip()` into a demote to a helper, and a helper runs the rest of the shader. So every early cut
+in the water shader cut nothing. Now the cuts lower `keep`, and past them a `[branch]` leaves. Nothing after the
+branch may take a gradient, or the compiler undoes it: the yards a pixel, the far terrain's slope, whether the
+ground lies flat and the drawn foam's edge width are worked out before it, after the wake's loop (before it, the
+shader ran out of its 32 registers); the foam textures inside it take their level from the yards a pixel
+(`LodAt`). The bodies' part writes no depth: with depth writes and `clip()` the stencil was tested after the shader
+ran. Over the legs the depth stays the game's flat water. The water's span went from about 9 to 6.5 ms; the sand
+part and the bodies' part cost almost nothing now, and the water part (our surface, 5 to 6 ms) is the shading
+itself.
+
+**The water's CPU.** Each chunk locked the game's index buffer for its wet cells: 1 ms a frame. They are kept now,
+keyed by the buffer and the range, and read again when the client has written the buffer since
+(`ShadowBufferLastWrite`, from the writes shadow.cpp notes). The state that is the same for the whole frame (c120 to
+c223, the textures on s10 to s15) is set once a frame, at the first chunk, and unbound at the world's end
+(`WaterWorldEnded`).
+
+**The shadow pipeline.**
+- The ground the files hold is refused when it is recorded, not after its copy is made (the client's terrain and
+  `FilesGround`; a building's group still waits for Merge, which knows the frame's depth slice).
+- A model draw's constants are copied as far as its model has ever uploaded, not to the highest register the client
+  set for anything.
+- The replay lists the cache once for the seven maps, with whether each entry goes to the leaves, and does not bind
+  again what the last draw left bound.
+- The maps clear depth and stencil together.
+- `FromFiles` asks whether a draw is a unit's own model first; `FileUnderObjects` passes over each object outside
+  the bones' box.
+- The player's object is found once a frame (`ClientFrameEnd`), not once for each of 14 questions.
+- The files' buildings are drawn by group and the doodads by blocks of 66 yards, each culled by its box against the
+  map's four sides (mapterrain.cpp).
+
+**Still open.** The harbour's water part (5 to 6 ms of GPU: its depth writes with `clip()` shade water hidden behind
+ships too). Elwynn is bound by our CPU (5 ms), and its cache took 117 new entries a second with the character
+standing still. Holding the near and leaf maps while nothing in them changes is the large step not yet taken.
+
 ## Lighthouses at night (2026-10-05)
 
 The game's own lighthouse light does not work with the HD models players use, and the lighthouses stood dark (the

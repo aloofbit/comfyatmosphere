@@ -17,3 +17,5 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 - [Test tools](2026-10-06-test-tools.md): the login no longer hangs, and a test can fly over deep water.
 - [Performance tests](2026-10-06-performance-tests.md): load-performance and frame-rate-performance, and the
   Performance panel at the top of the test page.
+- [Faster water and shadows](2026-10-06-faster-water-and-shadows.md): the harbour from 73 to 84 fps, timers for each
+  pass in the frame log, and the water-cost test.

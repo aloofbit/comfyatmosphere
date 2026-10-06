@@ -227,6 +227,7 @@ void LoadSettings(const wchar_t* ini)
     s.water.foamColor   = GetX(kWater, L"foamColor", s.water.foamColor, ini) & 0xFFFFFF;
     s.water.fadeEnd     = Clamp(GetF(kWater, L"fadeEnd",   s.water.fadeEnd,   ini), 10.0f, 2000.0f);
     s.water.debug       = GetI(kWater, L"debug", s.water.debug, ini);
+    s.water.debugSkip   = GetI(kWater, L"debugSkip", s.water.debugSkip, ini);
     s.depth.enabled     = GetB(kDepth, L"enabled", s.depth.enabled, ini);
     s.depth.seeThrough  = GetB(kDepth, L"seeThrough", s.depth.seeThrough, ini);
     s.depth.seeThroughNear = Clamp(GetF(kDepth, L"seeThroughNear", s.depth.seeThroughNear, ini), 0.0f, 50.0f);

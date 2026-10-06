@@ -19,6 +19,7 @@
 
 #include "beacon.h"
 #include "bench.h"
+#include <intrin.h>
 #include "bodymask.h"
 #include "client.h"
 #include "common.h"
@@ -382,6 +383,8 @@ namespace
     SetPSFn         g_oSetPS         = nullptr;
     DrawPrimFn      g_oDrawPrim      = nullptr;
     DrawIdxPrimFn   g_oDrawIdxPrim   = nullptr;
+    bool               g_hookTiming = false;   // BenchTiming(), read once a frame at BeginScene (HookTimer)
+    unsigned long long g_fwdTicks = 0;         // a running sum of the client's draws as passed on (HookTimer)
     DrawPrimUPFn    g_oDrawPrimUP    = nullptr;
     DrawIdxPrimUPFn g_oDrawIdxPrimUP = nullptr;
 
@@ -639,8 +642,11 @@ namespace
             g_orderLast = 0;
             g_orderRun = g_orderIndex = g_orderFirstB = g_orderOAfterB = 0;
         }
-        BodyMarkWorldEnded(dev);                // the body mask, from the stencil, before anything is rebound
+        WaterWorldEnded(dev);                   // the water's textures off, before the mask is built into one
+        BenchSectionBegin(dev, kBenchMask);
+        BodyMarkWorldEnded(dev);               // the body mask, from the stencil, before anything is rebound
         DepthWorldEnded(dev, VolumeActive());   // a multisampled depth buffer is resolved only for the pass
+        BenchSectionEnd(dev, kBenchMask, true);
         if (VolumeLightActive())     // the map costs more than the light does; it is only for the light
         {
             BenchSectionBegin(dev, kBenchShadow);
@@ -734,9 +740,13 @@ namespace
         const bool ran = RaysBeforeUI(dev);
         BenchSectionEnd(dev, kBenchRays, ran);
         // The lighthouses (beacon.cpp): light in the air, before the saturation so it takes the world's colour.
+        BenchSectionBegin(dev, kBenchBeacon);
         BeaconDraw(dev);
+        BenchSectionEnd(dev, kBenchBeacon, true);
         // The saturation last, over the whole world with the rays and the light in it (grade.cpp).
+        BenchSectionBegin(dev, kBenchGrade);
         const bool graded = GradeBeforeUI(dev);
+        BenchSectionEnd(dev, kBenchGrade, graded);
         if (graded && g_probe.active)
             Log("  [draw %4u] SATURATION     x %.2f", g_probe.draws, GradeSaturationNow());
         if (haveVp)
@@ -900,6 +910,8 @@ namespace
             bool mounted = false;
             g_ownMounted = ClientPlayerMounted(mounted) && mounted;
             g_ownFaded = g_ownDist < (g_ownMounted ? g_cfg.depth.seeThroughNearMounted : g_cfg.depth.seeThroughNear);
+            g_hookTiming = BenchTiming();
+            BenchFrameBegin(dev);
             DepthBeginScene(dev);
             if (!g_worldEnded)
             {
@@ -1012,10 +1024,11 @@ namespace
             last = now;
         }
         ShadowFrameEnd();
+        ClientFrameEnd();
         VolumeFrameEnd();
         LampsFrameEnd();
         BodyMarkFrameEnd(dev);
-        WaterFrameEnd();
+        WaterFrameEnd(dev);
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_worldEnded = false;
@@ -1685,8 +1698,45 @@ namespace
         LampsDraw(dev, d);
     }
 
+    // Our CPU time in the draw hooks (2026-10-06), while the bench or the frame log runs. The client's own draw
+    // as it is passed on is the game's time, not ours, and so are our passes that a hook happens to run
+    // (FireRays before the first UI draw), which time themselves: both are taken out.
+
+    struct HookTimer
+    {
+        unsigned long long t0 = 0, sec0 = 0, fwd0 = 0;
+        HookTimer()
+        {
+            if (!g_hookTiming)
+                return;
+            sec0 = BenchSectionTicks();
+            fwd0 = g_fwdTicks;
+            t0 = __rdtsc();
+        }
+        ~HookTimer()
+        {
+            if (!t0)
+                return;
+            const unsigned long long all = __rdtsc() - t0;
+            const unsigned long long other = (BenchSectionTicks() - sec0) + (g_fwdTicks - fwd0);
+            if (all > other)
+                BenchCpuAddTicks(kCpuHooks, all - other);
+        }
+    };
+
+    HRESULT FwdIdx(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi, UINT mvi, UINT nv, UINT si, UINT pc)
+    {
+        if (!g_hookTiming)
+            return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+        const unsigned long long t = __rdtsc();
+        const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+        g_fwdTicks += __rdtsc() - t;
+        return hr;
+    }
+
     HRESULT STDMETHODCALLTYPE hkDrawPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT sv, UINT pc)
     {
+        HookTimer timer;
         NoteSkySun(dev, prim, pc, VertsForPrims(prim, pc));
         NoteOrder(dev, "Draw", pc, VertsForPrims(prim, pc));
         if (WaterProbing() && !g_inPass && !g_worldEnded && !g_skyPhase)
@@ -1700,7 +1750,12 @@ namespace
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         if (!g_inPass && !g_skyPhase && !g_worldEnded)
             BodyMarkDraw(dev);
-        return g_oDrawPrim(dev, prim, sv, pc);
+        if (!g_hookTiming)
+            return g_oDrawPrim(dev, prim, sv, pc);
+        const unsigned long long t = __rdtsc();
+        const HRESULT hr = g_oDrawPrim(dev, prim, sv, pc);
+        g_fwdTicks += __rdtsc() - t;
+        return hr;
     }
 
     // The clouds, by elimination. The same probe that found the sun shows the sky as the first three draws
@@ -1875,7 +1930,7 @@ namespace
             g_stealthOrder[g_stealthOrderLen++] = kind;
             g_stealthOrder[g_stealthOrderLen] = 0;
         }
-        hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+        hr = FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
         g_inPass = true;
         DepthScratchEnd(dev);
         g_inPass = false;
@@ -1886,6 +1941,7 @@ namespace
     HRESULT STDMETHODCALLTYPE hkDrawIndexedPrimitive(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi,
                                                      UINT mvi, UINT nv, UINT si, UINT pc)
     {
+        HookTimer timer;
         if (IsDepthOnlyModel(dev))
         {
             ++g_depthOnlySkipped;
@@ -1940,9 +1996,9 @@ namespace
             if (DrawStealthPass(dev, 'C', prim, bvi, mvi, nv, si, pc, hr))
                 return hr;
             if (g_ownFaded)
-                return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+                return FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
             dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
-            hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+            hr = FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
             dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
             return hr;
         }
@@ -1980,7 +2036,7 @@ namespace
                 g_inPass = true;
                 if (flat)
                     dev->lpVtbl->SetPixelShader(dev, flat);
-                const HRESULT hr = g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+                const HRESULT hr = FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
                 dev->lpVtbl->SetPixelShader(dev, old);
                 g_inPass = false;
                 if (old) old->lpVtbl->Release(old);
@@ -1990,22 +2046,27 @@ namespace
             {
                 // The foam (water.cpp): the depth under the water is copied before the first draw, and the foam
                 // drawn over each chunk after the client's.
+                const unsigned long long w0 = g_hookTiming ? __rdtsc() : 0;
                 g_inPass = true;
                 WaterBeforeDraw(dev, chunk);
                 g_inPass = false;
+                const unsigned long long w1 = g_hookTiming ? __rdtsc() : 0;
                 const bool depth = WaterWritesDepth();
                 if (depth)
                     dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
-                const HRESULT hr = WaterHidesGame() ? S_OK : g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+                const HRESULT hr = WaterHidesGame() ? S_OK : FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
                 if (depth)
                     dev->lpVtbl->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
+                const unsigned long long w2 = g_hookTiming ? __rdtsc() : 0;
                 g_inPass = true;
                 WaterAfterDraw(dev, chunk, g_oDrawIdxPrim);
                 g_inPass = false;
+                if (g_hookTiming)
+                    BenchCpuAddTicks(kCpuWater, (w1 - w0) + (__rdtsc() - w2));
                 return hr;
             }
         }
-        return g_oDrawIdxPrim(dev, prim, bvi, mvi, nv, si, pc);
+        return FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
     }
 
     HRESULT STDMETHODCALLTYPE hkDrawPrimitiveUP(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, UINT pc,
