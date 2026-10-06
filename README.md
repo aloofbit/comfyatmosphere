@@ -12,24 +12,9 @@ https://github.com/user-attachments/assets/67551de4-3ee5-4ea1-83ed-b72592bfce1d
 ## Status / Tests
 [![Test results. Click for the latest run.](media/test-summary.svg)](https://aloofbit.github.io/comfyatmosphere/latest/)
 
-<details>
-<summary>All results</summary>
-
-![Frame rate at each place, sign-in and every test](media/test-results.svg)
-
-</details>
-
-[All runs](https://aloofbit.github.io/comfyatmosphere/) · [The tests](tests/README.md)
-
 ## Roadmap
 
-| | Stage | Status |
-| --- | --- | --- |
-| 1 | Prototypes of the lighting mod and the grass mod | ✅ done |
-| 2 | Prototypes of the other features | ✅ done |
-| 3 | Tests and repairs until each effect looks correct | 🔧 **now** |
-| 4 | Performance | ⬜ next |
-| 5 | Maintenance | ⬜ later |
+![Roadmap: 1 Feasibility Study, done. 2 Prototype Effects, done. 3 Tests and repairs until each effect looks correct, now. 4 Performance, next. 5 Maintenance, later.](media/roadmap.svg)
 
 ## Features
 - Volumetric Light

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="168" viewBox="0 0 860 168" role="img" aria-label="Roadmap: 1 and 2 done, 3 tests and repairs now, 4 performance next, 5 maintenance later">
+<style>
+  :root { --bg: #ffffff; --line: #d0d7de; --text: #1f2328; --muted: #59636e;
+          --now: #0969da; --done: #1a7f37; --todo: #c8d1da; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --line: #30363d; --text: #e6edf3; --muted: #9198a1;
+            --now: #4493f8; --done: #3fb950; --todo: #3d444d; }
+  }
+  text { font-family: -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; fill: var(--text); text-anchor: middle; }
+  .card { fill: var(--bg); stroke: var(--line); }
+  .stage { font-size: 13px; }
+  .num { font-size: 14px; font-weight: 600; fill: var(--muted); }
+  .num-now { font-size: 14px; font-weight: 600; fill: #ffffff; }
+  .state { font-size: 12.5px; font-weight: 600; fill: var(--muted); }
+  .done-t { fill: var(--done); }
+  .now-t { fill: var(--now); }
+  .seg-done { stroke: var(--done); stroke-width: 3; }
+  .seg-todo { stroke: var(--todo); stroke-width: 3; }
+  .dot-done { fill: var(--done); }
+  .dot-now { fill: var(--now); }
+  .ring-now { fill: none; stroke: var(--now); stroke-width: 2; opacity: 0.35; }
+  .dot-todo { fill: var(--bg); stroke: var(--todo); stroke-width: 2.5; }
+  .tick { fill: none; stroke: #ffffff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+<rect x="0.5" y="0.5" width="859" height="167" rx="14" class="card"/>
+
+<!-- The line between the stages: green up to the stage in work, grey after it. -->
+<line x1="111" y1="48" x2="270" y2="48" class="seg-done"/>
+<line x1="270" y1="48" x2="430" y2="48" class="seg-done"/>
+<line x1="430" y1="48" x2="590" y2="48" class="seg-todo"/>
+<line x1="590" y1="48" x2="749" y2="48" class="seg-todo"/>
+
+<!-- 1, done -->
+<circle cx="111" cy="48" r="15" class="dot-done"/>
+<path d="M104 48 l5 5 l9 -10" class="tick"/>
+<text x="111" y="94" class="stage">Feasibility Study</text>
+<text x="111" y="140" class="state done-t">done</text>
+
+<!-- 2, done -->
+<circle cx="270" cy="48" r="15" class="dot-done"/>
+<path d="M263 48 l5 5 l9 -10" class="tick"/>
+<text x="270" y="94" class="stage">Prototype Effects</text>
+<text x="270" y="140" class="state done-t">done</text>
+
+<!-- 3, now -->
+<circle cx="430" cy="48" r="23" class="ring-now"/>
+<circle cx="430" cy="48" r="15" class="dot-now"/>
+<text x="430" y="53" class="num-now">3</text>
+<text x="430" y="94" class="stage">Tests and repairs until</text>
+<text x="430" y="112" class="stage">each effect looks correct</text>
+<text x="430" y="140" class="state now-t">now</text>
+
+<!-- 4, next -->
+<circle cx="590" cy="48" r="15" class="dot-todo"/>
+<text x="590" y="53" class="num">4</text>
+<text x="590" y="94" class="stage">Performance</text>
+<text x="590" y="140" class="state">next</text>
+
+<!-- 5, later -->
+<circle cx="749" cy="48" r="15" class="dot-todo"/>
+<text x="749" y="53" class="num">5</text>
+<text x="749" y="94" class="stage">Maintenance</text>
+<text x="749" y="140" class="state">later</text>
+</svg>

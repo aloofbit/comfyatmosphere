@@ -21,6 +21,7 @@
   .good { fill: var(--good); }
   .bad { fill: var(--bad); }
   .on { fill: var(--on); }
+  .link { font-size: 13.5px; font-weight: 600; fill: var(--on); }
   .off { fill: var(--off); }
   .dot-good { fill: var(--good); }
   .dot-bad { fill: var(--bad); }

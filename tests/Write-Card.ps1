@@ -218,6 +218,7 @@ $style = @"
   .good { fill: var(--good); }
   .bad { fill: var(--bad); }
   .on { fill: var(--on); }
+  .link { font-size: 13.5px; font-weight: 600; fill: var(--on); }
   .off { fill: var(--off); }
   .dot-good { fill: var(--good); }
   .dot-bad { fill: var(--bad); }
@@ -267,5 +268,8 @@ if ($SummaryPath) {
         Add "<text x=""$(N ($tx + 18))"" y=""$($ty + 40)"" class=""$cls"">$(X $tiles[$i][0])</text>"
         Add "<text x=""$(N ($tx + 18))"" y=""$($ty + 62)"" class=""muted"">$(X $tiles[$i][1])</text>"
     }
-    Save $SummaryPath ($ty + 78 + 28) $o.ToString()
+    # Drawn as a link: the README links the whole image to the latest published run, and an image cannot hold a
+    # link of its own (2026-10-06, the owner).
+    Add "<text x=""$($W - $pad)"" y=""$($ty + 78 + 30)"" class=""link"" text-anchor=""end"">View details $([char]0x203A)</text>"
+    Save $SummaryPath ($ty + 78 + 50) $o.ToString()
 }
