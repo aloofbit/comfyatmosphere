@@ -106,6 +106,8 @@ namespace
         std::vector<float>     vLow;            // the same, never above the client's coarse mesh ([shadow] terrainLow)
         std::vector<float>     grid;            // 129 x 129 outer heights, rows along -x (NaN: no chunk)
         std::vector<float>     water;           // 128 x 128 cells: the water's surface (NaN: dry)
+        std::vector<uint8_t>   sea;             // 128 x 128 cells: 1 where that water is the sea (MCNK 0x8), 0 a
+                                                // river, a lake or a pond (0x4)
         std::vector<uint16_t>  idx;
         float                  minZ = 0.0f, maxZ = 0.0f;
         std::vector<Placement> wmos;
@@ -562,6 +564,7 @@ namespace
         m.wmos.clear();
         m.grid.assign(129 * 129, NAN);
         m.water.assign(128 * 128, NAN);
+        m.sea.assign(128 * 128, 0);
         m.minZ = 1e9f;
         m.maxZ = -1e9f;
         unsigned chunks = 0;
@@ -600,7 +603,10 @@ namespace
                                 const int gx = gx0 + r, gy = gy0 + c;
                                 if ((d[lq + 8 + 8 + 648 + r * 8 + c] & 0x0F) != 0x0F && gx >= 0 && gx < 128 &&
                                     gy >= 0 && gy < 128)
+                                {
                                     m.water[gx * 128 + gy] = range[1];
+                                    m.sea[gx * 128 + gy] = (flags & 0x08) ? 1 : 0;
+                                }
                             }
                     }
                 }
@@ -1883,6 +1889,146 @@ bool MapWaterHeight(float x, float y, float& z)
         return false;
     z = w;
     return true;
+}
+
+// Lighthouses whose lamp was placed by hand (2026-10-05), in the building's own space: where the boxes say
+// nothing of the lamp room. Stormwind's harbour lighthouse is one group from its foot to a spire 135 yards up; the
+// owner stood by the lamp, and the probe gave that place in the building's own space (MapLighthouseOwn).
+struct LampByHand { const char* name; float own[3]; };
+const LampByHand kLampsByHand[] = {
+    { "SW_HARBOR_LIGHTHOUSE.WMO", { 11.93f, 18.86f, 83.8f } },   // the owner stood at z 81.8; the lamp 2 yards up
+};
+
+int MapLighthouses(const float at[3], float radius, float (*out)[3], int max, float (*roof)[2])
+{
+    struct Found { float pos[3]; float d2; float roof[2]; };
+    std::vector<Found> found;
+    for (const Inst& i : g_insts)
+    {
+        if (i.m->state != Model::kReady || i.p->name.find("LIGHTHOUSE") == std::string::npos)
+            continue;
+        const float dx = i.p->pos[0] - at[0], dy = i.p->pos[1] - at[1];
+        const float d2 = dx * dx + dy * dy;
+        if (d2 > radius * radius)
+            continue;
+        // The highest group: the roof over the lamp room. Its middle, just under it, where the windows are: a
+        // little under its top put the light over the roof's tip (2026-10-05, the owner, Stormwind's harbour). A
+        // group taller than 30 yards is more than a roof: a little under its top then.
+        const WmoSpan* top = nullptr;
+        for (const WmoSpan& sp : i.m->spans)
+            if (!top || sp.hi[2] > top->hi[2])
+                top = &sp;
+        float own[3];
+        const LampByHand* hand = nullptr;
+        for (const LampByHand& h : kLampsByHand)
+            if (i.p->name.find(h.name) != std::string::npos && (h.own[0] != 0.0f || h.own[1] != 0.0f || h.own[2] != 0.0f))
+                hand = &h;
+        if (hand)
+            memcpy(own, hand->own, sizeof(own));
+        else if (top)
+        {
+            own[0] = 0.5f * (top->lo[0] + top->hi[0]);
+            own[1] = 0.5f * (top->lo[1] + top->hi[1]);
+            own[2] = top->hi[2] - top->lo[2] < 30.0f ? top->lo[2] - 1.5f : top->hi[2] - 3.0f;
+        }
+        else
+        {
+            own[0] = 0.5f * (i.m->lo[0] + i.m->hi[0]);
+            own[1] = 0.5f * (i.m->lo[1] + i.m->hi[1]);
+            own[2] = i.m->hi[2] - 3.0f;
+        }
+        Found f;
+        for (int j = 0; j < 3; ++j)
+            f.pos[j] = own[0] * i.p->rot[0][j] + own[1] * i.p->rot[1][j] + own[2] * i.p->rot[2][j] + i.p->pos[j];
+        f.d2 = d2;
+        f.roof[0] = top ? top->lo[2] + i.p->pos[2] : 0.0f;   // upright buildings: own z is up
+        f.roof[1] = top ? top->hi[2] + i.p->pos[2] : 0.0f;
+        if (hand)
+            f.roof[0] = f.roof[1] = 0.0f;   // placed by hand: no drop from the tip
+        found.push_back(f);
+    }
+    std::sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.d2 < b.d2; });
+    int n = 0;
+    for (const Found& f : found)
+    {
+        if (n >= max)
+            break;
+        if (roof)
+            memcpy(roof[n], f.roof, sizeof(f.roof));
+        memcpy(out[n++], f.pos, sizeof(f.pos));
+    }
+    return n;
+}
+
+void MapLighthouseGroupsLog(const float world[3])
+{
+    const Inst* best = nullptr;
+    float bestD = 1e30f;
+    for (const Inst& i : g_insts)
+    {
+        if (i.p->name.find("LIGHTHOUSE") == std::string::npos)
+            continue;
+        const float dx = i.p->pos[0] - world[0], dy = i.p->pos[1] - world[1];
+        if (dx * dx + dy * dy < bestD)
+        {
+            bestD = dx * dx + dy * dy;
+            best = &i;
+        }
+    }
+    if (!best)
+        return;
+    const Model& m = *best->m;
+    Log("beacon: %s, own box (%.1f %.1f %.1f)..(%.1f %.1f %.1f), %u groups' boxes, %u indoor:", best->p->name.c_str(),
+        m.lo[0], m.lo[1], m.lo[2], m.hi[0], m.hi[1], m.hi[2], static_cast<unsigned>(m.spans.size()),
+        static_cast<unsigned>(m.indoor.size() / 6));
+    for (size_t g = 0; g < m.spans.size(); ++g)
+    {
+        const WmoSpan& sp = m.spans[g];
+        Log("beacon:   group %u: (%.1f %.1f %.1f)..(%.1f %.1f %.1f), middle (%.1f %.1f), %u triangles", static_cast<unsigned>(g),
+            sp.lo[0], sp.lo[1], sp.lo[2], sp.hi[0], sp.hi[1], sp.hi[2], 0.5f * (sp.lo[0] + sp.hi[0]),
+            0.5f * (sp.lo[1] + sp.hi[1]), sp.count / 3);
+    }
+    for (size_t k = 0; k + 5 < m.indoor.size(); k += 6)
+        Log("beacon:   indoor %u: (%.1f %.1f %.1f)..(%.1f %.1f %.1f), middle (%.1f %.1f)", static_cast<unsigned>(k / 6),
+            m.indoor[k], m.indoor[k + 1], m.indoor[k + 2], m.indoor[k + 3], m.indoor[k + 4], m.indoor[k + 5],
+            0.5f * (m.indoor[k] + m.indoor[k + 3]), 0.5f * (m.indoor[k + 1] + m.indoor[k + 4]));
+}
+
+bool MapLighthouseOwn(const float world[3], float own[3], char* name, int size)
+{
+    const Inst* best = nullptr;
+    float bestD = 1e30f;
+    for (const Inst& i : g_insts)
+    {
+        if (i.p->name.find("LIGHTHOUSE") == std::string::npos)
+            continue;
+        const float dx = i.p->pos[0] - world[0], dy = i.p->pos[1] - world[1];
+        if (dx * dx + dy * dy < bestD)
+        {
+            bestD = dx * dx + dy * dy;
+            best = &i;
+        }
+    }
+    if (!best)
+        return false;
+    // world = own . rot + pos, so own = (world - pos) . rot transposed.
+    const float d[3] = { world[0] - best->p->pos[0], world[1] - best->p->pos[1], world[2] - best->p->pos[2] };
+    for (int r = 0; r < 3; ++r)
+        own[r] = d[0] * best->p->rot[r][0] + d[1] * best->p->rot[r][1] + d[2] * best->p->rot[r][2];
+    _snprintf_s(name, size, _TRUNCATE, "%s", best->p->name.c_str());
+    return true;
+}
+
+bool MapWaterIsSea(float x, float y)
+{
+    const int a = static_cast<int>(floorf(32.0f - y / kTile)), b = static_cast<int>(floorf(32.0f - x / kTile));
+    auto it = g_tiles.find(Key(a, b));
+    if (it == g_tiles.end() || it->second.pending || it->second.mesh.sea.size() != 128 * 128)
+        return false;
+    const int ix = static_cast<int>((CornerX(b) - x) / kUnit), iy = static_cast<int>((CornerY(a) - y) / kUnit);
+    if (ix < 0 || iy < 0 || ix > 127 || iy > 127)
+        return false;
+    return it->second.mesh.sea[ix * 128 + iy] != 0;
 }
 
 bool MapGroundBase(const float at[3], float radius, float& z)

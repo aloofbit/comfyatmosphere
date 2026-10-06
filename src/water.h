@@ -38,6 +38,8 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c);
 // The depth under the water this frame (copied before the first water draw), for the sun shadows; or null.
 IDirect3DTexture9* WaterUnderDepth();
 void WaterFrameEnd();   // at Present
+void WaterNoteRain(IDirect3DDevice9* dev, UINT prims);   // a DrawPrimitive: counted if it is the game's rain
+float WaterRainAmount();                                  // how hard it rains, 0..1, eased
 void WaterReset();      // before Reset, and for a new device
 void WaterProbe();      // log the next frame's water draws
 bool WaterProbing();    // a probe frame is being logged

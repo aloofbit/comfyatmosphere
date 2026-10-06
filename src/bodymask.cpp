@@ -30,6 +30,7 @@
 #include "common.h"
 #include "config.h"
 #include "shadow.h"
+#include "terrainshade.h"
 #include "volume.h"
 #include "water.h"
 
@@ -48,6 +49,12 @@ namespace
     // skips it: a reed in the shallows wrote its own depth, read as ground at the waterline, and took the edge
     // line where it met the water.
     constexpr DWORD kModelBit = 0x40;
+    // Foliage (2026-10-05): a model drawn with alpha test, reeds, grass and leaves. The water's foam round objects
+    // in it skips them (the owner); a post or a rock is not alpha tested.
+    constexpr DWORD kLeafBit = 0x20;
+    // The ground (2026-10-05): a draw through the client's terrain shader. The water's foam round objects skips it,
+    // so the shoreline is left to the shore's foam: taken for an object it drew a second foam line (the owner).
+    constexpr DWORD kGroundBit = 0x10;
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -208,11 +215,23 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_STENCILENABLE, TRUE);
     DWORD zw = 0;
     d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
-    const DWORD writeMask = zw ? kBit | kModelBit : 0;
+    const DWORD writeMask = zw ? kBit | kModelBit | kLeafBit | kGroundBit : 0;
     IDirect3DVertexShader9* mvs = nullptr;
     if (zw)
         d->GetVertexShader(dev, &mvs);
-    const DWORD ref = zw && ShadowIsUnitDraw(dev) ? kBit | kModelBit : (mvs ? kModelBit : 0);
+    DWORD at = 0;
+    if (mvs)
+        d->GetRenderState(dev, D3DRS_ALPHATESTENABLE, &at);
+    DWORD ground = 0;
+    if (zw && !mvs)
+    {
+        IDirect3DPixelShader9* gps = nullptr;
+        d->GetPixelShader(dev, &gps);
+        ground = gps && TerrainShadeIsTerrainPs(gps) ? kGroundBit : 0;
+        if (gps) gps->lpVtbl->Release(gps);
+    }
+    const DWORD ref = zw && ShadowIsUnitDraw(dev) ? kBit | kModelBit
+                                                  : (mvs ? kModelBit | (at ? kLeafBit : 0) : ground);
     if (mvs) mvs->lpVtbl->Release(mvs);
     if (ref & kBit)
         g_anyUnit = true;
@@ -368,6 +387,69 @@ void BodyMarkFrameEnd(IDirect3DDevice9* dev)
     g_skipFrame = false;
     g_anyUnit = false;
     g_anyModel = false;
+}
+
+IDirect3DTexture9* BodyMaskLeavesNow(IDirect3DDevice9* dev)
+{
+    auto* d = dev->lpVtbl;
+    if (!g_started || g_skipFrame || !g_anyModel)
+        return nullptr;
+    IDirect3DSurface9* ds = nullptr;
+    IDirect3DSurface9* rt = nullptr;
+    d->GetDepthStencilSurface(dev, &ds);
+    d->GetRenderTarget(dev, 0, &rt);
+    D3DSURFACE_DESC dd = {};
+    IDirect3DTexture9* out = nullptr;
+    if (ds && rt && SUCCEEDED(ds->lpVtbl->GetDesc(ds, &dd)) && Ensure(dev, dd))
+    {
+        // As at the world's end, in the blue channel alone: the stencil test passes where the leaf bit is set.
+        g_sb->lpVtbl->Capture(g_sb);
+        IDirect3DSurface9* target = g_msSurf ? g_msSurf : g_texSurf;
+        d->SetRenderTarget(dev, 0, target);
+        d->SetDepthStencilSurface(dev, ds);
+        const D3DVIEWPORT9 vp = { 0, 0, g_w, g_h, 0.0f, 1.0f };
+        d->SetViewport(dev, &vp);
+        d->Clear(dev, 0, nullptr, D3DCLEAR_TARGET, 0, 1.0f, 0);
+        d->SetRenderState(dev, D3DRS_ZENABLE,             D3DZB_FALSE);
+        d->SetRenderState(dev, D3DRS_ZWRITEENABLE,        FALSE);
+        d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE,    FALSE);
+        d->SetRenderState(dev, D3DRS_ALPHATESTENABLE,     FALSE);
+        d->SetRenderState(dev, D3DRS_CULLMODE,            D3DCULL_NONE);
+        d->SetRenderState(dev, D3DRS_FOGENABLE,           FALSE);
+        d->SetRenderState(dev, D3DRS_SCISSORTESTENABLE,   FALSE);
+        d->SetRenderState(dev, D3DRS_SRGBWRITEENABLE,     FALSE);
+        d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_BLUE);
+        d->SetRenderState(dev, D3DRS_STENCILENABLE,       TRUE);
+        d->SetRenderState(dev, D3DRS_STENCILFUNC,         D3DCMP_EQUAL);
+        d->SetRenderState(dev, D3DRS_STENCILREF,          kLeafBit);
+        d->SetRenderState(dev, D3DRS_STENCILMASK,         kLeafBit);
+        d->SetRenderState(dev, D3DRS_STENCILWRITEMASK,    0);
+        d->SetRenderState(dev, D3DRS_STENCILPASS,         D3DSTENCILOP_KEEP);
+        d->SetRenderState(dev, D3DRS_STENCILFAIL,         D3DSTENCILOP_KEEP);
+        d->SetRenderState(dev, D3DRS_STENCILZFAIL,        D3DSTENCILOP_KEEP);
+        d->SetRenderState(dev, D3DRS_TWOSIDEDSTENCILMODE, FALSE);
+        d->SetVertexShader(dev, nullptr);
+        d->SetPixelShader(dev, g_ps);
+        d->SetFVF(dev, D3DFVF_XYZRHW);
+        const float w = static_cast<float>(g_w) - 0.5f, h = static_cast<float>(g_h) - 0.5f;
+        const QuadVertex q[4] = { { -0.5f, -0.5f, 0, 1 }, { w, -0.5f, 0, 1 }, { -0.5f, h, 0, 1 }, { w, h, 0, 1 } };
+        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+        // And the ground in red (2026-10-05).
+        d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_RED);
+        d->SetRenderState(dev, D3DRS_STENCILREF,          kGroundBit);
+        d->SetRenderState(dev, D3DRS_STENCILMASK,         kGroundBit);
+        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+        if (g_msSurf)
+            d->StretchRect(dev, g_msSurf, nullptr, g_texSurf, nullptr, D3DTEXF_NONE);
+        d->SetRenderTarget(dev, 0, rt);
+        d->SetDepthStencilSurface(dev, ds);
+        g_sb->lpVtbl->Apply(g_sb);
+        // The mark goes on: the stencil states as the mark has them, which the state block put back.
+        out = g_tex;
+    }
+    SafeRelease(ds);
+    SafeRelease(rt);
+    return out;
 }
 
 IDirect3DTexture9* BodyMaskTexture()

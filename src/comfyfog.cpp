@@ -17,6 +17,7 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "beacon.h"
 #include "bench.h"
 #include "bodymask.h"
 #include "client.h"
@@ -38,12 +39,15 @@
 #include "volume.h"
 #include "water.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
 #include <unordered_set>
+#include <map>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -200,6 +204,11 @@ namespace
     };
 
     Probe    g_probe;
+    // The probe's whole frame in groups (2026-10-05): every draw by call, texture, blend, depth write and vertex
+    // format, counted with its triangles and vertices. The detail lists only the first 300 draws and the rain is
+    // drawn after them, so two probes, in rain and dry, showed no difference.
+    struct DrawGroup { uint32_t count = 0, prims = 0, verts = 0; UINT w = 0, h = 0; };
+    std::map<std::string, DrawGroup> g_probeGroups;
     uint64_t g_frame      = 0;
     DWORD    g_fogEnable  = 0;
     // Each distinct (state, value) the client sends is logged once. It re-sends fog many times a frame,
@@ -631,6 +640,8 @@ namespace
         BenchSectionBegin(dev, kBenchRays);
         const bool ran = RaysBeforeUI(dev);
         BenchSectionEnd(dev, kBenchRays, ran);
+        // The lighthouses (beacon.cpp): light in the air, before the saturation so it takes the world's colour.
+        BeaconDraw(dev);
         // The saturation last, over the whole world with the rays and the light in it (grade.cpp).
         const bool graded = GradeBeforeUI(dev);
         if (graded && g_probe.active)
@@ -761,6 +772,7 @@ namespace
             TerrainShadeReset();
             WaterReset();
             GradeReset();
+            BeaconReset();
             MapTerrainRelease();
             g_waterPs.clear();
             g_fog       = ClientFog();
@@ -853,6 +865,16 @@ namespace
             Log("--- end frame %llu: %u draws, %u fogged (%u of those through a vertex shader), "
                 "%u fog state sets, %u vs constant uploads ---",
                 g_frame, g_probe.draws, g_probe.fogged, g_probe.foggedVs, g_probe.fogSets, g_probe.constSets);
+            // The groups, most draws first.
+            std::vector<std::pair<std::string, DrawGroup>> groups(g_probeGroups.begin(), g_probeGroups.end());
+            std::sort(groups.begin(), groups.end(), [](const auto& a, const auto& b) { return a.second.count > b.second.count; });
+            Log("--- the frame's draws in %u groups (by call, texture, blend, depth write, vertex format) ---",
+                static_cast<unsigned>(groups.size()));
+            for (size_t i = 0; i < groups.size() && i < 80; ++i)
+                Log("  group %4u draws, %6u prims, %7u verts, tex %ux%u: %s", groups[i].second.count,
+                    groups[i].second.prims, groups[i].second.verts, groups[i].second.w, groups[i].second.h,
+                    groups[i].first.c_str());
+            g_probeGroups.clear();
             g_probe = Probe();
         }
 
@@ -982,6 +1004,7 @@ namespace
             SunShadowsProbe();
             BodyMaskProbe();
             WaterProbe();
+            BeaconProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -1011,6 +1034,7 @@ namespace
         TerrainShadeReset();
         WaterReset();
         GradeReset();
+        BeaconReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -1268,11 +1292,48 @@ namespace
             Log("        centre: world (%.3f %.3f %.3f), behind the camera (w=%.4f)", w[0], w[1], w[2], p[3]);
     }
 
+    void GroupDraw(IDirect3DDevice9* dev, const char* kind, UINT pc, UINT nv)
+    {
+        auto* d = dev->lpVtbl;
+        IDirect3DBaseTexture9* tex = nullptr;
+        IDirect3DPixelShader9* ps = nullptr;
+        DWORD blend = 0, src = 0, dst = 0, zw = 0, fvf = 0;
+        d->GetTexture(dev, 0, &tex);
+        d->GetPixelShader(dev, &ps);
+        d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
+        d->GetRenderState(dev, D3DRS_SRCBLEND, &src);
+        d->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
+        d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
+        d->GetFVF(dev, &fvf);
+        char key[160];
+        snprintf(key, sizeof(key), "%-15s tex0=%p ps=%p vs=%p blend=%lu src=%lu dst=%lu zw=%lu fvf=0x%lX", kind, tex, ps,
+                 g_vshader, blend, src, dst, zw, fvf);
+        DrawGroup& g = g_probeGroups[key];
+        if (g.count == 0 && tex && tex->lpVtbl->GetType(tex) == D3DRTYPE_TEXTURE)
+        {
+            D3DSURFACE_DESC td = {};
+            auto* t2 = reinterpret_cast<IDirect3DTexture9*>(tex);
+            if (SUCCEEDED(t2->lpVtbl->GetLevelDesc(t2, 0, &td)))
+                g.w = td.Width, g.h = td.Height;
+        }
+        ++g.count;
+        g.prims += pc;
+        g.verts += nv;
+        if (tex) tex->lpVtbl->Release(tex);
+        if (ps) ps->lpVtbl->Release(ps);
+    }
+
     void DetailDraw(IDirect3DDevice9* dev, const char* kind, D3DPRIMITIVETYPE prim, UINT pc,
                     bool indexed, UINT first, UINT nv, const void* upData)
     {
         if (g_inPass)
             return;
+        GroupDraw(dev, kind, pc, nv);
+        // The game's own lighthouse light, to find it: through a vertex shader by its bones, else by the world matrix.
+        {
+            const float ff[3] = { g_world.m[3][0], g_world.m[3][1], g_world.m[3][2] };
+            BeaconProbeDraw(dev, kind, pc, nv, g_vshader ? nullptr : ff);
+        }
         const bool early    = g_probe.draws < 300;
         const bool boundary = g_probe.boundary != 0xFFFFFFFF && g_probe.draws <= g_probe.boundary + 40;
         if (!early && !boundary)
@@ -1539,6 +1600,8 @@ namespace
         if (!g_inPass)
             RecordDraw(dev, false, prim, static_cast<INT>(sv), 0, 0, 0, pc);
         NoteLampDraw(dev, false, sv, VertsForPrims(prim, pc));
+        if (!g_inPass && g_vshader)
+            WaterNoteRain(dev, pc);   // the game's rain, for the rings on the water (2026-10-05)
         MaybeFireRays(dev);
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         if (!g_inPass && !g_skyPhase && !g_worldEnded)
@@ -1740,6 +1803,9 @@ namespace
             if (!g_ownFaded)
                 return S_OK;
         }
+        // The game's own lighthouse light ([lighthouse] hideGameLight, beacon.cpp): ours lights the lighthouses.
+        if (g_vshader && !g_inPass && BeaconSkipsDraw(dev))
+            return S_OK;
         // The game's own wake on the water ([water] gameWake, water.cpp): hidden, it is not drawn, recorded for
         // the shadows or marked as a body.
         if (!g_vshader && !g_inPass && !g_skyPhase && !g_worldEnded && g_cfg.master && g_cfg.water.enabled)

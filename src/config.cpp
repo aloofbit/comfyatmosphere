@@ -59,6 +59,7 @@ namespace
     const wchar_t* kRays    = L"rays";
     const wchar_t* kNight   = L"night";
     const wchar_t* kColour  = L"colour";
+    const wchar_t* kLighthouse = L"lighthouse";
     const wchar_t* kBench   = L"bench";
     const wchar_t* kGeneral = L"general";
 
@@ -183,6 +184,12 @@ void LoadSettings(const wchar_t* ini)
     s.water.foamLife  = Clamp(GetF(kWater, L"foamLife", s.water.foamLife, ini), 0.5f, 10.0f);
     s.water.openFoam  = GetB(kWater, L"openFoam", s.water.openFoam, ini);
     s.water.wakeFoam  = Clamp(GetF(kWater, L"wakeFoam", s.water.wakeFoam, ini), 0.0f, 1.0f);
+    s.water.lakeSwash = Clamp(GetF(kWater, L"lakeSwash", s.water.lakeSwash, ini), 0.0f, 1.0f);
+    s.water.lakeFoam  = Clamp(GetF(kWater, L"lakeFoam", s.water.lakeFoam, ini), 0.0f, 1.0f);
+    s.water.lakeWaves = Clamp(GetF(kWater, L"lakeWaves", s.water.lakeWaves, ini), 0.0f, 1.0f);
+    s.water.rain      = Clamp(GetF(kWater, L"rain", s.water.rain, ini), 0.0f, 2.0f);
+    s.water.objectFoam = Clamp(GetF(kWater, L"objectFoam", s.water.objectFoam, ini), 0.0f, 1.0f);
+    s.water.objectFoamWidth = Clamp(GetF(kWater, L"objectFoamWidth", s.water.objectFoamWidth, ini), 0.2f, 3.0f);
     s.water.foamEdge  = Clamp(GetF(kWater, L"foamEdge", s.water.foamEdge, ini), 0.0f, 0.9f);
     s.water.rippleSpread = Clamp(GetF(kWater, L"rippleSpread", s.water.rippleSpread, ini), 0.1f, 3.0f);
     s.water.rippleSpreadMoving = Clamp(GetF(kWater, L"rippleSpreadMoving", s.water.rippleSpreadMoving, ini), 0.1f, 3.0f);
@@ -385,6 +392,23 @@ void LoadSettings(const wchar_t* ini)
     s.night.indoors  = GetB(kNight, L"indoors", s.night.indoors, ini);
 
     s.colour.enabled = GetB(kColour, L"enabled", s.colour.enabled, ini);
+    s.lighthouse.enabled = GetB(kLighthouse, L"enabled", s.lighthouse.enabled, ini);
+    s.lighthouse.beacon  = Clamp(GetF(kLighthouse, L"beacon", s.lighthouse.beacon, ini), 0.0f, 3.0f);
+    s.lighthouse.beam    = Clamp(GetF(kLighthouse, L"beam", s.lighthouse.beam, ini), 0.0f, 1.0f);
+    s.lighthouse.beaconSize = Clamp(GetF(kLighthouse, L"beaconSize", s.lighthouse.beaconSize, ini), 0.2f, 20.0f);
+    s.lighthouse.beamWidth  = Clamp(GetF(kLighthouse, L"beamWidth", s.lighthouse.beamWidth, ini), 0.05f, 10.0f);
+    s.lighthouse.beamSpread = Clamp(GetF(kLighthouse, L"beamSpread", s.lighthouse.beamSpread, ini), 0.0f, 0.5f);
+    s.lighthouse.beamLength = Clamp(GetF(kLighthouse, L"beamLength", s.lighthouse.beamLength, ini), 10.0f, 2000.0f);
+    s.lighthouse.beamSpeed  = Clamp(GetF(kLighthouse, L"beamSpeed", s.lighthouse.beamSpeed, ini), 1.0f, 120.0f);
+    s.lighthouse.beamCount  = GetI(kLighthouse, L"beamCount", s.lighthouse.beamCount, ini) >= 2 ? 2 : 1;
+    s.lighthouse.beamTilt   = Clamp(GetF(kLighthouse, L"beamTilt", s.lighthouse.beamTilt, ini), -1.0f, 1.0f);
+    s.lighthouse.hideGameLight = GetB(kLighthouse, L"hideGameLight", s.lighthouse.hideGameLight, ini);
+    s.lighthouse.lampShift[0] = Clamp(GetF(kLighthouse, L"lampShiftX", s.lighthouse.lampShift[0], ini), -10.0f, 10.0f);
+    s.lighthouse.lampShift[1] = Clamp(GetF(kLighthouse, L"lampShiftY", s.lighthouse.lampShift[1], ini), -10.0f, 10.0f);
+    s.lighthouse.lampRise = Clamp(GetF(kLighthouse, L"lampRise", s.lighthouse.lampRise, ini), -20.0f, 40.0f);
+    s.lighthouse.day     = Clamp(GetF(kLighthouse, L"day", s.lighthouse.day, ini), 0.0f, 1.0f);
+    s.lighthouse.lampDrop = Clamp(GetF(kLighthouse, L"lampDrop", s.lighthouse.lampDrop, ini), 0.0f, 40.0f);
+    s.lighthouse.color   = GetX(kLighthouse, L"color", s.lighthouse.color, ini) & 0xFFFFFF;
     s.colour.day   = Clamp(GetF(kColour, L"day",   s.colour.day,   ini), 0.0f, 200.0f);
     s.colour.night = Clamp(GetF(kColour, L"night", s.colour.night, ini), 0.0f, 200.0f);
 

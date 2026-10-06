@@ -477,6 +477,13 @@ struct WaterSettings
     float foamCell  = 0.9f;      // yards: the size of its blobs (Foam Size)
     float foamLife  = 3.0f;      // yards out from the moving edge it lasts (Foam Reach)
     float wakeFoam  = 0.5f;      // 0..1: the drawn foam's splash at a body moving through the water (Wake Foam)
+    float lakeSwash = 0.0f;      // 0..1: the share of the sea's swash and shore waves a lake, a pond or a river gets
+                                 // (Lake Swash)
+    float lakeFoam  = 0.3f;      // 0..1: the share of the sea's shore foam it gets (Lake Foam)
+    float lakeWaves = 0.0f;      // 0..1: the share of the sea's swell (Wave Height) it gets (Lake Waves)
+    float rain      = 1.0f;      // 0..2: the rain's rings on the water, while the game rains (Rain on Water); 0 none
+    float objectFoam = 0.6f;     // 0..1: the drawn foam round objects standing in the water (Object Foam)
+    float objectFoamWidth = 0.8f;  // yards out from an object the foam reaches (Object Foam Width)
     float foamEdge  = 0.6f;      // 0..0.9: its cut at the water's edge: higher leaves more holes in the youngest
                                  // foam (0.2 made a solid sheet over the swash)
     bool  openFoam  = true;      // foam on the swell's crests out in deep water, at whitecaps (Open Water Foam)
@@ -496,6 +503,28 @@ struct WaterSettings
     float fadeEnd   = 150.0f;    // yards: the foam fades out over the last 40% of this distance
     int   debug     = 0;         // 1 = the depth under the water (blue shallow, red at 4 x foamWidth);
                                  // 2 = the foam alone, white on black; 3 = the wet sand alone
+};
+
+// Lighthouses at night (beacon.cpp, 2026-10-05): a beacon in the lamp room and two turning beams.
+struct LighthouseSettings
+{
+    bool  enabled = true;        // the Lighthouses box
+    float beacon  = 2.0f;        // 0..3: how bright the beacon is
+    float beam    = 0.12f;       // 0..1: how bright the beams are (Lighthouse Beam)
+    float lampDrop = 9.0f;       // yards under the tower's tip the lamp is, where the tower is one group
+    float day     = 1.0f;        // 0..1: its strength by day, as a share of the night's (1: as by night)
+    float lampRise = 20.0f;      // yards over the game's own light's origin (LIGHTHOUSEEFFECT) the lamp is
+    float lampShift[2] = { 2.38f, 0.97f };   // yards across from that origin (x, y): the owner's, in Stormwind's harbour
+    bool  hideGameLight = true;  // leave out the game's own lighthouse light: ours takes its place
+    // Its sizes (2026-10-05, the owner: tunable with /atmos).
+    float beaconSize = 2.5f;     // yards: the beacon's radius (never less than about a fifth of a degree on screen)
+    float beamWidth  = 0.5f;     // yards: the beam's half width at the lamp
+    float beamSpread = 0.035f;   // yards it widens a yard out: 0.035 is about 2 degrees each side
+    float beamLength = 400.0f;   // yards each beam reaches (200 at first)
+    float beamSpeed  = 12.0f;    // seconds the beams take to go round
+    float beamTilt   = -0.03f;   // the beam's slope: below 0 it points a little down
+    int   beamCount  = 1;        // 1 beam, or 2 opposite
+    DWORD color   = 0xFFE2A8;    // the light's colour, warm white
 };
 
 // The benchmark (bench.cpp): Alt + the probe key runs each feature in turn and logs what it costs.
@@ -521,6 +550,7 @@ struct Settings
     SunSettings  sun;
     NightSettings night;
     ColourSettings colour;
+    LighthouseSettings lighthouse;
     ClientSettings client;
 
     bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:

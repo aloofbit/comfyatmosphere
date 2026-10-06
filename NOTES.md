@@ -2365,11 +2365,80 @@ shapes with clean, soft edges, scallops and round holes.
   the swash counts: there the feet are over the flat water and no wake trail starts. Up to 11 at once, `c213` to
   `c223` (`PartsUpdate`). Tried first and dropped: a channel along the wake's path (it did not reach the swash), a
   disc following each body (a still disc round someone standing looked wrong), and that disc fading with movement.
+- **Round objects in the water** (the owner): posts, rocks, piers, cliffs, legs. Twelve points round each water
+  pixel on the screen, out to Object Foam Width (`objectFoamWidth`, 0.8 yards), are rebuilt from the depth under the
+  water; one rising out of it (a third of a yard under its level to 2.5 yards over), not the ground and not foliage,
+  is something standing through the surface, and the foam is the more the nearer it is, measured across the water.
+  First only a point within a third of a yard of the level counted: a pillar's wall crosses that band in a few
+  pixels, the points seldom fell there and the pillar had no foam, while the shoreline counted and drew a second
+  foam line over the shore's (the owner). The ground is a draw through the terrain shader, stencil bit 0x10, drawn
+  into the same mask's red at the first water draw. Without the mask there is no foam round objects at all. The shore's foam reads the same mask: it lies only where
+  the ground is under the water, since a sunken rock or a building's piece just under the surface made it as shallow
+  as a beach and took the shore's foam (the owner). It is cut from the same shapes and parted as the shore's. From what the screen shows, which
+  is enough: the water behind an object is hidden by it. Within 60 yards. Object Foam (`objectFoam`, 0.6) is how
+  much; `c209.z` and `w`. Not round foliage (the owner): reeds and grass in the shallows. A model drawn with alpha
+  test sets a third stencil bit (0x20, bodymask.cpp), and at the first water draw that bit is drawn into the body
+  mask's blue channel (`BodyMaskLeavesNow`); the search skips a point that lands on it. The world's end builds the
+  mask again over it, red and green, for the sun shadows.
 - **Open water** (`[water] openFoam`, a toggle; its amount is `whitecaps`): blobs on the swell's crests in deep water,
   drawn longer along the wind (45 degrees), in stretches that come and go.
 - **The controls.** Drawn Foam (off: the game's texture, as before), Foam Size (`foamCell`, 0.9 yards), Foam Reach,
   Open Water Foam, Open Water Foam Amount. Debug View 27 shows the foam in white over its age in red, and the open
   water's foam in blue. `c212` carries them to the water shader; sampler `s11` is the texture.
+
+## The sea and a pond (2026-10-05)
+
+A pond in Goldshire had the sea's swash and foam (the owner). The map files tell them apart: each terrain chunk's
+liquid has a flag, 0x8 the sea and 0x4 a river, which is also what the client draws lakes and ponds as.
+`mapterrain.cpp` keeps the flag for each cell beside the water's height (`MapWaterIsSea`). The water pass takes it
+for each chunk at the chunk's middle (`c211.z`); the wet sand pass from its level texture, now G32R32F with the sea
+in green, the sea if any of the 3 x 3 cells round a point is. On a lake, a pond or a river, two shares (the owner
+asked for them apart): Lake Swash (`[water] lakeSwash`, 0, `c211.w` and the wet pass's `c212.z`) scales the
+swash's run-up and the shore waves; Lake Foam (`lakeFoam`, 0.3, `c211.z`) the shore foam, which at 0 reaches 2.5
+times less far and is 0.4 as strong. The DLL sends each chunk its shares, 1 on the sea. A third, Lake
+Waves (`lakeWaves`, 0), scales the swell (Wave Height), the water's surface itself lifted in the vertex shader
+(`c249.w`, each chunk its own): on the pond the probe showed the swash at 0, and still the edge crept up and down
+the bank, since the swell lifted its water near the bank. Swell, swash and shore waves are three things: the swell
+lifts the surface; the swash runs up the sand and back at the edge; the shore waves are crests rolling in, light and
+foam only. Water in a building counts as a lake.
+
+## Rain on the water (2026-10-05)
+
+Rings on the water while it rains (the owner). **When it rains** comes from the game's own rain: two probes, in
+rain (`.wchange 1 1`) and dry, compared by the probe's new draw groups (every draw of the frame by call, texture,
+blend, depth write and vertex format; the detail list stops at 300 draws, and the rain comes after them), showed two
+groups only in the rain: 7 DrawPrimitive calls each through a vertex shader, blended destination colour x source
+colour, no depth write, one with a 16 x 128 streak texture and one with a 256 x 256, about 43,000 triangles each.
+`WaterNoteRain` counts the streaks' triangles a frame; 40,000 is full rain, eased over 0.8 s. The 1.12 client draws
+no splash of its own on water. **The rings**: a grid over the water at two sizes (0.6 and 0.38 yards; 0.9 and 0.55 at first, made smaller and shallower for the owner), each cell a
+ring at its own place and moment, spreading and fading each cycle; a cell fires as often as it rains hard. Light only,
+into the wake's slope, so the glint and the sky break up; out from 25 to 45 yards. Rain on Water (`[water] rain`, 1)
+is how strong; `c223`. The parting's particles went from 11 to 10 to make room for it.
+
+## Lighthouses at night (2026-10-05)
+
+The game's own lighthouse light does not work with the HD models players use, and the lighthouses stood dark (the
+owner). `beacon.cpp` lights them: each building whose file name holds LIGHTHOUSE, within 1500 yards, the nearest 4
+(`MapLighthouses`). The lamps come first from the game's own lighthouse light, an animated doodad named
+LIGHTHOUSEEFFECT at the tower's axis: a lamp lampRise (20) yards over its origin, which the owner found by standing in
+the lamp room. Stormwind's harbour lighthouse is one group 69 x 56 yards across and 132 tall, so its box's middle stood
+12 yards off the tower and its top was a spire 48 yards over the lamp. A lighthouse building with no such doodad
+within 40 yards still gets the box's guess. The game's own light is one model draw of 8 triangles and 16
+vertices, blended, no depth written, 2.8 yards from that origin; `[lighthouse] hideGameLight` (1) leaves out such a
+draw within 6 yards of a LIGHTHOUSEEFFECT (`BeaconSkipsDraw`), and every draw from the same small vertex buffer after
+that: in a frame its place could not be read it flashed on the screen (the owner). The lamp is also lampShiftX and Y
+(2.38, 0.97) across from the origin: the owner moved it a yard at a time the way they faced, three times. The box's guess: the middle of its highest group, under that group or lampDrop under the
+tip of a tower in one group. One full-screen pass after the lamps, as
+the lamps' glow: each pixel's line of sight runs to the surface the world's depth shows. The beacon is a glow round
+the line of sight to the lamp, at least about a fifth of a degree wide however far (Stormwind's stood 495 yards off,
+past the fog's 417), hidden where something nearer stands on that line. One beam (two opposite at first) goes round once in 12 s,
+each 200 yards, widening and fading along it: the nearest point between the line of sight and the axis gives the
+light, which counts only before the surface the pixel shows; looking along a beam it brightens, and pointed at you
+the beacon flares. By day too, at `[lighthouse] day` (1) of the night's strength (the owner asked for it by day). The fog dims them over 1.5 times its end, not as other
+lights. `[lighthouse]`: enabled (Lighthouses), beacon (2), beam (Lighthouse Beam, 0.12), color, and the sizes
+(beaconSize, beamWidth, beamSpread, beamLength 400, beamSpeed 12 s, beamTilt, beamCount: 1, or 2 opposite as at first), all tunable with /atmos; on the Lamps tab as Lighthouse Beacon,
+Beam Length, Width, Spread and Speed, and Two Beams. The pixel shader's
+compiler keeps a constant of its own in c7, so the constants go up as c0 to c6 and c8 to c15.
 
 ## The framing that matters
 

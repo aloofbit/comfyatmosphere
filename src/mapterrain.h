@@ -73,6 +73,17 @@ bool MapFloorHeight(float x, float y, float below, float& z);
 bool MapGroundHeight(float x, float y, float& z);
 // The surface of a river or the sea at a point (the map files' MCLQ); false where dry or no tile is held.
 bool MapWaterHeight(float x, float y, float& z);
+// Whether the water at a point is the sea (the map's MCNK flag 0x8), not a river, a lake or a pond (0x4). False
+// where dry or no tile is held.
+bool MapWaterIsSea(float x, float y);
+// The lighthouses within radius yards (2026-10-05): each building with LIGHTHOUSE in its file name, its lamp in the
+// middle of its highest group's box, just under that group (the roof over the lamp room), in the world. Nearest
+// first; returns how many. roof, if given, gets each one's highest group's box in the world's height: lo, hi.
+int MapLighthouses(const float at[3], float radius, float (*out)[3], int max, float (*roof)[2] = nullptr);
+// A point in the nearest lighthouse's own space, and that building's name, for the probe: to place a lamp by hand.
+bool MapLighthouseOwn(const float world[3], float own[3], char* name, int size);
+// The probe: the nearest lighthouse's groups' boxes and its indoor groups' boxes, in its own space.
+void MapLighthouseGroupsLog(const float world[3]);
 // The average ground height over a disc of `radius` yards around `at` (37 points); false with too few.
 bool MapGroundBase(const float at[3], float radius, float& z);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay

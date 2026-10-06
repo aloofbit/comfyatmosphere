@@ -37,6 +37,7 @@ add_library(comfyfog SHARED
     src/report.cpp
     src/water.cpp
     src/grade.cpp
+    src/beacon.cpp
 )
 
 # version.h: comfyfog's version from git, for the client report (cmake/version.cmake).

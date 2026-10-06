@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -183,6 +183,20 @@ namespace
         "comfyWaterOpenFoamAmount",
         "comfyWaterFoamEdge",
         "comfyWaterWakeFoam",
+        "comfyWaterObjectFoam",
+        "comfyWaterObjectFoamWidth",
+        "comfyWaterLakeSwash",
+        "comfyWaterLakeFoam",
+        "comfyWaterLakeWaves",
+        "comfyWaterRain",
+        "comfyLighthouses",
+        "comfyLighthouseBeam",
+        "comfyLighthouseBeacon",
+        "comfyLighthouseLength",
+        "comfyLighthouseWidth",
+        "comfyLighthouseSpread",
+        "comfyLighthouseSpeed",
+        "comfyLighthouseTwoBeams",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -356,6 +370,20 @@ namespace
         case kOpenFoamAmount: snprintf(out, cap, "%.0f", s.water.whitecaps * 100.0f); break;    // percent
         case kFoamEdge:       snprintf(out, cap, "%.0f", s.water.foamEdge * 100.0f); break;     // percent
         case kWakeFoam:       snprintf(out, cap, "%.0f", s.water.wakeFoam * 100.0f); break;     // percent
+        case kObjectFoam:     snprintf(out, cap, "%.0f", s.water.objectFoam * 100.0f); break;   // percent
+        case kObjectFoamWidth: snprintf(out, cap, "%.0f", s.water.objectFoamWidth * 10.0f); break; // tenths of a yard
+        case kLakeSwash:      snprintf(out, cap, "%.0f", s.water.lakeSwash * 100.0f); break;    // percent
+        case kLakeFoam:       snprintf(out, cap, "%.0f", s.water.lakeFoam * 100.0f); break;     // percent
+        case kLakeWaves:      snprintf(out, cap, "%.0f", s.water.lakeWaves * 100.0f); break;    // percent
+        case kRainOnWater:    snprintf(out, cap, "%.0f", s.water.rain * 100.0f); break;         // percent
+        case kLighthouses:    snprintf(out, cap, "%d", s.lighthouse.enabled ? 1 : 0); break;
+        case kLighthouseBeam: snprintf(out, cap, "%.0f", s.lighthouse.beam * 100.0f); break;    // percent
+        case kLhBeacon:       snprintf(out, cap, "%.0f", s.lighthouse.beacon * 100.0f); break;  // percent
+        case kLhLength:       snprintf(out, cap, "%.0f", s.lighthouse.beamLength); break;       // yards
+        case kLhWidth:        snprintf(out, cap, "%.0f", s.lighthouse.beamWidth * 10.0f); break; // tenths of a yard
+        case kLhSpread:       snprintf(out, cap, "%.0f", s.lighthouse.beamSpread * 1000.0f); break; // thousandths
+        case kLhSpeed:        snprintf(out, cap, "%.0f", s.lighthouse.beamSpeed); break;        // seconds a turn
+        case kLhTwo:          snprintf(out, cap, "%d", s.lighthouse.beamCount >= 2 ? 1 : 0); break;
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -453,6 +481,20 @@ namespace
         if (c[kOpenFoamAmount].seen) s.water.whitecaps = Clamp(c[kOpenFoamAmount].value * 0.01f, 0.0f, 1.0f);
         if (c[kFoamEdge].seen)       s.water.foamEdge  = Clamp(c[kFoamEdge].value * 0.01f, 0.0f, 0.9f);
         if (c[kWakeFoam].seen)       s.water.wakeFoam  = Clamp(c[kWakeFoam].value * 0.01f, 0.0f, 1.0f);
+        if (c[kObjectFoam].seen)     s.water.objectFoam = Clamp(c[kObjectFoam].value * 0.01f, 0.0f, 1.0f);
+        if (c[kObjectFoamWidth].seen) s.water.objectFoamWidth = Clamp(c[kObjectFoamWidth].value * 0.1f, 0.2f, 3.0f);
+        if (c[kLakeSwash].seen)      s.water.lakeSwash = Clamp(c[kLakeSwash].value * 0.01f, 0.0f, 1.0f);
+        if (c[kLakeFoam].seen)       s.water.lakeFoam  = Clamp(c[kLakeFoam].value * 0.01f, 0.0f, 1.0f);
+        if (c[kLakeWaves].seen)      s.water.lakeWaves = Clamp(c[kLakeWaves].value * 0.01f, 0.0f, 1.0f);
+        if (c[kRainOnWater].seen)    s.water.rain      = Clamp(c[kRainOnWater].value * 0.01f, 0.0f, 2.0f);
+        if (c[kLighthouses].seen)    s.lighthouse.enabled = c[kLighthouses].value != 0.0f;
+        if (c[kLighthouseBeam].seen) s.lighthouse.beam = Clamp(c[kLighthouseBeam].value * 0.01f, 0.0f, 1.0f);
+        if (c[kLhBeacon].seen)       s.lighthouse.beacon = Clamp(c[kLhBeacon].value * 0.01f, 0.0f, 3.0f);
+        if (c[kLhLength].seen)       s.lighthouse.beamLength = Clamp(c[kLhLength].value, 10.0f, 2000.0f);
+        if (c[kLhWidth].seen)        s.lighthouse.beamWidth = Clamp(c[kLhWidth].value * 0.1f, 0.05f, 10.0f);
+        if (c[kLhSpread].seen)       s.lighthouse.beamSpread = Clamp(c[kLhSpread].value * 0.001f, 0.0f, 0.5f);
+        if (c[kLhSpeed].seen)        s.lighthouse.beamSpeed = Clamp(c[kLhSpeed].value, 1.0f, 120.0f);
+        if (c[kLhTwo].seen)          s.lighthouse.beamCount = c[kLhTwo].value != 0.0f ? 2 : 1;
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);

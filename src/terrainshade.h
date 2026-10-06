@@ -8,3 +8,5 @@
 IDirect3DPixelShader9* TerrainShadeSwap(IDirect3DDevice9* dev, IDirect3DPixelShader9* ps, float keep);
 void TerrainShadeReset();   // before Reset, and for a new device
 bool TerrainShadeIsTerrain(IDirect3DPixelShader9* ps);   // the client's terrain shader, or our copy of one
+// The same, reading a shader not seen yet (disassembled once): for the body mask's ground mark.
+bool TerrainShadeIsTerrainPs(IDirect3DPixelShader9* ps);
