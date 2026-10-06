@@ -1,7 +1,7 @@
-// report: what this client is made of, written into comfyfog.log at start and at each F12 (2026-10-01).
+// report: what this client is made of, written into comfyatmos.log at start and at each F12 (2026-10-01).
 //
 // Players' clients differ: the DLLs VanillaFixes loads, the patch MPQs, the WoW.exe, DXVK and its conf, the
-// overlays that inject themselves, the addons. A log from a player said nothing of that, and comfyfog's own
+// overlays that inject themselves, the addons. A log from a player said nothing of that, and comfyatmos's own
 // version was not in it either. The report gives each of those, and a fingerprint line of short codes: two
 // logs with the same codes come from the same client.
 //
@@ -498,7 +498,7 @@ namespace
                            reinterpret_cast<LPCWSTR>(&Run), &self);
         wchar_t selfPath[MAX_PATH] = L"";
         GetModuleFileNameW(self, selfPath, MAX_PATH);
-        Put("comfyfog: %s, built %s %s, %s", COMFYFOG_VERSION, __DATE__, __TIME__, Describe(selfPath).c_str());
+        Put("comfyatmos: %s, built %s %s, %s", COMFYATMOS_VERSION, __DATE__, __TIME__, Describe(selfPath).c_str());
         Put("client folder: %s", Shown(dir).c_str());
         unsigned exeCode = 0;
         Put("WoW.exe: %s", Describe(dir + L"WoW.exe", &exeCode).c_str());
@@ -514,7 +514,7 @@ namespace
         TextFile("WTF\\Config.wtf (the account lines left out)", dir + L"WTF\\Config.wtf", false, true);
         AddOns(dir);
         Archives(dir, data);
-        Put("settings (comfyfog.ini, with /atmos on top):");
+        Put("settings (comfyatmos.ini, with /atmos on top):");
         size_t at = 0;
         while (at < j->settings.size())
         {
@@ -522,7 +522,7 @@ namespace
             Put("  %s", j->settings.substr(at, end - at).c_str());
             at = end == std::string::npos ? j->settings.size() : end + 1;
         }
-        Put("settings not in comfyfog.ini (the built-in values): %s", j->defaults.empty() ? "none" : j->defaults.c_str());
+        Put("settings not in comfyatmos.ini (the built-in values): %s", j->defaults.empty() ? "none" : j->defaults.c_str());
         Put("settings set by /atmos: %s", j->tuned.empty() ? "none" : j->tuned.c_str());
         Put("controls (Video > Atmosphere): %s", j->controls.c_str());
         Fnv ctl;

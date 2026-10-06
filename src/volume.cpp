@@ -63,7 +63,7 @@
 //
 // The step loop needs Shader Model 3 (ps_2_0 fits about eight steps), and a ps_3_0 has to be paired
 // with a vs_3_0, so the march, the temporal pass and the composite share a trivial full-screen vertex
-// shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyfog.
+// shader. The blur is ps_2_0 over pre-transformed quads, like the rest of comfyatmos.
 
 #define CINTERFACE
 #define WIN32_LEAN_AND_MEAN

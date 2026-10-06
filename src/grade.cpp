@@ -8,7 +8,7 @@
 //
 // The Color Effects box ([colour] enabled) turns the whole pass off, the clock read included.
 //
-// The pass runs at the world -> UI boundary, after the rays (comfyfog.cpp, FireRays), so the UI keeps its
+// The pass runs at the world -> UI boundary, after the rays (comfyatmos.cpp, FireRays), so the UI keeps its
 // colour. It copies the back buffer into a texture of the same size and draws it back over the back
 // buffer with the saturation applied: out = lum + (colour - lum) x saturation, with Rec. 709 luminance.
 // Alpha is not written. With the saturation at 1 the pass does not run and costs nothing. It does not run

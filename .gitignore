@@ -1,5 +1,5 @@
 build/
-comfyfog.dll
+comfyatmos.dll
 tests/results/
 todo.txt
 tests/Publish-Results.ps1

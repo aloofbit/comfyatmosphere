@@ -3,7 +3,7 @@
 // Alt + the probe key (Alt+F12) runs three steps, one after the other: sun rays and volumetric light; sun
 // rays; nothing. Each step runs for [bench] settle seconds, so shaders compile, then is
 // measured for [bench] measure seconds. Then the settings go back as they were, and one table goes to
-// comfyfog.log.
+// comfyatmos.log.
 //
 // The light goes first, so it is measured with the shadow cache the player built while playing. Measured
 // after steps without it, the cache had aged out (cacheTime) and the light step saw a third of the casters
@@ -365,7 +365,7 @@ namespace
             Log("bench: the frame rate did not change between the steps, so it is capped (vsync or a frame "
                 "limiter). Compare the GPU and CPU columns, or turn the cap off and run it again.");
         Log("bench: done. The settings are back as they were.");
-        CVarsNotice("Benchmark done. The results are in comfyfog.log.");
+        CVarsNotice("Benchmark done. The results are in comfyatmos.log.");
     }
 
     void Finish()
@@ -727,7 +727,7 @@ void FrameLogFrame(double frameSeconds)
         CalibrateEnd();
         ShadowTiming(false);
         FrameLogReport();
-        CVarsNotice("Frame log done. The results are in comfyfog.log.");
+        CVarsNotice("Frame log done. The results are in comfyatmos.log.");
     }
 }
 

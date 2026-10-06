@@ -1,6 +1,6 @@
 {
     "name": "redridge-grass",
-    "about": "From the owner's snapshot in Redridge's grass, with Foliage Density at 128 (put back at the end). comfyfog.dll draws the grass in the wind since 2026-10-06 (comfygrass until then). The probe must show grass draws and the fill loop patched. Recordings with the grass on, off, and while walking through it (the parting); shots in the normal view and in Debug View 30 (the bend: black still, white the tips).",
+    "about": "From the owner's snapshot in Redridge's grass, with Foliage Density at 128 (put back at the end). comfyatmos.dll draws the grass in the wind since 2026-10-06 (comfygrass until then). The probe must show grass draws and the fill loop patched. Recordings with the grass on, off, and while walking through it (the parting); shots in the normal view and in Debug View 30 (the bend: black still, white the tips).",
     "config": {
         "character": 1,
         "flight": false,

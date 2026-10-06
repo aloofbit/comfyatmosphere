@@ -9,5 +9,5 @@ bool LampGlowDraw(IDirect3DDevice9* dev);  // before the UI, after the volumetri
 void LampGlowReset();                      // before Reset
 void LampGlowProbe();                      // log the next draw
 
-// The fog the world was drawn with, as sent to the device (comfyfog.cpp): false before the client set one.
+// The fog the world was drawn with, as sent to the device (comfyatmos.cpp): false before the client set one.
 bool WorldFog(float& start, float& end);

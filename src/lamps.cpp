@@ -6,7 +6,7 @@
 // before the world ends):
 //
 //   Shader lights  The client's M2 vertex shaders light a model with up to two point lights. From the
-//                  disassembly of shader 1229F540 (comfyfog.log, 2026-09-28):
+//                  disassembly of shader 1229F540 (comfyatmos.log, 2026-09-28):
 //                      add r4.xyz, -r0, c21          vertex -> first light
 //                      add r3.xyz, -r0, c22          vertex -> second light
 //                      mad r3.xy, r6, c27, r7        d^2 * c27 + d * c26
@@ -23,7 +23,7 @@
 //   Glows          Additive draws (DESTBLEND ONE). A lamp's glow sprite is one; so are spell effects and
 //                  particles. Each is placed by the centre of its first vertices and fingerprinted by its
 //                  texture: size, format and the colour of its smallest mip level. The client fogs these
-//                  to black (see OutColor in comfyfog.cpp), which the report counts as a check. A Darkshire
+//                  to black (see OutColor in comfyatmos.cpp), which the report counts as a check. A Darkshire
 //                  lamppost's glow has a grey texture (probe, 2026-09-28), so its warm colour comes from
 //                  elsewhere: the unlit shaders draw c28 + c29 (mov r0, c28; add oD0, r0, c29), which is
 //                  logged as the tint.

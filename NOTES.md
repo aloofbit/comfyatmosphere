@@ -2540,6 +2540,32 @@ first world frame and long before the effects needed it; 21 ms of compiling on t
 of about 1 s is left as the effects start: creating the shader objects in DXVK and the render targets, the
 4096 x 4096 shadow maps among them. Turning the effects on one at a time would spread that frame.
 
+## The new file names: comfyatmos (2026-10-06)
+
+The owner, for v0.10.0-alpha: `comfyfog.dll` and `comfyfog.ini` become `comfyatmos.dll` and `comfyatmos.ini`; the log and
+the shader cache follow (`comfyatmos.log`, `comfyatmos-cache`). The source's main file is `src/comfyatmos.cpp`, the CMake
+target `comfyatmos`. The sections above keep the old names where they record what was so at the time.
+
+**Two copies.** A client with both DLLs in `dlls.txt` would hook every call twice. `AttachToDxvk` checks for
+`comfyfog.dll` after its probe device (a few hundred ms in, when VanillaFixes has loaded every DLL) and stays off.
+Measured in the test client with both listed: comfyatmos logged the reason and `attach FAILED`, and comfyfog ran alone.
+
+**The old ini.** `ResolveIniPath` takes `comfyfog.ini` when `comfyatmos.ini` is missing, and the log says so, so a client
+updated by hand keeps its values. The CVars keep their names, so the Atmosphere page's values in `Config.wtf` stay.
+
+**A buffer that would have crashed.** The cache folder's path was written with `wcscpy_s(..., 16, ...)`: room for 15
+characters. `comfyatmos-cache` has 16, and `wcscpy_s` would have ended the game at start. Both file names are now
+written with the room left in the path.
+
+**The siblings.** comfytime and comfyaim wait for comfyfog to patch first, by its module name, and wow-test-tool's
+comfytest the same. With the new name they did not wait: comfytest waited 20 s for comfyaim, which comfyatmos had
+patched over. All three now know both names, and the old one first: with both loaded only the old one patches.
+
+**The launcher.** It keys a mod by its file. A mod entry can now name the files it replaced (`supersedes_files`) and the
+add-on folders (`supersedes`): their `dlls.txt` lines are the mod's, a player who had the old DLL on sees the new row on
+and out of date, and the update takes the old DLLs out of `dlls.txt` and sets their files aside. comfygrass's row goes,
+since its files are among those the entry names.
+
 ## The grass in the wind: comfygrass merged in (2026-10-06)
 
 The owner asked for comfygrass to be part of this project, with a tab of its own on the Atmosphere page. comfygrass

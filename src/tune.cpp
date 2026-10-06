@@ -1,12 +1,12 @@
-// tune: the /atmos command, for tuning any comfyfog.ini value from the game.
+// tune: the /atmos command, for tuning any comfyatmos.ini value from the game.
 //
 //   /atmos                          the commands
 //   /atmos <section>                every value in a section
 //   /atmos <section>.<key>          one value, and where it came from
 //   /atmos <section>.<key> <value>  set it, at once; the key alone will do when no other section has it
 //   /atmos list                     what /atmos has set
-//   /atmos reset                    drop those, back to comfyfog.ini
-//   /atmos save                     write them into comfyfog.ini, keeping its comments
+//   /atmos reset                    drop those, back to comfyatmos.ini
+//   /atmos save                     write them into comfyatmos.ini, keeping its comments
 //   /atmos probe                    log the next frame, as F12 does
 //   /atmos bench                    run the benchmark, as Alt+F12 does
 //   /atmos framelog [seconds]       time every frame for that long (10), then log the slowest
@@ -14,7 +14,7 @@
 // The ComfyAtmosphere addon puts the command text in the CVar comfyTune, with a number in front; cvars.cpp
 // reads it and registers the answer as new CVars, which the addon prints (see cvars.cpp).
 //
-// A value set here wins over comfyfog.ini on every reload, F11 too, until reset or saved. The keys are
+// A value set here wins over comfyatmos.ini on every reload, F11 too, until reset or saved. The keys are
 // the ones LoadSettings read (ConfigKeys), so every ini setting can be tuned and a misspelt one is
 // refused rather than ignored. The values a control on the Atmosphere page sets are refused too: the
 // control is laid over the ini, so a value set here would not show.
@@ -219,7 +219,7 @@ namespace
         return found;
     }
 
-    // What comfyfog.ini itself says for a key, without its comment, or empty.
+    // What comfyatmos.ini itself says for a key, without its comment, or empty.
     std::string IniText(const ConfigKey& k)
     {
         char buf[128] = {};
@@ -240,12 +240,12 @@ namespace
         std::string s = Name(k) + " = " + k.value;
         switch (k.source)
         {
-        case kFromDefault: s += " (not in comfyfog.ini: the built-in value)"; break;
-        case kFromIni:     s += " (comfyfog.ini)"; break;
+        case kFromDefault: s += " (not in comfyatmos.ini: the built-in value)"; break;
+        case kFromIni:     s += " (comfyatmos.ini)"; break;
         case kFromTune:
         {
             const std::string ini = IniText(k);
-            s += ini.empty() ? " (set by /atmos; not in comfyfog.ini)" : " (set by /atmos; comfyfog.ini has " + ini + ")";
+            s += ini.empty() ? " (set by /atmos; not in comfyatmos.ini)" : " (set by /atmos; comfyatmos.ini has " + ini + ")";
             break;
         }
         }
@@ -295,7 +295,7 @@ namespace
         FILE* f = nullptr;
         if (_wfopen_s(&f, ConfigIniPath(), L"rb") || !f)
         {
-            error = "could not open comfyfog.ini";
+            error = "could not open comfyatmos.ini";
             return false;
         }
         std::string text;
@@ -391,23 +391,23 @@ namespace
             out += lines[i] + eol;
         if (_wfopen_s(&f, ConfigIniPath(), L"wb") || !f)
         {
-            error = "could not write comfyfog.ini";
+            error = "could not write comfyatmos.ini";
             return false;
         }
         const bool ok = fwrite(out.data(), 1, out.size(), f) == out.size();
         fclose(f);
         if (!ok)
-            error = "could not write all of comfyfog.ini";
+            error = "could not write all of comfyatmos.ini";
         return ok;
     }
 
     void Help(std::vector<std::string>& out)
     {
-        out.push_back("/atmos <section>.<key> <value>: set a comfyfog.ini value now. The key alone will do "
+        out.push_back("/atmos <section>.<key> <value>: set a comfyatmos.ini value now. The key alone will do "
                       "if no other section has it.");
         out.push_back("/atmos <section>.<key>: show one value. /atmos <section>: show a section.");
         out.push_back("/atmos list: the values set this way. /atmos reset: drop them. /atmos save: write "
-                      "them into comfyfog.ini. /atmos probe: log a frame, as F12 does.");
+                      "them into comfyatmos.ini. /atmos probe: log a frame, as F12 does.");
         std::vector<std::string> sections;
         for (const ConfigKey& k : ConfigKeys())
         {
@@ -435,7 +435,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     else if (w.size() == 1 && Same(w[0], "list"))
     {
         if (over.empty())
-            out.push_back("Nothing is set with /atmos. comfyfog.ini applies.");
+            out.push_back("Nothing is set with /atmos. comfyatmos.ini applies.");
         else
         {
             std::vector<std::string> items;
@@ -447,7 +447,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     else if (w.size() == 1 && Same(w[0], "probe"))
     {
         ProbeArm();
-        out.push_back("The next frame is logged to comfyfog.log, as F12 does.");
+        out.push_back("The next frame is logged to comfyatmos.log, as F12 does.");
     }
     else if (w.size() == 1 && Same(w[0], "bench"))
     {
@@ -458,7 +458,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     {
         const double seconds = w.size() == 2 ? atof(w[1].c_str()) : 10.0;
         FrameLogStart(seconds > 0.5 && seconds <= 120.0 ? seconds : 10.0);
-        out.push_back("Every frame is timed now. The slowest go to comfyfog.log when it ends.");
+        out.push_back("Every frame is timed now. The slowest go to comfyatmos.log when it ends.");
     }
     else if (w.size() == 1 && Same(w[0], "reset"))
     {
@@ -467,7 +467,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
         LoadSettings(ConfigIniPath());
         reloaded = true;
         char line[96];
-        snprintf(line, sizeof(line), "Dropped %u value%s. comfyfog.ini applies.", static_cast<unsigned>(n),
+        snprintf(line, sizeof(line), "Dropped %u value%s. comfyatmos.ini applies.", static_cast<unsigned>(n),
                  n == 1 ? "" : "s");
         out.push_back(line);
     }
@@ -488,7 +488,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
                 over.clear();
                 LoadSettings(ConfigIniPath());
                 reloaded = true;
-                Wrap(items, "Written to comfyfog.ini: ", out);
+                Wrap(items, "Written to comfyatmos.ini: ", out);
             }
         }
     }
@@ -535,7 +535,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
                 const int j = Find(name);
                 const std::string now = j >= 0 ? ConfigKeys()[j].value : value;
                 out.push_back(name + " = " + now + " (was " + k.value + "). /atmos save writes it into "
-                              "comfyfog.ini.");
+                              "comfyatmos.ini.");
             }
         }
     }

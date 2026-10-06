@@ -1,6 +1,6 @@
 #pragma once
 // The shaders' cache (2026-10-06): every compile goes through it. A compiled shader is kept for the session and on
-// disk (comfyfog-cache\ beside comfyfog.log), keyed by its source, name, profile and defines, and a worker compiles
+// disk (comfyatmos-cache\ beside comfyatmos.log), keyed by its source, name, profile and defines, and a worker compiles
 // the passes' shaders from the DLL's start, so the world's first frames find them ready. NOTES, "Shaders at sign-in".
 #include <windows.h>
 #include "common.h"

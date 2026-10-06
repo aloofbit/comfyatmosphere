@@ -6,7 +6,7 @@
   When the owner says "snapshot", this is run while they stand where a test is to start. It reads, without
   moving anything:
     - the place and the map (ComfyTest pos, the log's map name, Map.dbc for its id);
-    - the camera: heading, pitch and distance (ComfyTest look, from comfyfog.dll's comfyStats);
+    - the camera: heading, pitch and distance (ComfyTest look, from comfyatmos.dll's comfyStats);
     - flight: on when the character is more than 3 yards over the ground under it;
     - the sun the shadows use (the probe's sunshadows line);
     - every Atmosphere page control, as last set (the log's "--- control:" lines), Debug View left out.
@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $tool = (Resolve-Path (Join-Path $here '..\..\..\tools\wow-test-tool')).Path
 if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client at the test client.' }
-$log = Join-Path $Client 'comfyfog.log'
+$log = Join-Path $Client 'comfyatmos.log'
 
 $script = Join-Path $env:TEMP 'comfy-snapshot.txt'
 [IO.File]::WriteAllText($script, "pos snapshot`r`nlook`r`natmos probe`r`nwait 3`r`n")

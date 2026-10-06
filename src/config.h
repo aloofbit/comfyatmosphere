@@ -1,4 +1,4 @@
-// comfyfog.ini: the settings of every effect, one section each.
+// comfyatmos.ini: the settings of every effect, one section each.
 #pragma once
 
 #include <windows.h>
@@ -97,7 +97,7 @@ struct DepthSettings
     bool  enabled   = true;
     // A see-through model writes no depth (2026-09-30). A stealthed lion is drawn blended but writing depth,
     // so the sun shadows and the volumetric light, which read depth, shaded and lit its outline and gave it
-    // away. comfyfog.cpp, IsSeeThroughModel.
+    // away. comfyatmos.cpp, IsSeeThroughModel.
     bool  seeThrough = true;
     // Not while the camera is this near your own character (2026-09-30). Zoomed in, the client fades your
     // character and draws it as it draws a stealthed unit, a depth pass and then a see-through one; without
@@ -620,7 +620,7 @@ struct Settings
     bool  sliders     = true;       // register the CVars the in-game controls set (cvars.cpp)
     bool  master      = true;       // [general] enabled: every effect at once. Off, the game draws as
                                     // stock: light, shadows, rays and lamps all off
-    int   reloadKey   = VK_F11;     // reload comfyfog.ini
+    int   reloadKey   = VK_F11;     // reload comfyatmos.ini
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
     int   chainWaitMs = 10000;      // how long to wait for an old comfygrass.dll to finish patching first
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the end of the
@@ -649,4 +649,5 @@ std::map<std::string, std::string>& ConfigOverrides();
 
 // [volume] quality below 3: the march's steps and resolution are replaced by cheaper fixed values. After the in-game controls are laid over the ini.
 void ApplyVolumeQuality(Settings& s);
-void ResolveIniPath(HMODULE self, wchar_t* out, size_t count);
+// The ini beside the DLL: comfyatmos.ini, or comfyfog.ini when only the old name is there (then true).
+bool ResolveIniPath(HMODULE self, wchar_t* out, size_t count);

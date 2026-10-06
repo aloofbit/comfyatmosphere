@@ -1,6 +1,6 @@
 {
     "name": "load-performance",
-    "about": "Measures signing in. The client restarts at Stormwind's harbour, and comfyfog.dll times the first 90 seconds in the world. Before the shader cache, 44 shader compiles took 11.1 s on the game's thread and froze two frames for 5.2 and 7.0 s. Checks: the compiling left on the game's thread (at most 100 ms), the longest frame once the effects start (at most 1.5 s), and the frames over 40 ms after it (at most 12). Recorded: when the effects start, and the shader worker's time.",
+    "about": "Measures signing in. The client restarts at Stormwind's harbour, and comfyatmos.dll times the first 90 seconds in the world. Before the shader cache, 44 shader compiles took 11.1 s on the game's thread and froze two frames for 5.2 and 7.0 s. Checks: the compiling left on the game's thread (at most 100 ms), the longest frame once the effects start (at most 1.5 s), and the frames over 40 ms after it (at most 12). Recorded: when the effects start, and the shader worker's time.",
     "config": {
         "character": 1,
         "restart": true,

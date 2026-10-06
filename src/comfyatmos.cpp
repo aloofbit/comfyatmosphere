@@ -1,4 +1,4 @@
-// comfyfog: the atmosphere effects for the 1.12 client.
+// comfyatmos: the atmosphere effects for the 1.12 client.
 //
 // Same shape as comfygrass: loaded by VanillaFixes from dlls.txt, attaches by patching DXVK's shared
 // IDirect3DDevice9 vtable in place (found through a throwaway device of our own), and is tuned from an
@@ -8,7 +8,7 @@
 // start, end and colour are mirrored, for the passes that fade with it (WorldFog, WorldFogColor).
 //
 // The grass in the wind is drawn here since 2026-10-06 (grass.cpp); it was comfygrass.dll before. Where an old
-// comfygrass.dll is still listed in dlls.txt, its grass is drawn and ours stays off, and comfyfog still waits for
+// comfygrass.dll is still listed in dlls.txt, its grass is drawn and ours stays off, and comfyatmos still waits for
 // it to patch first, as it did for the old fog: whichever DLL patches last sits outermost.
 
 #define CINTERFACE // C-style IDirect3DDevice9Vtbl, so slots are patched by name, not by index
@@ -839,7 +839,7 @@ namespace
             {
                 g_probe.armed = true;
                 ReportStart("F12");
-                CVarsNotice("Probe taken. The frame goes to comfyfog.log. Stand still for a second while the lamps are logged.");
+                CVarsNotice("Probe taken. The frame goes to comfyatmos.log. Stand still for a second while the lamps are logged.");
             }
         }
         g_probeDown = probe;
@@ -1009,7 +1009,7 @@ namespace
                 if (sh > worstShadow) worstShadow = sh;
                 sumDrawn += drawn;
                 sumSkipped += skipped;
-                // Only with [general] trace = 1: every write opens and closes comfyfog.log, and in normal
+                // Only with [general] trace = 1: every write opens and closes comfyatmos.log, and in normal
                 // play the benchmark (Alt+F12) gives the same numbers when they are wanted.
                 if (++frames >= 300 && g_cfg.trace)
                 {
@@ -1543,7 +1543,7 @@ namespace
             }
             Log("        fvf=0x%lX%s", fvf, stages);
         }
-        // The pixel shader's bytecode, once each, next to the log: comfyfog_ps_<address>.bin.
+        // The pixel shader's bytecode, once each, next to the log: comfyatmos_ps_<address>.bin.
         if (ps)
         {
             static void* dumped[32] = {};
@@ -1567,13 +1567,13 @@ namespace
                     wcscpy_s(path, g_logPath);
                     wchar_t* slash = wcsrchr(path, L'\\');
                     if (slash)
-                        swprintf(slash + 1, MAX_PATH - (slash + 1 - path), L"comfyfog_ps_%p.bin", ps);
+                        swprintf(slash + 1, MAX_PATH - (slash + 1 - path), L"comfyatmos_ps_%p.bin", ps);
                     FILE* f = nullptr;
                     if (!_wfopen_s(&f, path, L"wb") && f)
                     {
                         fwrite(code.data(), 1, size, f);
                         fclose(f);
-                        Log("        ps %p: %u bytes written to comfyfog_ps_%p.bin", ps, size, ps);
+                        Log("        ps %p: %u bytes written to comfyatmos_ps_%p.bin", ps, size, ps);
                     }
                 }
             }
@@ -2135,13 +2135,13 @@ namespace
 
     // True once an old comfygrass.dll has patched the last slot it installs (DrawIndexedPrimitive, see its
     // PatchDevice), so the two installers never have VirtualProtect open on the same page at once and
-    // comfyfog lands outermost. comfyfog draws the grass itself since 2026-10-06 (grass.cpp).
+    // comfyatmos lands outermost. comfyatmos draws the grass itself since 2026-10-06 (grass.cpp).
     bool WaitForComfygrass(IDirect3DDevice9Vtbl* v)
     {
         HMODULE grass = GetModuleHandleA("comfygrass.dll");
         if (!grass)
         {
-            Log("comfygrass.dll not loaded (comfyfog draws the grass), patching straight away");
+            Log("comfygrass.dll not loaded (comfyatmos draws the grass), patching straight away");
             return true;
         }
 
@@ -2270,7 +2270,7 @@ namespace
         wc.cbSize        = sizeof(wc);
         wc.lpfnWndProc   = DefWindowProcA;
         wc.hInstance     = GetModuleHandleA(nullptr);
-        wc.lpszClassName = "comfyfog_probe";
+        wc.lpszClassName = "comfyatmos_probe";
         RegisterClassExA(&wc);
         HWND wnd = CreateWindowExA(0, wc.lpszClassName, "", WS_OVERLAPPED, 0, 0, 1, 1,
                                    nullptr, nullptr, wc.hInstance, nullptr);
@@ -2295,6 +2295,20 @@ namespace
             return false;
         }
 
+        // The old name of this DLL (comfyfog.dll until v0.10.0-alpha, 2026-10-06) still in dlls.txt: two copies would
+        // hook every call twice and draw each effect twice, so this one stays off. Checked here, after the device,
+        // which takes a few hundred ms: VanillaFixes has loaded every DLL in dlls.txt by then.
+        if (GetModuleHandleA("comfyfog.dll"))
+        {
+            Log("comfyfog.dll is loaded too: it is this mod under its old name. comfyatmos.dll stays off this run. Take "
+                "the line comfyfog.dll out of dlls.txt, delete comfyfog.dll and dlls.txt.cache.");
+            probe->lpVtbl->Release(probe);
+            d3d->lpVtbl->Release(d3d);
+            if (wnd) DestroyWindow(wnd);
+            UnregisterClassA(wc.lpszClassName, wc.hInstance);
+            return false;
+        }
+
         // The vtable is static data inside the pinned d3d9.dll, so it outlives the device.
         auto* v = const_cast<IDirect3DDevice9Vtbl*>(probe->lpVtbl);
         PatchBufferVtables(probe);
@@ -2316,11 +2330,14 @@ namespace
         const double t0 = Now();
         const bool ok = AttachToDxvk();
         Log("attach %s in %.0f ms", ok ? "succeeded" : "FAILED", 1000.0 * (Now() - t0));
-        // The shaders' worker (2026-10-06): every pass's shader compiled or read from comfyfog-cache\ now, while the
+        if (!ok)
+            return 0;
+        // The shaders' worker (2026-10-06): every pass's shader compiled or read from comfyatmos-cache\ now, while the
         // client is at its login screen, not in the world's first frames (11 s of compiles, two frames of 5 and 7 s).
         wchar_t dir[MAX_PATH];
         wcscpy_s(dir, g_logPath);
-        wcscpy_s(wcsrchr(dir, L'\\') + 1, 16, L"comfyfog-cache");
+        wchar_t* slash = wcsrchr(dir, L'\\') + 1;
+        wcscpy_s(slash, MAX_PATH - (slash - dir), L"comfyatmos-cache");
         ShaderCacheStart(dir);
         return 0;
     }
@@ -2369,13 +2386,17 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         HMODULE pin = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                            reinterpret_cast<LPCWSTR>(&g_lock), &pin);
-        ResolveIniPath(self, g_iniPath, MAX_PATH);
+        const bool oldIni = ResolveIniPath(self, g_iniPath, MAX_PATH);
         wcscpy_s(g_logPath, g_iniPath);
-        wcscpy_s(wcsrchr(g_logPath, L'\\') + 1, 16, L"comfyfog.log");
+        wchar_t* logName = wcsrchr(g_logPath, L'\\') + 1;
+        wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"comfyatmos.log");
         DeleteFileW(g_logPath);
         LoadSettings(g_iniPath);
         CVarsAfterLoad();
-        Log("comfyfog loaded (module=%p, effects %s)", self, g_cfg.master ? "on" : "off");
+        Log("comfyatmos loaded (module=%p, effects %s)", self, g_cfg.master ? "on" : "off");
+        if (oldIni)
+            Log("comfyatmos.ini is not there, so comfyfog.ini is read (the old name, until v0.10.0-alpha). Rename it "
+                "comfyatmos.ini.");
 
         if (g_cfg.hook)
         {
@@ -2387,7 +2408,7 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         }
         else
         {
-            Log("hook = 0, so nothing is patched: comfyfog is inert this run");
+            Log("hook = 0, so nothing is patched: comfyatmos is inert this run");
         }
     }
     return TRUE;

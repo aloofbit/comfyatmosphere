@@ -10,7 +10,7 @@ execute_process(
 if(NOT ver)
     set(ver "unknown")
 endif()
-set(text "#pragma once\n#define COMFYFOG_VERSION \"${ver}\"\n")
+set(text "#pragma once\n#define COMFYATMOS_VERSION \"${ver}\"\n")
 if(EXISTS "${OUT}")
     file(READ "${OUT}" old)
 endif()

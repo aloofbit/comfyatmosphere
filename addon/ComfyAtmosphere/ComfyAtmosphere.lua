@@ -7,10 +7,10 @@
 -- and the client uses 15, so the page fits without scrolling the list. Until 2026-09-29 the controls
 -- were added to the Shaders page.
 --
--- The panel calls SetCVar while a slider moves, and comfyfog.dll reads the CVars a few times a second, so
+-- The panel calls SetCVar while a slider moves, and comfyatmos.dll reads the CVars a few times a second, so
 -- a change shows in the world at once. Cancel puts the old values back the same way.
 --
--- comfyfog.dll registers the CVars, with the values in comfyfog.ini as their defaults. So the page's
+-- comfyatmos.dll registers the CVars, with the values in comfyatmos.ini as their defaults. So the page's
 -- Defaults button puts the ini values back.
 --
 -- Without the DLL the CVars do not exist, and GetCVar raises an error for a CVar that does not exist.
@@ -23,7 +23,7 @@
 --
 -- The client saves the values to Config.wtf itself, and only the ones moved away from their default
 -- (measured: a thickness of 85 was written, fog at its default 1 was not). So a setting nobody moved
--- still follows comfyfog.ini, and the addon keeps no copy of its own.
+-- still follows comfyatmos.ini, and the addon keeps no copy of its own.
 
 COMFYATMOSPHERE_CATEGORY       = "Atmosphere";
 COMFYATMOSPHERE_MASTER         = "Atmosphere Effects";
@@ -190,7 +190,7 @@ local ENTRIES = {
 		step = 1,
 	},
 	{
-		-- Thousandths: comfyfog.dll divides by 1000 for [volume] density (15 is 0.015).
+		-- Thousandths: comfyatmos.dll divides by 1000 for [volume] density (15 is 0.015).
 		name = "COMFYATMOSPHERE_VOLUME_DENSITY",
 		desc = "How thick the air is. Higher gives brighter shafts through the trees.",
 		type = "slider",
@@ -214,7 +214,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Thousandths: comfyfog.dll divides by 1000 for [volume] anisotropy (25 is 0.025).
+		-- Thousandths: comfyatmos.dll divides by 1000 for [volume] anisotropy (25 is 0.025).
 		name = "COMFYATMOSPHERE_VOLUME_DIRECTION",
 		desc = "0 glows the same from every side. Higher glows more when you look toward the sun.",
 		type = "slider",
@@ -234,7 +234,7 @@ local ENTRIES = {
 		cvar = "comfyMist",
 	},
 	{
-		-- Ten-thousandths a yard: comfyfog.dll divides by 10000 for [fog] density (40 is 0.004).
+		-- Ten-thousandths a yard: comfyatmos.dll divides by 10000 for [fog] density (40 is 0.004).
 		name = "COMFYATMOSPHERE_MIST_DENSITY",
 		desc = "How thick the fog is at the ground. Higher, you see less far.",
 		type = "slider",
@@ -270,7 +270,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths: comfyfog.dll divides by 10 for [fog] sunLight (40 is 4).
+		-- Tenths: comfyatmos.dll divides by 10 for [fog] sunLight (40 is 4).
 		name = "COMFYATMOSPHERE_MIST_SUN",
 		desc = "How brightly the sun lights the fog.",
 		type = "slider",
@@ -366,7 +366,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths of a yard a second: comfyfog.dll divides by 10 for [fog] windSpeed (20 is 2).
+		-- Tenths of a yard a second: comfyatmos.dll divides by 10 for [fog] windSpeed (20 is 2).
 		name = "COMFYATMOSPHERE_MIST_WIND",
 		desc = "How fast the wind carries the fog patches.",
 		type = "slider",
@@ -545,7 +545,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Percent: comfyfog.dll takes it as [sunshadows] bodyShade.
+		-- Percent: comfyatmos.dll takes it as [sunshadows] bodyShade.
 		name = "COMFYATMOSPHERE_SHADOWS_BODY",
 		desc = "How dark the shade is on the body of a player or creature, on its side away from the sun. 100 is the darkest. 0 is off: the body keeps only the game's own lighting. The shadow it casts does not change.",
 		type = "slider",
@@ -557,7 +557,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Percent: comfyfog.dll divides by 100 for [sunshadows] water.
+		-- Percent: comfyatmos.dll divides by 100 for [sunshadows] water.
 		name = "COMFYATMOSPHERE_SHADOW_ON_WATER",
 		desc = "How dark a shadow is on the water's surface, against one on the ground, with a soft edge. The bed under clear water keeps its own shadow. 0 is none on the surface.",
 		type = "slider",
@@ -569,7 +569,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Seconds: comfyfog.dll takes it as [sun] glide.
+		-- Seconds: comfyatmos.dll takes it as [sun] glide.
 		name = "COMFYATMOSPHERE_SUN_GLIDE",
 		desc = "Seconds at least that the shadows, sun rays and light take to follow a step of the sun. The sky moves the sun once a game minute, and each move is spread over the minute. 0 follows at once.",
 		type = "slider",
@@ -581,7 +581,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [sunshadows] leafShade.
+		-- A percentage: comfyatmos.dll divides it by 100 for [sunshadows] leafShade.
 		name = "COMFYATMOSPHERE_TREE_SHADE",
 		desc = "How dark the shadows of trees and bushes are. They still show inside the shadow of a hill or a mountain.",
 		type = "slider",
@@ -593,14 +593,14 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- comfyfog.dll takes it as [water] enabled.
+		-- comfyatmos.dll takes it as [water] enabled.
 		name = "COMFYATMOSPHERE_WATER",
 		desc = "The water's colour, waves and sun glint, the foam and wet sand at the shore, and ripples round anyone in the water. Off, the game draws its own water.",
 		type = "checkbutton",
 		cvar = "comfyWater",
 	},
 	{
-		-- comfyfog.dll takes it as [water] colour.
+		-- comfyatmos.dll takes it as [water] colour.
 		name = "COMFYATMOSPHERE_WATER_COLOUR",
 		desc = "The colour deep water turns. 0 is green, 50 is teal, 100 is blue.",
 		type = "slider",
@@ -612,7 +612,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] brightness.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] brightness.
 		name = "COMFYATMOSPHERE_WATER_BRIGHT",
 		desc = "How light or dark the water is. The glint and the foam keep their brightness.",
 		type = "slider",
@@ -624,7 +624,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] clarity.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] clarity.
 		name = "COMFYATMOSPHERE_WATER_CLARITY",
 		desc = "How far you see into the water. 200 is twice as far as 100.",
 		type = "slider",
@@ -636,7 +636,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] reflection.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] reflection.
 		name = "COMFYATMOSPHERE_WATER_REFLECT",
 		desc = "How much of the sky the water shows when you look across it. 0 shows only the water's own colour.",
 		type = "slider",
@@ -648,7 +648,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- comfyfog.dll takes it as [water] refraction: 100 is half a yard.
+		-- comfyatmos.dll takes it as [water] refraction: 100 is half a yard.
 		name = "COMFYATMOSPHERE_WATER_BEND",
 		desc = "How much the waves bend what you see under the water. 0 is off.",
 		type = "slider",
@@ -660,7 +660,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] foam.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] foam.
 		name = "COMFYATMOSPHERE_WATER_FOAM",
 		desc = "How white the foam is: at the shore, on the ripples and in the wake. Lower lets the water show through it. 0 is off.",
 		type = "slider",
@@ -672,7 +672,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- [water] foamDrawn (2026-10-05): foam made by comfyfog.dll, or the game's waterfall texture as before.
+		-- [water] foamDrawn (2026-10-05): foam made by comfyatmos.dll, or the game's waterfall texture as before.
 		name = "COMFYATMOSPHERE_WATER_FOAM_DRAWN",
 		desc = "Foam in clean, soft shapes that break up as they age. Off, the game's own foam texture.",
 		type = "checkbutton",
@@ -680,7 +680,7 @@ local ENTRIES = {
 		dependency = { "comfyWater", "1" },
 	},
 	{
-		-- Tenths of a yard: comfyfog.dll divides by 10 for [water] foamCell.
+		-- Tenths of a yard: comfyatmos.dll divides by 10 for [water] foamCell.
 		name = "COMFYATMOSPHERE_WATER_FOAM_SIZE",
 		desc = "How large the shapes of the foam are, in tenths of a yard.",
 		type = "slider",
@@ -692,7 +692,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths of a yard: comfyfog.dll divides by 10 for [water] foamLife.
+		-- Tenths of a yard: comfyatmos.dll divides by 10 for [water] foamLife.
 		name = "COMFYATMOSPHERE_WATER_FOAM_REACH",
 		desc = "How far out from the water's edge the foam lasts, in tenths of a yard.",
 		type = "slider",
@@ -704,7 +704,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] foamEdge.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] foamEdge.
 		name = "COMFYATMOSPHERE_WATER_FOAM_EDGE",
 		desc = "How broken the foam is at the water's edge. Low makes a solid band of foam along the sand; high leaves it in pieces, as farther out.",
 		type = "slider",
@@ -716,7 +716,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] wakeFoam.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] wakeFoam.
 		name = "COMFYATMOSPHERE_WATER_WAKE_FOAM",
 		desc = "The splash of foam at anyone walking or swimming through the water. 0 is none.",
 		type = "slider",
@@ -752,7 +752,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] shipWakeDepth.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] shipWakeDepth.
 		name = "COMFYATMOSPHERE_WATER_SHIP_DEPTH",
 		desc = "How deep the waves of a ship's wake are, against a swimmer's.",
 		type = "slider",
@@ -764,7 +764,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] lakeSwash.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] lakeSwash.
 		name = "COMFYATMOSPHERE_WATER_LAKE_SWASH",
 		desc = "How much of the sea's swash and shore waves a lake, a pond or a river gets. 0 is none, 100 as much as the sea.",
 		type = "slider",
@@ -776,7 +776,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] lakeFoam.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] lakeFoam.
 		name = "COMFYATMOSPHERE_WATER_LAKE_FOAM",
 		desc = "How much of the sea's shore foam a lake, a pond or a river gets. 100 is as much as the sea.",
 		type = "slider",
@@ -788,7 +788,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] lakeWaves.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] lakeWaves.
 		name = "COMFYATMOSPHERE_WATER_LAKE_WAVES",
 		desc = "How much of the sea's waves (Wave Height) a lake, a pond or a river gets. 0 lies flat, 100 rises as the sea.",
 		type = "slider",
@@ -807,7 +807,7 @@ local ENTRIES = {
 		cvar = "comfyLighthouses",
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [lighthouse] beam.
+		-- A percentage: comfyatmos.dll divides by 100 for [lighthouse] beam.
 		name = "COMFYATMOSPHERE_LIGHTHOUSE_BEAM",
 		desc = "How bright the lighthouses' beams are. 0 leaves the light alone.",
 		type = "slider",
@@ -819,7 +819,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [lighthouse] beacon.
+		-- A percentage: comfyatmos.dll divides by 100 for [lighthouse] beacon.
 		name = "COMFYATMOSPHERE_LH_BEACON",
 		desc = "How bright the light in the lamp room is.",
 		type = "slider",
@@ -843,7 +843,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths of a yard: comfyfog.dll divides by 10 for [lighthouse] beamWidth.
+		-- Tenths of a yard: comfyatmos.dll divides by 10 for [lighthouse] beamWidth.
 		name = "COMFYATMOSPHERE_LH_WIDTH",
 		desc = "How thick the beam is at the lamp, in tenths of a yard.",
 		type = "slider",
@@ -855,7 +855,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Thousandths: comfyfog.dll divides by 1000 for [lighthouse] beamSpread.
+		-- Thousandths: comfyatmos.dll divides by 1000 for [lighthouse] beamSpread.
 		name = "COMFYATMOSPHERE_LH_SPREAD",
 		desc = "How much wider the beam gets as it goes out. 0 is a straight beam.",
 		type = "slider",
@@ -887,7 +887,7 @@ local ENTRIES = {
 		dependency = { "comfyLighthouses", "1" },
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [lighthouse] glint.
+		-- A percentage: comfyatmos.dll divides by 100 for [lighthouse] glint.
 		name = "COMFYATMOSPHERE_LH_GLINT",
 		desc = "How much light the lighthouse puts on the water: its glitter and the waves its beam lights.",
 		type = "slider",
@@ -935,7 +935,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [lighthouse] waterWidth.
+		-- A percentage: comfyatmos.dll divides by 100 for [lighthouse] waterWidth.
 		name = "COMFYATMOSPHERE_LH_WEDGE",
 		desc = "How wide the patch of water the beam lights is, as a share of the beam's own width. Beam Spread widens it too.",
 		type = "slider",
@@ -947,7 +947,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] rain.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] rain.
 		name = "COMFYATMOSPHERE_WATER_RAIN",
 		desc = "Rings on the water where the rain falls, while it rains. 0 is none.",
 		type = "slider",
@@ -959,7 +959,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] objectFoam.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] objectFoam.
 		name = "COMFYATMOSPHERE_WATER_OBJECT_FOAM",
 		desc = "Foam round anything standing in the water: posts, rocks, piers. 0 is none.",
 		type = "slider",
@@ -971,7 +971,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths of a yard: comfyfog.dll divides by 10 for [water] objectFoamWidth.
+		-- Tenths of a yard: comfyatmos.dll divides by 10 for [water] objectFoamWidth.
 		name = "COMFYATMOSPHERE_WATER_OBJECT_FOAM_WIDTH",
 		desc = "How far out from an object in the water its foam reaches, in tenths of a yard.",
 		type = "slider",
@@ -991,7 +991,7 @@ local ENTRIES = {
 		dependency = { "comfyWater", "1" },
 	},
 	{
-		-- A percentage: comfyfog.dll divides by 100 for [water] whitecaps.
+		-- A percentage: comfyatmos.dll divides by 100 for [water] whitecaps.
 		name = "COMFYATMOSPHERE_WATER_OPEN_FOAM_AMOUNT",
 		desc = "How much foam the waves out in deep water carry.",
 		type = "slider",
@@ -1003,7 +1003,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- comfyfog.dll takes it as [water] swash, on or off (2026-10-05: a slider whose 5 to 100 changed nothing).
+		-- comfyatmos.dll takes it as [water] swash, on or off (2026-10-05: a slider whose 5 to 100 changed nothing).
 		name = "COMFYATMOSPHERE_WATER_SWASH",
 		desc = "The water runs up the beach and slides back, with foam on its edge.",
 		type = "checkbutton",
@@ -1011,7 +1011,7 @@ local ENTRIES = {
 		dependency = { "comfyWater", "1" },
 	},
 	{
-		-- Hundredths of a yard: comfyfog.dll divides it by 100 for [water] swashHeight.
+		-- Hundredths of a yard: comfyatmos.dll divides it by 100 for [water] swashHeight.
 		name = "COMFYATMOSPHERE_WATER_SWASH_HEIGHT",
 		desc = "How far up the shore the water runs. 30 climbs 0.3 yards, and 1.5 yards up a gentle beach.",
 		type = "slider",
@@ -1023,7 +1023,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Yards: comfyfog.dll takes it as [water] swashLength.
+		-- Yards: comfyatmos.dll takes it as [water] swashLength.
 		name = "COMFYATMOSPHERE_WATER_SWASH_LENGTH",
 		desc = "How many yards along the shore one surge spans. Lower gives more, shorter surges side by side.",
 		type = "slider",
@@ -1035,7 +1035,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] swashSpeed.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] swashSpeed.
 		name = "COMFYATMOSPHERE_WATER_SWASH_SPEED",
 		desc = "How fast the surges come. 100 is one every 11 seconds.",
 		type = "slider",
@@ -1047,7 +1047,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] edgeLine.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] edgeLine.
 		name = "COMFYATMOSPHERE_WATER_EDGE",
 		desc = "How bright the thin white line is where the water meets the sand. 0 is off.",
 		type = "slider",
@@ -1059,7 +1059,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] edgeWidth.
+		-- Tenths of a yard: comfyatmos.dll divides it by 10 for [water] edgeWidth.
 		name = "COMFYATMOSPHERE_WATER_EDGE_WIDTH",
 		desc = "How wide that line is, in tenths of a yard along the sand.",
 		type = "slider",
@@ -1071,7 +1071,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] glint.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] glint.
 		name = "COMFYATMOSPHERE_WATER_GLINT",
 		desc = "How bright the sun's reflection on the waves is. 0 is off.",
 		type = "slider",
@@ -1083,7 +1083,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] moonGlint.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] moonGlint.
 		name = "COMFYATMOSPHERE_WATER_MOON_GLINT",
 		desc = "How bright the two moons' reflections on the waves are at night. 0 is off.",
 		type = "slider",
@@ -1095,7 +1095,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] glintSize.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] glintSize.
 		name = "COMFYATMOSPHERE_WATER_GLINT_SIZE",
 		desc = "How wide the sun's and moons' reflections spread. 200 is twice as wide as 100.",
 		type = "slider",
@@ -1107,7 +1107,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] wake.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] wake.
 		name = "COMFYATMOSPHERE_WATER_WAKE",
 		desc = "The wake behind anyone moving through the water. 0 is off.",
 		type = "slider",
@@ -1119,7 +1119,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleDepth.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] rippleDepth.
 		name = "COMFYATMOSPHERE_WATER_RIPPLE_DEPTH",
 		desc = "How deep the rings round anyone standing still in the water look. 100 is as it was; their white line stays the same.",
 		type = "slider",
@@ -1131,7 +1131,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleDepthMoving.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] rippleDepthMoving.
 		name = "COMFYATMOSPHERE_WATER_RIPPLE_MOVING",
 		desc = "How deep the rings look that anyone walking or swimming leaves behind. 100 is as it was; their white line stays the same.",
 		type = "slider",
@@ -1143,7 +1143,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleSpread.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] rippleSpread.
 		name = "COMFYATMOSPHERE_WATER_RIPPLE_SPREAD",
 		desc = "How large the rings round anyone standing still in the water grow. 100 is as it was.",
 		type = "slider",
@@ -1155,7 +1155,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] rippleSpreadMoving.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] rippleSpreadMoving.
 		name = "COMFYATMOSPHERE_WATER_RIPPLE_SPREAD_MOVING",
 		desc = "How large the rings grow that anyone walking or swimming leaves behind. 100 is as it was.",
 		type = "slider",
@@ -1167,7 +1167,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] cover.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] cover.
 		name = "COMFYATMOSPHERE_WATER_COVER",
 		desc = "How much the water hides a character standing in it. 0 shows the legs as clear as the sand beside them.",
 		type = "slider",
@@ -1179,7 +1179,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Tenths of a yard: comfyfog.dll divides it by 10 for [water] waveHeight.
+		-- Tenths of a yard: comfyatmos.dll divides it by 10 for [water] waveHeight.
 		name = "COMFYATMOSPHERE_WAVE_HEIGHT",
 		desc = "How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water.",
 		type = "slider",
@@ -1191,7 +1191,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [water] waveScale.
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] waveScale.
 		name = "COMFYATMOSPHERE_WAVE_SIZE",
 		desc = "How long the waves are, in percent. 200 is twice as long as 100.",
 		type = "slider",
@@ -1203,7 +1203,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [sunshadows] sunlight.
+		-- A percentage: comfyatmos.dll divides it by 100 for [sunshadows] sunlight.
 		name = "COMFYATMOSPHERE_SUNLIGHT",
 		desc = "Makes what the sun reaches brighter, by up to this many percent. 0 leaves it as the game draws it.",
 		type = "slider",
@@ -1215,7 +1215,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Percent: comfyfog.dll divides by 100 for [sunshadows] shadeTint.
+		-- Percent: comfyatmos.dll divides by 100 for [sunshadows] shadeTint.
 		name = "COMFYATMOSPHERE_SHADE_TINT",
 		desc = "Shade takes the sky's cool blue instead of only going darker.",
 		type = "slider",
@@ -1227,7 +1227,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Percent: comfyfog.dll divides by 100 for [sunshadows] sunTint.
+		-- Percent: comfyatmos.dll divides by 100 for [sunshadows] sunTint.
 		name = "COMFYATMOSPHERE_SUN_TINT",
 		desc = "Sunlit ground takes a warm colour.",
 		type = "slider",
@@ -1313,7 +1313,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- A percentage: comfyfog.dll divides it by 100 for [rays] smooth.
+		-- A percentage: comfyatmos.dll divides it by 100 for [rays] smooth.
 		name = "COMFYATMOSPHERE_RAYS_SMOOTH",
 		desc = "Higher keeps more of the last frame, so the rays change more gently as you move. Too high leaves a trail when you turn quickly.",
 		type = "slider",
@@ -1336,7 +1336,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Percent: comfyfog.dll divides by 100 for [night] darkness. It is drawn with the lamps, from the
+		-- Percent: comfyatmos.dll divides by 100 for [night] darkness. It is drawn with the lamps, from the
 		-- volumetric light's depth.
 		name = "COMFYATMOSPHERE_NIGHT_DARKNESS",
 		desc = "How much darker the world is at night. Lamps still light the ground near them. Not inside buildings. Needs Volumetric Light on.",
@@ -1349,7 +1349,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- Percent: comfyfog.dll divides by 100 for [night] rain.
+		-- Percent: comfyatmos.dll divides by 100 for [night] rain.
 		name = "COMFYATMOSPHERE_RAIN_DARKNESS",
 		desc = "How much darker again the night is while it rains, the sky too. The game's rain makes the night a lighter grey.",
 		type = "slider",
@@ -1416,7 +1416,7 @@ local ENTRIES = {
 		cvar = "comfyGrass",
 	},
 	{
-		-- Percent: comfyfog.dll divides it by 100 for [grass] scale. The parting does not follow it.
+		-- Percent: comfyatmos.dll divides it by 100 for [grass] scale. The parting does not follow it.
 		name = "COMFYATMOSPHERE_GRASS_WIND",
 		desc = "How strongly the wind sways the grass, in percent. 0 is still.",
 		type = "slider",
@@ -1500,7 +1500,7 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- The client's own frillDensity, not ours: it works without comfyfog.dll and is saved by the client. The
+		-- The client's own frillDensity, not ours: it works without comfyatmos.dll and is saved by the client. The
 		-- ComfyGrass addon put it under World Appearance until 2026-10-06. The client plants
 		-- min(frillDensity * 64, 8192) models, so above 128 nothing changes.
 		name = "COMFYATMOSPHERE_FOLIAGE_DENSITY",
@@ -1513,8 +1513,8 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
-		-- The panel cannot draw a dropdown, so each number is one view, named here and in comfyfog.log.
-		-- The list is kDebugViews in comfyfog's cvars.cpp: keep the two in the same order.
+		-- The panel cannot draw a dropdown, so each number is one view, named here and in comfyatmos.log.
+		-- The list is kDebugViews in comfyatmos's cvars.cpp: keep the two in the same order.
 		name = "COMFYATMOSPHERE_DEBUG_VIEW",
 		desc = "For finding faults. Shows one stage of an effect instead of the game:\n"
 			.. "0 off\n"
@@ -1603,7 +1603,7 @@ end
 -- than Turtle) has no page for them. It uses only what stock 1.12 has: the UIPanelScrollFrameTemplate,
 -- UICheckButtonTemplate, OptionsSliderTemplate and UIPanelButtonTemplate templates, and Lua 5.0.
 --
--- A control sets its CVar as it moves, as the page does, and comfyfog.dll reads it at once. There is no
+-- A control sets its CVar as it moves, as the page does, and comfyatmos.dll reads it at once. There is no
 -- Cancel: close the window to keep the values. A control whose `dependency` is not met is greyed and does
 -- not move.
 --
@@ -1953,7 +1953,7 @@ local function WindowBuild()
 	end
 	Choose(window.comfyTab or 1);
 
-	-- The values comfyfog.dll registered the CVars with, which are comfyfog.ini's. GetCVarDefault is
+	-- The values comfyatmos.dll registered the CVars with, which are comfyatmos.ini's. GetCVarDefault is
 	-- not in every 1.12 client, so the button is only there where it is.
 	if GetCVarDefault then
 		local defaults = CreateFrame("Button", "ComfyAtmosphereWindowDefaults", window, "UIPanelButtonTemplate");
@@ -1998,7 +1998,7 @@ end
 
 local function WindowToggle()
 	if not DllLoaded() then
-		DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: comfyfog.dll is not loaded, so there are no settings to show.");
+		DEFAULT_CHAT_FRAME:AddMessage("|cff88cc88atmos|r: comfyatmos.dll is not loaded, so there are no settings to show.");
 		return;
 	end
 	if not window then
@@ -2011,7 +2011,7 @@ local function WindowToggle()
 	end
 end
 
--- /atmos: read and set any comfyfog.ini value (tune.cpp in comfyfog.dll). /atmos options is the window
+-- /atmos: read and set any comfyatmos.ini value (tune.cpp in comfyatmos.dll). /atmos options is the window
 -- above and stays in the addon. The command goes to the DLL in
 -- the CVar comfyTune as "<number> <text>"; the DLL answers by registering comfyTuneReply<number>, the
 -- count of lines, and comfyTuneReply<number>_1 and on, the lines. CVars stay registered until the
@@ -2067,7 +2067,7 @@ tuneFrame:SetScript("OnUpdate", function()
 	elseif GetTime() < tuneUntil then
 		return;
 	else
-		Say("no answer from comfyfog.dll.");
+		Say("no answer from comfyatmos.dll.");
 	end
 	tuneWaiting = nil;
 	SetCVar("comfyTune", "");
@@ -2089,7 +2089,7 @@ TuneSend = function(msg)
 end;
 
 SLASH_COMFYATMOS1 = "/atmos";
--- /atmos stats: comfyfog.dll's figures on screen, for finding faults. The DLL writes them into the CVar
+-- /atmos stats: comfyatmos.dll's figures on screen, for finding faults. The DLL writes them into the CVar
 -- comfyStats once a second as name=value; pairs, padded with spaces, and this lays them out in sections.
 -- /atmos debug: a panel of buttons for finding faults (probe, stats, debug view, trace, benchmark).
 -- Both, and the probe, can be put on keys in Key Bindings > ComfyAtmosphere (Bindings.xml).
@@ -2099,7 +2099,7 @@ BINDING_NAME_COMFYATMOSPHERE_PROBE  = "Probe (log one frame)";
 BINDING_NAME_COMFYATMOSPHERE_STATS  = "Show or hide the stats";
 BINDING_NAME_COMFYATMOSPHERE_DEBUG  = "Show or hide the debug panel";
 
--- The debug views, as kDebugViews in comfyfog's cvars.cpp and the Debug View slider's tooltip above: keep
+-- The debug views, as kDebugViews in comfyatmos's cvars.cpp and the Debug View slider's tooltip above: keep
 -- the three in the same order. The first is view 0.
 local DEBUG_VIEWS = {
 	"off",
@@ -2285,7 +2285,7 @@ local function StatsBuild()
 		local raw = string.gsub(GetCVar("comfyStats") or "", "%s+$", "");
 		local rows;
 		if raw == "" then
-			rows = { { "Waiting for comfyfog.dll (a second)..." } };
+			rows = { { "Waiting for comfyatmos.dll (a second)..." } };
 		else
 			rows = StatsRows(StatsParse(raw));
 		end
@@ -2318,7 +2318,7 @@ end
 
 function ComfyAtmosphere_StatsToggle()
 	if not HasCVar("comfyStats") then
-		Say("this comfyfog.dll has no stats.");
+		Say("this comfyatmos.dll has no stats.");
 		return;
 	end
 	if not statsFrame then
@@ -2399,14 +2399,14 @@ local function DebugBuild()
 	hint:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -132);
 	hint:SetWidth(272);
 	hint:SetJustifyH("LEFT");
-	hint:SetText("Probe writes to comfyfog.log.");
+	hint:SetText("Probe writes to comfyatmos.log.");
 	f:SetHeight(132 + hint:GetHeight() + 14);
 	return f;
 end
 
 function ComfyAtmosphere_DebugToggle()
 	if not DllLoaded() then
-		Say("comfyfog.dll is not loaded.");
+		Say("comfyatmos.dll is not loaded.");
 		return;
 	end
 	if not debugFrame then
@@ -2438,7 +2438,7 @@ SlashCmdList["COMFYATMOS"] = function(msg)
 		Say("/atmos options: the settings window. /atmos debug: buttons for finding faults. /atmos stats: figures on screen.");
 	end
 	if not HasCVar("comfyTune") then
-		Say("this comfyfog.dll has no /atmos. It needs the version from 2026-09-29 or later.");
+		Say("this comfyatmos.dll has no /atmos. It needs the version from 2026-09-29 or later.");
 		return;
 	end
 	if tuneWaiting then

@@ -5,7 +5,7 @@
 .DESCRIPTION
   A test is a .json file in this folder: a config (where to start, flight, camera), a list of steps, and what
   to expect from the probe. The runner logs in with wow-test-tool's Login.ps1, turns the config and the
-  steps into a script for its Run-Test.ps1, runs it, and reads comfyfog.log. Each result, the script and the
+  steps into a script for its Run-Test.ps1, runs it, and reads comfyatmos.log. Each result, the script and the
   screenshot taken go to results\.
 
   Config:
@@ -20,7 +20,7 @@
     restart     true: the client is restarted and signed in before the test (at the start, when there is one), and
                 the test's log checks read the whole log since the client started (2026-10-06, load-performance)
     sun         { azimuth, elevation } in degrees: a fixed sun ([sun] fixed), the same light every run
-    ini         { "section.key": value, ... }: comfyfog.ini values for this test, by /atmos. /atmos reset runs
+    ini         { "section.key": value, ... }: comfyatmos.ini values for this test, by /atmos. /atmos reset runs
                 before and after, so nothing stays set
     debugView   the Debug View to show (the comfyDebugView control)
     cvars       { "name": value, ... }: the Atmosphere page's controls, which /atmos refuses. Every CVar a test
@@ -31,7 +31,7 @@
     wait <s>, hop { to, heading, step, pause }, fly <yards>, flyFor <seconds>, back <yards>, turn <degrees> (to the left, by face), probe, screenshot, target <name>, clearTarget,
     face { heading, pitch } (the camera, in degrees: heading counter-clockwise from +x as the sun's azimuth, pitch up positive; ComfyTest checks and corrects it),
     record { seconds, label } (a video without the UI, by ffmpeg, shown on the page and played at once),
-    pos, atmos "<words>", cvar "<name> <value>", chat "<text>". Where the character is (from comfyfog.dll's
+    pos, atmos "<words>", cvar "<name> <value>", chat "<text>". Where the character is (from comfyatmos.dll's
     comfyStats CVar) goes into the result after the start and after each fly, back and turn.
     go { x, y, z, facing, map } (2026-10-06): to another place within the test, by .go xyz, waiting until there.
     gameFront, gameBack (2026-10-06): the game to the front for the steps between (a frame log: behind other windows the
@@ -46,7 +46,7 @@
     row     a row of pixels, from the top, and from, to: the columns along it (every 4th is read)
     min     no pixel's brightness (0..255, the mean of red, green and blue) under this
     mean    the row's average brightness at least this
-  or against comfyfog.log (2026-10-06, the performance tests):
+  or against comfyatmos.log (2026-10-06, the performance tests):
     log     a pattern with one number in brackets, read from this run's lines (the whole log after a restart)
     at      which match, from 1; the last when left out
     max     the number at most; min the number at least; neither, and it is only recorded
@@ -90,7 +90,7 @@ $takesFocus = @($files | Where-Object { (Test-Path $_) -and ((Get-Content $_ -Ra
 if ($takesFocus.Count) {
     Write-Host "NOTE: $($takesFocus -join ', ') brings the game window to the front while it measures (behind other windows it holds 60 fps). Do not type in another window during it." -ForegroundColor Yellow
 }
-$log = Join-Path $Client 'comfyfog.log'
+$log = Join-Path $Client 'comfyatmos.log'
 $summary = @()
 # One login for the whole run (2026-10-04): a login a test cost about a minute each. Another login only for a
 # test that wants another character. Flight is read before each test (2026-10-05, wow-test-tool's flight on and
@@ -202,7 +202,7 @@ foreach ($file in $files) {
     # weather is the zone's, so it is cleared here, at the start.
     $lines += Say 'clearing the weather'
     $lines += 'chat .wchange 0 0'
-    # comfyfog's values: none left from before, then this test's.
+    # comfyatmos's values: none left from before, then this test's.
     $lines += Say 'setting the snapshot: the sun and the controls'
     $lines += 'atmos reset'
     if ($cfg.sun) {

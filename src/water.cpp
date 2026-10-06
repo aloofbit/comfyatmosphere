@@ -1,7 +1,7 @@
 // water: foam where the water is shallow.
 //
 // The client draws rivers, lakes and the sea as a run of fixed-function chunks through its water pixel shader
-// (comfyfog.cpp, IsWaterShaderDraw). Each chunk is drawn a second time here, right after the client's draw,
+// (comfyatmos.cpp, IsWaterShaderDraw). Each chunk is drawn a second time here, right after the client's draw,
 // through a shader of ours that puts foam on it, alpha blended over the client's water.
 //
 // How deep the water is. Before the frame's first water draw, the depth buffer holds what lies under the
@@ -1373,7 +1373,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     // sea's too. Each chunk sets only its own registers (c167, c168, c210, c211), and only when the value changes
     // (SetChunkReg). The textures go at the world's end, before the body mask is built again into the texture
     // g_leaves is, and at Present for a world that never ended (UnbindFrame). Water is never drawn after the
-    // world's end (WaterKind, comfyfog.cpp).
+    // world's end (WaterKind, comfyatmos.cpp).
     struct ChunkReg { float v[4]; bool known; };   // what the pass last put in one of a chunk's own registers
     bool     g_frameSet = false;      // the frame's constants and textures are on the device
     unsigned g_boundSamplers = 0;     // our samplers with a texture on them, a bit each
@@ -2652,7 +2652,7 @@ namespace
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, quad, sizeof(quad[0]));
         g_wetSb->lpVtbl->Apply(g_wetSb);
         // The state block puts the client's vertex shader back without going through our SetVertexShader hook,
-        // and comfyfog.cpp's mirror of it (g_vshader) kept ours: every later water chunk of the frame then looked
+        // and comfyatmos.cpp's mirror of it (g_vshader) kept ours: every later water chunk of the frame then looked
         // like a model draw, was not taken as water, and the game drew its own water there with none of ours
         // (2026-10-02, found with Debug View 21). Set again through the hook, so the mirror follows.
         d->SetVertexShader(dev, oldVs);

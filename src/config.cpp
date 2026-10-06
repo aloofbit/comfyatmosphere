@@ -130,12 +130,23 @@ namespace
     float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 }
 
-void ResolveIniPath(HMODULE self, wchar_t* out, size_t count)
+bool ResolveIniPath(HMODULE self, wchar_t* out, size_t count)
 {
     GetModuleFileNameW(self, out, static_cast<DWORD>(count));
     wchar_t* slash = wcsrchr(out, L'\\');
-    if (slash)
-        wcscpy_s(slash + 1, count - (slash + 1 - out), L"comfyfog.ini");
+    if (!slash)
+        return false;
+    wcscpy_s(slash + 1, count - (slash + 1 - out), L"comfyatmos.ini");
+    // The files were comfyfog.dll and comfyfog.ini until v0.10.0-alpha (2026-10-06). A client installed by hand may
+    // still have only the old ini: it is read, so its values are kept.
+    if (GetFileAttributesW(out) != INVALID_FILE_ATTRIBUTES)
+        return false;
+    std::wstring old(out, slash + 1 - out);
+    old += L"comfyfog.ini";
+    if (GetFileAttributesW(old.c_str()) == INVALID_FILE_ATTRIBUTES)
+        return false;
+    wcscpy_s(out, count, old.c_str());
+    return true;
 }
 
 void ApplyVolumeQuality(Settings& s)

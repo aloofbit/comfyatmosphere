@@ -20,3 +20,5 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 - [Faster water and shadows](2026-10-06-faster-water-and-shadows.md): the harbour from 73 to 84 fps, timers for each
   pass in the frame log, and the water-cost test.
 - [Grass in the wind](2026-10-06-grass.md): comfygrass is part of comfyfog.dll, with a Grass tab of controls.
+- [New file names](2026-10-06-rename.md): `comfyatmos.dll`, `comfyatmos.ini` and `comfyatmos.log` in place of
+  `comfyfog.*`.

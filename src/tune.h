@@ -1,4 +1,4 @@
-// The /atmos command: read and set any comfyfog.ini value from the game's chat. See tune.cpp.
+// The /atmos command: read and set any comfyatmos.ini value from the game's chat. See tune.cpp.
 #pragma once
 
 #include <string>
@@ -9,5 +9,5 @@
 // over them once more (CVarsAfterLoad).
 std::vector<std::string> TuneRun(const std::string& command, bool& reloaded);
 
-void ProbeArm();   // in comfyfog.cpp: log the next frame, as F12 does
-void BenchArm();   // in comfyfog.cpp: run the benchmark from the next frame, as Alt+F12 does
+void ProbeArm();   // in comfyatmos.cpp: log the next frame, as F12 does
+void BenchArm();   // in comfyatmos.cpp: run the benchmark from the next frame, as Alt+F12 does

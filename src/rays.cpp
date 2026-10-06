@@ -4,7 +4,7 @@
 // screen. Four steps, all at reduced resolution except the last:
 //
 //   1. StretchRect the back buffer down into a small render target.
-//      With [rays] skyOnly = 1, only the sky casts, not the clouds: comfyfog.cpp calls RaysBeforeClouds
+//      With [rays] skyOnly = 1, only the sky casts, not the clouds: comfyatmos.cpp calls RaysBeforeClouds
 //      just before the client draws its cloud layer. A probe shows the frame's first three draws: the sun
 //      sprite, the sky dome (added), then the cloud layer (alpha-blended); the world follows. The image at
 //      the cloud draw is kept at the same size, and each pixel then casts from whichever is darker, the
@@ -41,7 +41,7 @@
 //      passes cover the ray length with 4096 effective taps and no banding.
 //   4. Add the result back over the back buffer.
 //
-// It runs at the world -> UI boundary: comfyfog.cpp arms it at the first switch from a perspective to an
+// It runs at the world -> UI boundary: comfyatmos.cpp arms it at the first switch from a perspective to an
 // orthographic projection each frame, and fires it before the first draw after that which targets the
 // back buffer with no pixel shader: after the client's full-screen glow, before any UI. That is
 // mid-scene: the client's BeginScene is still open, so the pass does not open one of its own.
@@ -53,7 +53,7 @@
 //
 // The pass touches a lot of device state the client's fixed-function pipeline needs back exactly, so it
 // is wrapped in a D3DSBT_ALL state block (captured before, applied after) plus the render target and
-// depth surface, which state blocks do not cover. comfygrass and comfyfog both mirror some state out of
+// depth surface, which state blocks do not cover. comfygrass and comfyatmos both mirror some state out of
 // their hooks, and the state block restores the device without going through those hooks. So the
 // mirrored pieces are also re-set through the vtable with their saved values, keeping every mirror true.
 

@@ -141,7 +141,7 @@ function ControlsDialog([string]$test, [string]$id) {
         }
     }
     $out = "<dialog id=""$id"" class=""ctl""><div class=""dhead""><h3>Test settings: $(Html $test)</h3><form method=""dialog""><button aria-label=""Close"">&#10005;</button></form></div>"
-    $out += "<p class=""lim"">The Atmosphere page controls this test applies at the start of every run, so results compare across runs. Captured from a reference setup on 2026-10-06. Values are shown as on the in-game sliders. Settings without a slider use the defaults in comfyfog.ini.</p>"
+    $out += "<p class=""lim"">The Atmosphere page controls this test applies at the start of every run, so results compare across runs. Captured from a reference setup on 2026-10-06. Values are shown as on the in-game sliders. Settings without a slider use the defaults in comfyatmos.ini.</p>"
     if ($cfg.sun) { $out += "<p><b>Sun</b> fixed at azimuth $($cfg.sun.azimuth) and elevation $($cfg.sun.elevation) degrees, the same light every run.</p>" }
     $order = @($tabs) + @('Other')
     foreach ($tab in $order) {
@@ -159,9 +159,9 @@ function ControlsDialog([string]$test, [string]$id) {
 }
 
 # The test system (2026-10-06): the page is read by others, who need the hardware to judge the numbers. From the
-# client report comfyfog.dll writes at each start: the GPU, the CPU and memory, Windows, the game's window, the
+# client report comfyatmos.dll writes at each start: the GPU, the CPU and memory, Windows, the game's window, the
 # client's build and the mod's.
-# comfyfog.ini as a dialog (2026-10-06): the test client's file, each section with its own description, and each key
+# comfyatmos.ini as a dialog (2026-10-06): the test client's file, each section with its own description, and each key
 # with its value and comment. Comments that run on (an indented ";" line) join the key's.
 function IniDialog([string]$path, [string]$id) {
     if (-not (Test-Path $path)) { return '' }
@@ -179,7 +179,7 @@ function IniDialog([string]$path, [string]$id) {
             [void]$cur.keys.Add($lastKey)
         }
     }
-    $out = "<dialog id=""$id"" class=""ctl""><div class=""dhead""><h3>comfyfog.ini</h3><form method=""dialog""><button aria-label=""Close"">&#10005;</button></form></div>"
+    $out = "<dialog id=""$id"" class=""ctl""><div class=""dhead""><h3>comfyatmos.ini</h3><form method=""dialog""><button aria-label=""Close"">&#10005;</button></form></div>"
     $out += "<p class=""lim"">The settings file of the test client, as the tests ran with it. A test's own Atmosphere controls (its test settings) are applied over the matching values here.</p>"
     foreach ($sec in $sections) {
         $out += "<h4>[$(Html $sec.name)]</h4>"
@@ -195,7 +195,7 @@ function IniDialog([string]$path, [string]$id) {
 
 function TestSystem([string]$settingsDialog = '', [string]$settingsText = '') {
     if (-not $Client) { return '' }
-    $log = Join-Path $Client 'comfyfog.log'
+    $log = Join-Path $Client 'comfyatmos.log'
     if (-not (Test-Path $log)) { return '' }
     $lines = @(Get-Content $log -TotalCount 400)
     $last = { param($pat) @($lines | Where-Object { $_ -match $pat }) | Select-Object -Last 1 }
@@ -216,12 +216,12 @@ function TestSystem([string]$settingsDialog = '', [string]$settingsText = '') {
     }
     $wow = & $last '^WoW\.exe: '
     if ($wow -match 'version ([\d.]+)') { $rows += (KV 'Client' (Html "World of Warcraft $($Matches[1]), DXVK")) }
-    $mod = & $last '^comfyfog: v'
-    if ($mod -match '^comfyfog: (v[^,]+), built ([^,]+),') { $rows += (KV 'comfyfog.dll' (Html "$($Matches[1]), built $($Matches[2] -replace '\s+', ' ')")) }
-    $ini = IniDialog (Join-Path $Client 'comfyfog.ini') 'ini-dialog'
+    $mod = & $last '^comfyatmos: v'
+    if ($mod -match '^comfyatmos: (v[^,]+), built ([^,]+),') { $rows += (KV 'comfyatmos.dll' (Html "$($Matches[1]), built $($Matches[2] -replace '\s+', ' ')")) }
+    $ini = IniDialog (Join-Path $Client 'comfyatmos.ini') 'ini-dialog'
     if ($ini) {
-        $n = @(Get-Content (Join-Path $Client 'comfyfog.ini') | Where-Object { $_ -match '^\w+\s*=' }).Count
-        $rows += (KV 'comfyfog.ini' "<a href=""#"" class=""dlg"" data-dialog=""ini-dialog"">$n settings</a>")
+        $n = @(Get-Content (Join-Path $Client 'comfyatmos.ini') | Where-Object { $_ -match '^\w+\s*=' }).Count
+        $rows += (KV 'comfyatmos.ini' "<a href=""#"" class=""dlg"" data-dialog=""ini-dialog"">$n settings</a>")
     }
     if ($settingsDialog) { $rows += (KV 'Test settings' "<a href=""#"" class=""dlg"" data-dialog=""ctl-frame"">$(Html $settingsText)</a>") }
     if (-not $rows) { return '' }
@@ -257,7 +257,7 @@ function PerfPanel {
         $out += "<p class=""verdict bad"">&#10007; $($bad.Count) measurement$(if ($bad.Count -ne 1) { 's' }) outside the limit: $(Html (($bad | ForEach-Object { $_.metric }) -join ', '))</p>"
     }
     else { $out += '<p class="verdict ok">&#10003; All measurements within their limits.</p>' }
-    # The frame-rate test's own controls (its test settings), in the Test system block with comfyfog.ini.
+    # The frame-rate test's own controls (its test settings), in the Test system block with comfyatmos.ini.
     $frameTest = @($h | Where-Object { $_.metric -like '* fps' } | ForEach-Object { $_.test } | Select-Object -Unique) | Select-Object -First 1
     $setDlg = if ($frameTest) { ControlsDialog $frameTest 'ctl-frame' } else { '' }
     $setText = ''

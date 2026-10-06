@@ -3,7 +3,7 @@
 
 #include <d3d9.h>
 
-// The device's own calls, past every hook, which the grass draws and restores through (comfyfog.cpp, at attach).
+// The device's own calls, past every hook, which the grass draws and restores through (comfyatmos.cpp, at attach).
 struct GrassCalls
 {
     HRESULT (STDMETHODCALLTYPE* drawPrim)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, UINT);

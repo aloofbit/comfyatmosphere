@@ -5,8 +5,8 @@
 > [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
 
 Atmosphere for the World of Warcraft 1.12 client: volumetric fog, sun shadows, volumetric light through the
-trees, sun rays, glowing lamps, darker nights and grass that moves in the wind. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
-come from the first version, which only did fog.
+trees, sun rays, glowing lamps, darker nights and grass that moves in the wind. It is one DLL and one ini file, `comfyatmos.dll` and `comfyatmos.ini`. Until
+v0.10.0-alpha they were `comfyfog.dll` and `comfyfog.ini`, from the first version, which only did fog.
 
 > **❄ Looking for fog on 3.3.5a? ❄** [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light shafts for the Ascension (CoA) 3.3.5a client.
 
@@ -16,7 +16,7 @@ come from the first version, which only did fog.
 
 VanillaFixes loads the DLL, and the DLL patches the Direct3D 9 device of DXVK's `d3d9.dll`. The moving grass was
 a separate mod, [comfygrass](https://github.com/aloofbit/comfygrass), until 2026-10-06. It is part of
-`comfyfog.dll` now.
+`comfyatmos.dll` now.
 
 ## Contents
 
@@ -46,7 +46,7 @@ a separate mod, [comfygrass](https://github.com/aloofbit/comfygrass), until 2026
 | **Grass** | The grass moves in the wind and leans away from your character as you walk through it. Each blade bends from its root. Rocks, pebbles, shells and bones stay still. Costs about 0.1 ms a frame. | on |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
 
-All settings are in `comfyfog.ini`. **F11 reloads it in game.**
+All settings are in `comfyatmos.ini`. **F11 reloads it in game.**
 
 [![Lamps along a Duskwood road at night, the effects off and then on. Click for the full video.](media/lamps-night.gif)](media/lamps-night.mp4)
 
@@ -63,27 +63,30 @@ Tested on a fresh OctoWoW client with no other mods:
 | | Tested with |
 | --- | --- |
 | Client | `WoW.exe` 1.12.1 (build 5875), 4812 KB, hash `c1d1205e0a984ca4` |
-| Launcher | VanillaFixes, with only `comfyfog.dll` in `dlls.txt` |
+| Launcher | VanillaFixes, with only `comfyatmos.dll` in `dlls.txt` |
 | DXVK | v2.7.1-1-gplasync, the `d3d9.dll` that comes with the client |
 | Data | 18 MPQs: the base archives, `patch.MPQ` and `patch-1` to `patch-5` |
 | Addons | ComfyAtmosphere and the client's Blizzard addons |
 | System | Windows 10 (build 19045), NVIDIA GeForce RTX 2080 Super, driver 576.28 |
 
-`/atmos probe` (or F12) writes a report of your client into `comfyfog.log`, under `client report`: the same
+`/atmos probe` (or F12) writes a report of your client into `comfyatmos.log`, under `client report`: the same
 parts, with a hash of each file and every DLL loaded. Compare it with this table.
 
 ## Install
 
 Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it (below).
 
-1. Copy `comfyfog.dll` and `comfyfog.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
-2. Add the line `comfyfog.dll` to `dlls.txt`.
-3. If `dlls.txt` has the line `comfygrass.dll`, remove it, and delete `comfygrass.dll`. `comfyfog.dll` draws the
+1. Copy `comfyatmos.dll` and `comfyatmos.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
+2. Add the line `comfyatmos.dll` to `dlls.txt`.
+3. If `dlls.txt` has the line `comfyfog.dll`, remove it, and delete `comfyfog.dll`: it is this mod under its old
+   name. While `comfyfog.dll` is loaded, `comfyatmos.dll` stays off. To keep values you changed in `comfyfog.ini`,
+   copy them into `comfyatmos.ini`. The controls you set in the game are kept: the game saves them.
+4. If `dlls.txt` has the line `comfygrass.dll`, remove it, and delete `comfygrass.dll`. `comfyatmos.dll` draws the
    grass now. While `comfygrass.dll` is loaded, its grass is drawn and the Grass controls do nothing.
-4. Delete the file `dlls.txt.cache`. VanillaFixes makes it again when it starts.
-5. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`. You can delete the
+5. Delete the file `dlls.txt.cache`. VanillaFixes makes it again when it starts.
+6. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`. You can delete the
    folder `Interface\AddOns\ComfyGrass`: **Foliage Density** is on the Grass tab now.
-6. Start the game with `VanillaFixes.exe`.
+7. Start the game with `VanillaFixes.exe`.
 
 ## In-game controls
 
@@ -93,7 +96,7 @@ own. Use the window on a client whose options window has no page for them.
 
 ![The comfyatmosphere controls in the /atmos options window: volumetric light, its strength, quality, density, distance and direction, lamp glow and lamp distance.](media/settings-example.png)
 
-| Control | Setting in `comfyfog.ini` |
+| Control | Setting in `comfyatmos.ini` |
 | --- | --- |
 | Atmosphere Effects | `[general] enabled`: every effect at once |
 | Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
@@ -134,9 +137,9 @@ own. Use the window on a client whose options window has no page for them.
 | Foliage Density | the game's own setting `frillDensity`: how much grass the game plants. It works without the DLL |
 
 A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
-the values from `comfyfog.ini` back.
+the values from `comfyatmos.ini` back.
 
-- A control you move wins over `comfyfog.ini`, also after F11.
+- A control you move wins over `comfyatmos.ini`, also after F11.
 - The **Volumetric Light** box also turns on `[depth]` and `[shadow]`, which the light needs.
 - **Sun Shadows** use the volumetric light's shadow map, so they need Volumetric Light on. While both are
   on, the game's round shadow under each character is off (the CVar `shadowLOD`). At logout it is set
@@ -158,18 +161,18 @@ the values from `comfyfog.ini` back.
   casts does not change.
 - **Grass** sways the grass the game plants. **Foliage Density** sets how much it plants: the game plants 64
   groups for each step, up to 8192, so above 128 nothing changes. Lower it for a higher frame rate.
-- **Volumetric Light Quality** at High uses the values in `comfyfog.ini`. Medium and Low replace two of
+- **Volumetric Light Quality** at High uses the values in `comfyatmos.ini`. Medium and Low replace two of
   them with cheaper values: fewer samples and a lower resolution for the light. If the frame rate drops
   with the light on, set it lower, or set Shadow Resolution lower or Shadow Redraw higher.
-- The addon needs `comfyfog.dll`. Without the DLL, it adds no controls.
-- The other settings stay in `comfyfog.ini`. Set them in game with `/atmos` (below).
+- The addon needs `comfyatmos.dll`. Without the DLL, it adds no controls.
+- The other settings stay in `comfyatmos.ini`. Set them in game with `/atmos` (below).
 
 The Atmosphere page needs the Turtle WoW options window, which builds its pages from a table the addon can
 add to. On another client, use `/atmos options`.
 
 ### /atmos
 
-`/atmos` reads and sets any value in `comfyfog.ini` from the game's chat. A change shows at once.
+`/atmos` reads and sets any value in `comfyatmos.ini` from the game's chat. A change shows at once.
 
 | Command | |
 | --- | --- |
@@ -177,15 +180,15 @@ add to. On another client, use `/atmos options`.
 | `/atmos options` | Open or close the settings window |
 | `/atmos debug` | Open or close the debug panel (below) |
 | `/atmos stats` | Show or hide the stats panel (below) |
-| `/atmos probe` | Log one frame to `comfyfog.log`, as F12 does |
+| `/atmos probe` | Log one frame to `comfyatmos.log`, as F12 does |
 | `/atmos bench` | Run the benchmark, as Alt+F12 does |
 | `/atmos framelog [seconds]` | Time every frame for that long (10), then log the slowest frames and our share of each |
 | `/atmos <section>` | Every value in a section |
 | `/atmos <section>.<key>` | One value, and where it came from |
 | `/atmos <section>.<key> <value>` | Set it. The key alone will do when no other section has it |
 | `/atmos list` | The values set with `/atmos` |
-| `/atmos reset` | Drop them. `comfyfog.ini` applies again |
-| `/atmos save` | Write them into `comfyfog.ini`. The comment on each line stays |
+| `/atmos reset` | Drop them. `comfyatmos.ini` applies again |
+| `/atmos save` | Write them into `comfyatmos.ini`. The comment on each line stays |
 
 A value set with `/atmos` stays until `reset` or `save`, also after F11. A value that a control on the
 Atmosphere page sets is refused: use the control.
@@ -194,7 +197,7 @@ Atmosphere page sets is refused: use the control.
 
 The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel:
 
-- **Probe** logs one frame to `comfyfog.log`, and a report of your client: the comfyfog version, WoW.exe, the
+- **Probe** logs one frame to `comfyatmos.log`, and a report of your client: the comfyatmos version, WoW.exe, the
   DLLs loaded, DXVK, the MPQs, the addons and the settings. The chat says when it is taken.
 - **Stats** shows a panel of figures, once a second: your position, the frame rate, the shadow casters held
   and what was added and dropped near you, and the fog.
@@ -203,17 +206,17 @@ The **Debug** button in the settings window, or `/atmos debug`, opens the debug 
 - **Debug view** `<` `>` shows one stage of an effect instead of the game.
 
 Probe, the stats and the debug panel can be put on keys: **Key Bindings > ComfyAtmosphere**. A screenshot with
-the stats on screen, and a probe at the same moment, is the best report of a fault. Send `comfyfog.log` with it.
+the stats on screen, and a probe at the same moment, is the best report of a fault. Send `comfyatmos.log` with it.
 The log has no account name, and your user folder shows as `%USERPROFILE%`.
 
 ## Keys
 
 | Key | |
 | --- | --- |
-| F11 | Reload `comfyfog.ini` |
+| F11 | Reload `comfyatmos.ini` |
 | Ctrl+F11 | Sun rays on / off |
 | Alt+F11 | Volumetric light on / off |
-| F12 | Log one frame of diagnostics to `comfyfog.log` |
+| F12 | Log one frame of diagnostics to `comfyatmos.log` |
 | Alt+F12 | Run the benchmark (below) |
 
 ## Benchmark
@@ -223,7 +226,7 @@ Alt+F12, or `/atmos bench`, measures what each feature costs on your computer. I
 1. Turn on the volumetric light and play for a minute, so its shadow cache fills as in normal play.
 2. Go outside in daylight. Stand still and face the sun.
 3. Press Alt+F12. Do not move the mouse until the chat says it is done.
-4. Open `comfyfog.log` in the client folder. The table is on the lines that start with `bench:`.
+4. Open `comfyatmos.log` in the client folder. The table is on the lines that start with `bench:`.
 
 It runs three steps: rays + volumetric light (with the fog), rays, and nothing. For each step the table
 gives:
@@ -250,7 +253,7 @@ cmake -B build -A Win32
 cmake --build build --config Release
 ```
 
-`comfyfog.dll` is written to the project root, next to `comfyfog.ini`.
+`comfyatmos.dll` is written to the project root, next to `comfyatmos.ini`.
 
 ## Caveats
 
@@ -263,7 +266,7 @@ cmake --build build --config Release
 
 - **Grass** changes two instructions of the game's grass code in memory, not in the `WoW.exe` file, so that
   each blade bends from its root and rocks stay still. On another `WoW.exe` the check fails and nothing is
-  changed: the grass still moves, but rocks move too, and `comfyfog.log` says so.
+  changed: the grass still moves, but rocks move too, and `comfyatmos.log` says so.
 
 [NOTES.md](NOTES.md) explains how it works, what was measured in the client, and what did not work.
 

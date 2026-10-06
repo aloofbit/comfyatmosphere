@@ -658,7 +658,7 @@ void GrassAttach(const GrassCalls& calls)
     g_otherDll = GetModuleHandleA("comfygrass.dll") != nullptr;
     if (g_otherDll)
         Log("grass: comfygrass.dll is loaded too, so its grass is drawn and ours stays off. Take its line out of "
-            "dlls.txt: comfyfog.dll draws the grass now.");
+            "dlls.txt: comfyatmos.dll draws the grass now.");
 }
 
 bool GrassDraw(IDirect3DDevice9* dev, const GrassDrawArgs& d, HRESULT& hr)

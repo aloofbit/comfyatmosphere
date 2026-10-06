@@ -1,7 +1,7 @@
 // sun: where the sun is and where the camera looks, for the shadow map and the volumetric light.
 //
 // The sun comes from the sky. The visible sun is a quad drawn in the sky, under a view whose translation is
-// the sun's camera-space position (comfyfog.cpp, NoteSkySun, hands each such quad to SunSetView). By day it
+// the sun's camera-space position (comfyatmos.cpp, NoteSkySun, hands each such quad to SunSetView). By day it
 // is the first draw of the frame. At night the sky draws two, the two moons, and the first one above the
 // horizon is taken (PickQuad). It is turned into a world direction against the frame's camera, which is
 // mirrored here from SetTransform.

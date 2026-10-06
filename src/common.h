@@ -1,4 +1,4 @@
-// Shared between the parts of comfyfog.dll.
+// Shared between the parts of comfyatmos.dll.
 #pragma once
 
 #include <windows.h>
