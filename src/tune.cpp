@@ -447,7 +447,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     else if (w.size() == 1 && Same(w[0], "probe"))
     {
         ProbeArm();
-        out.push_back("The next frame is logged to comfyatmos.log, as F12 does.");
+        out.push_back("The next frame is logged to Logs\\comfyatmos.log, as F12 does.");
     }
     else if (w.size() == 1 && Same(w[0], "bench"))
     {
@@ -458,7 +458,7 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     {
         const double seconds = w.size() == 2 ? atof(w[1].c_str()) : 10.0;
         FrameLogStart(seconds > 0.5 && seconds <= 120.0 ? seconds : 10.0);
-        out.push_back("Every frame is timed now. The slowest go to comfyatmos.log when it ends.");
+        out.push_back("Every frame is timed now. The slowest go to Logs\\comfyatmos.log when it ends.");
     }
     else if (w.size() == 1 && Same(w[0], "reset"))
     {

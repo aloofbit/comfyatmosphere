@@ -5,6 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-06
 
+- [The log in the Logs folder](2026-10-06-logs-folder.md): `Logs\comfyatmos.log`, and the benchmark's results
+  in the chat.
 - [Rain Darkness](2026-10-06-rain-darkness.md): a rainy night is no longer brighter than a clear one.
 - [Ship wake](2026-10-06-ship-wake.md): a ship under way leaves a wake. Off by default.
 - [A ridge under the sea](2026-10-06-ridge-under-the-sea.md): far terrain under the water no longer shows as a dark

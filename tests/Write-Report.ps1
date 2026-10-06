@@ -195,7 +195,10 @@ function IniDialog([string]$path, [string]$id) {
 
 function TestSystem([string]$settingsDialog = '', [string]$settingsText = '') {
     if (-not $Client) { return '' }
-    $log = Join-Path $Client 'comfyatmos.log'
+    # In the client's Logs folder since 2026-10-06, in the client folder before. The newest is the last run's.
+    $log = @('Logs\comfyatmos.log', 'comfyatmos.log') | ForEach-Object { Join-Path $Client $_ } | Where-Object { Test-Path $_ } |
+           Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+    if (-not $log) { return '' }
     if (-not (Test-Path $log)) { return '' }
     $lines = @(Get-Content $log -TotalCount 400)
     $last = { param($pat) @($lines | Where-Object { $_ -match $pat }) | Select-Object -Last 1 }

@@ -52,7 +52,7 @@ Tested on a fresh OctoWoW client with no other mods:
 | Addons | ComfyAtmosphere and the client's Blizzard addons |
 | System | Windows 10 (build 19045), NVIDIA GeForce RTX 2080 Super, driver 576.28 |
 
-`/atmos probe` (or F12) writes a report of your client into `comfyatmos.log`, under `client report`: the same
+`/atmos probe` (or F12) writes a report of your client into `Logs\comfyatmos.log`, under `client report`: the same
 parts, with a hash of each file and every DLL loaded. Compare it with this table.
 
 ## Install
@@ -81,7 +81,7 @@ Use `/atmos options` in game to enable/disable and tune features of the mod.
 | `/atmos options` | Open or close the settings window |
 | `/atmos debug` | Open or close the debug panel (below) |
 | `/atmos stats` | Show or hide the stats panel (below) |
-| `/atmos probe` | Log one frame to `comfyatmos.log`, as F12 does |
+| `/atmos probe` | Log one frame to `Logs\comfyatmos.log`, as F12 does |
 | `/atmos bench` | Run the benchmark, as Alt+F12 does |
 | `/atmos framelog [seconds]` | Time every frame for that long (10), then log the slowest frames and our share of each |
 | `/atmos <section>` | Every value in a section |
@@ -107,12 +107,12 @@ The **Debug** button in the settings window, or `/atmos debug`, opens the debug 
 | F11 | Reload `comfyatmos.ini` |
 | Ctrl+F11 | Sun rays on / off |
 | Alt+F11 | Volumetric light on / off |
-| F12 | Log one frame of diagnostics to `comfyatmos.log` |
+| F12 | Log one frame of diagnostics to `Logs\comfyatmos.log` |
 | Alt+F12 | Run the benchmark (below) |
 
 ## Benchmark
 
-Alt+F12, or `/atmos bench`, measures what each feature costs on your computer. It takes 30 seconds. Writes results to comfyatmos.log
+Alt+F12, or `/atmos bench`, measures what each feature costs on your computer. It takes 40 seconds. Writes results to the chat and to `Logs\comfyatmos.log`
 
 ## Build
 

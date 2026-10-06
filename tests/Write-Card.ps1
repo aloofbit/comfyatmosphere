@@ -53,8 +53,10 @@ foreach ($e in ($h | Where-Object { $_.test -eq 'frame-rate-performance' -and $_
 # The GPU, from the client's log.
 $gpu = ''
 if ($Client) {
-    $log = Join-Path $Client 'comfyatmos.log'
-    if (Test-Path $log) {
+    # In the client's Logs folder since 2026-10-06, in the client folder before. The newest is the last run's.
+    $log = @('Logs\comfyatmos.log', 'comfyatmos.log') | ForEach-Object { Join-Path $Client $_ } | Where-Object { Test-Path $_ } |
+           Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+    if ($log) {
         $lines = @(Get-Content $log -TotalCount 400)
         $g = @($lines | Where-Object { $_ -match '^graphics: ' }) | Select-Object -Last 1
         if ($g -match '^graphics: (.+?) \(vendor') { $gpu = $Matches[1] -replace '^NVIDIA GeForce ', 'GeForce ' }

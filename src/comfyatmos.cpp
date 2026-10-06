@@ -839,7 +839,7 @@ namespace
             {
                 g_probe.armed = true;
                 ReportStart("F12");
-                CVarsNotice("Probe taken. The frame goes to comfyatmos.log. Stand still for a second while the lamps are logged.");
+                CVarsNotice("Probe taken. The frame goes to Logs\\comfyatmos.log. Stand still for a second while the lamps are logged.");
             }
         }
         g_probeDown = probe;
@@ -2334,8 +2334,9 @@ namespace
             return 0;
         // The shaders' worker (2026-10-06): every pass's shader compiled or read from comfyatmos-cache\ now, while the
         // client is at its login screen, not in the world's first frames (11 s of compiles, two frames of 5 and 7 s).
+        // Beside the ini, in the client folder: the log is in Logs\ since 2026-10-06, and the cache stays put.
         wchar_t dir[MAX_PATH];
-        wcscpy_s(dir, g_logPath);
+        wcscpy_s(dir, g_iniPath);
         wchar_t* slash = wcsrchr(dir, L'\\') + 1;
         wcscpy_s(slash, MAX_PATH - (slash - dir), L"comfyatmos-cache");
         ShaderCacheStart(dir);
@@ -2387,9 +2388,18 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                            reinterpret_cast<LPCWSTR>(&g_lock), &pin);
         const bool oldIni = ResolveIniPath(self, g_iniPath, MAX_PATH);
+        // The log goes in the client's Logs folder, with the game's own chat and combat logs (2026-10-06, the
+        // owner); the client folder holds it only when Logs cannot be made. One left in the client folder by an
+        // older version is deleted, so nothing reads it as this run's.
         wcscpy_s(g_logPath, g_iniPath);
         wchar_t* logName = wcsrchr(g_logPath, L'\\') + 1;
         wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"comfyatmos.log");
+        DeleteFileW(g_logPath);
+        wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"Logs");
+        if (CreateDirectoryW(g_logPath, nullptr) || GetLastError() == ERROR_ALREADY_EXISTS)
+            wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"Logs\\comfyatmos.log");
+        else
+            wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"comfyatmos.log");
         DeleteFileW(g_logPath);
         LoadSettings(g_iniPath);
         CVarsAfterLoad();

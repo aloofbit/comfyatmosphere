@@ -2399,7 +2399,7 @@ local function DebugBuild()
 	hint:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -132);
 	hint:SetWidth(272);
 	hint:SetJustifyH("LEFT");
-	hint:SetText("Probe writes to comfyatmos.log.");
+	hint:SetText("Probe writes to Logs\\comfyatmos.log.");
 	f:SetHeight(132 + hint:GetHeight() + 14);
 	return f;
 end

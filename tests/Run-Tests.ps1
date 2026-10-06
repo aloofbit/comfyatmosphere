@@ -90,11 +90,20 @@ $takesFocus = @($files | Where-Object { (Test-Path $_) -and ((Get-Content $_ -Ra
 if ($takesFocus.Count) {
     Write-Host "NOTE: $($takesFocus -join ', ') brings the game window to the front while it measures (behind other windows it holds 60 fps). Do not type in another window during it." -ForegroundColor Yellow
 }
-$log = Join-Path $Client 'comfyatmos.log'
+# comfyatmos.log: in the client's Logs folder since 2026-10-06, in the client folder before. The newest is this
+# run's; looked for again before each test, as a restart can move it.
+function ClientLog {
+    $found = @('Logs\comfyatmos.log', 'comfyatmos.log') | ForEach-Object { Join-Path $Client $_ } | Where-Object { Test-Path $_ } |
+             Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+    if ($found) { return $found }
+    return (Join-Path $Client 'Logs\comfyatmos.log')
+}
+$log = ClientLog
 # The DLL a test ran on (2026-10-06): the client's log names it, and a test may restart the client, so it is read
 # after each test. It goes into each record and each number, so the README's results card names a version only
 # when every result came from that one.
 function DllVersion {
+    $log = ClientLog
     if (-not (Test-Path $log)) { return '' }
     $m = Select-String -Path $log -Pattern '^comfyatmos: (v[^,]+),' | Select-Object -Last 1
     if ($m) { return $m.Matches[0].Groups[1].Value }
@@ -351,6 +360,7 @@ foreach ($file in $files) {
     $script = Join-Path $resultsDir "$stamp-$($t.name).script.txt"
     [IO.File]::WriteAllText($script, ($lines -join "`r`n") + "`r`n")
 
+    $log = ClientLog
     $logStart = if ($restarted) { 0 } elseif (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
     $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String

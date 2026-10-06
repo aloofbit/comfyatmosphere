@@ -23,7 +23,10 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $tool = (Resolve-Path (Join-Path $here '..\..\..\tools\wow-test-tool')).Path
 if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client at the test client.' }
-$log = Join-Path $Client 'comfyatmos.log'
+# comfyatmos.log: in the client's Logs folder since 2026-10-06, in the client folder before. The newest is this run's.
+$log = @('Logs\comfyatmos.log', 'comfyatmos.log') | ForEach-Object { Join-Path $Client $_ } | Where-Object { Test-Path $_ } |
+       Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+if (-not $log) { $log = Join-Path $Client 'Logs\comfyatmos.log' }
 
 $script = Join-Path $env:TEMP 'comfy-snapshot.txt'
 [IO.File]::WriteAllText($script, "pos snapshot`r`nlook`r`natmos probe`r`nwait 3`r`n")

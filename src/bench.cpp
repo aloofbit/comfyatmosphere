@@ -365,7 +365,31 @@ namespace
             Log("bench: the frame rate did not change between the steps, so it is capped (vsync or a frame "
                 "limiter). Compare the GPU and CPU columns, or turn the cap off and run it again.");
         Log("bench: done. The settings are back as they were.");
-        CVarsNotice("Benchmark done. The results are in comfyatmos.log.");
+
+        // The results in the chat (2026-10-06, the owner): the frame rate with every effect and with none, what the
+        // effects take a frame, and each part's GPU time. The table and the rest stay in the log.
+        const Result& none = g_results[kStepCount - 1];
+        char line[256];
+        _snprintf_s(line, sizeof(line), _TRUNCATE,
+                    "Benchmark done. %.0f fps with every effect, %.0f fps with none: the effects take %.1f ms a "
+                    "frame. Slowest 1%%: %.1f ms.", all.fps, none.fps, all.msAvg - none.msAvg, all.msSlow);
+        CVarsNotice(line);
+        if (!g_queriesFailed)
+        {
+            _snprintf_s(line, sizeof(line), _TRUNCATE,
+                        "On the GPU, a frame: shadow map %.1f ms, light and fog %.1f ms, sun shadows %.1f ms, "
+                        "rays %.1f ms, lamps %.1f ms.", all.gpuMs[kBenchShadow], all.gpuMs[kBenchVolume],
+                        all.gpuMs[kBenchSunShadows], all.gpuMs[kBenchRays], all.gpuMs[kBenchLamps]);
+            CVarsNotice(line);
+        }
+        if (rays.frames && rays.ran[kBenchRays] < rays.frames / 2)
+            CVarsNotice("The rays did not draw for most of the run. Face the sun and run it again.");
+        if (all.frames && all.ran[kBenchVolume] < all.frames / 2)
+            CVarsNotice("The light did not draw for most of the run. It does not draw at night or indoors.");
+        if (hi > 0.0 && (hi - lo) / hi < 0.02)
+            CVarsNotice("The frame rate is capped (vsync or a frame limiter), so the fps above do not show the cost. "
+                        "Turn the cap off and run it again.");
+        CVarsNotice("The full table is in Logs\\comfyatmos.log.");
     }
 
     void Finish()
@@ -727,7 +751,7 @@ void FrameLogFrame(double frameSeconds)
         CalibrateEnd();
         ShadowTiming(false);
         FrameLogReport();
-        CVarsNotice("Frame log done. The results are in comfyatmos.log.");
+        CVarsNotice("Frame log done. The results are in Logs\\comfyatmos.log.");
     }
 }
 
