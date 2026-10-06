@@ -15,3 +15,5 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
   the shadow cache.
 - [No freeze at sign-in](2026-10-06-shader-cache.md): shaders compile in the background and are kept on disk.
 - [Test tools](2026-10-06-test-tools.md): the login no longer hangs, and a test can fly over deep water.
+- [Performance tests](2026-10-06-performance-tests.md): load-performance and frame-rate-performance, and the
+  Performance panel at the top of the test page.

@@ -106,11 +106,15 @@ namespace
     double         g_compileMsFrame = 0.0, g_compileMsAll = 0.0;
     unsigned       g_compilesFrame = 0, g_compilesAll = 0;
     std::string    g_compileNames;   // this frame's, for its line
+    double         g_firstWorld = 0.0;   // the first frame with the world (Now())
+    double         g_effectsAt = 0.0;    // the first compile the game's thread asked for after it: the effects start
 
     HRESULT WINAPI TimedCompile(LPCVOID src, SIZE_T size, LPCSTR name, const void* defines, void* include, LPCSTR entry,
                                 LPCSTR target, UINT f1, UINT f2, OgBlob** code, OgBlob** errs)
     {
         const double t0 = Now();
+        if (g_firstWorld > 0.0 && g_effectsAt == 0.0)
+            g_effectsAt = t0;
         const HRESULT hr = ShaderCacheCompile(g_realCompile, src, size, name, defines, include, entry, target, f1, f2,
                                               code, errs);   // the cache and its worker (shadercache.cpp)
         const double ms = (Now() - t0) * 1000.0;
@@ -147,8 +151,9 @@ FARPROC CompilerProc(const char* name)
 // At each Present: the frame's time, and for the first 90 s with the world drawn every frame over 40 ms.
 static void StartupFrame(bool world)
 {
-    static double last = 0.0, firstWorld = 0.0, lastSlow = 0.0, worst = 0.0;
-    static unsigned frames = 0, slow = 0;
+    static double last = 0.0, lastSlow = 0.0, worst = 0.0, worstAfter = 0.0;
+    static unsigned frames = 0, slow = 0, slowAfter = 0;
+    double& firstWorld = g_firstWorld;
     static bool done = false;
     const double now = Now();
     const double ms = last > 0.0 ? (now - last) * 1000.0 : 0.0;
@@ -167,6 +172,11 @@ static void StartupFrame(bool world)
             ++slow;
             lastSlow = now;
             worst = (std::max)(worst, ms);
+            if (g_effectsAt > 0.0)
+            {
+                ++slowAfter;
+                worstAfter = (std::max)(worstAfter, ms);
+            }
             Log("startup: world frame %u at %.2f s took %.0f ms; %u compiles in it, %.0f ms%s%s%s", frames,
                 now - firstWorld, ms, g_compilesFrame, g_compileMsFrame, g_compileNames.empty() ? "" : " (",
                 g_compileNames.c_str(), g_compileNames.empty() ? "" : ")");
@@ -174,9 +184,12 @@ static void StartupFrame(bool world)
         if (now - firstWorld > 90.0)
         {
             done = true;
+            // The effects' own start (2026-10-06, for tests\load-performance): the frames before it are the game
+            // loading the world, with nothing of ours in them.
             Log("startup: 90 s in the world: %u frames, %u over 40 ms (the worst %.0f ms), the last at %.1f s; %u shaders "
-                "compiled in all, %.0f ms", frames, slow, worst, lastSlow > 0.0 ? lastSlow - firstWorld : 0.0,
-                g_compilesAll, g_compileMsAll);
+                "compiled in all, %.0f ms; the effects started at %.1f s, the worst frame from then %.0f ms, %u over 40 ms",
+                frames, slow, worst, lastSlow > 0.0 ? lastSlow - firstWorld : 0.0, g_compilesAll, g_compileMsAll,
+                g_effectsAt > 0.0 ? g_effectsAt - firstWorld : 0.0, worstAfter, slowAfter);
         }
     }
     g_compileMsFrame = 0.0;

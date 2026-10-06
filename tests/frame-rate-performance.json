@@ -1,0 +1,387 @@
+{
+    "name": "frame-rate-performance",
+    "about": "Measures the frame rate at three places, 10 seconds each, with fixed test settings and a fixed sun, then again with every effect off, to show what the effects cost: Stormwind's harbour (water, ships, shadows), Elwynn's ridges (trees and shade) and the road outside Ironforge's gate (lamps and fog). Checks at each place: at least 50 frames a second and the slowest 1% of frames at most 40 ms. Recorded: the mod's CPU time a frame, and the frame rate without effects. The game window must be in front: behind other windows the game holds 60 frames a second, so the test brings it to the front for each measurement and gives the focus back after.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "cameraZoom": 0,
+        "start": {
+            "map": 0,
+            "x": -8625,
+            "y": 1328.9,
+            "z": 5.6,
+            "facing": 36.9,
+            "about": "Stormwind's harbour, on the dock (as stormwind-harbour-ridge)"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 45
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 25,
+            "comfyClouds": 0,
+            "comfyRays": 1,
+            "comfyRaysStrength": 40,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 25,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 0,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 1,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 16,
+            "comfyVolumeDistance": 190,
+            "comfyVolumeDirection": 70,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 60,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 40,
+            "comfyMoonlight": 65,
+            "comfyMist": 1,
+            "comfyMistDensity": 25,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 120,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 200,
+            "comfyMistSky": 75,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 100,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 1,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 0,
+            "comfyWaveSize": 50,
+            "comfyWater": 1,
+            "comfyWaterColour": 10,
+            "comfyWaterClarity": 400,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 0,
+            "comfyWaterCover": 75,
+            "comfyWaterWake": 80,
+            "comfyWaterFoam": 35,
+            "comfyWaterSwash": 1,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 10,
+            "comfyWaterEdgeWidth": 1,
+            "comfyWaterBright": 70,
+            "comfyWaterRippleDepth": 100,
+            "comfyWaterSwashHeight": 100,
+            "comfyWaterSwashLength": 50,
+            "comfyWaterSwashSpeed": 30,
+            "comfyDaySaturation": 100,
+            "comfyNightSaturation": 75,
+            "comfyColor": 1,
+            "comfyWaterRippleMoving": 340,
+            "comfyWaterRippleSpread": 50,
+            "comfyWaterRippleSpreadMoving": 70,
+            "comfyWaterFoamDrawn": 1,
+            "comfyWaterFoamSize": 3,
+            "comfyWaterFoamReach": 25,
+            "comfyWaterOpenFoam": 0,
+            "comfyWaterOpenFoamAmount": 0,
+            "comfyWaterFoamEdge": 0,
+            "comfyWaterWakeFoam": 0,
+            "comfyWaterObjectFoam": 60,
+            "comfyWaterObjectFoamWidth": 8,
+            "comfyWaterLakeSwash": 75,
+            "comfyWaterLakeFoam": 15,
+            "comfyWaterLakeWaves": 0,
+            "comfyWaterRain": 80,
+            "comfyLighthouses": 1,
+            "comfyLighthouseBeam": 80,
+            "comfyLighthouseBeacon": 200,
+            "comfyLighthouseLength": 425,
+            "comfyLighthouseWidth": 8,
+            "comfyLighthouseSpread": 75,
+            "comfyLighthouseSpeed": 20,
+            "comfyLighthouseTwoBeams": 0,
+            "comfyLighthouseGlint": 200,
+            "comfyLighthouseFace": 110,
+            "comfyLighthouseFaceTilt": 90,
+            "comfyLighthouseFaceSoft": 100,
+            "comfyLighthouseWaterWidth": 185,
+            "comfyRainDarkness": 20,
+            "comfyWaterShipWake": 0,
+            "comfyWaterShipForward": 0,
+            "comfyWaterShipDepth": 0
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": 36.9,
+                "pitch": -12.4
+            }
+        },
+        {
+            "wait": 8
+        },
+        {
+            "gameFront": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "atmos": "framelog 10"
+        },
+        {
+            "wait": 13
+        },
+        {
+            "gameBack": true
+        },
+        {
+            "cvar": "comfyAtmosphere 0"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "gameFront": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "atmos": "framelog 10"
+        },
+        {
+            "wait": 13
+        },
+        {
+            "gameBack": true
+        },
+        {
+            "cvar": "comfyAtmosphere 1"
+        },
+        {
+            "go": {
+                "x": -9416.7,
+                "y": -2248,
+                "z": 67.8,
+                "facing": 53
+            }
+        },
+        {
+            "face": {
+                "heading": 53,
+                "pitch": 11.7
+            }
+        },
+        {
+            "wait": 8
+        },
+        {
+            "gameFront": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "atmos": "framelog 10"
+        },
+        {
+            "wait": 13
+        },
+        {
+            "gameBack": true
+        },
+        {
+            "cvar": "comfyAtmosphere 0"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "gameFront": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "atmos": "framelog 10"
+        },
+        {
+            "wait": 13
+        },
+        {
+            "gameBack": true
+        },
+        {
+            "cvar": "comfyAtmosphere 1"
+        },
+        {
+            "go": {
+                "x": -5037.5,
+                "y": -816.6,
+                "z": 495.1
+            }
+        },
+        {
+            "face": {
+                "heading": -51.5,
+                "pitch": -12
+            }
+        },
+        {
+            "wait": 8
+        },
+        {
+            "gameFront": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "atmos": "framelog 10"
+        },
+        {
+            "wait": 13
+        },
+        {
+            "gameBack": true
+        },
+        {
+            "cvar": "comfyAtmosphere 0"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "gameFront": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "atmos": "framelog 10"
+        },
+        {
+            "wait": 13
+        },
+        {
+            "gameBack": true
+        },
+        {
+            "cvar": "comfyAtmosphere 1"
+        }
+    ],
+    "expect": [
+        {
+            "about": "Harbour, frames a second",
+            "log": "^framelog: \\d+ frames over [\\d.]+ s: [\\d.]+ ms a frame \\(([\\d.]+) fps\\)",
+            "at": 1,
+            "min": 50,
+            "metric": "Harbour fps",
+            "unit": "fps"
+        },
+        {
+            "about": "Harbour, the slowest 1% of frames",
+            "log": "^framelog: \\d+ frames over .*slowest 1% ([\\d.]+) ms",
+            "at": 1,
+            "max": 40,
+            "metric": "Harbour slowest 1%",
+            "unit": "ms"
+        },
+        {
+            "about": "Harbour, our CPU time a frame",
+            "log": "^framelog: our CPU a frame ([\\d.]+) ms",
+            "at": 1,
+            "metric": "Harbour our CPU",
+            "unit": "ms"
+        },
+        {
+            "about": "Harbour, frames a second with every effect off",
+            "log": "^framelog: \\d+ frames over [\\d.]+ s: [\\d.]+ ms a frame \\(([\\d.]+) fps\\)",
+            "at": 2,
+            "metric": "Harbour fps without effects",
+            "unit": "fps"
+        },
+        {
+            "about": "Elwynn, frames a second",
+            "log": "^framelog: \\d+ frames over [\\d.]+ s: [\\d.]+ ms a frame \\(([\\d.]+) fps\\)",
+            "at": 3,
+            "min": 50,
+            "metric": "Elwynn fps",
+            "unit": "fps"
+        },
+        {
+            "about": "Elwynn, the slowest 1% of frames",
+            "log": "^framelog: \\d+ frames over .*slowest 1% ([\\d.]+) ms",
+            "at": 3,
+            "max": 40,
+            "metric": "Elwynn slowest 1%",
+            "unit": "ms"
+        },
+        {
+            "about": "Elwynn, our CPU time a frame",
+            "log": "^framelog: our CPU a frame ([\\d.]+) ms",
+            "at": 3,
+            "metric": "Elwynn our CPU",
+            "unit": "ms"
+        },
+        {
+            "about": "Elwynn, frames a second with every effect off",
+            "log": "^framelog: \\d+ frames over [\\d.]+ s: [\\d.]+ ms a frame \\(([\\d.]+) fps\\)",
+            "at": 4,
+            "metric": "Elwynn fps without effects",
+            "unit": "fps"
+        },
+        {
+            "about": "Ironforge, frames a second",
+            "log": "^framelog: \\d+ frames over [\\d.]+ s: [\\d.]+ ms a frame \\(([\\d.]+) fps\\)",
+            "at": 5,
+            "min": 50,
+            "metric": "Ironforge fps",
+            "unit": "fps"
+        },
+        {
+            "about": "Ironforge, the slowest 1% of frames",
+            "log": "^framelog: \\d+ frames over .*slowest 1% ([\\d.]+) ms",
+            "at": 5,
+            "max": 40,
+            "metric": "Ironforge slowest 1%",
+            "unit": "ms"
+        },
+        {
+            "about": "Ironforge, our CPU time a frame",
+            "log": "^framelog: our CPU a frame ([\\d.]+) ms",
+            "at": 5,
+            "metric": "Ironforge our CPU",
+            "unit": "ms"
+        },
+        {
+            "about": "Ironforge, frames a second with every effect off",
+            "log": "^framelog: \\d+ frames over [\\d.]+ s: [\\d.]+ ms a frame \\(([\\d.]+) fps\\)",
+            "at": 6,
+            "metric": "Ironforge fps without effects",
+            "unit": "fps"
+        }
+    ]
+}

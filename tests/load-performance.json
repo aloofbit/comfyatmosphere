@@ -1,0 +1,57 @@
+{
+    "name": "load-performance",
+    "about": "Measures signing in. The client restarts at Stormwind's harbour, and comfyfog.dll times the first 90 seconds in the world. Before the shader cache, 44 shader compiles took 11.1 s on the game's thread and froze two frames for 5.2 and 7.0 s. Checks: the compiling left on the game's thread (at most 100 ms), the longest frame once the effects start (at most 1.5 s), and the frames over 40 ms after it (at most 12). Recorded: when the effects start, and the shader worker's time.",
+    "config": {
+        "character": 1,
+        "restart": true,
+        "flight": false,
+        "start": {
+            "map": 0,
+            "x": -8625,
+            "y": 1328.9,
+            "z": 5.6,
+            "facing": 36.9,
+            "about": "Stormwind's harbour, on the dock (as stormwind-harbour-ridge)"
+        }
+    },
+    "steps": [
+        {
+            "wait": 95
+        }
+    ],
+    "expect": [
+        {
+            "about": "Compiling on the game's thread at sign-in",
+            "log": "^startup: 90 s in the world: .* shaders compiled in all, (\\d+) ms",
+            "max": 100,
+            "metric": "Compiling on the game's thread",
+            "unit": "ms"
+        },
+        {
+            "about": "The worst frame once the effects start",
+            "log": "the worst frame from then (\\d+) ms",
+            "max": 1500,
+            "metric": "Worst frame as the effects start",
+            "unit": "ms"
+        },
+        {
+            "about": "Frames over 40 ms once the effects start",
+            "log": "the worst frame from then \\d+ ms, (\\d+) over 40 ms",
+            "max": 12,
+            "metric": "Slow frames as the effects start",
+            "unit": ""
+        },
+        {
+            "about": "When the effects start after the first world frame",
+            "log": "the effects started at ([\\d.]+) s",
+            "metric": "Effects start after the world",
+            "unit": "s"
+        },
+        {
+            "about": "The shader worker's time, from the DLL's start",
+            "log": "^shaders: the worker is done: .* in (\\d+) ms",
+            "metric": "Shader worker",
+            "unit": "ms"
+        }
+    ]
+}

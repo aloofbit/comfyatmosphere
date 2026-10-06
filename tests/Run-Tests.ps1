@@ -17,6 +17,8 @@
     start       { map, x, y, z }: where the test begins, by .go xyz
     flightFrom  { x, y, z }: with flight, where it is turned on, on land, before the start (2026-10-06): a start in
                 the air over deep water dropped the character into the water, where the ground wait never ends
+    restart     true: the client is restarted and signed in before the test (at the start, when there is one), and
+                the test's log checks read the whole log since the client started (2026-10-06, load-performance)
     sun         { azimuth, elevation } in degrees: a fixed sun ([sun] fixed), the same light every run
     ini         { "section.key": value, ... }: comfyfog.ini values for this test, by /atmos. /atmos reset runs
                 before and after, so nothing stays set
@@ -31,6 +33,9 @@
     record { seconds, label } (a video without the UI, by ffmpeg, shown on the page and played at once),
     pos, atmos "<words>", cvar "<name> <value>", chat "<text>". Where the character is (from comfyfog.dll's
     comfyStats CVar) goes into the result after the start and after each fly, back and turn.
+    go { x, y, z, facing, map } (2026-10-06): to another place within the test, by .go xyz, waiting until there.
+    gameFront, gameBack (2026-10-06): the game to the front for the steps between (a frame log: behind other windows the
+    game holds 60 frames a second), then the focus back to the window that had it.
 
   Expect, each checked against the last probe:
     probe   a pattern (a regular expression) for lines of the probe
@@ -41,6 +46,12 @@
     row     a row of pixels, from the top, and from, to: the columns along it (every 4th is read)
     min     no pixel's brightness (0..255, the mean of red, green and blue) under this
     mean    the row's average brightness at least this
+  or against comfyfog.log (2026-10-06, the performance tests):
+    log     a pattern with one number in brackets, read from this run's lines (the whole log after a restart)
+    at      which match, from 1; the last when left out
+    max     the number at most; min the number at least; neither, and it is only recorded
+    metric  a name: the number goes into results\perf-history.json, which the page's Performance panel reads
+    unit    for the page: ms, fps
   or against a box of a screenshot:
     shot    which one, from 1
     box     [ left, top, right, bottom ] in pixels (every 2nd row is read)
@@ -73,12 +84,19 @@ New-Item -ItemType Directory -Force $resultsDir | Out-Null
 if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client at the test client.' }
 
 $files = if ($Name) { $Name | ForEach-Object { Join-Path $here "$_.json" } } else { Get-ChildItem $here -Filter *.json | ForEach-Object { $_.FullName } }
+# A test that brings the game to the front (front, back: the frame-rate test) takes the focus from the window in
+# front while it measures (2026-10-06, the owner: say so whenever it runs). Typing elsewhere then goes into the game.
+$takesFocus = @($files | Where-Object { (Test-Path $_) -and ((Get-Content $_ -Raw) -match '"gameFront"\s*:') } | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) })
+if ($takesFocus.Count) {
+    Write-Host "NOTE: $($takesFocus -join ', ') brings the game window to the front while it measures (behind other windows it holds 60 fps). Do not type in another window during it." -ForegroundColor Yellow
+}
 $log = Join-Path $Client 'comfyfog.log'
 $summary = @()
 # One login for the whole run (2026-10-04): a login a test cost about a minute each. Another login only for a
 # test that wants another character. Flight is read before each test (2026-10-05, wow-test-tool's flight on and
 # flight off, from comfytest.dll): a toggle the runner kept track of lost step, and a test started with it off.
 $loggedAs = $null
+$metrics = @()   # the performance tests' numbers this run (2026-10-06), for results\perf-history.json
 $runStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $runStarted = Get-Date
 $expectedDir = Join-Path $here 'expected'
@@ -106,7 +124,21 @@ foreach ($file in $files) {
     Write-Host "=== $($t.name) ==="
 
     $slot = if ($cfg.character) { [int]$cfg.character } else { 1 }
-    if (-not $NoLogin -and $loggedAs -ne $slot) {
+    $restarted = $false
+    if ($cfg.restart) {
+        # A fresh start (2026-10-06, load-performance): to the start first, so the world the client loads at the
+        # sign-in is the same each run, then the client closed and started again.
+        if ($cfg.start -and ($NoLogin -or $null -ne $loggedAs)) {
+            $go = Join-Path $resultsDir "$stamp-$($t.name)-before.script.txt"
+            [IO.File]::WriteAllText($go, (@('flight off', "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)",
+                "arrive $($cfg.start.x) $($cfg.start.y) $($cfg.start.z)", 'wait 2') -join "`r`n") + "`r`n")
+            & (Join-Path $tool 'Run-Test.ps1') $go -Client $Client 6>&1 | Out-Null
+        }
+        & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
+        $loggedAs = $slot
+        $restarted = $true
+    }
+    elseif (-not $NoLogin -and $loggedAs -ne $slot) {
         & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
         $loggedAs = $slot
     }
@@ -268,6 +300,14 @@ foreach ($file in $files) {
             'atmos'      { $lines += "atmos $v" }
             'cvar'       { $lines += "cvar $v"; if ("$v" -match '^comfyDebugView\s+(\d+)') { $view = [int]$Matches[1] } }
             'chat'       { $lines += "chat $v" }
+            'gameFront'  { $lines += 'front' }   # the game to the front, for a frame log: behind other windows it holds 60 fps (2026-10-06)
+            'gameBack'   { $lines += 'back' }    # the focus back to the window that had it (not 'back', which walks backwards)
+            'go'         {   # another place within the test (2026-10-06): .go xyz, then until the character is there
+                $map = if ($null -ne $v.map) { $v.map } elseif ($cfg.start) { $cfg.start.map } else { 0 }
+                $lines += "chat .go xyz $($v.x) $($v.y) $($v.z) $map"
+                $lines += "arrive $($v.x) $($v.y) $($v.z)"
+                if ($null -ne $v.facing) { $lines += "heading $($v.facing)" }
+            }
             'type'       { $lines += "type $v" }
             'target'      { $lines += "target $v" }   # the unit with that exact name, as /target (ComfyTest)
             'clearTarget' { $lines += 'cleartarget' }
@@ -296,7 +336,7 @@ foreach ($file in $files) {
     $script = Join-Path $resultsDir "$stamp-$($t.name).script.txt"
     [IO.File]::WriteAllText($script, ($lines -join "`r`n") + "`r`n")
 
-    $logStart = if (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
+    $logStart = if ($restarted) { 0 } elseif (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
     $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String
     $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|arrive|face|heading|pitch) ' })
@@ -332,6 +372,31 @@ foreach ($file in $files) {
     $checks = @()   # for the page: each check, whether it passed, and the screenshot it read (0: the probe)
     $pass = $true
     foreach ($e in $t.expect) {
+        if ($null -ne $e.log) {
+            # A number from the log (2026-10-06, the performance tests): the nth or the last match in this run.
+            $ms = @($new | ForEach-Object { $m = [regex]::Match($_, $e.log); if ($m.Success) { $m } })
+            $k = if ($null -ne $e.at) { [int]$e.at } else { $ms.Count }
+            if ($k -lt 1 -or $k -gt $ms.Count) {
+                $results += "FAIL  no line $k for: $($e.about) ($($ms.Count) found)"
+                $checks += [pscustomobject]@{ ok = $false; about = $e.about; got = "no line $k in the log ($($ms.Count) found)"; shot = 0 }
+                $pass = $false; continue
+            }
+            $value = [double]::Parse($ms[$k - 1].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+            $unit = if ($e.unit) { " $($e.unit)" } else { '' }
+            $ok = ($null -eq $e.max -or $value -le [double]$e.max) -and ($null -eq $e.min -or $value -ge [double]$e.min)
+            $want = @()
+            if ($null -ne $e.max) { $want += "at most $($e.max)$unit" }
+            if ($null -ne $e.min) { $want += "at least $($e.min)$unit" }
+            $wantText = if ($want.Count) { " ($($want -join ' and '))" } else { ' (recorded only)' }
+            if (-not $ok) { $pass = $false }
+            $results += ('{0}  {1}: {2}{3}{4}' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $value, $unit, $wantText)
+            $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('{0}{1}{2}' -f $value, $unit, $wantText); shot = 0 }
+            if ($e.metric) {
+                $metrics += [pscustomobject]@{ stamp = $stamp; test = $t.name; metric = $e.metric; value = $value
+                    unit = "$($e.unit)"; max = $e.max; min = $e.min; ok = $ok }
+            }
+            continue
+        }
         if ($null -ne $e.shot -and $null -ne $e.box) {
             # A box of a screenshot (2026-10-04): how much of it jumps from one pixel to the next. Counting
             # half-grey pixels missed speckle that came as hard black and white dots.
@@ -458,9 +523,19 @@ $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-end.s
 [IO.File]::WriteAllText($script, ($end -join "`r`n") + "`r`n")
 & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null
 
+# The performance history (2026-10-06): every number a check records, kept across runs, for the page's panel.
+$historyFile = Join-Path $resultsDir 'perf-history.json'
+if ($metrics.Count) {
+    $old = @()
+    # Unrolled: Windows PowerShell's ConvertFrom-Json gives a JSON array as one object.
+    if (Test-Path $historyFile) { $old = @((Get-Content $historyFile -Raw | ConvertFrom-Json) | ForEach-Object { $_ }) }
+    $all = @($old) + @($metrics)
+    [IO.File]::WriteAllText($historyFile, (ConvertTo-Json -InputObject $all -Depth 4), (New-Object Text.UTF8Encoding $false))
+}
+
 # The page (2026-10-04): every test, its checks, and each screenshot beside the expected one.
 & (Join-Path $here 'Write-Report.ps1') -Records $records -Page (Join-Path $resultsDir "$runStamp-report.html") `
-    -ExpectedDir $expectedDir -ViewNames $viewNames -Started $runStarted
+    -ExpectedDir $expectedDir -ViewNames $viewNames -Started $runStarted -History $historyFile -Client $Client
 # The same page as results\last-results.html (2026-10-05): a tab kept open on it shows the newest run when
 # refreshed. Its links are relative to results\, so the copy works there unchanged.
 Copy-Item (Join-Path $resultsDir "$runStamp-report.html") (Join-Path $resultsDir 'last-results.html') -Force
