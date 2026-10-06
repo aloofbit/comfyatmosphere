@@ -9,7 +9,7 @@ Atmosphere mod the World of Warcraft 1.12 client. Volumetric lighting, fog, shad
 
 https://github.com/user-attachments/assets/67551de4-3ee5-4ea1-83ed-b72592bfce1d
 
-## Testing and Performance Benchmarks
+## Testing and Benchmarks
 
 When bugs are reported we implement automation testing to reduce regression.
 
