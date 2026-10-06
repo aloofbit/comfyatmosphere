@@ -1,0 +1,102 @@
+{
+    "name": "redridge-grass",
+    "about": "In Redridge's grass by Lake Everstill, the camera behind the character and looking down. comfyfog.dll draws the grass in the wind since 2026-10-06 (comfygrass until then). The probe must show grass draws and the fill loop patched. Recordings with the grass on, off, and while walking through it (the parting); shots in the normal view and in Debug View 30 (the bend: black still, white the tips).",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "camera": 4,
+        "start": {
+            "map": 0,
+            "x": -9413.2,
+            "y": -2235.6,
+            "z": 67.4,
+            "facing": 61.1,
+            "about": "the elwynn-stump-edge place: Redridge, by the lake (its grass models are RedGra, RedFlo and RedRoc)"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 40
+        },
+        "cvars": {
+            "comfyAtmosphere": 1,
+            "comfyGrass": 1
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": 61.1,
+                "pitch": -30
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "record": {
+                "seconds": 5,
+                "label": "grass on"
+            }
+        },
+        {
+            "cvar": "comfyGrass 0"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "record": {
+                "seconds": 4,
+                "label": "grass off"
+            }
+        },
+        {
+            "cvar": "comfyGrass 1"
+        },
+        {
+            "cvar": "comfyDebugView 30"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        },
+        {
+            "down": "W"
+        },
+        {
+            "record": {
+                "seconds": 4,
+                "label": "walking through it"
+            }
+        },
+        {
+            "up": "W"
+        }
+    ],
+    "expect": [
+        {
+            "about": "The grass is drawn with the wind shader",
+            "probe": "grass: on; last frame [1-9]\\d* draws",
+            "min": 1
+        },
+        {
+            "about": "Each vertex carries its height: the fill loop is patched",
+            "probe": "grass: .*the fill loop patched",
+            "min": 1
+        }
+    ]
+}

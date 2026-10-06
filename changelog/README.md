@@ -19,3 +19,4 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
   Performance panel at the top of the test page.
 - [Faster water and shadows](2026-10-06-faster-water-and-shadows.md): the harbour from 73 to 84 fps, timers for each
   pass in the frame log, and the water-cost test.
+- [Grass in the wind](2026-10-06-grass.md): comfygrass is part of comfyfog.dll, with a Grass tab of controls.

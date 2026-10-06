@@ -633,6 +633,7 @@ namespace
             Log("framelog: the water's CPU a frame: %.2f ms reading the wet cells, %.2f ms issuing our draws over the "
                 "chunks, %.2f ms the rest", g_flParts[kCpuWaterCells] * k, g_flParts[kCpuWaterDraws] * k,
                 (g_flParts[kCpuWater] - g_flParts[kCpuWaterCells] - g_flParts[kCpuWaterDraws]) * k);
+            Log("framelog: the grass's CPU a frame: %.2f ms, its draws included", g_flParts[kCpuGrass] * k);
             if (g_flGpuFrames)
             {
                 const double gf = 1.0 / g_flGpuFrames;

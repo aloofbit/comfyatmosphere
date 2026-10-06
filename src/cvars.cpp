@@ -92,7 +92,9 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kKnobs };
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater,
+                kGrass, kGrassWind, kGrassSpeed, kGrassLean, kGrassWave, kGrassWindDir, kGrassParting, kGrassRadius,
+                kKnobs };
 
     const char* const kNames[kKnobs] = {
         "comfyVolume", "comfyVolumeStrength",
@@ -207,13 +209,22 @@ namespace
         "comfyWaterShipForward",
         "comfyWaterShipDepth",
         "comfyShadowOnWater",
+        // The grass (2026-10-06, from comfygrass).
+        "comfyGrass",
+        "comfyGrassWind",
+        "comfyGrassSpeed",
+        "comfyGrassLean",
+        "comfyGrassWaveLength",
+        "comfyGrassWindDir",
+        "comfyGrassParting",
+        "comfyGrassPartingRadius",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
     // options window instead of an ini edit and F11. 0 leaves the ini's own debug values alone. The panel
     // cannot draw a dropdown (it builds a page from a table of tick boxes and sliders), so the names are
     // in the slider's tooltip and in the log.
-    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays, fog, water = 0; };
+    struct DebugViewInfo { const char* name; int volume, sunShadows, lamps, rays, fog, water = 0, grass = 0; };
     const DebugViewInfo kDebugViews[] = {
         { "off",                                              0, 0, 0, 0, 0 },
         { "volumetric light: the glow alone",                 1, 0, 0, 0, 0 },
@@ -245,6 +256,7 @@ namespace
         { "water: the drawn foam (white) over its age (red), the open water's foam (blue)", 0, 0, 0, 0, 0, 9 },
         { "sun shadows: the water it finds (blue: the water's depth over a bed, grey: none, so the shade falls on what the depth shows)", 0, 7, 0, 0, 0 },
         { "water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)", 0, 0, 0, 0, 0, 10 },
+        { "grass: the bend (black still, white the tips; blue where it comes from the texture)", 0, 0, 0, 0, 0, 0, 1 },
     };
     constexpr int kDebugViewCount = sizeof(kDebugViews) / sizeof(kDebugViews[0]);
     int g_debugViewLogged = -1;
@@ -406,6 +418,14 @@ namespace
         case kShipForward:    snprintf(out, cap, "%.0f", s.water.shipWakeForward); break;
         case kShipDepth:      snprintf(out, cap, "%.0f", s.water.shipWakeDepth * 100.0f); break;   // percent
         case kShadowWater:    snprintf(out, cap, "%.0f", s.sunShadows.water * 100.0f); break;   // percent
+        case kGrass:          snprintf(out, cap, "%d", s.grass.enabled ? 1 : 0); break;
+        case kGrassWind:      snprintf(out, cap, "%.0f", s.grass.scale * 100.0f); break;         // percent
+        case kGrassSpeed:     snprintf(out, cap, "%.0f", s.grass.speed * 10.0f); break;          // tenths of a yard a second
+        case kGrassLean:      snprintf(out, cap, "%.0f", s.grass.lean * 100.0f); break;          // percent
+        case kGrassWave:      snprintf(out, cap, "%.0f", s.grass.wavelength); break;             // yards
+        case kGrassWindDir:   snprintf(out, cap, "%.0f", fmodf(fmodf(s.grass.directionDeg, 360.0f) + 360.0f, 360.0f)); break;
+        case kGrassParting:   snprintf(out, cap, "%.0f", s.grass.forceCenter * 100.0f); break;   // percent
+        case kGrassRadius:    snprintf(out, cap, "%.0f", s.grass.radius * 10.0f); break;         // tenths of a yard
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -527,6 +547,14 @@ namespace
         if (c[kShipForward].seen)    s.water.shipWakeForward = Clamp(c[kShipForward].value, 0.0f, 60.0f);
         if (c[kShipDepth].seen)      s.water.shipWakeDepth = Clamp(c[kShipDepth].value * 0.01f, 0.0f, 6.0f);
         if (c[kShadowWater].seen)    s.sunShadows.water = Clamp(c[kShadowWater].value * 0.01f, 0.0f, 1.0f);
+        if (c[kGrass].seen)          s.grass.enabled = c[kGrass].value != 0.0f;
+        if (c[kGrassWind].seen)      s.grass.scale = Clamp(c[kGrassWind].value * 0.01f, 0.0f, 5.0f);
+        if (c[kGrassSpeed].seen)     s.grass.speed = Clamp(c[kGrassSpeed].value * 0.1f, 0.0f, 20.0f);
+        if (c[kGrassLean].seen)      s.grass.lean = Clamp(c[kGrassLean].value * 0.01f, 0.0f, 2.0f);
+        if (c[kGrassWave].seen)      s.grass.wavelength = Clamp(c[kGrassWave].value, 0.5f, 200.0f);
+        if (c[kGrassWindDir].seen)   s.grass.directionDeg = Clamp(c[kGrassWindDir].value, 0.0f, 360.0f);
+        if (c[kGrassParting].seen)   s.grass.forceCenter = Clamp(c[kGrassParting].value * 0.01f, 0.0f, 3.0f);
+        if (c[kGrassRadius].seen)    s.grass.radius = Clamp(c[kGrassRadius].value * 0.1f, 0.1f, 20.0f);
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);
@@ -582,6 +610,7 @@ namespace
                 s.rays.debugView   = d.rays;
                 s.fog.debug        = d.fog;
                 s.water.debug      = d.water;
+                s.grass.debug      = d.grass;
             }
             if (v != g_debugViewLogged)
             {

@@ -37,6 +37,7 @@ add_library(comfyfog SHARED
     src/report.cpp
     src/water.cpp
     src/grade.cpp
+    src/grass.cpp
     src/beacon.cpp
     src/shadercache.cpp
 )

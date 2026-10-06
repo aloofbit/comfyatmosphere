@@ -2533,6 +2533,53 @@ first world frame and long before the effects needed it; 21 ms of compiling on t
 of about 1 s is left as the effects start: creating the shader objects in DXVK and the render targets, the
 4096 x 4096 shadow maps among them. Turning the effects on one at a time would spread that frame.
 
+## The grass in the wind: comfygrass merged in (2026-10-06)
+
+The owner asked for comfygrass to be part of this project, with a tab of its own on the Atmosphere page. comfygrass
+was a second DLL that hooked the same DXVK device vtable; comfyfog waited for it and patched on top. Its README and
+`src/README.md` (in the comfygrass repo) keep the reverse engineering: why there is no grass shader to patch on
+1.12, the three CPU designs that failed on the write-only vertex buffer, the fill loop's two patches, and the
+camera and player addresses (client.cpp uses the same ones).
+
+**What moved.** `grass.cpp` holds comfygrass's wind shader, its draw test and the fill-loop patch, unchanged in
+what they do. The rest of comfygrass is replaced by what comfyfog already had:
+- The state mirrors: comfyfog keeps the client's world, view and projection (`g_world`, `g_viewAll`,
+  `g_projAll`) and its vertex shader (`g_vshader`). The stream source, texture and declaration are read from the
+  device, and only for a draw that passed the cheaper tests (no vertex shader, a triangle list of 64 vertices or
+  more, a world matrix with no rotation).
+- The player: `ClientCamera` and `ClientPlayer`. comfygrass's own search for the position offset is gone. On a
+  ship the parting is off, as `ClientPlayer` gives no feet there.
+- The keys: F9 (probe) and F10 (reload and toggle) are gone. F11 reloads `[grass]` with the rest, the Grass box
+  turns it on and off, and the probe (F12) logs a `grass:` line: last frame's draws and vertices, the fill loop,
+  the shader and the parting.
+- The cost report: the frame log's `the grass's CPU a frame` (`kCpuGrass`), its draws included. In Redridge's grass,
+  213 draws and 130,516 vertices a frame cost 0.12 ms.
+- The shader compiles through the shader cache, on the worker at start (`GrassShaderList`).
+
+**The constants.** The wind shader writes c0 to c21. comfygrass restored the client's values before the next draw
+that had a vertex shader, from inside its own hook. comfyfog's passes draw past the hooks, so that point does not
+exist here: the client's values (kept from its `SetVertexShaderConstantF`) go back right after each grass draw.
+DXVK uploads constants at the draw, so the extra call costs nothing measurable.
+
+**The draw.** Grass is drawn where comfyfog would pass the client's draw on, after the recording, the lamps, the
+rays and the body mask have seen it: they see the fixed-function draw the client made, as they did with comfygrass
+inner. The shadow cache refuses fixed-function draws, so grass casts no shadow, as before.
+
+**An old comfygrass.dll.** If it is still in `dlls.txt`, its grass is drawn and ours stays off (`GrassAttach`
+logs it), so no blade bends twice. Its fill-loop check would also fail on our patched bytes, or ours on its. The
+wait for it in `AttachToDxvk` is kept, so the two still chain in the same order. The test client's `dlls.txt` lost
+its line on 2026-10-06.
+
+**The controls.** A Grass tab in `/atmos options` and the same controls on the Video > Atmosphere page: Grass,
+Grass Wind, Grass Wave Speed, Grass Wave Length, Grass Wind Direction, Grass Lean, Grass Parting, Grass Parting
+Radius, and Foliage Density, which is the client's own `frillDensity` (the ComfyGrass addon put it under World
+Appearance). The Atmosphere Effects box turns the grass off with the rest. Debug View 30 shows the bend: black still,
+white the tips, blue where the weight comes from the texture because a vertex carries no height.
+
+**Tests.** `redridge-grass`: the probe must show grass draws and the fill loop patched; recordings with the grass
+on, off and while walking through it, and a shot in Debug View 30. Between two frames 1.5 s apart the lower right
+of the view changed 2.2 grey levels on average with the grass on, 0.8 with it off.
+
 ## Performance: the timers, the shadow pipeline and the water (2026-10-06)
 
 The owner asked for more than 100 fps with the effects on. Three reviews of the code (the CPU hooks, the GPU passes,

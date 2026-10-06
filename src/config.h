@@ -545,6 +545,46 @@ struct LighthouseSettings
     DWORD color   = 0xFFE2A8;    // the light's colour, warm white
 };
 
+// The grass in the wind (grass.cpp, from comfygrass, 2026-10-06): the client's grass draws through a vertex shader
+// of ours that sways each blade and parts the blades round the player.
+struct GrassSettings
+{
+    bool  enabled         = true;   // the Grass box
+    float scale           = 2.0f;   // 0..5: the wind's strength; the parting does not follow it (Grass Wind)
+    float directionDeg    = 45.0f;  // the wind's heading in the world's x-y plane, degrees (Grass Wind Direction)
+    float speed           = 3.0f;   // yards a second the waves travel (Grass Wave Speed)
+    float amplitude       = 0.060f; // yards the first wave sways a blade's tip
+    float wavelength      = 18.0f;  // yards from one wave to the next (Grass Wave Length)
+    float crossAmplitude  = 0.020f; // yards the second wave, across the first, sways the tip
+    float crossWavelength = 6.5f;   // yards
+    float crossAngleDeg   = 35.0f;  // degrees between the two waves
+    float lean            = 0.35f;  // a constant lean down the wind, as a share of the first wave (Grass Lean)
+    float variance        = 0.6f;   // 0..1: how much the sway differs from blade to blade
+    float anchor          = 0.70f;  // the share of a blade from its base that does not move, when the vertex
+                                    // carries no height (models = 0, or the fill loop is not the expected code)
+    bool  worldPhase      = false;  // 1: the wave's phase adds the draw's world offset (continuous across chunks,
+                                    // but it slides as the camera moves)
+    // The parting round the player.
+    bool  parting     = true;
+    float radius      = 2.0f;   // yards round the player (Grass Parting Radius)
+    float forceCenter = 0.5f;   // the lean at the player (Grass Parting)
+    float forceEdge   = 0.0f;   // the lean at the radius
+    float centerZ     = 0.0f;   // yards the parting's centre is moved up from the feet
+    float zRange      = 4.0f;   // grass more than this many yards above or below the player does not part
+    float zFade       = 2.0f;   // yards over which it fades out at that limit
+    // The detail models: a height in each vertex, and rigid models (see grass.cpp).
+    bool  models      = true;            // patch the client's fill loop
+    float rigidHeight = 0.3f;            // yards: a model lower than this does not move
+    char  rigidNames[128] = "Roc,Bon";   // a model whose file name holds one of these words does not move
+    DWORD fillAddr    = 0x006B26CD;      // the instruction that picks each instance's vertex colour
+    // Which draws are grass: fixed function, a translation-only world matrix, and these.
+    UINT  stride      = 36;
+    UINT  minVerts    = 64;
+    UINT  maxVerts    = 0;      // 0: no limit
+    int   primType    = 4;      // D3DPT_TRIANGLELIST
+    int   debug       = 0;      // 1: the bend as a colour (Debug View 30)
+};
+
 // The benchmark (bench.cpp): Alt + the probe key runs each feature in turn and logs what it costs.
 struct BenchSettings
 {
@@ -569,6 +609,7 @@ struct Settings
     NightSettings night;
     ColourSettings colour;
     LighthouseSettings lighthouse;
+    GrassSettings grass;
     ClientSettings client;
 
     bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:
@@ -581,7 +622,7 @@ struct Settings
                                     // stock: light, shadows, rays and lamps all off
     int   reloadKey   = VK_F11;     // reload comfyfog.ini
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
-    int   chainWaitMs = 10000;      // how long to wait for comfygrass to finish patching first
+    int   chainWaitMs = 10000;      // how long to wait for an old comfygrass.dll to finish patching first
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the end of the
                                     // world (depth, shadows and volumetric light run there)
 };

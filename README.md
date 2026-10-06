@@ -5,7 +5,7 @@
 > [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
 
 Atmosphere for the World of Warcraft 1.12 client: volumetric fog, sun shadows, volumetric light through the
-trees, sun rays, glowing lamps and darker nights. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
+trees, sun rays, glowing lamps, darker nights and grass that moves in the wind. It is one DLL and one ini file, `comfyfog.dll` and `comfyfog.ini`. The names
 come from the first version, which only did fog.
 
 > **❄ Looking for fog on 3.3.5a? ❄** [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light shafts for the Ascension (CoA) 3.3.5a client.
@@ -14,8 +14,9 @@ come from the first version, which only did fog.
 
 *Click the preview for the full video.*
 
-It loads like comfygrass (moving grass for the same client): VanillaFixes loads the DLL, and the DLL patches
-the Direct3D 9 device of DXVK's `d3d9.dll`.
+VanillaFixes loads the DLL, and the DLL patches the Direct3D 9 device of DXVK's `d3d9.dll`. The moving grass was
+a separate mod, [comfygrass](https://github.com/aloofbit/comfygrass), until 2026-10-06. It is part of
+`comfyfog.dll` now.
 
 ## Contents
 
@@ -42,6 +43,7 @@ the Direct3D 9 device of DXVK's `d3d9.dll`.
 | **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files, with the colour of each flame. Needs the volumetric light. | on |
 | **Night** | Nights are darker. Lamps still light the ground near them, and buildings stay as the game lights them. Night comes from the game clock. The rays and the light at night follow the moons. | on |
 | **Fog** | Volumetric fog that lies on the ground and thins upward. It collects in valleys and over water, is thicker at dawn, and drifts in patches with the wind. The sun lights it, and the sky lights it in the zone's own fog colour. With the volumetric light on, it shows shafts where trees and walls shade the sun; without it, it costs much less. The game's own fog stays as the far wall. | on |
+| **Grass** | The grass moves in the wind and leans away from your character as you walk through it. Each blade bends from its root. Rocks, pebbles, shells and bones stay still. Costs about 0.1 ms a frame. | on |
 | **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
 
 All settings are in `comfyfog.ini`. **F11 reloads it in game.**
@@ -75,9 +77,13 @@ parts, with a hash of each file and every DLL loaded. Compare it with this table
 Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it (below).
 
 1. Copy `comfyfog.dll` and `comfyfog.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
-2. Add the line `comfyfog.dll` to `dlls.txt`. If you use comfygrass, put it **after** `comfygrass.dll`.
-3. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
-4. Start the game with `VanillaFixes.exe`.
+2. Add the line `comfyfog.dll` to `dlls.txt`.
+3. If `dlls.txt` has the line `comfygrass.dll`, remove it, and delete `comfygrass.dll`. `comfyfog.dll` draws the
+   grass now. While `comfygrass.dll` is loaded, its grass is drawn and the Grass controls do nothing.
+4. Delete the file `dlls.txt.cache`. VanillaFixes makes it again when it starts.
+5. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`. You can delete the
+   folder `Interface\AddOns\ComfyGrass`: **Foliage Density** is on the Grass tab now.
+6. Start the game with `VanillaFixes.exe`.
 
 ## In-game controls
 
@@ -121,6 +127,11 @@ own. Use the window on a client whose options window has no page for them.
 | Fog Brightness (%), Fog Sunlight | `[fog] brightness`, `sunLight` (in tenths) |
 | Fog Patchiness (%), Wind Speed, Wind Direction | `[fog] patchiness`, `windSpeed` (tenths of a yard a second), `windDeg` |
 | Low Ground Mist, Water Mist, Morning Mist, Lamps in Mist (%) | `[fog] lowGround`, `water`, `morning`, `lampMist` |
+| Grass | `[grass] enabled` |
+| Grass Wind (%), Grass Wave Speed (tenths of a yard a second), Grass Wave Length (yards) | `[grass] scale`, `speed`, `wavelength` |
+| Grass Wind Direction (degrees), Grass Lean (%) | `[grass] directionDeg`, `lean` |
+| Grass Parting (%), Grass Parting Radius (tenths of a yard) | `[grass] forceCenter`, `radius` |
+| Foliage Density | the game's own setting `frillDensity`: how much grass the game plants. It works without the DLL |
 
 A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
 the values from `comfyfog.ini` back.
@@ -145,6 +156,8 @@ the values from `comfyfog.ini` back.
 - **Character Backside Shadow** sets how dark the shade is on the body of a player or creature, on its side
   away from the sun. 100 is the darkest. At 0 the body keeps only the game's own lighting. The shadow it
   casts does not change.
+- **Grass** sways the grass the game plants. **Foliage Density** sets how much it plants: the game plants 64
+  groups for each step, up to 8192, so above 128 nothing changes. Lower it for a higher frame rate.
 - **Volumetric Light Quality** at High uses the values in `comfyfog.ini`. Medium and Low replace two of
   them with cheaper values: fewer samples and a lower resolution for the light. If the frame rate drops
   with the light on, set it lower, or set Shadow Resolution lower or Shadow Redraw higher.
@@ -247,6 +260,10 @@ cmake --build build --config Release
 - **Volumetric light** draws the world again from the sun for the shadows. It is the most expensive feature.
   If the frame rate drops, lower **Volumetric Light Quality** or **Shadow Resolution**, raise **Shadow
   Redraw**, or turn the light off with Alt+F11. To see what it costs, run the benchmark (Alt+F12).
+
+- **Grass** changes two instructions of the game's grass code in memory, not in the `WoW.exe` file, so that
+  each blade bends from its root and rocks stay still. On another `WoW.exe` the check fails and nothing is
+  changed: the grass still moves, but rocks move too, and `comfyfog.log` says so.
 
 [NOTES.md](NOTES.md) explains how it works, what was measured in the client, and what did not work.
 

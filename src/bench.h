@@ -22,7 +22,8 @@ enum BenchSection
 // the hooks on the client's draws, without the draws themselves, and the water's part of that. In time stamp
 // counter ticks (__rdtsc), which cost a few nanoseconds to read; the hooks run thousands of times a frame.
 // The water's own split (2026-10-06): reading the game's indices for the wet cells, and our draws over each chunk.
-enum BenchCpu { kCpuHooks, kCpuWater, kCpuWaterCells, kCpuWaterDraws, kCpuParts };
+// The grass (2026-10-06): its draws in all, the game's draw call among them, as the grass shader takes its place.
+enum BenchCpu { kCpuHooks, kCpuWater, kCpuWaterCells, kCpuWaterDraws, kCpuGrass, kCpuParts };
 bool BenchTiming();                                       // the bench or the frame log is running
 void BenchCpuAddTicks(BenchCpu part, unsigned long long ticks);
 unsigned long long BenchSectionTicks();                   // ticks spent in our passes so far (a running sum)

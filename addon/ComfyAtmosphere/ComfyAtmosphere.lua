@@ -139,6 +139,15 @@ COMFYATMOSPHERE_MIST_MORNING   = "Morning Mist";
 COMFYATMOSPHERE_MIST_LAMPS     = "Lamps in Mist";
 COMFYATMOSPHERE_MIST_WIND      = "Wind Speed";
 COMFYATMOSPHERE_MIST_WIND_DIR  = "Wind Direction";
+COMFYATMOSPHERE_GRASS          = "Grass";
+COMFYATMOSPHERE_GRASS_WIND     = "Grass Wind";
+COMFYATMOSPHERE_GRASS_SPEED    = "Grass Wave Speed";
+COMFYATMOSPHERE_GRASS_WAVE     = "Grass Wave Length";
+COMFYATMOSPHERE_GRASS_WIND_DIR = "Grass Wind Direction";
+COMFYATMOSPHERE_GRASS_LEAN     = "Grass Lean";
+COMFYATMOSPHERE_GRASS_PARTING  = "Grass Parting";
+COMFYATMOSPHERE_GRASS_RADIUS   = "Grass Parting Radius";
+COMFYATMOSPHERE_FOLIAGE_DENSITY = "Foliage Density";
 
 local ENTRIES = {
 	-- name is a KEY, not a string: the panel does _G[option.name] to get the label.
@@ -1401,6 +1410,109 @@ local ENTRIES = {
 		cvar = "comfyClouds",
 	},
 	{
+		name = "COMFYATMOSPHERE_GRASS",
+		desc = "The grass sways in the wind and leans away from your character. Rocks, pebbles, shells and bones stay still.",
+		type = "checkbutton",
+		cvar = "comfyGrass",
+	},
+	{
+		-- Percent: comfyfog.dll divides it by 100 for [grass] scale. The parting does not follow it.
+		name = "COMFYATMOSPHERE_GRASS_WIND",
+		desc = "How strongly the wind sways the grass, in percent. 0 is still.",
+		type = "slider",
+		cvar = "comfyGrassWind",
+		dependency = { "comfyGrass", "1" },
+		minval = 0,
+		maxval = 500,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard a second: [grass] speed.
+		name = "COMFYATMOSPHERE_GRASS_SPEED",
+		desc = "How fast the waves run through the grass, in tenths of a yard a second.",
+		type = "slider",
+		cvar = "comfyGrassSpeed",
+		dependency = { "comfyGrass", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Yards: [grass] wavelength.
+		name = "COMFYATMOSPHERE_GRASS_WAVE",
+		desc = "Yards from one wave to the next. Small values sway small patches; large values make wide waves.",
+		type = "slider",
+		cvar = "comfyGrassWaveLength",
+		dependency = { "comfyGrass", "1" },
+		minval = 4,
+		maxval = 60,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- Degrees: [grass] directionDeg.
+		name = "COMFYATMOSPHERE_GRASS_WIND_DIR",
+		desc = "Where the wind blows the grass, in degrees.",
+		type = "slider",
+		cvar = "comfyGrassWindDir",
+		dependency = { "comfyGrass", "1" },
+		minval = 0,
+		maxval = 360,
+		step = 15,
+		numberLabels = 1,
+	},
+	{
+		-- Percent of the first wave: [grass] lean.
+		name = "COMFYATMOSPHERE_GRASS_LEAN",
+		desc = "How far the grass leans down the wind all the time, in percent of its sway.",
+		type = "slider",
+		cvar = "comfyGrassLean",
+		dependency = { "comfyGrass", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Percent: [grass] forceCenter.
+		name = "COMFYATMOSPHERE_GRASS_PARTING",
+		desc = "How far the grass leans away from your character, in percent. 0 is none.",
+		type = "slider",
+		cvar = "comfyGrassParting",
+		dependency = { "comfyGrass", "1" },
+		minval = 0,
+		maxval = 150,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard: [grass] radius.
+		name = "COMFYATMOSPHERE_GRASS_RADIUS",
+		desc = "How far round your character the grass parts, in tenths of a yard.",
+		type = "slider",
+		cvar = "comfyGrassPartingRadius",
+		dependency = { "comfyGrass", "1" },
+		minval = 5,
+		maxval = 60,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- The client's own frillDensity, not ours: it works without comfyfog.dll and is saved by the client. The
+		-- ComfyGrass addon put it under World Appearance until 2026-10-06. The client plants
+		-- min(frillDensity * 64, 8192) models, so above 128 nothing changes.
+		name = "COMFYATMOSPHERE_FOLIAGE_DENSITY",
+		desc = "How much grass and ground clutter the world plants. Costs frame rate, not memory.",
+		type = "slider",
+		cvar = "frillDensity",
+		minval = 8,
+		maxval = 128,
+		step = 8,
+		numberLabels = 1,
+	},
+	{
 		-- The panel cannot draw a dropdown, so each number is one view, named here and in comfyfog.log.
 		-- The list is kDebugViews in comfyfog's cvars.cpp: keep the two in the same order.
 		name = "COMFYATMOSPHERE_DEBUG_VIEW",
@@ -1434,11 +1546,12 @@ local ENTRIES = {
 			.. "26 sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)\n"
 			.. "27 water: the drawn foam (white) over its age (red), the open water's foam (blue)\n"
 			.. "28 sun shadows: the water it finds (blue: the water's depth over a bed, grey: none, so the shade falls on what the depth shows)\n"
-			.. "29 water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)",
+			.. "29 water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)\n"
+			.. "30 grass: the bend (black still, white the tips; blue where it comes from the texture)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 29,
+		maxval = 30,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -1519,6 +1632,8 @@ local WINDOW_SECTIONS = {
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyRainDarkness", "comfyMoonlight", "comfyClouds" } },
 	{ "Color", { "comfyColor", "comfyDaySaturation", "comfyNightSaturation" } },
+	{ "Grass", { "comfyGrass", "comfyGrassWind", "comfyGrassSpeed", "comfyGrassWaveLength", "comfyGrassWindDir",
+	             "comfyGrassLean", "comfyGrassParting", "comfyGrassPartingRadius", "frillDensity" } },
 	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterFoamDrawn", "comfyWaterFoamSize", "comfyWaterFoamReach", "comfyWaterFoamEdge", "comfyWaterWakeFoam", "comfyWaterShipWake", "comfyWaterShipForward", "comfyWaterShipDepth", "comfyWaterLakeSwash", "comfyWaterLakeFoam", "comfyWaterLakeWaves", "comfyWaterRain", "comfyWaterObjectFoam", "comfyWaterObjectFoamWidth", "comfyWaterOpenFoam", "comfyWaterOpenFoamAmount", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
@@ -2017,6 +2132,7 @@ local DEBUG_VIEWS = {
 	"water: the drawn foam (white) over its age (red), the open water's foam (blue)",
 	"sun shadows: the water it finds (blue: the water's depth over a bed, grey: none, so the shade falls on what the depth shows)",
 	"water: the depth under it (0 to 256 yards, blue to red, a line at 1, 2, 4, 8 ... 256; hatched: the map's depth)",
+	"grass: the bend (black still, white the tips; blue where it comes from the texture)",
 };
 
 local PANEL_BACKDROP = {

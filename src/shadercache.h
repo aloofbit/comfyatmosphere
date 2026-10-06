@@ -20,6 +20,7 @@ void BeaconShaderList();
 void BodyMaskShaderList();
 void CoverShaderList();
 void GradeShaderList();
+void GrassShaderList();
 void LampGlowShaderList();
 void RaysShaderList();
 void ShadowShaderList();

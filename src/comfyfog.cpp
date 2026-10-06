@@ -7,9 +7,9 @@
 // The game's own fog goes through unchanged (2026-09-30: the old fog, which rewrote it, was removed). Its
 // start, end and colour are mirrored, for the passes that fade with it (WorldFog, WorldFogColor).
 //
-// Load order with comfygrass. Both DLLs patch the same vtable slots, so whichever patches last sits
-// outermost and sees the client's calls first. The old fog had to be the OUTER hook, so that comfygrass
-// fogged grass from the rewritten fog states. The wait in AttachToDxvk is kept from then.
+// The grass in the wind is drawn here since 2026-10-06 (grass.cpp); it was comfygrass.dll before. Where an old
+// comfygrass.dll is still listed in dlls.txt, its grass is drawn and ours stays off, and comfyfog still waits for
+// it to patch first, as it did for the old fog: whichever DLL patches last sits outermost.
 
 #define CINTERFACE // C-style IDirect3DDevice9Vtbl, so slots are patched by name, not by index
 #define WIN32_LEAN_AND_MEAN
@@ -29,6 +29,7 @@
 #include "report.h"
 #include "depth.h"
 #include "grade.h"
+#include "grass.h"
 #include "lampglow.h"
 #include "lamps.h"
 #include "rays.h"
@@ -453,6 +454,7 @@ namespace
         if (g_inPass)
             return g_oSetVSConstF(dev, reg, data, count);   // our own passes: no fog remap, no recording
         RecordConstants(reg, data, count);
+        GrassConstants(reg, data, count);   // the client's values, put back after each grass draw
         LampsConstants(reg, data, count);
         if (g_probe.active && data)
         {
@@ -876,6 +878,7 @@ namespace
             WaterReset();
             GradeReset();
             BeaconReset();
+            GrassReset();
             MapTerrainRelease();
             g_waterPs.clear();
             g_fog       = ClientFog();
@@ -1029,6 +1032,7 @@ namespace
         LampsFrameEnd();
         BodyMarkFrameEnd(dev);
         WaterFrameEnd(dev);
+        GrassFrameEnd();
         g_frameDraws = 0;
         g_lastPersp  = false;
         g_worldEnded = false;
@@ -1112,6 +1116,7 @@ namespace
             BodyMaskProbe();
             WaterProbe();
             BeaconProbe();
+            GrassProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -1142,6 +1147,7 @@ namespace
         WaterReset();
         GradeReset();
         BeaconReset();
+        GrassReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
         {
@@ -1724,6 +1730,20 @@ namespace
         }
     };
 
+    // A grass draw (grass.cpp): the client's draw with the wind shader in place of the fixed-function vertex work.
+    // True when it was grass and is drawn.
+    bool GrassTake(IDirect3DDevice9* dev, const GrassDrawArgs& d, HRESULT& hr)
+    {
+        if (g_inPass || g_vshader || g_worldEnded)
+            return false;
+        const unsigned long long t = g_hookTiming ? __rdtsc() : 0;
+        if (!GrassDraw(dev, d, hr))
+            return false;
+        if (g_hookTiming)
+            BenchCpuAddTicks(kCpuGrass, __rdtsc() - t);
+        return true;
+    }
+
     HRESULT FwdIdx(IDirect3DDevice9* dev, D3DPRIMITIVETYPE prim, INT bvi, UINT mvi, UINT nv, UINT si, UINT pc)
     {
         if (!g_hookTiming)
@@ -1750,6 +1770,13 @@ namespace
         CountDraw(dev, "DrawPrimitive", prim, pc, false, sv, VertsForPrims(prim, pc));
         if (!g_inPass && !g_skyPhase && !g_worldEnded)
             BodyMarkDraw(dev);
+        {
+            HRESULT hr = S_OK;
+            const GrassDrawArgs grass = { false, prim, 0, 0, VertsForPrims(prim, pc), 0, sv, pc, &g_world, &g_viewAll,
+                                          &g_projAll };
+            if (GrassTake(dev, grass, hr))
+                return hr;
+        }
         if (!g_hookTiming)
             return g_oDrawPrim(dev, prim, sv, pc);
         const unsigned long long t = __rdtsc();
@@ -2066,6 +2093,12 @@ namespace
                 return hr;
             }
         }
+        {
+            HRESULT hr = S_OK;
+            const GrassDrawArgs grass = { true, prim, bvi, mvi, nv, si, 0, pc, &g_world, &g_viewAll, &g_projAll };
+            if (GrassTake(dev, grass, hr))
+                return hr;
+        }
         return FwdIdx(dev, prim, bvi, mvi, nv, si, pc);
     }
 
@@ -2097,15 +2130,15 @@ namespace
     // ---------------------------------------------------------------------------------------------
     // attaching to DXVK
 
-    // True once comfygrass has patched the last slot it installs (DrawIndexedPrimitive, see its
+    // True once an old comfygrass.dll has patched the last slot it installs (DrawIndexedPrimitive, see its
     // PatchDevice), so the two installers never have VirtualProtect open on the same page at once and
-    // comfyfog lands outermost.
+    // comfyfog lands outermost. comfyfog draws the grass itself since 2026-10-06 (grass.cpp).
     bool WaitForComfygrass(IDirect3DDevice9Vtbl* v)
     {
         HMODULE grass = GetModuleHandleA("comfygrass.dll");
         if (!grass)
         {
-            Log("comfygrass not loaded, patching straight away");
+            Log("comfygrass.dll not loaded (comfyfog draws the grass), patching straight away");
             return true;
         }
 
@@ -2124,8 +2157,7 @@ namespace
             }
             if ((Now() - t0) * 1000.0 > g_cfg.chainWaitMs)
             {
-                Log("comfygrass is loaded but never patched within %d ms; patching anyway. "
-                    "Grass may keep the stock fog.", g_cfg.chainWaitMs);
+                Log("comfygrass is loaded but never patched within %d ms; patching anyway", g_cfg.chainWaitMs);
                 return false;
             }
             Sleep(20);
@@ -2154,6 +2186,8 @@ namespace
             HookSlot(reinterpret_cast<void**>(&v->DrawIndexedPrimitiveUP), &hkDrawIndexedPrimitiveUP, reinterpret_cast<void**>(&g_oDrawIdxPrimUP));
 
         Log("device %s (vtable %p, SetRenderState orig=%p)", ok ? "hooked" : "HOOK FAILED", v, g_oSetRS);
+        if (ok)
+            GrassAttach({ g_oDrawPrim, g_oDrawIdxPrim, g_oSetVS, g_oSetVSConstF });
     }
 
     using Direct3DCreate9Fn = IDirect3D9*(WINAPI*)(UINT);

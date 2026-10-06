@@ -60,6 +60,7 @@ namespace
     const wchar_t* kNight   = L"night";
     const wchar_t* kColour  = L"colour";
     const wchar_t* kLighthouse = L"lighthouse";
+    const wchar_t* kGrass   = L"grass";
     const wchar_t* kBench   = L"bench";
     const wchar_t* kGeneral = L"general";
 
@@ -106,6 +107,24 @@ namespace
         snprintf(text, sizeof(text), "0x%06lX", static_cast<unsigned long>(v));
         Note(sec, key, text, src);
         return v;
+    }
+
+    // A word list ("Roc,Bon"): the text up to a comment, without the spaces at its ends.
+    void GetS(const wchar_t* sec, const wchar_t* key, char* out, size_t cap, const wchar_t* ini)
+    {
+        wchar_t buf[128];
+        const ConfigSource src = ReadRaw(sec, key, ini, buf, 128);
+        if (src != kFromDefault)
+        {
+            std::string s = Narrow(buf);
+            const size_t semi = s.find(';');
+            if (semi != std::string::npos)
+                s.resize(semi);
+            const size_t a = s.find_first_not_of(" \t"), b = s.find_last_not_of(" \t");
+            s = a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+            strncpy_s(out, cap, s.c_str(), _TRUNCATE);
+        }
+        Note(sec, key, out, src);
     }
 
     float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -424,6 +443,37 @@ void LoadSettings(const wchar_t* ini)
     s.lighthouse.color   = GetX(kLighthouse, L"color", s.lighthouse.color, ini) & 0xFFFFFF;
     s.colour.day   = Clamp(GetF(kColour, L"day",   s.colour.day,   ini), 0.0f, 200.0f);
     s.colour.night = Clamp(GetF(kColour, L"night", s.colour.night, ini), 0.0f, 200.0f);
+
+    GrassSettings& g = s.grass;
+    g.enabled         = GetB(kGrass, L"enabled", g.enabled, ini);
+    g.scale           = Clamp(GetF(kGrass, L"scale", g.scale, ini), 0.0f, 5.0f);
+    g.directionDeg    = GetF(kGrass, L"directionDeg", g.directionDeg, ini);
+    g.speed           = Clamp(GetF(kGrass, L"speed", g.speed, ini), 0.0f, 20.0f);
+    g.amplitude       = Clamp(GetF(kGrass, L"amplitude", g.amplitude, ini), 0.0f, 1.0f);
+    g.wavelength      = Clamp(GetF(kGrass, L"wavelength", g.wavelength, ini), 0.5f, 200.0f);
+    g.crossAmplitude  = Clamp(GetF(kGrass, L"crossAmplitude", g.crossAmplitude, ini), 0.0f, 1.0f);
+    g.crossWavelength = Clamp(GetF(kGrass, L"crossWavelength", g.crossWavelength, ini), 0.5f, 200.0f);
+    g.crossAngleDeg   = GetF(kGrass, L"crossAngleDeg", g.crossAngleDeg, ini);
+    g.lean            = Clamp(GetF(kGrass, L"lean", g.lean, ini), -2.0f, 2.0f);
+    g.variance        = Clamp(GetF(kGrass, L"variance", g.variance, ini), 0.0f, 1.0f);
+    g.anchor          = Clamp(GetF(kGrass, L"anchor", g.anchor, ini), 0.0f, 0.9f);
+    g.worldPhase      = GetB(kGrass, L"worldPhase", g.worldPhase, ini);
+    g.parting         = GetB(kGrass, L"parting", g.parting, ini);
+    g.radius          = Clamp(GetF(kGrass, L"radius", g.radius, ini), 0.1f, 20.0f);
+    g.forceCenter     = Clamp(GetF(kGrass, L"forceCenter", g.forceCenter, ini), 0.0f, 3.0f);
+    g.forceEdge       = Clamp(GetF(kGrass, L"forceEdge", g.forceEdge, ini), 0.0f, 3.0f);
+    g.centerZ         = Clamp(GetF(kGrass, L"centerZ", g.centerZ, ini), -5.0f, 5.0f);
+    g.zRange          = Clamp(GetF(kGrass, L"zRange", g.zRange, ini), 0.1f, 50.0f);
+    g.zFade           = Clamp(GetF(kGrass, L"zFade", g.zFade, ini), 0.01f, 50.0f);
+    g.models          = GetB(kGrass, L"models", g.models, ini);
+    g.rigidHeight     = Clamp(GetF(kGrass, L"rigidHeight", g.rigidHeight, ini), 0.0f, 5.0f);
+    GetS(kGrass, L"rigidNames", g.rigidNames, sizeof(g.rigidNames), ini);
+    g.fillAddr        = GetX(kGrass, L"fillAddr", g.fillAddr, ini);
+    g.stride          = static_cast<UINT>(GetI(kGrass, L"stride", static_cast<int>(g.stride), ini));
+    g.minVerts        = static_cast<UINT>(GetI(kGrass, L"minVerts", static_cast<int>(g.minVerts), ini));
+    g.maxVerts        = static_cast<UINT>(GetI(kGrass, L"maxVerts", static_cast<int>(g.maxVerts), ini));
+    g.primType        = GetI(kGrass, L"primType", g.primType, ini);
+    g.debug           = GetI(kGrass, L"debug", g.debug, ini);
 
     s.bench.settle  = Clamp(GetF(kBench, L"settle",  s.bench.settle,  ini), 0.5f, 30.0f);
     s.bench.measure = Clamp(GetF(kBench, L"measure", s.bench.measure, ini), 1.0f, 60.0f);
