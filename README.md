@@ -19,7 +19,7 @@ When bugs are reported we implement automation testing to reduce regression.
 
 *Now*: Testing and implementing repairs until each effect is cohesive with the game. Thank you for help testing!
 
-![Roadmap: 1 Feasibility Study, done. 2 Prototype Effects, done. 3 Tests and repairs until each effect looks correct, now. 4 Performance, next. 5 Maintenance, later.](media/roadmap.svg)
+![Roadmap: 1 Feasibility Study, done. 2 Prototype Effects, done. 3 Tests and Repairs, now. 4 Performance, next. 5 Maintenance, later.](media/roadmap.svg)
 
 ## Features
 - Volumetric Light
