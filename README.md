@@ -1,8 +1,16 @@
-# comfyatmosphere
+# Comfy Atmosphere
 
 > **Bugs, questions and screenshots. Ty for testing!: [join our Discord](https://discord.gg/YSWzYk8xP).**
 >
 > [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
+
+
+Atmosphere mod the World of Warcraft 1.12 client. Volumetric lighting, fog, shadows, sun rays, water, and more.
+
+https://github.com/user-attachments/assets/67551de4-3ee5-4ea1-83ed-b72592bfce1d
+
+## Status / Tests
+Latest test results: https://aloofbit.github.io/comfyatmosphere/runs/20261006-160606/
 
 ## Roadmap
 
@@ -14,49 +22,15 @@
 | 4 | Performance | ⬜ next |
 | 5 | Maintenance | ⬜ later |
 
-Atmosphere for the World of Warcraft 1.12 client: volumetric fog, sun shadows, volumetric light through the
-trees, sun rays, glowing lamps, darker nights and grass that moves in the wind. It is one DLL and one ini file, `comfyatmos.dll` and `comfyatmos.ini`. Until
-v0.10.0-alpha they were `comfyfog.dll` and `comfyfog.ini`, from the first version, which only did fog.
-
-> **❄ Looking for fog on 3.3.5a? ❄** [coa-vfog](https://github.com/jealous-sound/coa-vfog) does volumetric fog and light shafts for the Ascension (CoA) 3.3.5a client.
-
-[![Sun shafts through the forest canopy, in game. Click for the full video.](media/comfyatmosphere.gif)](media/comfyatmosphere.mp4)
-
-*Click the preview for the full video.*
-
-VanillaFixes loads the DLL, and the DLL patches the Direct3D 9 device of DXVK's `d3d9.dll`. The moving grass was
-a separate mod, [comfygrass](https://github.com/aloofbit/comfygrass), until 2026-10-06. It is part of
-`comfyatmos.dll` now.
-
-## Contents
-
-- [Features](#features)
-- [Compatibility](#compatibility)
-- [Install](#install)
-- [In-game controls](#in-game-controls)
-  - [/atmos](#atmos)
-  - [Finding faults](#finding-faults)
-- [Keys](#keys)
-- [Benchmark](#benchmark)
-- [Build](#build)
-- [Caveats](#caveats)
-- [Time of day](#time-of-day)
-- [Licence](#licence)
-
 ## Features
-
-| | What it does | Default |
-| --- | --- | --- |
-| **Volumetric light** | The air is lit where sunlight reaches it and dark where leaves and walls shade it. It stays fixed in the world when the camera moves. | on |
-| **Sun shadows** | Terrain, buildings, trees, players and creatures cast shadows from the sun. Shade takes the sky's cool colour and sunlit ground a warm one. The shadows of the world are drawn from the game's map files, so they are there before you walk past. Needs the volumetric light. | on |
-| **Sun rays** | Rays of light from the sun, through gaps in the trees and around buildings. The rays come from the sun only, and fade when a mountain or a wall covers it. Cheap. | on |
-| **Lamps** | Lampposts, lanterns, candles, torches and fireplaces glow in the air and light the walls and ground near them. The lights inside buildings are read from the map files, with the colour of each flame. Needs the volumetric light. | on |
-| **Night** | Nights are darker. Lamps still light the ground near them, and buildings stay as the game lights them. Night comes from the game clock. The rays and the light at night follow the moons. | on |
-| **Fog** | Volumetric fog that lies on the ground and thins upward. It collects in valleys and over water, is thicker at dawn, and drifts in patches with the wind. The sun lights it, and the sky lights it in the zone's own fog colour. With the volumetric light on, it shows shafts where trees and walls shade the sun; without it, it costs much less. The game's own fog stays as the far wall. | on |
-| **Grass** | The grass moves in the wind and leans away from your character as you walk through it. Each blade bends from its root. Rocks, pebbles, shells and bones stay still. Costs about 0.1 ms a frame. | on |
-| **Clouds** | `[sky] clouds = 0` hides the cloud layer. | hidden |
-
-All settings are in `comfyatmos.ini`. **F11 reloads it in game.**
+- Volumetric Light
+- Realtime shadows
+- Sun rays
+- Fog
+- Lamps (From 16 to 256)
+- Night Config
+- Moving Grass
+- Settings Addon for it all
 
 [![Lamps along a Duskwood road at night, the effects off and then on. Click for the full video.](media/lamps-night.gif)](media/lamps-night.mp4)
 
@@ -86,101 +60,19 @@ parts, with a hash of each file and every DLL loaded. Compare it with this table
 
 Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it (below).
 
-1. Copy `comfyatmos.dll` and `comfyatmos.ini` to the client folder, next to `WoW.exe` and `d3d9.dll`.
-2. Add the line `comfyatmos.dll` to `dlls.txt`.
-3. If `dlls.txt` has the line `comfyfog.dll`, remove it, and delete `comfyfog.dll`: it is this mod under its old
-   name. While `comfyfog.dll` is loaded, `comfyatmos.dll` stays off. To keep values you changed in `comfyfog.ini`,
-   copy them into `comfyatmos.ini`. The controls you set in the game are kept: the game saves them.
-4. If `dlls.txt` has the line `comfygrass.dll`, remove it, and delete `comfygrass.dll`. `comfyatmos.dll` draws the
-   grass now. While `comfygrass.dll` is loaded, its grass is drawn and the Grass controls do nothing.
-5. Delete the file `dlls.txt.cache`. VanillaFixes makes it again when it starts.
-6. For the in-game controls, copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`. You can delete the
-   folder `Interface\AddOns\ComfyGrass`: **Foliage Density** is on the Grass tab now.
-7. Start the game with `VanillaFixes.exe`.
+1. Copy `comfyatmos.dll` and `comfyatmos.ini` to the client folder.
+2. Add the line `comfyatmos.dll` to `dlls.txt`. ⚠️remove comfyfog/comfygrass if you have them
+3. Copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
+4. Start the game with `VanillaFixes.exe`.
 
-## In-game controls
+## Config
 
-The addon in [`addon/ComfyAtmosphere`](addon/ComfyAtmosphere) adds a page of controls to the game's options:
-**Video > Atmosphere**, below Shaders. **`/atmos options`** opens the same controls in a small window of their
-own. Use the window on a client whose options window has no page for them.
+Use `/atmos options` in game to enable/disable and tune features of the mod.
 
 ![The comfyatmosphere controls in the /atmos options window: volumetric light, its strength, quality, density, distance and direction, lamp glow and lamp distance.](media/settings-example.png)
 
-| Control | Setting in `comfyatmos.ini` |
-| --- | --- |
-| Atmosphere Effects | `[general] enabled`: every effect at once |
-| Volumetric Light, Volumetric Light Strength | `[volume] enabled`, `strength` |
-| Volumetric Light Quality (Low, Medium, High) | `[volume] quality` |
-| Light Density (thousandths), Light Distance (yards), Light Toward the Sun (thousandths) | `[volume] density`, `maxDistance`, `anisotropy` |
-| Lamps, Lamp Glow, Lamp Distance (%) | `[lamps] enabled`, `strength`, `fogReach` |
-| Lantern Light, Torch Light, Indoor Lamps, Lamps by Day (%) | `[lamps] lanternLight`, `torchLight`, `indoors`, `day` |
-| Sun Shadows | `[sunshadows] enabled` |
-| World / Object Shadows, Player / Creature Shadows | `[sunshadows] world`, `units` |
-| Lock Shadow Angle, Shadow Angle (degrees) | `[sunshadows] lock`, `lockTilt` |
-| Sun Shadow Strength | `[sunshadows] strength` |
-| Night Shadows (%) | `[sunshadows] night` |
-| Character Shadow Strength | `[sunshadows] unitStrength` |
-| Character Backside Shadow | `[sunshadows] bodyShade` |
-| Sun Smoothing (seconds) | `[sun] glide` |
-| Tree Shadow Strength (%) | `[sunshadows] leafShade` |
-| Sunlight, Shade Colour, Sunlight Warmth (%) | `[sunshadows] sunlight`, `shadeTint`, `sunTint` |
-| Shadow Resolution (1024, 2048, 4096) | `[shadow] size` |
-| Shadow Softness | `[sunshadows] softness` |
-| Shadow Redraw | `[shadow] mapEvery` |
-| Near Shadow Distance (yards) | `[shadow] nearRange` |
-| Sun Rays, Sun Rays Strength | `[rays] enabled`, `strength` |
-| Sun Rays Softness, Sun Rays Smoothing | `[rays] soften`, `smooth` (in percent) |
-| Night Strength | `[night] strength` |
-| Night Darkness, Moonlight Colour (%) | `[night] darkness`, `tint` |
-| Clouds | `[sky] clouds` |
-| Debug View | the `debug` values of each effect; 0 leaves them to the ini |
-| Fog | `[fog] enabled` |
-| Fog Density, Fog Height (yards) | `[fog] density` (ten-thousandths of a yard: 25 = 0.0025), `height` |
-| Fog Reach, Fog on Sky (yards) | `[fog] reach`, `skyDistance` |
-| Fog Brightness (%), Fog Sunlight | `[fog] brightness`, `sunLight` (in tenths) |
-| Fog Patchiness (%), Wind Speed, Wind Direction | `[fog] patchiness`, `windSpeed` (tenths of a yard a second), `windDeg` |
-| Low Ground Mist, Water Mist, Morning Mist, Lamps in Mist (%) | `[fog] lowGround`, `water`, `morning`, `lampMist` |
-| Grass | `[grass] enabled` |
-| Grass Wind (%), Grass Wave Speed (tenths of a yard a second), Grass Wave Length (yards) | `[grass] scale`, `speed`, `wavelength` |
-| Grass Wind Direction (degrees), Grass Lean (%) | `[grass] directionDeg`, `lean` |
-| Grass Parting (%), Grass Parting Radius (tenths of a yard) | `[grass] forceCenter`, `radius` |
-| Foliage Density | the game's own setting `frillDensity`: how much grass the game plants. It works without the DLL |
 
-A change shows in the world while you move the slider. **Cancel** puts the old values back. **Defaults** puts
-the values from `comfyatmos.ini` back.
-
-- A control you move wins over `comfyatmos.ini`, also after F11.
-- The **Volumetric Light** box also turns on `[depth]` and `[shadow]`, which the light needs.
-- **Sun Shadows** use the volumetric light's shadow map, so they need Volumetric Light on. While both are
-  on, the game's round shadow under each character is off (the CVar `shadowLOD`). At logout it is set
-  back, so it returns if the mod is removed.
-- **Fog** works with Volumetric Light on or off. With the light on, it shows shafts where trees and walls
-  shade the sun. With the light off, the sun lights all of it, and the shadow map is not drawn, which
-  gives back most of the light's cost. It lies on the ground from the map files (`[shadow] mapTerrain`).
-  **Fog Reach** sets how far it gathers: lower lets you see further across open land and the sea. **Fog on Sky** sets how much it covers the sky; 0 leaves the horizon clear.
-- **Night Darkness** makes the world darker at night, and **Moonlight Colour** makes the night bluer. They
-  need Volumetric Light on. Inside buildings they do nothing.
-- **Night Strength** sets the sun rays and the volumetric light at night. 100 is the day strength. 0 turns
-  both off at night. **Night Shadows** sets the shadows at night in the same way. The change to night
-  starts at 20:00 and the change to day at 05:00. Each takes 1.5 hours. Set other hours with `[night] dusk`,
-  `dawn` and `fade`. For rays from the larger moon only, set `[rays] secondMoon = 0`.
-- **Character Shadow Strength** makes the shadows of players and creatures darker than the world's
-  shadows. They then show inside the shade of a building too.
-- **Character Backside Shadow** sets how dark the shade is on the body of a player or creature, on its side
-  away from the sun. 100 is the darkest. At 0 the body keeps only the game's own lighting. The shadow it
-  casts does not change.
-- **Grass** sways the grass the game plants. **Foliage Density** sets how much it plants: the game plants 64
-  groups for each step, up to 8192, so above 128 nothing changes. Lower it for a higher frame rate.
-- **Volumetric Light Quality** at High uses the values in `comfyatmos.ini`. Medium and Low replace two of
-  them with cheaper values: fewer samples and a lower resolution for the light. If the frame rate drops
-  with the light on, set it lower, or set Shadow Resolution lower or Shadow Redraw higher.
-- The addon needs `comfyatmos.dll`. Without the DLL, it adds no controls.
-- The other settings stay in `comfyatmos.ini`. Set them in game with `/atmos` (below).
-
-The Atmosphere page needs the Turtle WoW options window, which builds its pages from a table the addon can
-add to. On another client, use `/atmos options`.
-
-### /atmos
+## In-game controls `/atmos`
 
 `/atmos` reads and sets any value in `comfyatmos.ini` from the game's chat. A change shows at once.
 
@@ -203,21 +95,11 @@ add to. On another client, use `/atmos options`.
 A value set with `/atmos` stays until `reset` or `save`, also after F11. A value that a control on the
 Atmosphere page sets is refused: use the control.
 
-### Finding faults
+### Debugging Help
 
 The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel:
 
-- **Probe** logs one frame to `comfyatmos.log`, and a report of your client: the comfyatmos version, WoW.exe, the
-  DLLs loaded, DXVK, the MPQs, the addons and the settings. The chat says when it is taken.
-- **Stats** shows a panel of figures, once a second: your position, the frame rate, the shadow casters held
-  and what was added and dropped near you, and the fog.
-- **Benchmark** runs the benchmark (below). The chat says when it starts and ends.
-- **Trace**: the next probe also logs 180 frames. The game runs slowly meanwhile.
-- **Debug view** `<` `>` shows one stage of an effect instead of the game.
-
-Probe, the stats and the debug panel can be put on keys: **Key Bindings > ComfyAtmosphere**. A screenshot with
-the stats on screen, and a probe at the same moment, is the best report of a fault. Send `comfyatmos.log` with it.
-The log has no account name, and your user folder shows as `%USERPROFILE%`.
+![debug menu](https://private-user-images.githubusercontent.com/58625258/662715071-1a258734-3082-4f42-912e-0fd274bc9104.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3OTEzMjU5ODQsIm5iZiI6MTc5MTMyNTY4NCwicGF0aCI6Ii81ODYyNTI1OC82NjI3MTUwNzEtMWEyNTg3MzQtMzA4Mi00ZjQyLTkxMmUtMGZkMjc0YmM5MTA0LnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjEwMDYlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYxMDA2VDIyMjgwNFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTEyMzhlMWE3OTY4MjA3MDZlMzBlNmNkZWYzZTM2ZDNhZjIzNjk2MjA5MDAyYzEzYzAwZWI0ZjlmOTk4ZDgyYTgmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0JnJlc3BvbnNlLWNvbnRlbnQtdHlwZT1pbWFnZSUyRnBuZyJ9.L0DrYZI9XT3PEn6v-vxtLy0u8239nS4SihDtQR5MQAM)
 
 ## Keys
 
@@ -264,27 +146,6 @@ cmake --build build --config Release
 ```
 
 `comfyatmos.dll` is written to the project root, next to `comfyatmos.ini`.
-
-## Caveats
-
-- **Made for one client build.** The volumetric light uses camera and player addresses from one `WoW.exe`,
-  Night Strength uses the address of the game clock, and the shadows use the address of the map name.
-  Another build moves them. The ini exposes them.
-- **Volumetric light** draws the world again from the sun for the shadows. It is the most expensive feature.
-  If the frame rate drops, lower **Volumetric Light Quality** or **Shadow Resolution**, raise **Shadow
-  Redraw**, or turn the light off with Alt+F11. To see what it costs, run the benchmark (Alt+F12).
-
-- **Grass** changes two instructions of the game's grass code in memory, not in the `WoW.exe` file, so that
-  each blade bends from its root and rocks stay still. On another `WoW.exe` the check fails and nothing is
-  changed: the grass still moves, but rocks move too, and `comfyatmos.log` says so.
-
-[NOTES.md](NOTES.md) explains how it works, what was measured in the client, and what did not work.
-
-## Time of day
-
-Time of day is a separate DLL: [comfytime](https://github.com/aloofbit/comfytime). Use it to test the light
-at noon, or to keep the sun where you want it. The volumetric light follows the sun in the sky, so it moves
-with the time comfytime sets.
 
 ## Licence
 
