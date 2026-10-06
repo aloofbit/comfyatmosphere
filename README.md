@@ -8,11 +8,11 @@
 
 | | Stage | Status |
 | --- | --- | --- |
-| 1 | Prototypes of the lighting mod and the grass mod | done |
-| 2 | Prototypes of the other features | done |
-| 3 | Tests and repairs until each effect looks correct | **now** |
-| 4 | Performance | next |
-| 5 | Maintenance | later |
+| 1 | Prototypes of the lighting mod and the grass mod | ✅ done |
+| 2 | Prototypes of the other features | ✅ done |
+| 3 | Tests and repairs until each effect looks correct | 🔧 **now** |
+| 4 | Performance | ⬜ next |
+| 5 | Maintenance | ⬜ later |
 
 Atmosphere for the World of Warcraft 1.12 client: volumetric fog, sun shadows, volumetric light through the
 trees, sun rays, glowing lamps, darker nights and grass that moves in the wind. It is one DLL and one ini file, `comfyatmos.dll` and `comfyatmos.ini`. Until
