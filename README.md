@@ -13,7 +13,7 @@ https://github.com/user-attachments/assets/67551de4-3ee5-4ea1-83ed-b72592bfce1d
 
 When bugs are reported we implement automation testing to reduce regression.
 
-[![Test results. Click for the latest run.](media/test-summary.svg)](https://aloofbit.github.io/comfyatmosphere/latest/)
+[![Test results](media/test-badge.svg)](https://aloofbit.github.io/comfyatmosphere/latest/)
 
 ## Roadmap
 

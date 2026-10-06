@@ -20,6 +20,7 @@ param(
     [Parameter(Mandatory)] [string]$History,
     [Parameter(Mandatory)] [string]$Path,
     [string]$SummaryPath = '',
+    [string]$BadgePath = '',
     [string]$Client = ''
 )
 
@@ -272,4 +273,30 @@ if ($SummaryPath) {
     # link of its own (2026-10-06, the owner).
     Add "<text x=""$($W - $pad)"" y=""$($ty + 78 + 30)"" class=""link"" text-anchor=""end"">View details $([char]0x203A)</text>"
     Save $SummaryPath ($ty + 78 + 50) $o.ToString()
+}
+
+# The badge (2026-10-06, the owner): how many tests passed, then View details, in the style of the Discord badge
+# (shields.io's for-the-badge: 28 high, capitals, square corners). The README links it to the latest published run.
+# Its colours are fixed, as a shields badge's are.
+function Badge([string]$file, [string]$label, $parts) {
+    # No fonts load in an image, so each text is held to the width worked out here (textLength): 10 px capitals
+    # with letter spacing take about 8 px a letter.
+    $em = 8.0
+    $body = ''; $x = 0
+    foreach ($p in $parts) {
+        $w = [math]::Round($p[0].Length * $em) + 24
+        $body += "<rect x=""$x"" width=""$w"" height=""28"" fill=""$($p[1])""/>"
+        $body += "<text x=""$(N ($x + $w / 2) '0.0')"" y=""18"" textLength=""$(N ($w - 24))"" font-weight=""$($p[2])"">$(X $p[0])</text>`n"
+        $x += $w
+    }
+    $svg = "<svg xmlns=""http://www.w3.org/2000/svg"" width=""$x"" height=""28"" viewBox=""0 0 $x 28"" role=""img"" aria-label=""$(X $label)"">`n" +
+           "<g font-family=""Verdana, Geneva, DejaVu Sans, sans-serif"" font-size=""10"" fill=""#fff"" text-anchor=""middle"">`n" +
+           $body + "</g>`n</svg>`n"
+    [IO.File]::WriteAllText($file, $svg, (New-Object System.Text.UTF8Encoding $false))
+    Write-Host "card: $file"
+}
+if ($BadgePath) {
+    Badge $BadgePath "Tests: $passed of $($records.Count) passed. View details." @(
+        , @("$passed OF $($records.Count) PASSED", $(if ($passed -eq $records.Count) { '#2ea44f' } else { '#e05d44' }), 'bold')
+        , @("VIEW DETAILS $([char]0x203A)", '#555', 'normal'))
 }

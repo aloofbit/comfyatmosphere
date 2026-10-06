@@ -12,7 +12,7 @@
   Debug View each shot shows comes from the test's steps as they are now.
 
   -Card also writes the results cards from the same records (Write-Card.ps1): media\test-summary.svg for the README,
-  and media\test-results.svg, the large one.
+  media\test-results.svg, the large one, and media\test-badge.svg, a badge of how many passed.
 
 .EXAMPLE
   .\Build-Latest.ps1                        # every test
@@ -132,6 +132,7 @@ if ($Card) {
     else {
         & (Join-Path $here 'Write-Card.ps1') -Records $records -History (Join-Path $resultsDir 'perf-history.json') `
             -Path (Join-Path $here '..\media\test-results.svg') -SummaryPath (Join-Path $here '..\media\test-summary.svg') `
+            -BadgePath (Join-Path $here '..\media\test-badge.svg') `
             -Client $Client
     }
 }
