@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atmosphere tests</title>
+<style>
+:root { --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --ok: #2f7d32; --bad: #b3261e; --line: #dcdcd6; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1b1b1a; --fg: #e8e8e3; --muted: #9a9a93; --ok: #7cc47f; --bad: #f08a80; --line: #34342f; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+h1 { margin: 0 0 4px; font-size: 26px; }
+p { color: var(--muted); margin: 0 0 24px; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { display: flex; gap: 16px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+li a { color: var(--fg); font-weight: 600; min-width: 150px; }
+li.ok a::before { content: "\2713  "; color: var(--ok); }
+li.bad a::before { content: "\2717  "; color: var(--bad); }
+li span { color: var(--muted); }
+</style></head><body><main>
+<h1>Atmosphere tests</h1>
+<p>comfyatmosphere's tests in the game, the newest first. Each page shows every test with its shots and recordings beside the expected ones.</p>
+<ul>
+<li class="ok"><a href="runs/20261006-160606/">2026-10-06 16:06</a><span>24 of 24 passed &middot; each test&#39;s latest run, 2026-10-06 15:22 to 2026-10-06 15:56</span></li>
+</ul>
+</main></body></html>
