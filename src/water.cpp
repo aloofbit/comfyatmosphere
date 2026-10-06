@@ -50,6 +50,7 @@
 #include "sun.h"
 #include "sunshadows.h"
 #include "water.h"
+#include "shadercache.h"
 
 #include <algorithm>
 #include <array>
@@ -3827,4 +3828,13 @@ void WaterNoteRain(IDirect3DDevice9* dev, UINT prims)
 float WaterRainAmount()
 {
     return g_rain;
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void WaterShaderList()
+{
+    ShaderPrecompile("water_vs", kVsHlsl, "vs_3_0");
+    ShaderPrecompile("water_ps", kPsHlsl, "ps_3_0");
+    ShaderPrecompile("wet_vs", kWetVsHlsl, "vs_3_0");
+    ShaderPrecompile("wet_ps", kWetPsHlsl, "ps_3_0");
 }

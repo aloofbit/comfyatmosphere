@@ -69,6 +69,7 @@
 #include "depth.h"
 #include "rays.h"
 #include "sun.h"
+#include "shadercache.h"
 
 #include <cmath>
 #include <cstring>
@@ -1045,4 +1046,19 @@ void RaysToggle()
 {
     g_on = !g_on;
     Log("--- rays %s ---", g_on ? "ON" : "OFF");
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void RaysShaderList()
+{
+    ShaderPrecompile("rays_mask", kMaskHlsl, "ps_2_0");
+    ShaderPrecompile("rays_mask_depth", kMaskDepthHlsl, "ps_2_0");
+    ShaderPrecompile("rays_blur", kBlurHlsl, "ps_2_0");
+    ShaderPrecompile("rays_composite", kCompositeHlsl, "ps_2_0");
+    ShaderPrecompile("rays_maxlum", kMaxLumHlsl, "ps_2_0");
+    ShaderPrecompile("rays_max", kMaxHlsl, "ps_2_0");
+    ShaderPrecompile("rays_peakblend", kPeakBlendHlsl, "ps_2_0");
+    ShaderPrecompile("rays_skymin", kSkyMinHlsl, "ps_2_0");
+    ShaderPrecompile("rays_maskkeep", kMaskKeepHlsl, "ps_2_0");
+    ShaderPrecompile("rays_soften", kSoftenHlsl, "ps_2_0");
 }

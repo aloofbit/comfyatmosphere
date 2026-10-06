@@ -2511,6 +2511,28 @@ taps three texels apart for a soft edge). Real water shows a boat's shadow as a 
 shallow water shows it on the bottom. A pixel is water where the depth under the water (copied before it drew) lies
 farther than the depth after it. The units' map is not read for the surface: a character's shadow stays on the bed.
 
+## Shaders at sign-in (2026-10-06)
+
+The owner asked whether the effects could come in one by one at sign-in, not all at once. Measured first: every
+pass compiles through `CompilerProc("D3DCompile")`, so a wrapper timed each compile, and the first 90 s in the world
+logged each frame over 40 ms (`startup:` lines). 44 compiles took 11.1 s, all on the game's thread, in two frames
+that froze for 5.2 and 7.0 s: the water's pixel shader 4.1 s, the sun shadows' 3.5 s, the lamp glow's ten variants
+2.3 s, the volumetric light's march 0.5 s. The targets, masks and map files made no slow frame of their own; the
+slow frames before the effects started were the game loading the world.
+
+`shadercache.cpp`: every compile goes through `ShaderCacheCompile`, keyed by a 64-bit FNV-1a hash of the source,
+name, entry, profile, flags and defines, kept for the session and on disk (`comfyfog-cache\<key>.cso` beside
+comfyfog.log); a failed compile is kept for the session only (the cover pass expects `cover_depth` to fail as
+ps_2_0). Each pass lists its shaders as it compiles them (`<Pass>ShaderList`), and a worker started at the end of the
+attach thread, below normal priority, compiles or reads them while the client is at its login screen; a key the
+game's thread asks for while the worker has it waits for the worker. The terrain's copies are built from the game's
+own shaders and are not listed (a few ms each).
+
+First run, empty cache: the worker finished 41 shaders in 12.9 s, the last (the water's, 5.3 s) 1.4 s after the
+first world frame and long before the effects needed it; 21 ms of compiling on the game's thread in all. One frame
+of about 1 s is left as the effects start: creating the shader objects in DXVK and the render targets, the
+4096 x 4096 shadow maps among them. Turning the effects on one at a time would spread that frame.
+
 ## Lighthouses at night (2026-10-05)
 
 The game's own lighthouse light does not work with the HD models players use, and the lighthouses stood dark (the

@@ -27,6 +27,7 @@
 #include "common.h"
 #include "config.h"
 #include "cover.h"
+#include "shadercache.h"
 
 #include <cmath>
 #include <cstring>
@@ -322,4 +323,13 @@ void CoverReset()
         g_init[i] = false;
     }
     g_failed = false;
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void CoverShaderList()
+{
+    ShaderPrecompile("cover_bright", kBrightHlsl, "ps_2_0");
+    ShaderPrecompile("cover_depth", kDepthHlsl, "ps_2_0");
+    ShaderPrecompile("cover_depth", kDepthHlsl, "ps_2_b");
+    ShaderPrecompile("cover_ease", kEaseHlsl, "ps_2_0");
 }

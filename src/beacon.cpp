@@ -31,6 +31,7 @@
 #include "shadow.h"
 #include "sun.h"
 #include "sunshadows.h"
+#include "shadercache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -640,4 +641,11 @@ void BeaconReset()
     SafeRelease(g_sb);
     g_tried = false;
     g_failed = false;
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void BeaconShaderList()
+{
+    ShaderPrecompile("beacon_vs", kVsHlsl, "vs_3_0");
+    ShaderPrecompile("beacon_ps", kPsHlsl, "ps_3_0");
 }

@@ -62,6 +62,7 @@
 #include "sun.h"
 #include "volume.h"
 #include "water.h"
+#include "shadercache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -886,4 +887,18 @@ void LampGlowReset()
 void LampGlowProbe()
 {
     g_logNext = true;
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06):
+// every one with NL, the lights it loops over ("0" for the vertex shader, as Compile gives it).
+void LampGlowShaderList()
+{
+    const char* none[4] = { "NL", "0", nullptr, nullptr };
+    ShaderPrecompile("lampglow_vs", kVsHlsl, "vs_3_0", none);
+    for (int v = 0; v < kVariants; ++v)
+    {
+        const char* defines[4] = { "NL", kVariantText[v], nullptr, nullptr };
+        ShaderPrecompile("lampglow_ps", kPsHlsl, "ps_3_0", defines);
+        ShaderPrecompile("lampglow_surface_ps", kSurfPsHlsl, "ps_3_0", defines);
+    }
 }

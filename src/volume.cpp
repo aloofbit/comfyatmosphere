@@ -81,6 +81,7 @@
 #include "shadow.h"
 #include "sunshadows.h"
 #include "volume.h"
+#include "shadercache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1927,4 +1928,15 @@ void VolumeFrameEnd()
             g_st.frames, g_st.calls, g_st.drawn, g_st.noDepth, g_st.noShadow, g_st.noMatrix, g_st.noSun,
             g_st.noCam, g_st.sunDown, g_st.noTarget, g_st.badMatrix);
     g_st = {};
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void VolumeShaderList()
+{
+    ShaderPrecompile("volume_march_vs", kMarchVsHlsl, "vs_3_0");
+    ShaderPrecompile("volume_march", kMarchPsHlsl, "ps_3_0");
+    ShaderPrecompile("volume_blur", kBlurHlsl, "ps_2_0");
+    ShaderPrecompile("volume_temporal", kTemporalHlsl, "ps_3_0");
+    ShaderPrecompile("volume_composite", kCompositeHlsl, "ps_3_0");
+    ShaderPrecompile("volume_plain_composite", kPlainCompositeHlsl, "ps_2_0");
 }

@@ -54,6 +54,7 @@
 #include "sunshadows.h"
 #include "bodymask.h"
 #include "volume.h"
+#include "shadercache.h"
 
 #include <cmath>
 #include <cstring>
@@ -994,4 +995,11 @@ void SunShadowsReset()
 void SunShadowsProbe()
 {
     g_logNext = true;
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void SunShadowsShaderList()
+{
+    ShaderPrecompile("sunshadows_vs", kVsHlsl, "vs_3_0");
+    ShaderPrecompile("sunshadows_ps", kPsHlsl, "ps_3_0");
 }

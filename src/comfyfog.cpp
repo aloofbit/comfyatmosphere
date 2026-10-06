@@ -31,6 +31,7 @@
 #include "lampglow.h"
 #include "lamps.h"
 #include "rays.h"
+#include "shadercache.h"
 #include "shadow.h"
 #include "sun.h"
 #include "sunshadows.h"
@@ -95,13 +96,92 @@ double Now()
     return static_cast<double>(t.QuadPart) * inv;
 }
 
+// The start-up measurement (2026-10-06, the owner: can the effects come in one by one at sign-in, not all at once?).
+// Every pass compiles its shaders through D3DCompile from here, so a wrapper times each one, and the first 90 s in
+// the world log each frame over 40 ms with the compiles inside it. The passes' own lines ("shaders compiled",
+// "targets built", "mask ready") fall between them, so a slow frame can be matched to what was built in it.
+namespace
+{
+    PFN_D3DCompile g_realCompile = nullptr;
+    double         g_compileMsFrame = 0.0, g_compileMsAll = 0.0;
+    unsigned       g_compilesFrame = 0, g_compilesAll = 0;
+    std::string    g_compileNames;   // this frame's, for its line
+
+    HRESULT WINAPI TimedCompile(LPCVOID src, SIZE_T size, LPCSTR name, const void* defines, void* include, LPCSTR entry,
+                                LPCSTR target, UINT f1, UINT f2, OgBlob** code, OgBlob** errs)
+    {
+        const double t0 = Now();
+        const HRESULT hr = ShaderCacheCompile(g_realCompile, src, size, name, defines, include, entry, target, f1, f2,
+                                              code, errs);   // the cache and its worker (shadercache.cpp)
+        const double ms = (Now() - t0) * 1000.0;
+        g_compileMsFrame += ms;
+        g_compileMsAll += ms;
+        ++g_compilesFrame;
+        ++g_compilesAll;
+        char one[160];
+        _snprintf_s(one, sizeof(one), _TRUNCATE, "%s%s %s %.0f ms", g_compileNames.empty() ? "" : ", ",
+                    name ? name : "(unnamed)", target ? target : "", ms);
+        if (g_compileNames.size() < 900)
+            g_compileNames += one;
+        Log("startup: %s (%s, %u bytes of HLSL) ready in %.1f ms", name ? name : "(unnamed)", target ? target : "?",
+            static_cast<unsigned>(size), ms);
+        return hr;
+    }
+}
+
 FARPROC CompilerProc(const char* name)
 {
     static HMODULE comp = [] {
         HMODULE m = GetModuleHandleA("d3dcompiler_47.dll");
         return m ? m : LoadLibraryA("d3dcompiler_47.dll");
     }();
-    return comp ? GetProcAddress(comp, name) : nullptr;
+    FARPROC p = comp ? GetProcAddress(comp, name) : nullptr;
+    if (p && strcmp(name, "D3DCompile") == 0)
+    {
+        g_realCompile = reinterpret_cast<PFN_D3DCompile>(p);
+        return reinterpret_cast<FARPROC>(&TimedCompile);
+    }
+    return p;
+}
+
+// At each Present: the frame's time, and for the first 90 s with the world drawn every frame over 40 ms.
+static void StartupFrame(bool world)
+{
+    static double last = 0.0, firstWorld = 0.0, lastSlow = 0.0, worst = 0.0;
+    static unsigned frames = 0, slow = 0;
+    static bool done = false;
+    const double now = Now();
+    const double ms = last > 0.0 ? (now - last) * 1000.0 : 0.0;
+    last = now;
+    if (!done && world && firstWorld == 0.0)
+    {
+        firstWorld = now;
+        Log("startup: the first frame with the world; %u shaders compiled before it, in %.0f ms", g_compilesAll,
+            g_compileMsAll);
+    }
+    if (!done && firstWorld > 0.0)
+    {
+        ++frames;
+        if (ms > 40.0)
+        {
+            ++slow;
+            lastSlow = now;
+            worst = (std::max)(worst, ms);
+            Log("startup: world frame %u at %.2f s took %.0f ms; %u compiles in it, %.0f ms%s%s%s", frames,
+                now - firstWorld, ms, g_compilesFrame, g_compileMsFrame, g_compileNames.empty() ? "" : " (",
+                g_compileNames.c_str(), g_compileNames.empty() ? "" : ")");
+        }
+        if (now - firstWorld > 90.0)
+        {
+            done = true;
+            Log("startup: 90 s in the world: %u frames, %u over 40 ms (the worst %.0f ms), the last at %.1f s; %u shaders "
+                "compiled in all, %.0f ms", frames, slow, worst, lastSlow > 0.0 ? lastSlow - firstWorld : 0.0,
+                g_compilesAll, g_compileMsAll);
+        }
+    }
+    g_compileMsFrame = 0.0;
+    g_compilesFrame = 0;
+    g_compileNames.clear();
 }
 
 namespace
@@ -828,6 +908,7 @@ namespace
                                         HWND wnd, const RGNDATA* dirty)
     {
         CheckDevice(dev);
+        StartupFrame(g_raysDone || g_raysArmed || g_worldEnded);   // the start-up measurement (2026-10-06)
         // Between captures, so the pass's own draws and state changes never show up in a probe.
         // Armed but never fired: nothing was drawn to the back buffer after the world (UI hidden, say),
         // so the finished frame is exactly the world and the pass can run here.
@@ -2124,6 +2205,12 @@ namespace
         const double t0 = Now();
         const bool ok = AttachToDxvk();
         Log("attach %s in %.0f ms", ok ? "succeeded" : "FAILED", 1000.0 * (Now() - t0));
+        // The shaders' worker (2026-10-06): every pass's shader compiled or read from comfyfog-cache\ now, while the
+        // client is at its login screen, not in the world's first frames (11 s of compiles, two frames of 5 and 7 s).
+        wchar_t dir[MAX_PATH];
+        wcscpy_s(dir, g_logPath);
+        wcscpy_s(wcsrchr(dir, L'\\') + 1, 16, L"comfyfog-cache");
+        ShaderCacheStart(dir);
         return 0;
     }
 }

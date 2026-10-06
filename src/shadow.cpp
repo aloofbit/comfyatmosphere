@@ -78,6 +78,7 @@
 #include "mapterrain.h"
 #include "mapm2.h"
 #include "water.h"
+#include "shadercache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -4717,4 +4718,14 @@ void ShadowProbe()
     g_logNext = true;
     g_refusedLogs = 6;
     g_fullFrame = true;   // called after ShadowFrameEnd: the probed frame records in full and redraws the map
+}
+
+// The shader this pass compiles, as it compiles it, for the cache's worker (shadercache.cpp, 2026-10-06): the
+// alpha mask's copy for TEXCOORD2, the one the client's trees use (the others compile in a millisecond).
+void ShadowShaderList()
+{
+    char src[200];
+    snprintf(src, sizeof(src), "sampler2D t : register(s0);\n"
+                               "float4 main(float2 uv : TEXCOORD%d) : COLOR { return tex2D(t, uv); }\n", 2);
+    ShaderPrecompile("shadow_uv", src, "ps_2_0");
 }

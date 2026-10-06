@@ -33,6 +33,7 @@
 #include "terrainshade.h"
 #include "volume.h"
 #include "water.h"
+#include "shadercache.h"
 
 #include <cmath>
 #include <cstring>
@@ -483,4 +484,10 @@ void BodyMaskReset()
     g_skipFrame = false;
     g_anyUnit = false;
     g_anyModel = false;
+}
+
+// The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).
+void BodyMaskShaderList()
+{
+    ShaderPrecompile("bodymask", kOneHlsl, "ps_2_0");
 }
