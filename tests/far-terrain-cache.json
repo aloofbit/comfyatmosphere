@@ -7,6 +7,7 @@
         "camera": 0,
         "flySpeed": 14,
         "start": { "map": 1, "x": 1182.2, "y": -2735.2, "z": 308.7, "facing": 40.1, "about": "the owner's snapshot (2026-10-05): flying 97.4 yards over the ground, facing 40.1 degrees from the x axis toward the mountain, the camera 16.7 down: the hops go the other way (219) and come back" },
+        "flightFrom": { "x": 1191.2, "y": -2740.9, "z": 211.3, "about": "the owner's spot (2026-10-06): on the ground under the start, so flight goes on without the 97-yard fall from the start (the fall left it off in the full run of 2026-10-06)" },
         "sun": { "azimuth": 45, "elevation": 35 },
         "ini": { "shadow.terrainLow": 1 },
         "debugView": 24,

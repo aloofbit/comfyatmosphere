@@ -115,7 +115,10 @@ namespace
                                 LPCSTR target, UINT f1, UINT f2, OgBlob** code, OgBlob** errs)
     {
         const double t0 = Now();
-        if (g_firstWorld > 0.0 && g_effectsAt == 0.0)
+        // Not the grass's shader (2026-10-06): the grass draws from the world's first frames, while the game is still
+        // loading it, and with it the effects started at 1.3 s instead of about 21 s, so the load's own slow frames
+        // counted against the effects. The grass costs nothing at the start (comfygrass ran there before the merge).
+        if (g_firstWorld > 0.0 && g_effectsAt == 0.0 && !(name && strcmp(name, "grass") == 0))
             g_effectsAt = t0;
         const HRESULT hr = ShaderCacheCompile(g_realCompile, src, size, name, defines, include, entry, target, f1, f2,
                                               code, errs);   // the cache and its worker (shadercache.cpp)

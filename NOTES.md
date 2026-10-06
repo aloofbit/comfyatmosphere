@@ -2386,6 +2386,13 @@ shapes with clean, soft edges, scallops and round holes.
   test sets a third stencil bit (0x20, bodymask.cpp), and at the first water draw that bit is drawn into the body
   mask's blue channel (`BodyMaskLeavesNow`); the search skips a point that lands on it. The world's end builds the
   mask again over it, red and green, for the sun shadows.
+  Not round a player or a creature either (2026-10-06, the owner: "foam on the player while in the water, as if the
+  foam pass took it for any other object"). Standing still in Redridge's shallows, the character had foam round its
+  body, and Object Foam 0 took it away; Debug View 17 showed the blobs round the body. The body bit (0x80) is drawn
+  into the same blue, so the search skips a body as it skips reeds. A body that moves still has foam, from its wake
+  and its particles, which do not read the mask. `tests/water-standing.json`, from the owner's snapshot, stands at the
+  water's edge, walks 5 yards into the shallows and stands still; there Debug View 17's row across the legs averages
+  6, where the foam round a body gave about 130.
 - **Open water** (`[water] openFoam`, a toggle; its amount is `whitecaps`): blobs on the swell's crests in deep water,
   drawn longer along the wind (45 degrees), in stretches that come and go.
 - **The controls.** Drawn Foam (off: the game's texture, as before), Foam Size (`foamCell`, 0.9 yards), Foam Reach,
@@ -2579,6 +2586,15 @@ white the tips, blue where the weight comes from the texture because a vertex ca
 **Tests.** `redridge-grass`: the probe must show grass draws and the fill loop patched; recordings with the grass
 on, off and while walking through it, and a shot in Debug View 30. Between two frames 1.5 s apart the lower right
 of the view changed 2.2 grey levels on average with the grass on, 0.8 with it off.
+
+**load-performance after the merge.** It failed in the full run: the worst frame once the effects start 2,420 ms,
+38 frames over 40 ms. The effects' start is the first shader the game's thread asks for after the world appears,
+and that was now the grass's, at 1.3 s, while the game still loads the world; before, it was the rays', at about
+21 s. So the load's own slow frames counted. The grass's shader no longer marks the start. A second run then failed
+on one frame of 3.6 s: the client had been closed for the install, the runner signed in where the last test had
+left the character (Westfall), and the test's move to the harbour loaded a second world inside the 90 s. The runner
+now signs in first and moves to the start before the restart. Then: the effects at 21.2 s, the worst frame 839 ms,
+6 over 40 ms (the runs before the merge: 929 to 952 ms, 8).
 
 ## Performance: the timers, the shadow pipeline and the water (2026-10-06)
 

@@ -169,7 +169,7 @@ sampler2D sUnder : register(s15);  // the depth under the water (INTZ), copied b
 sampler2D sScene : register(s14);  // the screen before the first water draw: what lies under the water
 sampler2D sFoamTex : register(s12); // the game's own foam (WATERFOAMLOOP2.blp), tiled over the water
 sampler2D sFoamBody : register(s11); // the drawn foam's blobs, made by the DLL (MakeFoamBody): 8 cells across, tiling
-sampler2D sLeaves : register(s10);  // foliage (b) and the ground (r) on the screen before the water (bodymask.cpp,
+sampler2D sLeaves : register(s10);  // foliage and bodies (b) and the ground (r) on the screen before the water (bodymask.cpp,
                                     // BodyMaskLeavesNow)
 float4 gZ    : register(c120);     // the projection's m22 and m32; the viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gVz   : register(c121);     // the view's third column: a camera-relative point's view depth
@@ -626,7 +626,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             float  dzO = P.z - rel.z;
             float  dxy = length(P.xy - rel.xy);
             float2 uvO = uv + offs[oi] * rPix * gScr.xy;
-            // Not foliage (the owner): reeds and grass in the shallows are no objects to foam round. Not the ground
+            // Not foliage (the owner): reeds and grass in the shallows are no objects to foam round. Nor a player or
+            // a creature (2026-10-06, the owner: foam round a character standing still); its wake makes its foam. Not the ground
             // either: the shoreline has the shore's foam, and taken for an object it drew a second line (the owner).
             float2 mk   = gFog.w > 0.5 ? tex2Dlod(sLeaves, float4(uvO, 0, 0)).rb : 0.0;
             // Anything rising out of the water, from a third of a yard under it to 2.5 yards over: a wall going up

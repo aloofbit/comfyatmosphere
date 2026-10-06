@@ -127,8 +127,14 @@ foreach ($file in $files) {
     $restarted = $false
     if ($cfg.restart) {
         # A fresh start (2026-10-06, load-performance): to the start first, so the world the client loads at the
-        # sign-in is the same each run, then the client closed and started again.
-        if ($cfg.start -and ($NoLogin -or $null -ne $loggedAs)) {
+        # sign-in is the same each run, then the client closed and started again. A client not signed in yet signs in
+        # first (2026-10-06): it signed in where the last test had left the character, and the test's own move to the
+        # start then loaded a second world inside the 90 s measured (a frame of 3.6 s).
+        if ($cfg.start -and -not $NoLogin -and $null -eq $loggedAs) {
+            & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
+            $loggedAs = $slot
+        }
+        if ($cfg.start) {
             $go = Join-Path $resultsDir "$stamp-$($t.name)-before.script.txt"
             [IO.File]::WriteAllText($go, (@('flight off', "chat .go xyz $($cfg.start.x) $($cfg.start.y) $($cfg.start.z) $($cfg.start.map)",
                 "arrive $($cfg.start.x) $($cfg.start.y) $($cfg.start.z)", 'wait 2') -join "`r`n") + "`r`n")
@@ -510,11 +516,16 @@ foreach ($file in $files) {
             Copy-Item $recCopies[$i] (Join-Path $expectedDir "$($t.name)-rec$($i + 1).mp4") -Force
         }
     }
-    $records += [pscustomobject]@{
+    $record = [pscustomobject]@{
         name = $t.name; about = $t.about; pass = $pass; stamp = $stamp; checks = $checks
         positions = $positions; warnings = $warnings; shots = $shotCopies; views = $shotViews
         recordings = $recCopies; recViews = $recViews; recLabels = $recLabels
     }
+    $records += $record
+    # Each test's result on its own (2026-10-06, the owner): Build-Latest.ps1 makes one page of every test's latest,
+    # whichever run it came from.
+    [IO.File]::WriteAllText((Join-Path $resultsDir "$stamp-$($t.name).record.json"), (ConvertTo-Json -InputObject $record -Depth 5),
+                            (New-Object Text.UTF8Encoding $false))
 }
 
 # The character is left as a login leaves it: the camera behind it (face turns the camera alone), flight off.

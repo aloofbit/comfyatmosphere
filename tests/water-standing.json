@@ -1,21 +1,21 @@
 {
-    "name": "redridge-grass",
-    "about": "From the owner's snapshot in Redridge's grass, with Foliage Density at 128 (put back at the end). comfyfog.dll draws the grass in the wind since 2026-10-06 (comfygrass until then). The probe must show grass draws and the fill loop patched. Recordings with the grass on, off, and while walking through it (the parting); shots in the normal view and in Debug View 30 (the bend: black still, white the tips).",
+    "name": "water-standing",
+    "about": "From the owner's snapshot at the edge of Redridge's lake: a shot there, then about 5 yards forward into the shallows and a shot standing still. A character standing still in the water had foam round its body: the foam round objects (Object Foam) took it for a post (2026-10-06, the owner). Only a body that moves may have foam, from its wake. Each shot also in Debug View 17 (the foam alone).",
     "config": {
         "character": 1,
         "flight": false,
-        "cameraZoom": 4.937,
+        "cameraZoom": 4,
         "start": {
             "map": 0,
-            "x": -9467.8,
-            "y": -2251.2,
-            "z": 74.4,
-            "facing": 147.6,
-            "about": "the owner's snapshot (2026-10-06): Redridge, on the grass west of the lake; the camera faces 147.6 degrees, 25.9 down, 5.9 yards back"
+            "x": -9389.4,
+            "y": -2230.7,
+            "z": 56.7,
+            "facing": -3.8,
+            "about": "the owner's snapshot (2026-10-06): Redridge, Lake Everstill's west shore, at the water's edge; the camera faces -3.8 degrees, 40 down, 5.3 yards back"
         },
         "sun": {
             "azimuth": 45,
-            "elevation": 28.7
+            "elevation": 74.4
         },
         "cvars": {
             "comfyVolume": 1,
@@ -137,55 +137,27 @@
             "comfyGrassWaveLength": 18,
             "comfyGrassWindDir": 45,
             "comfyGrassParting": 50,
-            "comfyGrassPartingRadius": 20,
-            "frillDensity": 128
+            "comfyGrassPartingRadius": 20
         }
     },
     "steps": [
         {
             "face": {
-                "heading": 147.6,
-                "pitch": -25.9
+                "heading": -3.8,
+                "pitch": -40
             }
         },
         {
-            "wait": 5
-        },
-        {
-            "probe": true
-        },
-        {
-            "wait": 2
+            "wait": 4
         },
         {
             "screenshot": true
         },
         {
-            "record": {
-                "seconds": 5,
-                "label": "grass on"
-            }
+            "cvar": "comfyDebugView 17"
         },
         {
-            "cvar": "comfyGrass 0"
-        },
-        {
-            "wait": 1
-        },
-        {
-            "record": {
-                "seconds": 4,
-                "label": "grass off"
-            }
-        },
-        {
-            "cvar": "comfyGrass 1"
-        },
-        {
-            "cvar": "comfyDebugView 30"
-        },
-        {
-            "wait": 1
+            "wait": 1.5
         },
         {
             "screenshot": true
@@ -197,25 +169,38 @@
             "down": "W"
         },
         {
-            "record": {
-                "seconds": 4,
-                "label": "walking through it"
-            }
+            "wait": 0.7
         },
         {
             "up": "W"
+        },
+        {
+            "wait": 4
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 17"
+        },
+        {
+            "wait": 1.5
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
         }
     ],
     "expect": [
         {
-            "about": "The grass is drawn with the wind shader",
-            "probe": "grass: on; last frame [1-9]\\d* draws",
-            "min": 1
-        },
-        {
-            "about": "Each vertex carries its height: the fill loop is patched",
-            "probe": "grass: .*the fill loop patched",
-            "min": 1
+            "about": "In the shallows, standing still, Debug View 17 (the foam alone): no foam round the character. Row 540 crosses its legs; before the fix the foam round a body standing still averaged about 130 on such a row",
+            "shot": 4,
+            "row": 540,
+            "from": 580,
+            "to": 720,
+            "meanMax": 50
         }
     ]
 }

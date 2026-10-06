@@ -24,6 +24,11 @@ runs. The result, the script it ran, the probe and the screenshots go to `result
 
 ## The page
 
+Each test's result is also saved on its own, as `results\<time>-<test>.record.json`. `.\Build-Latest.ps1` makes one page
+of every test's latest result, whichever run it came from, with the time of that run beside each test:
+`results\latest-report.html`, also copied to `results\last-results.html`. `-Name` takes only some tests. A test
+last run before the records were saved is read back from its text report, `results\<time>-<test>.txt`.
+
 Each run writes `results\<time>-report.html` and opens it (`-NoOpen` does not). The same page is copied to `results\last-results.html`: keep a tab open on it and refresh it after each run. It shows every test, its checks
 and what they measured, and each screenshot beside the expected one, with the Debug View it was taken in. A
 check that reads a screenshot sits with that screenshot. The expected shots are in `expected\<test>-<n>.jpg`,
@@ -71,7 +76,8 @@ camera as far back as the owner had it; under 1.5 yards it is `camera: 0`.
 | `ironforge-ah-glow` | On the road outside Ironforge's gate, facing the statue in the hall. The auction house braziers behind it took the fog's cap (x54.6) as buried under the mountain, and their glow came through the hall's walls. After 45 s for the city to load, no lamp may take the cap, and the braziers must be in the probe's list. Shots in the normal view and in Debug View 6 (2026-10-05). |
 | `stormwind-tower-speckle` | Stand on the bridge into Stormwind facing the sun over the gate. The left tower, where the sun grazes it, must show no speckled shade (2026-10-04). |
 | `stormwind-canal-wake` | Swim through a canal inside Stormwind, the camera looking down. Ripples and a wake must trail the swimmer, on a building's water as on the map's (2026-10-04). |
-| `redridge-grass` | Stand in Redridge's grass by the lake, the camera behind the character. The probe must show the grass drawn by comfyfog.dll and the fill loop patched. Recordings with the grass on, off and while walking through it; a shot in Debug View 30, the bend (2026-10-06). |
+| `water-standing` | From the owner's snapshot at the edge of Redridge's lake: a shot there, then 5 yards forward into the shallows and a shot standing still. No foam may lie round the character: the foam round objects took it for a post. Each shot also in Debug View 17 (2026-10-06). |
+| `redridge-grass` | From the owner's snapshot in Redridge's grass, with Foliage Density at 128 (put back at the end). The probe must show the grass drawn by comfyfog.dll and the fill loop patched. Recordings with the grass on, off and while walking through it; a shot in Debug View 30, the bend (2026-10-06). |
 | `elwynn-trough-shadow` | Stand in the Eastvale water trough, the camera zoomed in. The trough must not be marked a body, so its shadow has no character's extra darkness (2026-10-04). |
 | `development-horse-seethrough` | On the development map with a summoned Warhorse and Charger beside you. No horse may be taken as see-through, and the Warhorse must stay a body in every frame (2026-10-04). |
 | `development-guard-stealth` | On the development map, the owner's Stormwind City Guard given Stealth. A recording as Stealth goes on, a shot in stealth, a recording as it goes off, then a shot with the character inside him. His draws, his helmet, shoulders and weapons among them, must go into the scratch depth, and none of them may cast a shadow (2026-10-05). |

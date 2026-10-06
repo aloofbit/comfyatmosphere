@@ -19,7 +19,10 @@ param(
     [string[]]$ViewNames = @(),
     [datetime]$Started = (Get-Date),
     [string]$History = '',
-    [string]$Client = ''
+    [string]$Client = '',
+    # A page of several runs (Build-Latest.ps1, 2026-10-06): this line in place of the run's date and minutes, and
+    # each test's own run time beside its name.
+    [string]$Summary = ''
 )
 
 function Html([string]$text) { [System.Net.WebUtility]::HtmlEncode($text) }
@@ -489,7 +492,7 @@ svg.spark .dot.ok { fill: var(--pass); }
 svg.spark .dot.bad { fill: var(--fail); }
 </style></head><body><main>
 <h1>Atmosphere tests</h1>
-<p class="sum">$passed of $($Records.Count) passed &middot; $($Started.ToString('yyyy-MM-dd HH:mm')) &middot; $minutes min</p>
+<p class="sum">$passed of $($Records.Count) passed &middot; $(if ($Summary) { Html $Summary } else { "$($Started.ToString('yyyy-MM-dd HH:mm')) &middot; $minutes min" })</p>
 "@)
 [void]$sb.Append((PerfPanel))
 [void]$sb.Append("<nav>`n")
@@ -505,7 +508,8 @@ foreach ($r in $Records) {
 foreach ($r in $Records) {
     if ($r.name -like '*-performance') { continue }
     $cls = if ($r.pass) { 'pass' } else { 'fail' }
-    [void]$sb.Append("<section id=""$(Html $r.name)""><h2>$(Html $r.name) <span class=""tag $cls"">$($cls.ToUpper())</span></h2>`n")
+    $runOf = if ($Summary -and $r.stamp) { " <span class=""when"">$(Html (Stamp $r.stamp))</span>" } else { '' }
+    [void]$sb.Append("<section id=""$(Html $r.name)""><h2>$(Html $r.name) <span class=""tag $cls"">$($cls.ToUpper())</span>$runOf</h2>`n")
     [void]$sb.Append("<p class=""about"">$(Html $r.about)</p>`n")
     [void]$sb.Append((Checks @($r.checks | Where-Object { $_.shot -eq 0 })))
     for ($i = 0; $i -lt $r.shots.Count; $i++) {

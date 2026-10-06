@@ -448,6 +448,12 @@ IDirect3DTexture9* BodyMaskLeavesNow(IDirect3DDevice9* dev)
         const float w = static_cast<float>(g_w) - 0.5f, h = static_cast<float>(g_h) - 0.5f;
         const QuadVertex q[4] = { { -0.5f, -0.5f, 0, 1 }, { w, -0.5f, 0, 1 }, { -0.5f, h, 0, 1 }, { w, h, 0, 1 } };
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+        // And the bodies in blue too (2026-10-06, the owner): the foam round objects skips them as it skips reeds.
+        // A character standing still in the water had the foam round its legs, as a post has; only a body that
+        // moves gets foam, from its wake and its particles, which do not read this mask.
+        d->SetRenderState(dev, D3DRS_STENCILREF,          kBit);
+        d->SetRenderState(dev, D3DRS_STENCILMASK,         kBit);
+        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
         // And the ground in red (2026-10-05).
         d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_RED);
         d->SetRenderState(dev, D3DRS_STENCILREF,          kGroundBit);
