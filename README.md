@@ -112,28 +112,7 @@ The **Debug** button in the settings window, or `/atmos debug`, opens the debug 
 
 ## Benchmark
 
-Alt+F12, or `/atmos bench`, measures what each feature costs on your computer. It takes 30 seconds.
-
-1. Turn on the volumetric light and play for a minute, so its shadow cache fills as in normal play.
-2. Go outside in daylight. Stand still and face the sun.
-3. Press Alt+F12. Do not move the mouse until the chat says it is done.
-4. Open `comfyatmos.log` in the client folder. The table is on the lines that start with `bench:`.
-
-It runs three steps: rays + volumetric light (with the fog), rays, and nothing. For each step the table
-gives:
-
-- **fps** and **ms/frame**: the frame rate.
-- **slowest 1%**: the time of the slowest frames, in milliseconds. Stutter shows here.
-- **our GPU ms** and **our CPU ms**: the time of our own passes in each frame.
-
-Below the table, one line splits the light into its parts: the shadow map and the light passes on the GPU,
-and on the CPU the recording of the game's draws, the shadow cache and its replay.
-
-Keep the game in front while it runs: in the background the client caps its frame rate. Under any cap (vsync,
-a frame limiter, the background cap) the frame rate stays the same in every step, and the GPU slows its clocks,
-so its times read too high. The CPU column still shows the cost. Turn the cap off for a benchmark.
-
-After the run, the settings go back as they were. F11 stops the run.
+Alt+F12, or `/atmos bench`, measures what each feature costs on your computer. It takes 30 seconds. Writes results to comfyatmos.log
 
 ## Build
 
