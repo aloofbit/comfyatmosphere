@@ -2325,6 +2325,52 @@ city full of fog, which was the city not loaded yet after the restart, not that 
 Test: `tests/ironforge-ah-glow.json`. It waits 45 s for the city to load before its probe; no lamp may take the
 cap, and the braziers must be in the list (at x1.00 after the fix).
 
+## Drawn foam, in the style of Breath of the Wild (2026-10-05)
+
+The shore foam was the game's `WATERFOAMLOOP2.blp`, a texture for waterfalls, laid flat and tiled: the same pattern
+on every beach, two layers drifting sideways whatever the water did, cut into round blobs, in even stripes (a sine of
+the distance to the edge). The owner asked for foam drawn by us, in the style of Breath of the Wild: flat white
+shapes with clean, soft edges, scallops and round holes.
+
+- **The shapes.** A texture the DLL makes at the start (`MakeFoamBody`, 256 x 256, every mip level): cellular noise
+  of two sizes, 8 and 21 cells across, wrapped so it tiles, 1 at each cell's point and 0 a little over half a cell
+  away. `FoamField` reads it twice at other sizes and angles, so its repeat does not show, warps it with a slow noise
+  so the edges scallop, and adds a broad noise so some stretches hold more foam. `FoamCut` cuts it at a level, with
+  an edge one pixel soft (by `fwidth`). The noise was worked out in the shader first: 18 cell lookups a pixel left
+  the water shader no temporary registers (ps_3_0 has 32; it was at 30 before). The wake loop also moved before the
+  shore foam, where fewer values are held through it.
+- **Its age.** From the water's moving edge out (`reachS`), over Foam Reach (`[water] foamLife`, 3 yards), stretched
+  as the swash runs up and shortened as it drains. The cut rises with age: at the edge a sheet with a few holes,
+  then the holes open, then only the blobs' middles, then nothing. A shore wave's crest lowers the cut where it
+  breaks. Past 35 to 70 yards the shapes give way to their share of foam, an even tone. The cut at the edge is
+  Foam Breakup (`[water] foamEdge`, 0.6, in `c204.y`): from 0.2 the youngest foam was a solid sheet, and the swash
+  read as a pale band of another colour beside the open water's foam (the owner); at 0.6 it is pieces throughout.
+- **The wake** is the same blobs. Drawn, it is a splash at the body and bubbles left along the path, none on the
+  V arms: the foam it drew there filled the channel the parting had just cleared (the owner). The bubbles stay where
+  they formed and thin out over 3.5 s, the cut rising as they age; the trail keeps its 8 points 1 yard apart for 4 s
+  (0.6 yards and 2.5 s until then, which ended them 4 yards behind a runner). Wake Foam
+  (`[water] wakeFoam`, 0.5, `c209.y`) sets how much.
+- **Parting**, as a particle effect (the owner). Each body at the water that moves faster than a yard a second lets
+  a particle go every half yard, where it is; each stays there and lives a cycle (the owner): born at size 0, it grows
+  to 0.55 yards (1.1 across; 0.7 at first) over the first tenth of its life, then shrinks and fades out together, so a body moving leaves a
+  trail that opens behind it and narrows into a V, and one
+  standing still parts nothing. They faded in place at first, at one width: no V (the owner). Each is let go up to 0.35 yards off the feet, any way,
+  and lives 0.7 to 1.3 of the 1.4 s, at random: at the same place and life every time the trail was too even. Each is let go a little ahead
+  of the body, half of what it covers while the disc grows, up to 0.75 yards: let go at the feet, a runner had passed
+  it before it was full, and the trail opened behind them; ahead by all of that (2 yards) was far too far. They are let go further apart the faster the
+  body, at most about 7 a second (half a yard walking, a yard running), and with all 11 in use the oldest makes room
+  only past 85% of its life: running let one go 14 times a second, and the oldest, dropped at a fifth of its size,
+  popped out. The cut is raised in each and lowered a little
+  along its rim, where the foam was pushed. At the water means from 3 yards under its surface to 1 yard over it, so
+  the swash counts: there the feet are over the flat water and no wake trail starts. Up to 11 at once, `c213` to
+  `c223` (`PartsUpdate`). Tried first and dropped: a channel along the wake's path (it did not reach the swash), a
+  disc following each body (a still disc round someone standing looked wrong), and that disc fading with movement.
+- **Open water** (`[water] openFoam`, a toggle; its amount is `whitecaps`): blobs on the swell's crests in deep water,
+  drawn longer along the wind (45 degrees), in stretches that come and go.
+- **The controls.** Drawn Foam (off: the game's texture, as before), Foam Size (`foamCell`, 0.9 yards), Foam Reach,
+  Open Water Foam, Open Water Foam Amount. Debug View 27 shows the foam in white over its age in red, and the open
+  water's foam in blue. `c212` carries them to the water shader; sampler `s11` is the texture.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates

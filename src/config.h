@@ -470,7 +470,16 @@ struct WaterSettings
     float waves     = 1.0f;      // 0..3: how choppy the small waves are
     float waveHeight = 1.0f;     // yards: how tall the swell rises, out where the water is 6.5 yards deep or more
     float waveScale = 2.0f;      // their size: 2 = twice as long (2026-10-02: 1 was too small)
-    float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water
+    float whitecaps = 0.3f;      // 0..1: foam on the waves out in deep water (Open Water Foam Amount)
+    // The drawn foam (2026-10-05): shapes made in the shader, in the style of Breath of the Wild, in place of the
+    // game's waterfall texture. See NOTES.md.
+    bool  foamDrawn = true;      // the drawn foam; off, the game's texture as before (Drawn Foam)
+    float foamCell  = 0.9f;      // yards: the size of its blobs (Foam Size)
+    float foamLife  = 3.0f;      // yards out from the moving edge it lasts (Foam Reach)
+    float wakeFoam  = 0.5f;      // 0..1: the drawn foam's splash at a body moving through the water (Wake Foam)
+    float foamEdge  = 0.6f;      // 0..0.9: its cut at the water's edge: higher leaves more holes in the youngest
+                                 // foam (0.2 made a solid sheet over the swash)
+    bool  openFoam  = true;      // foam on the swell's crests out in deep water, at whitecaps (Open Water Foam)
     float swash     = 0.6f;      // above 0: the water runs up the beach and back (Swash, on or off)
     // How far up the shore it goes (Swash Height): yards of height at most, and up a gentle beach 5 times that
     // along the ground. One value since 2026-10-05: swashRun (1.5) and this (0.3) were two limits on one thing.

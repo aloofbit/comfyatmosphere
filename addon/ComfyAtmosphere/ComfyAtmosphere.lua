@@ -65,6 +65,13 @@ COMFYATMOSPHERE_WATER_RIPPLE_MOVING = "Moving Ripple Depth";
 COMFYATMOSPHERE_WATER_RIPPLE_SPREAD = "Standing Ripple Spread";
 COMFYATMOSPHERE_WATER_RIPPLE_SPREAD_MOVING = "Moving Ripple Spread";
 COMFYATMOSPHERE_WATER_FOAM     = "Foam";
+COMFYATMOSPHERE_WATER_FOAM_DRAWN = "Drawn Foam";
+COMFYATMOSPHERE_WATER_FOAM_SIZE = "Foam Size";
+COMFYATMOSPHERE_WATER_FOAM_REACH = "Foam Reach";
+COMFYATMOSPHERE_WATER_FOAM_EDGE = "Foam Breakup";
+COMFYATMOSPHERE_WATER_WAKE_FOAM = "Wake Foam";
+COMFYATMOSPHERE_WATER_OPEN_FOAM = "Open Water Foam";
+COMFYATMOSPHERE_WATER_OPEN_FOAM_AMOUNT = "Open Water Foam Amount";
 COMFYATMOSPHERE_WATER_SWASH    = "Swash";
 COMFYATMOSPHERE_WATER_SWASH_HEIGHT = "Swash Height";
 COMFYATMOSPHERE_WATER_SWASH_LENGTH = "Swash Length";
@@ -620,6 +627,82 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- [water] foamDrawn (2026-10-05): foam made by comfyfog.dll, or the game's waterfall texture as before.
+		name = "COMFYATMOSPHERE_WATER_FOAM_DRAWN",
+		desc = "Foam in clean, soft shapes that break up as they age. Off, the game's own foam texture.",
+		type = "checkbutton",
+		cvar = "comfyWaterFoamDrawn",
+		dependency = { "comfyWater", "1" },
+	},
+	{
+		-- Tenths of a yard: comfyfog.dll divides by 10 for [water] foamCell.
+		name = "COMFYATMOSPHERE_WATER_FOAM_SIZE",
+		desc = "How large the shapes of the foam are, in tenths of a yard.",
+		type = "slider",
+		cvar = "comfyWaterFoamSize",
+		dependency = { "comfyWaterFoamDrawn", "1" },
+		minval = 3,
+		maxval = 30,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard: comfyfog.dll divides by 10 for [water] foamLife.
+		name = "COMFYATMOSPHERE_WATER_FOAM_REACH",
+		desc = "How far out from the water's edge the foam lasts, in tenths of a yard.",
+		type = "slider",
+		cvar = "comfyWaterFoamReach",
+		dependency = { "comfyWaterFoamDrawn", "1" },
+		minval = 5,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides by 100 for [water] foamEdge.
+		name = "COMFYATMOSPHERE_WATER_FOAM_EDGE",
+		desc = "How broken the foam is at the water's edge. Low makes a solid band of foam along the sand; high leaves it in pieces, as farther out.",
+		type = "slider",
+		cvar = "comfyWaterFoamEdge",
+		dependency = { "comfyWaterFoamDrawn", "1" },
+		minval = 0,
+		maxval = 90,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides by 100 for [water] wakeFoam.
+		name = "COMFYATMOSPHERE_WATER_WAKE_FOAM",
+		desc = "The splash of foam at anyone walking or swimming through the water. 0 is none.",
+		type = "slider",
+		cvar = "comfyWaterWakeFoam",
+		dependency = { "comfyWaterFoamDrawn", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- [water] openFoam: foam on the swell's crests out in deep water.
+		name = "COMFYATMOSPHERE_WATER_OPEN_FOAM",
+		desc = "Foam on the tops of the waves out in deep water.",
+		type = "checkbutton",
+		cvar = "comfyWaterOpenFoam",
+		dependency = { "comfyWater", "1" },
+	},
+	{
+		-- A percentage: comfyfog.dll divides by 100 for [water] whitecaps.
+		name = "COMFYATMOSPHERE_WATER_OPEN_FOAM_AMOUNT",
+		desc = "How much foam the waves out in deep water carry.",
+		type = "slider",
+		cvar = "comfyWaterOpenFoamAmount",
+		dependency = { "comfyWaterOpenFoam", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- comfyfog.dll takes it as [water] swash, on or off (2026-10-05: a slider whose 5 to 100 changed nothing).
 		name = "COMFYATMOSPHERE_WATER_SWASH",
 		desc = "The water runs up the beach and slides back, with foam on its edge.",
@@ -1045,11 +1128,12 @@ local ENTRIES = {
 			.. "23 water: the slope the swash uses (dark to bright up to 0.3, a line every 0.05)\n"
 			.. "24 sun shadows: where the shade comes from (red solid, green leaves, blue hills)\n"
 			.. "25 sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)\n"
-			.. "26 sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)",
+			.. "26 sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)\n"
+			.. "27 water: the drawn foam (white) over its age (red), the open water's foam (blue)",
 		type = "slider",
 		cvar = "comfyDebugView",
 		minval = 0,
-		maxval = 26,
+		maxval = 27,
 		step = 1,
 		numberLabels = 1,
 	},
@@ -1130,7 +1214,7 @@ local WINDOW_SECTIONS = {
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
 	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
 	{ "Color", { "comfyColor", "comfyDaySaturation", "comfyNightSaturation" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterFoamDrawn", "comfyWaterFoamSize", "comfyWaterFoamReach", "comfyWaterFoamEdge", "comfyWaterWakeFoam", "comfyWaterOpenFoam", "comfyWaterOpenFoamAmount", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",
@@ -1625,6 +1709,7 @@ local DEBUG_VIEWS = {
 	"sun shadows: where the shade comes from (red solid, green leaves, blue hills)",
 	"sun shadows: shade taken off behind a hill (red solid, green leaves, blue where the check runs)",
 	"sun shadows: the hill check's depths (red the solid caster before the hill, green behind it, blue the point behind the hill)",
+	"water: the drawn foam (white) over its age (red), the open water's foam (blue)",
 };
 
 local PANEL_BACKDROP = {

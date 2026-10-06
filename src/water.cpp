@@ -163,6 +163,7 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
 sampler2D sUnder : register(s15);  // the depth under the water (INTZ), copied before the first water draw
 sampler2D sScene : register(s14);  // the screen before the first water draw: what lies under the water
 sampler2D sFoamTex : register(s12); // the game's own foam (WATERFOAMLOOP2.blp), tiled over the water
+sampler2D sFoamBody : register(s11); // the drawn foam's blobs, made by the DLL (MakeFoamBody): 8 cells across, tiling
 float4 gZ    : register(c120);     // the projection's m22 and m32; the viewport's MinZ, 1 / (MaxZ - MinZ)
 float4 gVz   : register(c121);     // the view's third column: a camera-relative point's view depth
 float4 gScr  : register(c122);     // 1 / width, 1 / height, seconds, strength
@@ -184,15 +185,15 @@ float4 gSunC : register(c166);     // the sun's colour; whitecaps
 float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest first: camera-relative feet, age
                                     // in seconds (negative: no point)
 float4 gMoon2 : register(c203);    // the way to the other moon, its glint's strength (0 by day)
-float4 gGlint : register(c204);    // 1 / the glint's size squared; y free (the ripples' depth until 2026-10-05,
-                                   // now each ring's own, gRingD.w); z the
+float4 gGlint : register(c204);    // 1 / the glint's size squared; y the drawn foam's cut at the water's edge
+                                   // ([water] foamEdge; the ripples' depth until 2026-10-05); z the
                                    // swash's highest climb (yards); w the
                                    // edge line's width (yards along the ground)
 float4 gI0   : register(c205);     // rows of inverse(view x projection): clip -> camera-relative world
 float4 gI1   : register(c206);
 float4 gI2   : register(c207);
 float4 gI3   : register(c208);
-float4 gBright : register(c209);   // the water's brightness (Water Brightness)
+float4 gBright : register(c209);   // the water's brightness (Water Brightness); y the drawn wake's foam (Wake Foam)
 float4 gCells : register(c210);    // the chunk's wet cells: 8 bits a row, two rows in each (FullGridDraw)
 float4 gWake : register(c202);     // trails in use, the wake's strength, 1 with the swash, its height (yards)
 float4 gFT   : register(c169);     // 1 with the foam texture, 1 / its size in yards, its strength; the edge line
@@ -202,6 +203,10 @@ float4 gWave : register(c167);     // 1 / waveScale; the part drawn (0 all, 1 th
                                    // the screen copy is there; the sky reflection's strength
 float4 gSwash : register(c211);    // the swash: 30 / its length along the shore (yards), its speed (radians a
                                    // second), as the wet sand pass's gSwashW
+float4 gFD   : register(c212);     // the drawn foam: 1 drawn (0 the game's texture), 1 / its size (yards), 1 / how
+                                   // far it lasts from the edge (yards), the open water's foam (0 off)
+float4 gPart[11] : register(c213); // the parting's particles: where each was let go (camera-relative, xyz), w its age
+                                   // as a share of its own life, 0..1 (-1: none more)
 
 // The camera-relative point the depth under the water shows at a place on the screen: the bed, or what
 // stands on it.
@@ -252,6 +257,32 @@ float Lace(float2 p, float t)
         d1 = min(d1, d);
     }
     return 1.0 - saturate((sqrt(d2) - sqrt(d1)) * 2.5);
+}
+
+// The drawn foam (2026-10-05), in the style of Breath of the Wild: flat white shapes with clean, soft edges, round
+// scallops and round holes, not a photograph of bubbles. The owner found the game's waterfall texture, laid flat
+// over the sea, wrong for it: the same pattern on every beach, drifting sideways whatever the water did.
+//
+// The foam's body, 0..1: round blobs (the DLL's texture, cellular noise of two sizes), read twice at other sizes
+// and angles so its repeat does not show, the whole warped by a slow noise so the edges scallop and wander, and a
+// broad noise so some stretches hold more foam than others. p is in cells. The cellular noise was worked out here
+// at first: 18 cell lookups a pixel left the shader no temporary registers (ps_3_0 has 32), and the texture's
+// mips keep it clean far off.
+float FoamField(float2 p, float t)
+{
+    float2 w  = float2(ValueNoise(p * 0.45 + float2(t * 0.05, 0.0)), ValueNoise(p * 0.45 + float2(7.3, -t * 0.04))) - 0.5;
+    float2 q  = p + w * 1.1;
+    float2 qr = float2(q.x * 0.8 - q.y * 0.6, q.x * 0.6 + q.y * 0.8);
+    float  a  = tex2D(sFoamBody, q * 0.125).r;
+    float  b  = tex2D(sFoamBody, qr * 0.093 + 0.37).r;
+    float  broad = ValueNoise(q * 0.3 - t * 0.02);
+    return saturate(a * 0.6 + b * 0.25 + broad * 0.3);
+}
+// Foam where the body passes th: a clean edge, aa soft. aa is how fast the body changes across a pixel, taken
+// once outside any branch (a gradient inside one does not compile).
+float FoamCut(float field, float th, float aa)
+{
+    return smoothstep(th - aa, th + aa, field);
 }
 // The swell: three long trains of waves, each its own way and length (24, 17 and 11 yards x waveScale),
 // at the speed of waves on deep water. 0 to 1: the surface only ever rises, so the game's flat water under
@@ -404,6 +435,97 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         clip(wet > 0.5 ? 1.0 : -depth);
     }
 
+    // The wake runs here, near the start, since 2026-10-05: with the drawn foam the shader ran out of temporary
+    // registers in this loop (ps_3_0 has 32), and here few values are held through it. It takes the amount alone;
+    // the game's foam texture (the old style) multiplies it later, the same for every trail at a pixel.
+    // The wake (2026-10-02): behind anyone moving through the water, along the path they took, a V of two arms
+    // at about 20 degrees either side, and churned water just behind the body. The arms are waves (their slope
+    // goes into the light, as the ripples' does), with a little of the game's foam on them. Each trail is up to
+    // 8 points of the path, newest first; a pixel takes the segment of the path nearest to it.
+    float2 wakeSlope = 0.0;
+    float  wakeFoam  = 0.0;
+    float  part      = 0.0;   // the drawn foam parted along a path through it: 1 clear (2026-10-05, the owner)
+    [loop] for (int wi = 0; wi < (int)gWake.x; ++wi)
+    {
+        // Far from the trail's maker, nothing: a trail is at most some 5 yards long and its arms reach 2 out.
+        float2 headOff = rel.xy - gTrail[wi * 8].xy;
+        [branch] if (dot(headOff, headOff) > 18.0 * 18.0)
+            continue;
+        float  bestLat = 1e6, bestS = 0.0, bestAge = 1e6, bestSub = 0.0;
+        float2 bestDir = 0.0;
+        float  sAcc = 0.0;
+        [loop] for (int wj = 0; wj < 7; ++wj)
+        {
+            float4 a = gTrail[wi * 8 + wj], b = gTrail[wi * 8 + wj + 1];
+            if (b.w < 0.0)
+                break;
+            float2 ab  = b.xy - a.xy;
+            float  len = max(length(ab), 1e-3);
+            float  tt  = saturate(dot(rel.xy - a.xy, ab) / (len * len));
+            float2 q   = a.xy + ab * tt;
+            float  lat = length(rel.xy - q);
+            if (lat < bestLat)
+            {
+                bestLat = lat;
+                bestS   = sAcc + tt * len;
+                bestAge = lerp(a.w, b.w, tt);
+                bestSub = rel.z - lerp(a.z, b.z, tt);
+                bestDir = (rel.xy - q) / max(lat, 1e-3);
+            }
+            sAcc += len;
+        }
+        // How much of the body is in the water, as for the ripples: feet small, waist the most, under small.
+        float size = smoothstep(0.05, 0.9, bestSub) * (1.0 - 0.75 * smoothstep(1.1, 2.0, bestSub));
+        // Gone within some 4 yards behind the body and 2 seconds (2026-10-02: by age alone it reached 8 yards back).
+        float life = exp(-bestAge * 1.4) * smoothstep(0.0, 0.6, bestS) * (1.0 - smoothstep(1.5, 4.0, bestS)) * size;
+        // The arms, a crest and the trough inside it, widening with the distance behind.
+        float armAt = bestS * 0.36;
+        float armW  = 0.22 + 0.06 * bestS;
+        float y     = (bestLat - armAt) / armW;
+        float arm   = exp(-y * y);
+        float dArm  = (1.0 - 2.0 * y * y) * exp(-y * y) / armW;
+        // Faded to nothing on the path itself (2026-10-03): bestDir points away from the path, so it turns over
+        // there, and the tilt flipped from one side to the other at full strength: a straight line along the
+        // path behind a runner, as if the water parted.
+        wakeSlope += bestDir * (dArm * life * 0.11 * smoothstep(0.0, armW, bestLat));
+        // The churned water close behind the body: foam, narrow, gone in a second and a half.
+        float churn = exp(-pow(bestLat / (0.35 + 0.08 * bestS), 2.0)) * exp(-bestAge * 2.5) * size *
+                      smoothstep(0.0, 0.4, bestS) * (1.0 - smoothstep(1.0, 2.5, bestS));
+        // The amount alone: cut (the drawn foam) or textured (the old style) where the foam is put together.
+        // Drawn (2026-10-05, the owner): a splash at the body, and bubbles left along the path that stay where they
+        // formed and thin out over 3.5 seconds: the cut rises as they age, so they shrink and break up, then go.
+        // Not on the arms: there they filled the channel the parting clears. Wake Foam sets how much.
+        float trailW = 0.35 + 0.1 * bestS;
+        float bubbles = exp(-(bestLat * bestLat) / (trailW * trailW)) * saturate(1.0 - bestAge / 3.5) * size *
+                        smoothstep(0.0, 0.5, bestS);
+        wakeFoam = max(wakeFoam, gFD.x > 0.5 ? max(churn * (1.0 - smoothstep(0.3, 1.1, bestS)), bubbles * 0.7) * gBright.y
+                                             : arm * 0.5 * life + churn * 0.65);
+    }
+    wakeSlope *= gWake.y;
+    // The foam parts as particles do (2026-10-05, the owner): each body at the water that moves lets one go every
+    // half yard, where it is; each stays there, grows over the first fifth of its life and then shrinks and fades out, so a body moving
+    // leaves a trail of them and one standing still parts nothing. In the swash too: there the feet are over the
+    // flat water and no wake trail starts. A following disc and a channel along the wake's path came first.
+    [loop] for (int pi = 0; pi < 11; ++pi)
+    {
+        float4 pp = gPart[pi];
+        if (pp.w < 0.0)
+            break;
+        float  ph = saturate(pp.w);
+        float2 po = rel.xy - pp.xy;
+        // Its life (the owner): born at size 0, it grows to 0.55 yards (0.7 until the owner asked smaller) over the first tenth of its life, then shrinks
+        // and fades out together to nothing. A trail of them opens just behind the body and narrows behind it into
+        // a V. Its edge stays clean at any size.
+        float  grow   = smoothstep(0.0, 0.1, ph);
+        float  shrink = 1.0 - smoothstep(0.1, 1.0, ph);
+        float  pr = 0.55 * grow * shrink + 0.01;
+        float  pd = length(po);
+        float  pz = rel.z - pp.z;
+        part = max(part, (1.0 - smoothstep(pr * 0.55, pr, pd)) * shrink * (pz > -1.0 && pz < 2.0 ? 1.0 : 0.0));
+    }
+
+)HLSL"
+    R"HLSL(
     // How far the waterline is, across the water: the depth over the bed's slope. The slope is how fast the
     // depth grows per yard of the surface, from the pixels beside this one. On a gentle beach the depth stays
     // small for many yards, and the foam went 20 yards out by depth alone (2026-10-02).
@@ -558,8 +680,18 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     }
     ring = saturate(ring * gReach.y) * (0.3 + 0.7 * soft) * (depth > -0.05 ? 1.0 : 0.0);
 
+    // The game's foam texture, for the old style's shore foam and wake.
+    float2 fp  = (rel.xy + gCam.xy + swS * 1.5) * gFT.y;
+    float  fa1 = tex2D(sFoamTex, fp + float2(t * 0.010, t * 0.006)).a;
+    float  fa2 = tex2D(sFoamTex, fp * 0.71 + float2(0.37 - t * 0.007, 0.21 + t * 0.011)).a;
+    float  ftx = 0.6 * fa1 + 0.4 * fa2;
+
 )HLSL"
     R"HLSL(
+    // The drawn foam's body, once a pixel, after the loops (it holds registers): the shore, the wake and the open water all cut it.
+    float  foamN = FoamField((rel.xy + gCam.xy + swS * 1.5) * gFD.y, t);
+    float  foamAA = max(fwidth(foamN) * 0.75, 0.015);
+
     // Shore waves (2026-10-02): crests along the shore that roll in toward it. Their phase is the distance to
     // the waterline (reach), so they come about 4 yards apart on any slope: by depth they bunched into thin
     // lines on a steep stretch. They come in sets along the shore (a slow noise), and fade out past 9 yards and
@@ -585,20 +717,18 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     foam = max(lip, ring);
     // The shore foam, in the game's own art (2026-10-02): its foam texture, two layers drifting across each
     // other, shows where our shapes say (near the shore, in the bands rolling in), and only on the water.
-    float2 fp  = (rel.xy + gCam.xy + swS * 1.5) * gFT.y;
-    float  fa1 = tex2D(sFoamTex, fp + float2(t * 0.010, t * 0.006)).a;
-    float  fa2 = tex2D(sFoamTex, fp * 0.71 + float2(0.37 - t * 0.007, 0.21 + t * 0.011)).a;
-    float  ftx = 0.6 * fa1 + 0.4 * fa2;
     // With the swash on, the foam is placed from the moving edge, not the fixed waterline: the water has run up
     // the sand by up (yards of height, the wet sand pass's swash, the same timing), so here it is that much
     // deeper below the edge (2026-10-02: the foam stayed at the old waterline while the edge moved).
     float  depthS = depth, reachS = reach;
+    float  sgS = 0.5;   // the swash's phase here: 0 drained, 1 run up as far as it goes
     {
         float2 A2  = rel.xy + gCam.xy;
         // Each stretch of shore in its own time: the stretch about 30 yards at Swash Length 30 (2026-10-05).
         float2 A2s = A2 * gSwash.x;
         float  ph2 = sin(A2s.x * 0.21 + A2s.y * 0.17) * 1.7 + sin(A2s.x * 0.07 - A2s.y * 0.09) * 2.3;
         float  sg  = 0.5 + 0.5 * sin(gScr.z * gSwash.y + ph2);
+        sgS = gWake.z > 0.5 ? sg : 0.5;
         // No higher than the wet sand (2026-10-05, the owner): at Swash Height 65 the water ran onto dry sand.
         // The wet sand pass's top: fully wet below half of it, fading to dry at it. The swash stops at half of it,
         // where the sand is still fully wet: at 0.75 of it the owner saw the water pass the wet sand.
@@ -624,65 +754,57 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // From the edge line on, never onto the sand: it starts where our water does (2026-10-02: started a quarter
     // of a yard out, it left a strip of clear water between the line and the bubbles).
     float  fback = smoothstep(0.0, 0.03, depthS);
-    foam = max(foam, fgame * gFT.z * gFT.x * fback);
+    float  ageS = 0.0, drawnS = 0.0;
+    if (gFD.x > 0.5)
+    {
+        // Its age, from the moving edge out: 0 at the edge, 1 at the end of its reach. As the water runs up the
+        // foam is fresh and reaches far; as it drains it is older, and only its larger blobs are left.
+        ageS = reachS * gFD.z * lerp(1.3, 0.8, sgS);
+        // At the edge nearly all foam, a sheet with a few holes; further out the cut rises and the holes open,
+        // until only the blobs' middles are left, then nothing.
+        // At the edge the cut is foamEdge, not near 0 (2026-10-05): from 0.2 the youngest foam was a solid sheet,
+        // and the swash read as a band of another colour beside the open water's foam (the owner).
+        float th = lerp(gGlint.y, 0.9, saturate(ageS));
+        // Parted along a path (the wake loop): no foam in the channel, a little more along its sides, where the
+        // foam was pushed.
+        th += part * 1.2 - 0.3 * saturate(part * (1.0 - part) * 4.0);
+        // A shore wave's crest brings fresh foam where it breaks, in the last 3 yards (the shore waves above).
+        th -= 0.3 * crest * sEnv * smoothstep(3.0, 0.5, reach) * (gSw2.x > 0.0 ? 1.0 : 0.0);
+        drawnS = FoamCut(foamN, th, foamAA) * (1.0 - smoothstep(0.85, 1.0, ageS)) * fback;
+        // Far off the shapes are smaller than a pixel and would flicker: their share of the water instead.
+        drawnS = lerp(drawnS, saturate((1.0 - th) * 1.1) * (1.0 - smoothstep(0.85, 1.0, ageS)) * fback,
+                      smoothstep(35.0, 70.0, dist));
+        foam = max(foam, drawnS * gFT.z);
+    }
+    else
+        foam = max(foam, fgame * gFT.z * gFT.x * fback);
+    // Foam on open water (2026-10-05, a toggle): small blobs on the swell's crests out in deep water, drawn
+    // longer along the wind, in stretches that come and go. gFD.w is its strength, 0 when off.
+    float capsD = 0.0;
+    float2 A3    = rel.xy + gCam.xy;
+    float2 alongW = float2(dot(A3, float2(0.7071, 0.7071)) * 0.45, dot(A3, float2(-0.7071, 0.7071)));
+    float  capN2  = FoamField(alongW * gFD.y * 0.8 + 31.0, t);   // outside the branch: it reads a texture
+    if (gFD.w > 0.0)
+    {
+        float  crestO = smoothstep(0.62, 0.92, Swell(A3, gScr.z, gWave.x));
+        float  windy  = smoothstep(0.35, 0.75, ValueNoise(A3 * 0.025 + float2(t * 0.02, t * 0.015)));
+        float  want   = crestO * windy * saturate(depth - 1.5) * saturate(gFD.w * 2.0);
+        capsD = FoamCut(capN2, 1.0 - want * 0.45, foamAA * 1.2) * saturate(want * 3.0);
+        capsD = lerp(capsD, want * 0.25, smoothstep(40.0, 90.0, dist));
+        foam = max(foam, capsD * gFD.w * (depth > 0.05 ? 1.0 : 0.0));
+    }
+    // Before the wake (2026-10-05): after it the shader had no temporary registers left for the foam's age.
+    if (gFoam.w > 8.5 && gFoam.w < 9.5)   // debug 9: the drawn foam (white) over its age (red), the open water's blue
+        return float4(max(foam, saturate(ageS) * 0.6 * (ageS < 1.0 ? 1.0 : 0.0)), foam, max(foam, capsD), 1.0);
 
 )HLSL"
     R"HLSL(
-    // The wake (2026-10-02): behind anyone moving through the water, along the path they took, a V of two arms
-    // at about 20 degrees either side, and churned water just behind the body. The arms are waves (their slope
-    // goes into the light, as the ripples' does), with a little of the game's foam on them. Each trail is up to
-    // 8 points of the path, newest first; a pixel takes the segment of the path nearest to it.
-    float2 wakeSlope = 0.0;
-    float  wakeFoam  = 0.0;
-    [loop] for (int wi = 0; wi < (int)gWake.x; ++wi)
-    {
-        // Far from the trail's maker, nothing: a trail is at most some 5 yards long and its arms reach 2 out.
-        float2 headOff = rel.xy - gTrail[wi * 8].xy;
-        [branch] if (dot(headOff, headOff) > 18.0 * 18.0)
-            continue;
-        float  bestLat = 1e6, bestS = 0.0, bestAge = 1e6, bestSub = 0.0;
-        float2 bestDir = 0.0;
-        float  sAcc = 0.0;
-        [loop] for (int wj = 0; wj < 7; ++wj)
-        {
-            float4 a = gTrail[wi * 8 + wj], b = gTrail[wi * 8 + wj + 1];
-            if (b.w < 0.0)
-                break;
-            float2 ab  = b.xy - a.xy;
-            float  len = max(length(ab), 1e-3);
-            float  tt  = saturate(dot(rel.xy - a.xy, ab) / (len * len));
-            float2 q   = a.xy + ab * tt;
-            float  lat = length(rel.xy - q);
-            if (lat < bestLat)
-            {
-                bestLat = lat;
-                bestS   = sAcc + tt * len;
-                bestAge = lerp(a.w, b.w, tt);
-                bestSub = surf - lerp(a.z, b.z, tt);
-                bestDir = (rel.xy - q) / max(lat, 1e-3);
-            }
-            sAcc += len;
-        }
-        // How much of the body is in the water, as for the ripples: feet small, waist the most, under small.
-        float size = smoothstep(0.05, 0.9, bestSub) * (1.0 - 0.75 * smoothstep(1.1, 2.0, bestSub));
-        // Gone within some 4 yards behind the body and 2 seconds (2026-10-02: by age alone it reached 8 yards back).
-        float life = exp(-bestAge * 1.4) * smoothstep(0.0, 0.6, bestS) * (1.0 - smoothstep(1.5, 4.0, bestS)) * size;
-        // The arms, a crest and the trough inside it, widening with the distance behind.
-        float armAt = bestS * 0.36;
-        float armW  = 0.22 + 0.06 * bestS;
-        float y     = (bestLat - armAt) / armW;
-        float arm   = exp(-y * y);
-        float dArm  = (1.0 - 2.0 * y * y) * exp(-y * y) / armW;
-        // Faded to nothing on the path itself (2026-10-03): bestDir points away from the path, so it turns over
-        // there, and the tilt flipped from one side to the other at full strength: a straight line along the
-        // path behind a runner, as if the water parted.
-        wakeSlope += bestDir * (dArm * life * 0.11 * smoothstep(0.0, armW, bestLat));
-        // The churned water close behind the body: foam, narrow, gone in a second and a half.
-        float churn = exp(-pow(bestLat / (0.35 + 0.08 * bestS), 2.0)) * exp(-bestAge * 2.5) * size *
-                      smoothstep(0.0, 0.4, bestS) * (1.0 - smoothstep(1.0, 2.5, bestS));
-        wakeFoam = max(wakeFoam, (arm * 0.5 * life + churn * 0.65) * (0.4 + 0.6 * ftx));
-    }
-    wakeSlope *= gWake.y;
+    // Drawn: the same blobs as the shore, more of them where the wake is stronger. foamAA, the edge width, from the
+    // shore's foam above.
+    if (gFD.x > 0.5)
+        wakeFoam = FoamCut(foamN, 1.0 - saturate(wakeFoam * 1.4) * 0.8, foamAA) * saturate(wakeFoam * 4.0);
+    else
+        wakeFoam *= 0.4 + 0.6 * ftx;
     foam = max(foam, saturate(wakeFoam * gWake.y) * (depth > 0.05 ? 1.0 : 0.0));
     foam = onBody ? 0.0 : foam;
     caps *= 0.0;
@@ -978,6 +1100,10 @@ float4 main(float2 vpos : VPOS) : COLOR
     IDirect3DTexture9*      g_foamTex = nullptr;
     int                     g_foamTexState = 0;   // 0 not yet, 1 on the GPU, -1 none
     constexpr DWORD         kFoamSampler = 12;
+    // The drawn foam's blobs (2026-10-05), made here: see MakeFoamBody.
+    IDirect3DTexture9*      g_foamBody = nullptr;
+    bool                    g_foamBodyFailed = false;
+    constexpr DWORD         kFoamBodySampler = 11;
 
     IDirect3DVertexShader9* g_wetVs = nullptr;
     IDirect3DPixelShader9*  g_wetPs = nullptr;
@@ -1071,8 +1197,10 @@ float4 main(float2 vpos : VPOS) : COLOR
     };
     std::vector<Trail> g_trails;
     constexpr int   kTrails = 4, kTrailPts = 8;
-    constexpr float kTrailStep = 0.6f;     // yards between the points kept
-    constexpr double kTrailLife = 2.5;     // seconds a point is kept
+    // 1 yard and 4 seconds since 2026-10-05 (0.6 and 2.5 until then): the drawn wake's bubbles stay along the path
+    // and thin out over 3.5 s, and 8 points 0.6 yards apart ended them 4 yards behind a runner.
+    constexpr float kTrailStep = 1.0f;     // yards between the points kept
+    constexpr double kTrailLife = 4.0;     // seconds a point is kept
     // Last frame's units, to tell how fast each moves: a unit is the one nearest its place last frame.
     float  g_lastUnits[256][3];
     int    g_lastUnitCount = 0;
@@ -1310,6 +1438,128 @@ float4 main(float2 vpos : VPOS) : COLOR
         return !MapGroundHeight(p[0], p[1], gz);
     }
 
+    // The parting's particles (2026-10-05, the owner): the drawn foam opens round each as a particle effect does.
+    // Each body at the water that moves faster than a yard a second lets one go where it is, unless one let go
+    // within half a yard less than 0.6 s ago; each lives kPartLife and the shader fades it. At the water: from 3
+    // yards under its surface to 1 yard over it, so someone in the swash, on the wet sand over the flat water,
+    // counts. Up to kParts at once (the shader's c213 to c223), the oldest dropped.
+    constexpr int    kParts = 11;
+    constexpr double kPartLife = 1.4;   // seconds, before each particle's own share (0.7 to 1.3 of it)
+    // Each is let go a little off the body's feet, up to 0.35 yards any way, and lives its own share of kPartLife
+    // (the owner, 2026-10-05): at the same place and life every time the trail was too even.
+    struct PartParticle { float pos[3]; double born; double life; };
+    unsigned g_partSeed = 12345u;
+    float PartRandom()   // 0..1
+    {
+        g_partSeed = g_partSeed * 1664525u + 1013904223u;
+        return (g_partSeed >> 8) / 16777216.0f;
+    }
+    std::vector<PartParticle> g_parts;
+    float g_partOut[kParts * 4] = {};
+    float g_partLast[64][3] = {};       // last frame's bodies at the water, for their speed
+    int   g_partLastCount = 0;
+    double g_partLastTime = 0.0;
+
+    bool AtWater(const float p[3])
+    {
+        float wz = 0.0f;
+        if (CityWaterAt(p[0], p[1], p[2], wz) || MapWaterHeight(p[0], p[1], wz))
+            return p[2] < wz + 1.0f && p[2] > wz - 3.0f;
+        return false;
+    }
+
+    void PartsUpdate(const float cam[3])
+    {
+        const double now = Now();
+        for (size_t i = 0; i < g_parts.size();)
+        {
+            if (now - g_parts[i].born > g_parts[i].life)
+                g_parts.erase(g_parts.begin() + i);
+            else
+                ++i;
+        }
+        const double dt = now - g_partLastTime;
+        const bool steady = g_partLastTime > 0.0 && dt > 1e-3 && dt < 0.25;
+        float units[256][3];
+        const int n = ClientUnits(units, 256);
+        float seen[64][3];
+        int nSeen = 0;
+        for (int u = 0; u < n && nSeen < 64; ++u)
+        {
+            const float* p = units[u];
+            const float dx = p[0] - cam[0], dy = p[1] - cam[1];
+            if (dx * dx + dy * dy > 50.0f * 50.0f || !AtWater(p))
+                continue;
+            memcpy(seen[nSeen++], p, sizeof(seen[0]));
+            // Its speed: from last frame's nearest within a yard.
+            float speed = 0.0f, bestD2 = 1.0f, way[2] = { 0.0f, 0.0f };
+            for (int j = 0; j < g_partLastCount; ++j)
+            {
+                const float ex = g_partLast[j][0] - p[0], ey = g_partLast[j][1] - p[1];
+                const float d2 = ex * ex + ey * ey;
+                if (d2 < bestD2)
+                {
+                    bestD2 = d2;
+                    speed = steady ? sqrtf(d2) / static_cast<float>(dt) : 0.0f;
+                    const float l = sqrtf(d2);
+                    way[0] = l > 1e-4f ? -ex / l : 0.0f;
+                    way[1] = l > 1e-4f ? -ey / l : 0.0f;
+                }
+            }
+            if (speed <= 1.0f)
+                continue;
+            // Let go a little ahead of the body (the owner): let go at the feet, a runner had passed a disc before it
+            // was full, and the trail opened behind them; ahead by all a runner covers while it grows (2 yards) was
+            // far too far. Half of that, up to 0.75 yards, with the disc growing over a tenth of its life.
+            const double life = kPartLife * (0.7 + 0.6 * PartRandom());
+            const float lead = (std::min)(0.75f, speed * static_cast<float>(life * 0.1) * 0.5f);
+            const float at[2] = { p[0] + way[0] * lead, p[1] + way[1] * lead };
+            // One each half yard walking, and further apart the faster (2026-10-05): no more than about 7 a second,
+            // so the 11 the shader holds are not used up. Running let one go 14 times a second; the pool was full in
+            // under a second and the oldest, still at a fifth of its size, was dropped: it popped out (the owner).
+            const float gap = (std::max)(0.5f, speed / 7.0f);
+            bool recent = false;
+            for (const PartParticle& q : g_parts)
+            {
+                const float ex = q.pos[0] - at[0], ey = q.pos[1] - at[1];
+                if (ex * ex + ey * ey < gap * gap && now - q.born < 0.6)
+                {
+                    recent = true;
+                    break;
+                }
+            }
+            if (recent)
+                continue;
+            // Full: the oldest makes room only when it is nearly gone, past 85% of its life; else this one waits.
+            if (g_parts.size() >= static_cast<size_t>(kParts))
+            {
+                if (now - g_parts.front().born < g_parts.front().life * 0.85)
+                    continue;
+                g_parts.erase(g_parts.begin());
+            }
+            const float ang = PartRandom() * 6.2831853f, off = 0.35f * sqrtf(PartRandom());
+            g_parts.push_back({ { at[0] + cosf(ang) * off, at[1] + sinf(ang) * off, p[2] }, now, life });
+        }
+        memcpy(g_partLast, seen, sizeof(seen[0]) * nSeen);
+        g_partLastCount = nSeen;
+        g_partLastTime = now;
+        for (int i = 0; i < kParts; ++i)
+        {
+            float* o = g_partOut + i * 4;
+            if (i < static_cast<int>(g_parts.size()))
+            {
+                const PartParticle& q = g_parts[i];
+                o[0] = q.pos[0] - cam[0]; o[1] = q.pos[1] - cam[1]; o[2] = q.pos[2] - cam[2];
+                o[3] = static_cast<float>((now - q.born) / q.life);
+            }
+            else
+            {
+                o[0] = o[1] = o[2] = 0.0f;
+                o[3] = -1.0f;
+            }
+        }
+    }
+
     // Starts the frame's new ripples, drops the old, and writes them as camera-relative feet and an age.
     void RingsUpdate(const float cam[3], float* out)
     {
@@ -1510,6 +1760,7 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[33] = w.ripples;
         k[34] = w.wetSand;
         RingsUpdate(cam, k + 40);
+        PartsUpdate(cam);
         // The wakes (c170 to c201): the 4 trails with the most points that are nearest, 8 points each.
         {
             float* o = k + 200;
@@ -1597,10 +1848,11 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[332] = moon2[0]; k[333] = moon2[1]; k[334] = moon2[2];
         k[335] = second ? w.moonGlint * 0.6f * moon2Vis : 0.0f;
         k[336] = 1.0f / (w.glintSize * w.glintSize);
-        k[337] = 0.0f;            // c204.y: free (each ring's depth is in gRingD.w)
+        k[337] = w.foamEdge;      // c204.y: the drawn foam's cut at the water's edge
         k[338] = w.swashHeight;
         k[339] = w.edgeWidth;
         k[356] = w.brightness;   // c209
+        k[357] = w.wakeFoam;     // c209.y
         // The colour deep water turns (Water Colour): green, teal and blue, mixed by the slider. The light it
         // absorbs follows it, so shallow water leans the same way: green water keeps more of its green.
         static const float kPalette[3][3] = { { 0.13f, 0.30f, 0.16f }, { 0.06f, 0.33f, 0.32f }, { 0.05f, 0.22f, 0.45f } };
@@ -2064,6 +2316,78 @@ namespace
 
 namespace
 {
+    // The drawn foam's blobs (2026-10-05): 256 x 256, tiling, with every mip level. Cellular noise of two sizes,
+    // 8 and 21 cells across, wrapped at the texture's edge so it tiles: each pixel is 1 at a cell's point and
+    // falls to 0 a little over half a cell away, so the blobs are round. The shader reads it twice at other sizes
+    // and angles and warps it, and cuts it at a level that rises with the foam's age.
+    float CellsWrapped(float u, float v, int period, unsigned seed)
+    {
+        const float px = u * period, py = v * period;
+        const int ix = static_cast<int>(floorf(px)), iy = static_cast<int>(floorf(py));
+        float best = 8.0f;
+        for (int gy = -1; gy <= 1; ++gy)
+            for (int gx = -1; gx <= 1; ++gx)
+            {
+                const int cx = ix + gx, cy = iy + gy;
+                const unsigned wx = static_cast<unsigned>((cx % period + period) % period);
+                const unsigned wy = static_cast<unsigned>((cy % period + period) % period);
+                unsigned h = wx * 374761393u + wy * 668265263u + seed * 2246822519u;
+                h = (h ^ (h >> 13)) * 1274126177u;
+                const float jx = 0.1f + 0.8f * ((h & 0xFFFF) / 65535.0f);
+                const float jy = 0.1f + 0.8f * (((h >> 16) & 0xFFFF) / 65535.0f);
+                const float dx = cx + jx - px, dy = cy + jy - py;
+                best = (std::min)(best, dx * dx + dy * dy);
+            }
+        return sqrtf(best);
+    }
+
+    void MakeFoamBody(IDirect3DDevice9* dev)
+    {
+        if (g_foamBody || g_foamBodyFailed)
+            return;
+        constexpr UINT kSize = 256, kLevels = 9;
+        if (FAILED(dev->lpVtbl->CreateTexture(dev, kSize, kSize, kLevels, 0, D3DFMT_L8, D3DPOOL_MANAGED, &g_foamBody,
+                                              nullptr)))
+        {
+            g_foamBodyFailed = true;
+            g_foamBody = nullptr;
+            Log("water: the drawn foam's texture could not be made: no drawn foam");
+            return;
+        }
+        std::vector<uint8_t> img(kSize * kSize);
+        for (UINT y = 0; y < kSize; ++y)
+            for (UINT x = 0; x < kSize; ++x)
+            {
+                const float u = (x + 0.5f) / kSize, v = (y + 0.5f) / kSize;
+                const float big   = 1.0f - (std::min)(1.0f, CellsWrapped(u, v, 8, 1) * 1.3f);
+                const float fine  = 1.0f - (std::min)(1.0f, CellsWrapped(u, v, 21, 2) * 1.3f);
+                const float val = (std::min)(1.0f, big * 0.68f + fine * 0.32f);
+                img[y * kSize + x] = static_cast<uint8_t>(val * 255.0f + 0.5f);
+            }
+        UINT w = kSize;
+        for (UINT level = 0; level < kLevels; ++level)
+        {
+            D3DLOCKED_RECT lr;
+            if (FAILED(g_foamBody->lpVtbl->LockRect(g_foamBody, level, &lr, nullptr, 0)))
+                break;
+            for (UINT row = 0; row < w; ++row)
+                memcpy(static_cast<uint8_t*>(lr.pBits) + row * lr.Pitch, &img[row * w], w);
+            g_foamBody->lpVtbl->UnlockRect(g_foamBody, level);
+            if (w == 1)
+                break;
+            // The next level: each pixel the mean of four.
+            const UINT h = w / 2;
+            std::vector<uint8_t> next(h * h);
+            for (UINT y = 0; y < h; ++y)
+                for (UINT x = 0; x < h; ++x)
+                    next[y * h + x] = static_cast<uint8_t>((img[(2 * y) * w + 2 * x] + img[(2 * y) * w + 2 * x + 1] +
+                                                            img[(2 * y + 1) * w + 2 * x] + img[(2 * y + 1) * w + 2 * x + 1] + 2) / 4);
+            img.swap(next);
+            w = h;
+        }
+        Log("water: the drawn foam's texture is made, %ux%u, %u levels", kSize, kSize, kLevels);
+    }
+
     void EnsureFoamTexture(IDirect3DDevice9* dev)
     {
         if (g_foamTexState != 0)
@@ -2112,6 +2436,7 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
     if (!g_copyOk)
         return;
     EnsureFoamTexture(dev);
+    MakeFoamBody(dev);
     FrameConstants(c);
     g_psc[190] = g_sceneOk ? 1.0f : 0.0f;
     D3DVIEWPORT9 vp = {};
@@ -2401,6 +2726,12 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         // c211, the swash's length along the shore and its speed (2026-10-05): as the wet sand pass's c212.
         const float sw[4] = { 30.0f / g_cfg.water.swashLength, 0.55f * g_cfg.water.swashSpeed, 0.0f, 0.0f };
         d->SetPixelShaderConstantF(dev, kPsReg + 91, sw, 1);
+        // c212, the drawn foam (2026-10-05): on, 1 / its size, 1 / its reach, the open water's foam.
+        const WaterSettings& w = g_cfg.water;
+        const float fd[4] = { w.foamDrawn && g_foamBody ? 1.0f : 0.0f, 1.0f / w.foamCell, 1.0f / w.foamLife,
+                              w.openFoam ? w.whitecaps : 0.0f };
+        d->SetPixelShaderConstantF(dev, kPsReg + 92, fd, 1);
+        d->SetPixelShaderConstantF(dev, kPsReg + 93, g_partOut, kParts);   // c213..c223, the parting's particles
     }
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
     d->SetSamplerState(dev, kUnderSampler, D3DSAMP_MINFILTER, D3DTEXF_POINT);
@@ -2417,6 +2748,16 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         d->SetSamplerState(dev, kFoamSampler, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
         d->SetSamplerState(dev, kFoamSampler, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
         d->SetSamplerState(dev, kFoamSampler, D3DSAMP_SRGBTEXTURE, FALSE);
+    }
+    if (g_foamBody)
+    {
+        d->SetTexture(dev, kFoamBodySampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_foamBody));
+        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        d->SetSamplerState(dev, kFoamBodySampler, D3DSAMP_SRGBTEXTURE, FALSE);
     }
     if (g_sceneOk)
     {
@@ -2485,6 +2826,8 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         d->SetTexture(dev, kSceneSampler, nullptr);
     if (g_foamTex)
         d->SetTexture(dev, kFoamSampler, nullptr);
+    if (g_foamBody)
+        d->SetTexture(dev, kFoamBodySampler, nullptr);
     if (skipBodies)
         for (int i = 0; i < kStencilCount; ++i)
             d->SetRenderState(dev, kStencil[i], oldSt[i]);
@@ -2834,6 +3177,8 @@ void WaterReset()
     g_cityPtsLast.clear();
     SafeRelease(g_foamTex);
     g_foamTexState = 0;
+    SafeRelease(g_foamBody);
+    g_foamBodyFailed = false;
     SafeRelease(g_wetSb);
     SafeRelease(g_gridIb);
     g_gridFailed = false;

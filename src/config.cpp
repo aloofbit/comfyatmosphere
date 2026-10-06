@@ -178,6 +178,12 @@ void LoadSettings(const wchar_t* ini)
     s.water.ripples     = Clamp(GetF(kWater, L"ripples",   s.water.ripples,   ini), 0.0f, 1.0f);
     s.water.rippleDepth = Clamp(GetF(kWater, L"rippleDepth", s.water.rippleDepth, ini), 0.0f, 4.0f);
     s.water.rippleDepthMoving = Clamp(GetF(kWater, L"rippleDepthMoving", s.water.rippleDepthMoving, ini), 0.0f, 4.0f);
+    s.water.foamDrawn = GetB(kWater, L"foamDrawn", s.water.foamDrawn, ini);
+    s.water.foamCell  = Clamp(GetF(kWater, L"foamCell", s.water.foamCell, ini), 0.2f, 4.0f);
+    s.water.foamLife  = Clamp(GetF(kWater, L"foamLife", s.water.foamLife, ini), 0.5f, 10.0f);
+    s.water.openFoam  = GetB(kWater, L"openFoam", s.water.openFoam, ini);
+    s.water.wakeFoam  = Clamp(GetF(kWater, L"wakeFoam", s.water.wakeFoam, ini), 0.0f, 1.0f);
+    s.water.foamEdge  = Clamp(GetF(kWater, L"foamEdge", s.water.foamEdge, ini), 0.0f, 0.9f);
     s.water.rippleSpread = Clamp(GetF(kWater, L"rippleSpread", s.water.rippleSpread, ini), 0.1f, 3.0f);
     s.water.rippleSpreadMoving = Clamp(GetF(kWater, L"rippleSpreadMoving", s.water.rippleSpreadMoving, ini), 0.1f, 3.0f);
     s.water.wetSand     = Clamp(GetF(kWater, L"wetSand",   s.water.wetSand,   ini), 0.0f, 1.0f);
