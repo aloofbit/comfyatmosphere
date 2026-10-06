@@ -38,6 +38,8 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c);
 // The depth under the water this frame (copied before the first water draw), for the sun shadows; or null.
 IDirect3DTexture9* WaterUnderDepth();
 void WaterFrameEnd();   // at Present
+// A fixed-function draw of 100 triangles or more: its world matrix's origin noted, to find the ships (Ship Wake).
+void WaterNoteHull(IDirect3DDevice9* dev, const D3DMATRIX& world);
 void WaterNoteRain(IDirect3DDevice9* dev, UINT prims);   // a DrawPrimitive: counted if it is the game's rain
 float WaterRainAmount();                                  // how hard it rains, 0..1, eased
 void WaterReset();      // before Reset, and for a new device

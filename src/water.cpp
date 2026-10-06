@@ -39,6 +39,7 @@
 #include <windows.h>
 #include <d3d9.h>
 
+#include "beacon.h"
 #include "bodymask.h"
 #include "client.h"
 #include "common.h"
@@ -185,7 +186,9 @@ float4 gDeep : register(c163);     // the colour deep water turns, how much of o
 float4 gAbs  : register(c164);     // the light the water absorbs a yard, by channel; refraction in yards
 float4 gSky  : register(c165);     // the sky high up; the waves' strength
 float4 gSunC : register(c166);     // the sun's colour; whitecaps
-float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest first: camera-relative feet, age
+float4 gTrail[32] : register(c170); // the wakes: 4 trails of 8 points, newest first: camera-relative feet, age;
+                                    // a ship's trail has -its size in its head's age (Ship Wake) and its depth in
+                                    // its head's z (Ship Wake Depth)
                                     // in seconds (negative: no point)
 float4 gMoon2 : register(c203);    // the way to the other moon, its glint's strength (0 by day)
 float4 gGlint : register(c204);    // 1 / the glint's size squared; y the drawn foam's cut at the water's edge
@@ -211,9 +214,13 @@ float4 gSwash : register(c211);    // the swash: 30 / its length along the shore
                                    // Lake Swash on a lake, a pond or a river)
 float4 gFD   : register(c212);     // the drawn foam: 1 drawn (0 the game's texture), 1 / its size (yards), 1 / how
                                    // far it lasts from the edge (yards), the open water's foam (0 off)
-float4 gPart[10] : register(c213); // the parting's particles: where each was let go (camera-relative, xyz), w its age
+float4 gPart[8] : register(c213);  // the parting's particles: where each was let go (camera-relative, xyz), w its age
                                    // as a share of its own life, 0..1 (-1: none more)
-float4 gRain : register(c223);     // the rain: how hard it rains, 0..1 (from the game's own rain draws); Rain on Water
+float4 gLhT  : register(c221);     // the lighthouse's light on the water: the wave faces' strength, the tilt they start
+                                   // at, how soft the edge is, the half width of the patch the beam lights (yards a yard out)
+float4 gLh   : register(c222);     // the nearest lighthouse's lamp, camera-relative (xyz); w its glint's strength (0 none)
+float4 gRain : register(c223);     // the rain: how hard it rains, 0..1 (from the game's own rain draws); Rain on Water;
+                                   // zw the nearest lighthouse's beam's way across the ground, 2 long with a second beam
 
 // The camera-relative point the depth under the water shows at a place on the screen: the bed, or what
 // stands on it.
@@ -458,8 +465,13 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     [loop] for (int wi = 0; wi < (int)gWake.x; ++wi)
     {
         // Far from the trail's maker, nothing: a trail is at most some 5 yards long and its arms reach 2 out.
-        float2 headOff = rel.xy - gTrail[wi * 8].xy;
-        [branch] if (dot(headOff, headOff) > 18.0 * 18.0)
+        // A ship's trail (2026-10-06, the owner) is a body's at sc times the size and sc times as slow: its head's
+        // age holds -sc.
+        float4 head = gTrail[wi * 8];
+        float  sc   = head.w < 0.0 ? -head.w : 1.0;
+        float  deep = sc > 1.5 ? head.z : 1.0;   // a ship's: its head's height is not needed, as it floats
+        float2 headOff = rel.xy - head.xy;
+        [branch] if (dot(headOff, headOff) > 18.0 * 18.0 * sc * sc)
             continue;
         float  bestLat = 1e6, bestS = 0.0, bestAge = 1e6, bestSub = 0.0;
         float2 bestDir = 0.0;
@@ -478,14 +490,18 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             {
                 bestLat = lat;
                 bestS   = sAcc + tt * len;
-                bestAge = lerp(a.w, b.w, tt);
+                bestAge = lerp(max(a.w, 0.0), b.w, tt);
                 bestSub = rel.z - lerp(a.z, b.z, tt);
                 bestDir = (rel.xy - q) / max(lat, 1e-3);
             }
             sAcc += len;
         }
-        // How much of the body is in the water, as for the ripples: feet small, waist the most, under small.
-        float size = smoothstep(0.05, 0.9, bestSub) * (1.0 - 0.75 * smoothstep(1.1, 2.0, bestSub));
+        bestLat /= sc;
+        bestS   /= sc;
+        bestAge /= sc;
+        // How much of the body is in the water, as for the ripples: feet small, waist the most, under small. A
+        // ship floats: all of it.
+        float size = sc > 1.5 ? 1.0 : smoothstep(0.05, 0.9, bestSub) * (1.0 - 0.75 * smoothstep(1.1, 2.0, bestSub));
         // Gone within some 4 yards behind the body and 2 seconds (2026-10-02: by age alone it reached 8 yards back).
         float life = exp(-bestAge * 1.4) * smoothstep(0.0, 0.6, bestS) * (1.0 - smoothstep(1.5, 4.0, bestS)) * size;
         // The arms, a crest and the trough inside it, widening with the distance behind.
@@ -497,7 +513,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         // Faded to nothing on the path itself (2026-10-03): bestDir points away from the path, so it turns over
         // there, and the tilt flipped from one side to the other at full strength: a straight line along the
         // path behind a runner, as if the water parted.
-        wakeSlope += bestDir * (dArm * life * 0.11 * smoothstep(0.0, armW, bestLat));
+        wakeSlope += bestDir * (dArm * life * 0.11 * deep * smoothstep(0.0, armW, bestLat));
         // The churned water close behind the body: foam, narrow, gone in a second and a half.
         float churn = exp(-pow(bestLat / (0.35 + 0.08 * bestS), 2.0)) * exp(-bestAge * 2.5) * size *
                       smoothstep(0.0, 0.4, bestS) * (1.0 - smoothstep(1.0, 2.5, bestS));
@@ -577,7 +593,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // half yard, where it is; each stays there, grows over the first fifth of its life and then shrinks and fades out, so a body moving
     // leaves a trail of them and one standing still parts nothing. In the swash too: there the feet are over the
     // flat water and no wake trail starts. A following disc and a channel along the wake's path came first.
-    [loop] for (int pi = 0; pi < 10; ++pi)
+    [loop] for (int pi = 0; pi < 8; ++pi)
     {
         float4 pp = gPart[pi];
         if (pp.w < 0.0)
@@ -980,6 +996,34 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  gp1  = 700.0 * gGlint.x, gp2 = 60.0 * gGlint.x;
     float3 glint = gSunC.rgb * (gSun.w * (pow(sd, gp1) * 8.0 + pow(sd, gp2) * 0.25) +
                                 gMoon2.w * (pow(sd2, gp1) * 8.0 + pow(sd2, gp2) * 0.25));
+    // The lighthouse's glitter (2026-10-05, the owner): the waves catching its lamp, a broken path of light across
+    // the water toward you, as the moon's. Narrower than the moon's, warm, and less the further the lamp.
+    [branch] if (gLh.w > 0.0)
+    {
+        float3 toLh = gLh.xyz - rel;
+        float  dl   = length(toLh);
+        float  sl   = saturate(dot(R, toLh / max(dl, 1e-3)));
+        // The beam sweeps it (the owner): bright where the beam points across this water, a trace elsewhere.
+        float  bl   = length(gRain.zw);
+        float2 away = -toLh.xy / max(length(toLh.xy), 1e-3);
+        // The patch the beam lights follows the drawn beam's cone (Beam Width on Water, a share of its width). A
+        // power over the beam's angle was here first: its tail lit three times the beam's width at its narrowest
+        // (the owner: the slider did nothing).
+        float2 bw     = gRain.zw / max(bl, 1e-3);
+        float  along  = dot(bw, away);
+        along = bl > 1.5 ? abs(along) : along;
+        float  across = abs(bw.x * away.y - bw.y * away.x);
+        float  off    = across / max(along, 1e-3);   // yards off the beam's line, a yard out
+        float  hit    = bl > 0.5 ? (along > 0.0 ? 1.0 - smoothstep(0.3 * gLhT.w, gLhT.w, off) : 0.0) : 1.0;
+        float  lhK  = gLh.w / (1.0 + dl / 150.0);
+        glint += float3(1.0, 0.886, 0.659) * (lhK * (0.12 + 1.5 * hit) *
+                                              (pow(sl, 900.0 * gGlint.x) * 7.0 + pow(sl, 90.0 * gGlint.x) * 0.15)
+                                              + lhK * hit * gLhT.x * smoothstep(gLhT.y, gLhT.y + gLhT.z, dot(N.xy, -away)));
+        // And the beam's light on the water as glitter of its own (the owner): the faces of the waves that tilt
+        // toward the lighthouse catch it, their backs stay dark, wherever you stand, so the wedge the beam sweeps is
+        // a moving pattern of lit wave faces. It was a flat 0.04, then 0.25 (a pale wedge that moved, but read as
+        // paint); then a reflection toward the eye, which only brightened the glint on the line to you.
+    }
     // Water Brightness (2026-10-03): the bed through the water and the sky in it, not the glint or the foam.
     float3 water = lerp(body, sky, F) * gBright.x;
     // The ripples lit as the swell is not: brighter on the side of a ring facing the sun, darker behind it, so
@@ -1287,6 +1331,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     {
         std::vector<TrailPoint> pts;   // newest first; pts[0] follows the unit every frame
         double                  seen = 0.0;
+        bool                    ship = false;   // a ship's (Ship Wake): its points further apart, kept longer
     };
     std::vector<Trail> g_trails;
     constexpr int   kTrails = 4, kTrailPts = 8;
@@ -1294,6 +1339,26 @@ float4 main(float2 vpos : VPOS) : COLOR
     // and thin out over 3.5 s, and 8 points 0.6 yards apart ended them 4 yards behind a runner.
     constexpr float kTrailStep = 1.0f;     // yards between the points kept
     constexpr double kTrailLife = 4.0;     // seconds a point is kept
+    // Ships (2026-10-06, the owner): a ship's hull is a building drawn fixed-function with a world matrix of its
+    // own, camera-relative, its origin at the sea's level (Stormwind's harbour, two probes: 37 draws, about 38,000
+    // triangles, at one origin; its lanterns moved 7 yards in a second). Each frame the distinct origins of the
+    // fixed-function draws of 100 triangles or more without a pixel shader are noted (WaterNoteHull); at the frame's
+    // end each is followed from the last frame's nearest, and one that moves over 1.5 yards a second at the water is
+    // a ship, with a wake of its own. What the camera's reading adds to every origin is taken out: the median move
+    // of all of them, when 5 or more are followed (the buildings that stand still are most of them).
+    struct Hull
+    {
+        float  pos[3];
+        float  vel[2];
+        double seen;
+        bool   ship;
+    };
+    constexpr int     kHullsMax = 128;
+    float             g_hullRel[kHullsMax][3];   // this frame's origins, camera-relative, as drawn
+    int               g_hullRelN = 0;
+    std::vector<Hull> g_hulls;
+    double            g_hullLast = 0.0;
+
     // Last frame's units, to tell how fast each moves: a unit is the one nearest its place last frame.
     float  g_lastUnits[256][3];
     int    g_lastUnitCount = 0;
@@ -1544,7 +1609,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     // within half a yard less than 0.6 s ago; each lives kPartLife and the shader fades it. At the water: from 3
     // yards under its surface to 1 yard over it, so someone in the swash, on the wet sand over the flat water,
     // counts. Up to kParts at once (the shader's c213 to c222), the oldest dropped.
-    constexpr int    kParts = 10;   // c213 to c222; c223 is the rain's
+    constexpr int    kParts = 8;    // c213 to c220; c221 and c222 are the lighthouse's, c223 the rain's
     constexpr double kPartLife = 1.4;   // seconds, before each particle's own share (0.7 to 1.3 of it)
     // Each is let go a little off the body's feet, up to 0.35 yards any way, and lives its own share of kPartLife
     // (the owner, 2026-10-05): at the same place and life every time the trail was too even.
@@ -1739,6 +1804,8 @@ float4 main(float2 vpos : VPOS) : COLOR
             float bestD = 1.5f * 1.5f;
             for (Trail& tr : g_trails)
             {
+                if (tr.ship)
+                    continue;
                 const float ex = tr.pts[0].pos[0] - p[0], ey = tr.pts[0].pos[1] - p[1];
                 const float d2 = ex * ex + ey * ey;
                 if (d2 < bestD && tr.seen < now)
@@ -1767,12 +1834,62 @@ float4 main(float2 vpos : VPOS) : COLOR
                     best->pts.pop_back();
             }
         }
+        // The ships' wakes: the trail whose head is nearest each ship, or a new one. Size sc: the points sc x 0.67
+        // yards apart, so 8 reach the 4 x sc yards the wake fades over, and kept sc x 2.5 seconds.
+        const float sc = g_cfg.water.shipWake;
+        if (sc > 0.0f)
+        {
+            for (const Hull& h : g_hulls)
+            {
+                const float dx = h.pos[0] - cam[0], dy = h.pos[1] - cam[1];
+                if (!h.ship || h.seen < now - 0.25 || dx * dx + dy * dy > 300.0f * 300.0f)
+                    continue;
+                // Ship Wake Forward (2026-10-06, the owner: the wake was only at the back): the trail follows a
+                // point that many yards ahead of the hull's origin, along the way it moves.
+                const float vl = sqrtf(h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1]);
+                const float fw = g_cfg.water.shipWakeForward / (std::max)(vl, 1e-3f);
+                const float hp[3] = { h.pos[0] + h.vel[0] * fw, h.pos[1] + h.vel[1] * fw, h.pos[2] };
+                Trail* best = nullptr;
+                float bestD = 4.0f * 4.0f;
+                for (Trail& tr : g_trails)
+                {
+                    const float ex = tr.pts[0].pos[0] - hp[0], ey = tr.pts[0].pos[1] - hp[1];
+                    const float d2 = ex * ex + ey * ey;
+                    if (tr.ship && d2 < bestD && tr.seen < now)
+                    {
+                        bestD = d2;
+                        best = &tr;
+                    }
+                }
+                if (!best)
+                {
+                    Trail tr;
+                    tr.ship = true;
+                    tr.pts.push_back({ { hp[0], hp[1], hp[2] }, now });
+                    tr.pts.push_back({ { hp[0], hp[1], hp[2] }, now });
+                    tr.seen = now;
+                    g_trails.insert(g_trails.begin(), tr);
+                    continue;
+                }
+                best->seen = now;
+                best->pts[0] = { { hp[0], hp[1], hp[2] }, now };
+                const float* q = best->pts[1].pos;
+                const float sx = hp[0] - q[0], sy = hp[1] - q[1], step = sc * 0.67f;
+                if (sx * sx + sy * sy > step * step)
+                {
+                    best->pts.insert(best->pts.begin() + 1, best->pts[0]);
+                    if (best->pts.size() > static_cast<size_t>(kTrailPts))
+                        best->pts.pop_back();
+                }
+            }
+        }
         for (size_t i = 0; i < g_trails.size();)
         {
             Trail& tr = g_trails[i];
-            while (tr.pts.size() > 2 && now - tr.pts.back().t > kTrailLife)
+            const double life = tr.ship ? (std::max)(sc, 1.0f) * 2.5 : kTrailLife;
+            while (tr.pts.size() > 2 && now - tr.pts.back().t > life)
                 tr.pts.pop_back();
-            if (now - tr.seen > kTrailLife)
+            if (now - tr.seen > (tr.ship ? 1.0 : kTrailLife) || (tr.ship && sc <= 0.0f))
                 g_trails.erase(g_trails.begin() + i);
             else
                 ++i;
@@ -1871,10 +1988,14 @@ float4 main(float2 vpos : VPOS) : COLOR
                 o[i * 4 + 3] = -1.0f;
             int used = 0;
             const double now = Now();
+            const float sc = g_cfg.water.shipWake;
+            for (int pass = 0; pass < 2; ++pass)   // the ships' first, then the units'
             for (const Trail& tr : g_trails)
             {
                 if (used >= kTrails)
                     break;
+                if (tr.ship != (pass == 0))
+                    continue;
                 // A trail of one place is a unit standing still: no wake.
                 const float mx = tr.pts.front().pos[0] - tr.pts.back().pos[0];
                 const float my = tr.pts.front().pos[1] - tr.pts.back().pos[1];
@@ -1886,7 +2007,9 @@ float4 main(float2 vpos : VPOS) : COLOR
                     pt[0] = tr.pts[j].pos[0] - cam[0];
                     pt[1] = tr.pts[j].pos[1] - cam[1];
                     pt[2] = tr.pts[j].pos[2] - cam[2];
-                    pt[3] = static_cast<float>(now - tr.pts[j].t);
+                    pt[3] = tr.ship && j == 0 ? -(std::max)(sc, 2.0f) : static_cast<float>(now - tr.pts[j].t);
+                    if (tr.ship && j == 0)
+                        pt[2] = g_cfg.water.shipWakeDepth;   // a ship's head carries its depth (see the shader)
                 }
                 ++used;
             }
@@ -2861,8 +2984,30 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         const float fd[4] = { w.foamDrawn && g_foamBody ? 1.0f : 0.0f, 1.0f / w.foamCell, 1.0f / w.foamLife,
                               w.openFoam ? w.whitecaps : 0.0f };
         d->SetPixelShaderConstantF(dev, kPsReg + 92, fd, 1);
-        d->SetPixelShaderConstantF(dev, kPsReg + 93, g_partOut, kParts);   // c213..c222, the parting's particles
-        const float rain[4] = { g_rain, g_cfg.water.rain, 0.0f, 0.0f };
+        d->SetPixelShaderConstantF(dev, kPsReg + 93, g_partOut, kParts);   // c213..c220, the parting's particles
+        {
+            // c221, the lighthouse's light on the water, tuned on the Lamps tab (2026-10-05).
+            const LighthouseSettings& ls = g_cfg.lighthouse;
+            const float lt[4] = { ls.faceStrength, ls.faceTilt, (std::max)(ls.faceSoft, 0.001f),
+                                  (std::max)(ls.beamSpread * ls.waterWidth, 0.002f) };
+            d->SetPixelShaderConstantF(dev, kPsReg + 101, lt, 1);
+        }
+        // c222, the nearest lighthouse's lamp, for its glitter on the water (2026-10-05).
+        {
+            float lh[1][3];
+            float lc[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            if (BeaconLamps(lh, 1) == 1)
+            {
+                lc[0] = lh[0][0] - g_psc[28]; lc[1] = lh[0][1] - g_psc[29]; lc[2] = lh[0][2] - g_psc[30];
+                lc[3] = BeaconGlint();
+            }
+            d->SetPixelShaderConstantF(dev, kPsReg + 102, lc, 1);
+        }
+        float way[2] = { 0.0f, 0.0f };
+        bool two = false;
+        const bool beam = BeaconBeamWay(way, two);
+        const float wl = beam ? (two ? 2.0f : 1.0f) : 0.0f;
+        const float rain[4] = { g_rain, g_cfg.water.rain, way[0] * wl, way[1] * wl };
         d->SetPixelShaderConstantF(dev, kPsReg + 103, rain, 1);   // c223
     }
     d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
@@ -3167,8 +3312,122 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
     return false;
 }
 
+void WaterNoteHull(IDirect3DDevice9* dev, const D3DMATRIX& world)
+{
+    if (g_hullRelN >= kHullsMax || g_cfg.water.shipWake <= 0.0f)
+        return;
+    const float x = world.m[3][0], y = world.m[3][1], z = world.m[3][2];
+    for (int i = 0; i < g_hullRelN; ++i)
+        if (g_hullRel[i][0] == x && g_hullRel[i][1] == y && g_hullRel[i][2] == z)
+            return;
+    IDirect3DPixelShader9* ps = nullptr;
+    dev->lpVtbl->GetPixelShader(dev, &ps);
+    if (ps)
+    {
+        ps->lpVtbl->Release(ps);
+        return;   // the terrain's: drawn through a pixel shader
+    }
+    g_hullRel[g_hullRelN][0] = x;
+    g_hullRel[g_hullRelN][1] = y;
+    g_hullRel[g_hullRelN][2] = z;
+    ++g_hullRelN;
+}
+
 void WaterFrameEnd()
 {
+    {
+        // The ships: this frame's origins followed from the last frame's (see Hull).
+        const double now = Now();
+        const double dt = now - g_hullLast;
+        float cam[3] = {};
+        if (g_hullRelN > 0 && ClientCamera(cam) && dt > 1e-4 && dt < 0.5)
+        {
+            float pos[kHullsMax][3];
+            int   match[kHullsMax];
+            float mx[kHullsMax], my[kHullsMax];
+            int   nm = 0;
+            for (int i = 0; i < g_hullRelN; ++i)
+            {
+                for (int j = 0; j < 3; ++j)
+                    pos[i][j] = g_hullRel[i][j] + cam[j];
+                match[i] = -1;
+                float bestD = 1.5f * 1.5f;
+                for (size_t h = 0; h < g_hulls.size(); ++h)
+                {
+                    const float dx = pos[i][0] - g_hulls[h].pos[0], dy = pos[i][1] - g_hulls[h].pos[1];
+                    const float dz = pos[i][2] - g_hulls[h].pos[2];
+                    const float d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 < bestD)
+                    {
+                        bestD = d2;
+                        match[i] = static_cast<int>(h);
+                    }
+                }
+                if (match[i] >= 0)
+                {
+                    mx[nm] = pos[i][0] - g_hulls[match[i]].pos[0];
+                    my[nm] = pos[i][1] - g_hulls[match[i]].pos[1];
+                    ++nm;
+                }
+            }
+            float cx = 0.0f, cy = 0.0f;
+            if (nm >= 5)
+            {
+                std::nth_element(mx, mx + nm / 2, mx + nm);
+                std::nth_element(my, my + nm / 2, my + nm);
+                cx = mx[nm / 2];
+                cy = my[nm / 2];
+            }
+            const float ease = static_cast<float>(1.0 - exp(-dt / 0.5));
+            const size_t before = g_hulls.size();
+            for (int i = 0; i < g_hullRelN; ++i)
+            {
+                if (match[i] < 0)
+                {
+                    g_hulls.push_back({ { pos[i][0], pos[i][1], pos[i][2] }, { 0.0f, 0.0f }, now, false });
+                    continue;
+                }
+                if (static_cast<size_t>(match[i]) >= before)
+                    continue;
+                Hull& h = g_hulls[match[i]];
+                if (h.seen == now)
+                    continue;   // two origins on one: the first keeps it
+                const float vx = (pos[i][0] - h.pos[0] - cx) / static_cast<float>(dt);
+                const float vy = (pos[i][1] - h.pos[1] - cy) / static_cast<float>(dt);
+                h.vel[0] += (vx - h.vel[0]) * ease;
+                h.vel[1] += (vy - h.vel[1]) * ease;
+                memcpy(h.pos, pos[i], sizeof(h.pos));
+                h.seen = now;
+                float wz = 0.0f, gz = 0.0f;
+                const bool water = MapWaterHeight(h.pos[0], h.pos[1], wz) ? fabsf(h.pos[2] - wz) < 4.0f
+                                                                           : !MapGroundHeight(h.pos[0], h.pos[1], gz);
+                const bool was = h.ship;
+                h.ship = water && h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1] > 1.5f * 1.5f;
+                if (h.ship && !was)
+                    Log("water: a ship at (%.1f %.1f %.1f), %.1f yards a second: its wake (Ship Wake %.0f)", h.pos[0],
+                        h.pos[1], h.pos[2], sqrtf(h.vel[0] * h.vel[0] + h.vel[1] * h.vel[1]), g_cfg.water.shipWake);
+            }
+        }
+        for (size_t h = 0; h < g_hulls.size();)
+        {
+            if (now - g_hulls[h].seen > 1.0)
+                g_hulls.erase(g_hulls.begin() + h);
+            else
+                ++h;
+        }
+        if (g_hulls.size() > 1024)
+            g_hulls.clear();
+        if (g_probeOn)
+        {
+            int ships = 0;
+            for (const Hull& h : g_hulls)
+                ships += h.ship ? 1 : 0;
+            Log("water: ships: %d building origins this frame, %d followed, %d of them ships", g_hullRelN,
+                static_cast<int>(g_hulls.size()), ships);
+        }
+        g_hullRelN = 0;
+        g_hullLast = now;
+    }
     {
         // How hard it rains, from this frame's rain draws (WaterNoteRain), eased over about a second.
         const double now = Now();
@@ -3329,6 +3588,8 @@ void WaterReset()
 {
     g_liquidTex.clear();
     g_trails.clear();
+    g_hulls.clear();
+    g_hullRelN = 0;
     g_cityNow.clear();
     g_cityLast.clear();
     g_cityPtsNow.clear();

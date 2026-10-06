@@ -1179,6 +1179,12 @@ darkness and the colour carries the rest plus the light. The factors go in c4.zw
 shader keeps compiler constants (`def`) in c6 and c7, and c4 and c5 are set back for it. It needs Volumetric
 Light on, for the depth. The owner's settings, 20 and 65, are the defaults.
 
+Rain at night (2026-10-06): the game's rain turned the night a lighter grey, which came through the darkness, so a
+rainy night was brighter than a clear one (the owner). `[night] rain` (Rain Darkness, 0.3) darkens the world and
+the sky again by that share times how hard it rains (`WaterRainAmount`, from the game's rain draws, eased over about
+a second) times the night's weight. The sky takes all of it, not `sky`'s share: the moons and stars are behind the
+clouds then.
+
 ## Every effect gone with the chat hidden (2026-09-30)
 
 The owner's `tchat` button (ClearChat's `/togglechat`, which moves the chat frames under a hidden parent)
@@ -2415,6 +2421,30 @@ ring at its own place and moment, spreading and fading each cycle; a cell fires 
 into the wake's slope, so the glint and the sky break up; out from 25 to 45 yards. Rain on Water (`[water] rain`, 1)
 is how strong; `c223`. The parting's particles went from 11 to 10 to make room for it.
 
+## A ship's wake (2026-10-06)
+
+The owner asked for a wake behind the ships. Every pixel shader constant is in use (c0 to c223), so a ship takes
+one of the 4 wake slots (c170 to c201) and says so in its head point's age, which is about 0 for a body: -sc there
+makes the shader scale every length and time of that trail by sc (`[water] shipWake`, Ship Wake; 0, off, by default since the owner asked; 10 is a good size). A ship
+floats, so all of it counts as in the water. The trail's points are sc x 0.67 yards apart and kept sc x 2.5 seconds.
+The ships' trails go up before the bodies'.
+
+Finding a ship: two probes at Stormwind's harbour, one with a ship in and one without. The ship was 37
+fixed-function draws, about 38,000 triangles, all with one world matrix, its origin at (-8573.6 1391.0 0.0), the
+sea's level; none were in the second probe, and its lanterns (lights the game sets) moved 7 yards in a second. The
+hull is a building drawn camera-relative with a world matrix of its own. So each frame the distinct origins of the
+fixed-function draws of 100 triangles or more with no pixel shader (the terrain has one) are noted
+(`WaterNoteHull`), and at the frame's end each is followed from the last frame's nearest within 1.5 yards. Its
+speed eases over half a second; over 1.5 yards a second, at the water, it is a ship. The median move of all the
+followed origins is taken out first, when there are 5 or more, in case the camera read at the frame's end is not
+the one the frame was drawn from: the buildings that stand still are most of them. The log says
+`water: a ship at ...` when one starts; a probe counts the origins and the ships.
+
+The owner: it worked, but only at the back of the ship, and was hard to notice. The hull's origin is not its bow,
+and the wake fades in over its first 0.6 x sc yards. `shipWakeForward` (Ship Wake Forward, 15 yards) moves the
+point the trail follows that far ahead of the origin, along the way the ship moves; `shipWakeDepth` (Ship Wake
+Depth, 2) multiplies the slope of its waves, sent in the head point's z, which a ship does not need (it floats).
+
 ## Lighthouses at night (2026-10-05)
 
 The game's own lighthouse light does not work with the HD models players use, and the lighthouses stood dark (the
@@ -2437,7 +2467,20 @@ light, which counts only before the surface the pixel shows; looking along a bea
 the beacon flares. By day too, at `[lighthouse] day` (1) of the night's strength (the owner asked for it by day). The fog dims them over 1.5 times its end, not as other
 lights. `[lighthouse]`: enabled (Lighthouses), beacon (2), beam (Lighthouse Beam, 0.12), color, and the sizes
 (beaconSize, beamWidth, beamSpread, beamLength 400, beamSpeed 12 s, beamTilt, beamCount: 1, or 2 opposite as at first), all tunable with /atmos; on the Lamps tab as Lighthouse Beacon,
-Beam Length, Width, Spread and Speed, and Two Beams. The pixel shader's
+Beam Length, Width, Spread and Speed, and Two Beams. The lamp also lights the surfaces round it, the tower's top
+and the rocks below (`surface` 1.5 x beacon, `surfaceReach` 25 yards): the lamps' pass takes it as a fill light, no
+glow of its own. At Night Darkness 90 the lighthouse stood as a lit window on a black shape (the owner). And its glitter on the water
+(`glint` 2 x beacon; 1 at first was hidden under the moon's): the water shader tests each wave's reflection against the way to the nearest lighthouse's lamp,
+as against the sun and the moons, narrower than the moon's and less the further the lamp (`c222`; the parting's
+particles went from 10 to 9 to make room). The beam sweeps it: bright where the beam points across that water and a
+trace elsewhere, with the beam's own light on the sea as glitter: the faces of the waves that tilt toward the lighthouse catch it,
+wherever you stand, so the wedge the beam sweeps is a moving pattern of lit wave faces. A flat wash read as paint, and
+a reflection toward the eye only brightened the glint on the line to you (the owner: it glinted, but did not turn with the
+light). The beam's way across the ground goes in `c223.zw`, from the same angle the beacon pass draws. On the Lamps tab: Lighthouse Glint
+(glint), Wave Face Strength, Tilt and Softness (faceStrength 1.6, faceTilt 0.05, faceSoft 0.08) and Beam Width on Water
+(waterWidth 1.5, a share of the drawn beam's width: the patch follows the beam's cone, `beamSpread` times it each
+side, with a soft edge from 30% in), in `c221` (the parting's particles went to 8). It was a power over the beam's angle (waterWedge, 40 then 20): the
+tail of that curve lit three times the beam's width even at 100, so the slider seemed to do nothing (the owner). The pixel shader's
 compiler keeps a constant of its own in c7, so the constants go up as c0 to c6 and c8 to c15.
 
 ## The framing that matters

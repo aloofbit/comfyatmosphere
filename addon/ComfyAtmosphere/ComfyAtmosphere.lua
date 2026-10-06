@@ -70,6 +70,9 @@ COMFYATMOSPHERE_WATER_FOAM_SIZE = "Foam Size";
 COMFYATMOSPHERE_WATER_FOAM_REACH = "Foam Reach";
 COMFYATMOSPHERE_WATER_FOAM_EDGE = "Foam Breakup";
 COMFYATMOSPHERE_WATER_WAKE_FOAM = "Wake Foam";
+COMFYATMOSPHERE_WATER_SHIP_WAKE = "Ship Wake";
+COMFYATMOSPHERE_WATER_SHIP_FORWARD = "Ship Wake Forward";
+COMFYATMOSPHERE_WATER_SHIP_DEPTH = "Ship Wake Depth";
 COMFYATMOSPHERE_WATER_OBJECT_FOAM = "Object Foam";
 COMFYATMOSPHERE_WATER_LAKE_SWASH = "Lake Swash";
 COMFYATMOSPHERE_WATER_LAKE_FOAM = "Lake Foam";
@@ -83,6 +86,11 @@ COMFYATMOSPHERE_LH_WIDTH = "Beam Width";
 COMFYATMOSPHERE_LH_SPREAD = "Beam Spread";
 COMFYATMOSPHERE_LH_SPEED = "Beam Speed";
 COMFYATMOSPHERE_LH_TWO = "Two Beams";
+COMFYATMOSPHERE_LH_GLINT = "Lighthouse Glint";
+COMFYATMOSPHERE_LH_FACE = "Wave Face Strength";
+COMFYATMOSPHERE_LH_TILT = "Wave Face Tilt";
+COMFYATMOSPHERE_LH_SOFT = "Wave Face Softness";
+COMFYATMOSPHERE_LH_WEDGE = "Beam Width on Water";
 COMFYATMOSPHERE_WATER_OBJECT_FOAM_WIDTH = "Object Foam Width";
 COMFYATMOSPHERE_WATER_OPEN_FOAM = "Open Water Foam";
 COMFYATMOSPHERE_WATER_OPEN_FOAM_AMOUNT = "Open Water Foam Amount";
@@ -110,6 +118,7 @@ COMFYATMOSPHERE_RAYS_SMOOTH    = "Sun Rays Smoothing";
 COMFYATMOSPHERE_DEBUG_VIEW     = "Debug View";
 COMFYATMOSPHERE_NIGHT_STRENGTH = "Night Strength";
 COMFYATMOSPHERE_NIGHT_DARKNESS = "Night Darkness";
+COMFYATMOSPHERE_RAIN_DARKNESS = "Rain Darkness";
 COMFYATMOSPHERE_MOONLIGHT      = "Moonlight Colour";
 COMFYATMOSPHERE_COLOR          = "Color Effects";
 COMFYATMOSPHERE_DAY_SATURATION = "Day Saturation";
@@ -697,6 +706,42 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- [water] shipWake: a ship's wake as a body's this many times the size; 0 off.
+		name = "COMFYATMOSPHERE_WATER_SHIP_WAKE",
+		desc = "The wake behind a ship under way, as a swimmer's wake this many times the size. 0 is none.",
+		type = "slider",
+		cvar = "comfyWaterShipWake",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 20,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- [water] shipWakeForward: yards ahead of the hull's origin, along its way.
+		name = "COMFYATMOSPHERE_WATER_SHIP_FORWARD",
+		desc = "How far forward along the ship the wake starts, in yards.",
+		type = "slider",
+		cvar = "comfyWaterShipForward",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 60,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides by 100 for [water] shipWakeDepth.
+		name = "COMFYATMOSPHERE_WATER_SHIP_DEPTH",
+		desc = "How deep the waves of a ship's wake are, against a swimmer's.",
+		type = "slider",
+		cvar = "comfyWaterShipDepth",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 600,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
 		-- A percentage: comfyfog.dll divides by 100 for [water] lakeSwash.
 		name = "COMFYATMOSPHERE_WATER_LAKE_SWASH",
 		desc = "How much of the sea's swash and shore waves a lake, a pond or a river gets. 0 is none, 100 as much as the sea.",
@@ -818,6 +863,66 @@ local ENTRIES = {
 		type = "checkbutton",
 		cvar = "comfyLighthouseTwoBeams",
 		dependency = { "comfyLighthouses", "1" },
+	},
+	{
+		-- A percentage: comfyfog.dll divides by 100 for [lighthouse] glint.
+		name = "COMFYATMOSPHERE_LH_GLINT",
+		desc = "How much light the lighthouse puts on the water: its glitter and the waves its beam lights.",
+		type = "slider",
+		cvar = "comfyLighthouseGlint",
+		dependency = { "comfyLighthouses", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: [lighthouse] faceStrength.
+		name = "COMFYATMOSPHERE_LH_FACE",
+		desc = "How bright the waves are where the beam crosses the water.",
+		type = "slider",
+		cvar = "comfyLighthouseFace",
+		dependency = { "comfyLighthouses", "1" },
+		minval = 0,
+		maxval = 400,
+		step = 10,
+		numberLabels = 1,
+	},
+	{
+		-- Thousandths: [lighthouse] faceTilt.
+		name = "COMFYATMOSPHERE_LH_TILT",
+		desc = "How far a wave must tilt toward the lighthouse to catch the beam. Lower lights more of them.",
+		type = "slider",
+		cvar = "comfyLighthouseFaceTilt",
+		dependency = { "comfyLighthouses", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Thousandths: [lighthouse] faceSoft.
+		name = "COMFYATMOSPHERE_LH_SOFT",
+		desc = "How soft the edge is between the waves the beam lights and the dark ones.",
+		type = "slider",
+		cvar = "comfyLighthouseFaceSoft",
+		dependency = { "comfyLighthouses", "1" },
+		minval = 5,
+		maxval = 300,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyfog.dll divides by 100 for [lighthouse] waterWidth.
+		name = "COMFYATMOSPHERE_LH_WEDGE",
+		desc = "How wide the patch of water the beam lights is, as a share of the beam's own width. Beam Spread widens it too.",
+		type = "slider",
+		cvar = "comfyLighthouseWaterWidth",
+		dependency = { "comfyLighthouses", "1" },
+		minval = 25,
+		maxval = 400,
+		step = 5,
+		numberLabels = 1,
 	},
 	{
 		-- A percentage: comfyfog.dll divides by 100 for [water] rain.
@@ -1222,6 +1327,18 @@ local ENTRIES = {
 		numberLabels = 1,
 	},
 	{
+		-- Percent: comfyfog.dll divides by 100 for [night] rain.
+		name = "COMFYATMOSPHERE_RAIN_DARKNESS",
+		desc = "How much darker again the night is while it rains, the sky too. The game's rain makes the night a lighter grey.",
+		type = "slider",
+		cvar = "comfyRainDarkness",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 90,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
 		-- Percent: [night] tint, toward [night] moonColor.
 		name = "COMFYATMOSPHERE_MOONLIGHT",
 		desc = "How blue the night is, as moonlight. 0 only darkens.",
@@ -1378,16 +1495,16 @@ local WINDOW_SECTIONS = {
 	           "comfyMistReach", "comfyMistSky", "comfyMistPatches", "comfyMistLow", "comfyMistWater",
 	           "comfyMistMorning", "comfyMistLamps", "comfyMistWind", "comfyMistWindDir" } },
 	{ "Lamps", { "comfyLamps", "comfyLampGlow", "comfyLampDistance", "comfyLanternLight", "comfyTorchLight",
-	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams" } },
+	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
 	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfySunGlide", "comfyTreeShade", "comfySunlight", "comfyShadeTint",
 	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery",
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",
-	           "comfyNightDarkness", "comfyMoonlight", "comfyClouds" } },
+	           "comfyNightDarkness", "comfyRainDarkness", "comfyMoonlight", "comfyClouds" } },
 	{ "Color", { "comfyColor", "comfyDaySaturation", "comfyNightSaturation" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterFoamDrawn", "comfyWaterFoamSize", "comfyWaterFoamReach", "comfyWaterFoamEdge", "comfyWaterWakeFoam", "comfyWaterLakeSwash", "comfyWaterLakeFoam", "comfyWaterLakeWaves", "comfyWaterRain", "comfyWaterObjectFoam", "comfyWaterObjectFoamWidth", "comfyWaterOpenFoam", "comfyWaterOpenFoamAmount", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterFoamDrawn", "comfyWaterFoamSize", "comfyWaterFoamReach", "comfyWaterFoamEdge", "comfyWaterWakeFoam", "comfyWaterShipWake", "comfyWaterShipForward", "comfyWaterShipDepth", "comfyWaterLakeSwash", "comfyWaterLakeFoam", "comfyWaterLakeWaves", "comfyWaterRain", "comfyWaterObjectFoam", "comfyWaterObjectFoamWidth", "comfyWaterOpenFoam", "comfyWaterOpenFoamAmount", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",

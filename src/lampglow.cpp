@@ -57,9 +57,11 @@
 #include "depth.h"
 #include "lampglow.h"
 #include "lamps.h"
+#include "beacon.h"
 #include "shadow.h"
 #include "sun.h"
 #include "volume.h"
+#include "water.h"
 
 #include <algorithm>
 #include <cmath>
@@ -373,11 +375,15 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         const float lum = 0.2126f * moon[0] + 0.7152f * moon[1] + 0.0722f * moon[2];
         for (float& c : moon)
             c = lum > 1e-3f ? c / lum : 1.0f;
+        // Rain at night (2026-10-06, the owner): the game's rain turns the night a lighter grey, which came through
+        // the darkness. While it rains (WaterRainAmount, from the game's own rain draws) the world and the sky are
+        // darker again by Rain Darkness, the sky by all of it: the moons and stars are behind the clouds then.
+        const float rain = 1.0f - n.rain * WaterRainAmount() * k;
         for (int c = 0; c < 3; ++c)
         {
             const float hue = 1.0f + (moon[c] - 1.0f) * n.tint * k;
-            world[c] = (1.0f - n.darkness * k) * hue;
-            sky[c]   = (1.0f - n.darkness * n.sky * k) * (1.0f + (moon[c] - 1.0f) * n.tint * n.sky * k);
+            world[c] = (1.0f - n.darkness * k) * hue * rain;
+            sky[c]   = (1.0f - n.darkness * n.sky * k) * (1.0f + (moon[c] - 1.0f) * n.tint * n.sky * k) * rain;
         }
         return true;
     }
@@ -488,7 +494,30 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
     Mul(view, proj, camVP);
 
     static LampLight lights[kLampsMax];
-    const int found = LampsOn() ? LampsGather(cam, camVP, lights, kLampsMax) : 0;
+    int found = LampsOn() ? LampsGather(cam, camVP, lights, kLampsMax) : 0;
+    // The lighthouses' lamps (2026-10-05, the owner): each lights the surfaces round it, the tower's top and the
+    // rocks below, so Night Darkness is cut round it as round a street lamp. A fill light: the glow is beacon.cpp's.
+    if (LampsOn())
+    {
+        float lh[4][3];
+        const int nl = BeaconLamps(lh, 4);
+        const LighthouseSettings& ls = g_cfg.lighthouse;
+        for (int i = 0; i < nl && found < kLampsMax; ++i)
+        {
+            LampLight& L = lights[found++];
+            for (int j = 0; j < 3; ++j)
+                L.pos[j] = lh[i][j] - cam[j];
+            L.dist = sqrtf(L.pos[0] * L.pos[0] + L.pos[1] * L.pos[1] + L.pos[2] * L.pos[2]);
+            const float k = ls.surface * ls.beacon;
+            L.colour[0] = ((ls.color >> 16) & 0xFF) / 255.0f * k;
+            L.colour[1] = ((ls.color >> 8) & 0xFF) / 255.0f * k;
+            L.colour[2] = (ls.color & 0xFF) / 255.0f * k;
+            L.reach = ls.surfaceReach;
+            L.kind = 1;
+            L.fire = false;
+            L.fill = true;
+        }
+    }
     // The night's darkness, drawn in the pass that lights surfaces. Not in a debug view: those show one part
     // alone, over black.
     float darkWorld[3] = { 1.0f, 1.0f, 1.0f }, darkSky[3] = { 1.0f, 1.0f, 1.0f };

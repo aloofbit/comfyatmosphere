@@ -1813,6 +1813,8 @@ namespace
             const WaterChunk draw = { prim, bvi, mvi, nv, si, pc, &g_world, &g_viewAll, &g_projAll };
             if (WaterGameWake(dev, draw) && !g_cfg.water.gameWake)
                 return S_OK;
+            if (pc >= 100)
+                WaterNoteHull(dev, g_world);   // a ship's hull, for its wake (2026-10-06)
         }
         NoteSkySun(dev, prim, pc, nv);
         const bool cloud = IsCloudDraw(dev, prim, nv);

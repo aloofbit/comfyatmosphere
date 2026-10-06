@@ -127,6 +127,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     bool                    g_tried = false;
     bool                    g_failed = false;
     bool                    g_logNext = false;
+    float                   g_lastNight = 0.0f;      // the last frame's day-and-night share
     float                   g_lamps[kMax][3] = {};   // the last lamps found, for the probe's draws
     int                     g_lampCount = 0;
     float                   g_effects[kMax][3] = {}; // the game's own lighthouse lights (LIGHTHOUSEEFFECT), their origins
@@ -271,6 +272,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     };
     constexpr int kTouchedCount = sizeof(kTouched) / sizeof(kTouched[0]);
 
+    // A lighthouse's beam's angle now: round once a beamSpeed, each lighthouse a turn of its own by its place.
+    float BeamAngle(const float lamp[3], double t, float speed)
+    {
+        const float phase = fmodf(lamp[0] * 0.0131f + lamp[1] * 0.0173f, 6.2831853f);
+        return static_cast<float>(t * 6.2831853 / speed) + phase;
+    }
+
     // The night's weight now, eased over a second so a clock jump does not switch the lights on in one frame.
     float Night()
     {
@@ -399,6 +407,7 @@ bool BeaconDraw(IDirect3DDevice9* dev)
     g_lampCount = n;
     // By day too, at [lighthouse] day of the night's strength (2026-10-05, the owner: 1, as bright by day).
     const float night = s.day + (1.0f - s.day) * Night();
+    g_lastNight = night;
     if (night <= 0.01f && !logThis)
         return false;
     IDirect3DTexture9* depth = DepthWorldTexture();
@@ -519,8 +528,7 @@ bool BeaconDraw(IDirect3DDevice9* dev)
         if (i < n)
         {
             L[0] = found[i][0] - cam[0]; L[1] = found[i][1] - cam[1]; L[2] = found[i][2] - cam[2]; L[3] = 1.0f;
-            const float phase = fmodf(found[i][0] * 0.0131f + found[i][1] * 0.0173f, 6.2831853f);
-            const float a = static_cast<float>(t * 6.2831853 / s.beamSpeed) + phase;
+            const float a = BeamAngle(found[i], t, s.beamSpeed);
             const float tilt = s.beamTilt;
             const float l = sqrtf(1.0f + tilt * tilt);
             D[0] = cosf(a) / l; D[1] = sinf(a) / l; D[2] = tilt / l; D[3] = s.beamCount >= 2 ? 1.0f : 0.0f;
@@ -594,6 +602,34 @@ bool BeaconSkipsDraw(IDirect3DDevice9* dev)
         }
     }
     return false;
+}
+
+bool BeaconBeamWay(float way[2], bool& two)
+{
+    const LighthouseSettings& s = g_cfg.lighthouse;
+    if (!g_cfg.master || !s.enabled || g_lampCount == 0)
+        return false;
+    const float a = BeamAngle(g_lamps[0], fmod(Now(), 3600.0), s.beamSpeed);
+    way[0] = cosf(a);
+    way[1] = sinf(a);
+    two = s.beamCount >= 2;
+    return true;
+}
+
+float BeaconGlint()
+{
+    const LighthouseSettings& s = g_cfg.lighthouse;
+    return g_cfg.master && s.enabled ? s.glint * s.beacon * g_lastNight : 0.0f;
+}
+
+int BeaconLamps(float (*out)[3], int max)
+{
+    const LighthouseSettings& s = g_cfg.lighthouse;
+    if (!g_cfg.master || !s.enabled)
+        return 0;
+    const int n = g_lampCount < max ? g_lampCount : max;
+    memcpy(out, g_lamps, sizeof(g_lamps[0]) * n);
+    return n;
 }
 
 void BeaconReset()

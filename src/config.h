@@ -78,6 +78,7 @@ struct NightSettings
     float tint     = 0.65f;     // 0..1: how far the dark leans toward moonColor
     DWORD moonColor = 0x9CB8FF; // RGB of the moonlight (its hue only: brightness is kept)
     float sky      = 0.5f;      // 0..1: the share of the darkness the sky gets
+    float rain     = 0.3f;      // 0..0.9: how much darker again while it rains at night (Rain Darkness)
     bool  indoors  = false;     // true = darker inside buildings too
 };
 
@@ -477,6 +478,10 @@ struct WaterSettings
     float foamCell  = 0.9f;      // yards: the size of its blobs (Foam Size)
     float foamLife  = 3.0f;      // yards out from the moving edge it lasts (Foam Reach)
     float wakeFoam  = 0.5f;      // 0..1: the drawn foam's splash at a body moving through the water (Wake Foam)
+    float shipWake  = 0.0f;      // 0 off, or 2..20: a ship's wake, as a body's this many times the size (Ship Wake);
+                                 // off by default (the owner, 2026-10-06), 10 is a good size
+    float shipWakeForward = 15.0f;  // 0..60 yards: how far ahead of the hull's origin the wake starts
+    float shipWakeDepth   = 2.0f;   // 0..6: the ship's wake's waves, times a body's (Ship Wake Depth)
     float lakeSwash = 0.0f;      // 0..1: the share of the sea's swash and shore waves a lake, a pond or a river gets
                                  // (Lake Swash)
     float lakeFoam  = 0.3f;      // 0..1: the share of the sea's shore foam it gets (Lake Foam)
@@ -524,6 +529,14 @@ struct LighthouseSettings
     float beamSpeed  = 12.0f;    // seconds the beams take to go round
     float beamTilt   = -0.03f;   // the beam's slope: below 0 it points a little down
     int   beamCount  = 1;        // 1 beam, or 2 opposite
+    float surface      = 1.5f;   // 0..10: its light on the surfaces round it, times beacon (the lamps' pass)
+    float surfaceReach = 25.0f;  // yards that light reaches
+    float glint        = 2.0f;   // 0..3: its glitter on the water, times beacon (Lighthouse Glint)
+    float faceStrength = 1.6f;   // 0..4: the wave faces the beam lights on the water (Wave Face Strength)
+    float faceTilt     = 0.05f;  // 0..0.3: the tilt toward the lighthouse a wave face starts to catch it (Wave Face Tilt)
+    float faceSoft     = 0.08f;  // 0.005..0.3: how gradual the edge between lit and dark faces is (Wave Face Softness)
+    float waterWidth   = 1.5f;   // 0.25..4: the patch of water the beam lights, as a share of the drawn beam's width
+                                 // (Beam Width on Water)
     DWORD color   = 0xFFE2A8;    // the light's colour, warm white
 };
 
