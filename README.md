@@ -2,7 +2,7 @@
 
 > **Bugs, questions and screenshots. Ty for testing!: [join our Discord](https://discord.gg/zvSKGrKsz).**
 >
-> [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/YSWzYk8xP)
+> [![Discord](https://img.shields.io/badge/Discord-ComfyCraft-5865F2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/zvSKGrKsz)
 
 
 Atmosphere mod the World of Warcraft 1.12 client. Volumetric lighting, fog, shadows, sun rays, water, and more.
