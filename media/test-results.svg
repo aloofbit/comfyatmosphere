@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="746" viewBox="0 0 860 746" role="img" aria-label="comfyatmosphere test results, 2026-10-06: 24 of 24 tests pass">
+<style>
+  :root { --bg: #ffffff; --tile: #f6f8fa; --line: #d0d7de; --text: #1f2328; --muted: #59636e;
+          --on: #0969da; --off: #c8d1da; --good: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --tile: #161b22; --line: #30363d; --text: #e6edf3; --muted: #9198a1;
+            --on: #4493f8; --off: #2d333b; --good: #3fb950; --bad: #f85149; }
+  }
+  text { font-family: -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; fill: var(--text); }
+  .card { fill: var(--bg); stroke: var(--line); }
+  .rule { stroke: var(--line); }
+  .tile { fill: var(--tile); }
+  .title { font-size: 24px; font-weight: 600; }
+  .head { font-size: 16px; font-weight: 600; }
+  .big { font-size: 26px; font-weight: 600; }
+  .value { font-size: 15px; font-weight: 600; }
+  .label, .name { font-size: 13.5px; }
+  .muted, .small { fill: var(--muted); }
+  .muted { font-size: 13px; }
+  .small { font-size: 12.5px; }
+  .good { fill: var(--good); }
+  .bad { fill: var(--bad); }
+  .on { fill: var(--on); }
+  .off { fill: var(--off); }
+  .dot-good { fill: var(--good); }
+  .dot-bad { fill: var(--bad); }
+  .tick { fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+<rect x="0.5" y="0.5" width="859" height="745" rx="14" class="card"/>
+<text x="32" y="52" class="title">comfyatmosphere</text>
+<text x="828" y="52" class="muted" text-anchor="end" xml:space="preserve">Latest results  ·  2026-10-06  ·  GeForce RTX 2080 Super with Max-Q Design</text>
+<line x1="32" y1="74" x2="828" y2="74" class="rule"/>
+<rect x="32" y="96" width="187" height="78" rx="10" class="tile"/>
+<text x="50" y="136" class="big good">24 of 24</text>
+<text x="50" y="158" class="muted">tests pass</text>
+<rect x="235" y="96" width="187" height="78" rx="10" class="tile"/>
+<text x="253" y="136" class="big">98 fps</text>
+<text x="253" y="158" class="muted">Harbour, effects on</text>
+<rect x="438" y="96" width="187" height="78" rx="10" class="tile"/>
+<text x="456" y="136" class="big">2.3 ms</text>
+<text x="456" y="158" class="muted">our CPU a frame, at most</text>
+<rect x="641" y="96" width="187" height="78" rx="10" class="tile"/>
+<text x="659" y="136" class="big">2 ms</text>
+<text x="659" y="158" class="muted">shader compiling at sign-in</text>
+<text x="32" y="220" class="head">Frame rate</text>
+<rect x="632" y="210" width="12" height="10" rx="2" class="on"/>
+<text x="650" y="220" class="small">effects on</text>
+<rect x="724" y="210" width="12" height="10" rx="2" class="off"/>
+<text x="742" y="220" class="small">effects off</text>
+<text x="32" y="265" class="label">Harbour</text>
+<rect x="152" y="250" width="247" height="20" rx="4" class="off"/>
+<rect x="152" y="250" width="139" height="20" rx="4" class="on"/>
+<text x="592" y="265" class="value">98 fps</text>
+<text x="828" y="265" class="small" text-anchor="end">174 off, 1% low 53 fps</text>
+<text x="32" y="301" class="label">Elwynn</text>
+<rect x="152" y="286" width="181" height="20" rx="4" class="off"/>
+<rect x="152" y="286" width="130" height="20" rx="4" class="on"/>
+<text x="592" y="301" class="value">92 fps</text>
+<text x="828" y="301" class="small" text-anchor="end">127 off, 1% low 68 fps</text>
+<text x="32" y="337" class="label">Ironforge</text>
+<rect x="152" y="322" width="390" height="20" rx="4" class="off"/>
+<rect x="152" y="322" width="223" height="20" rx="4" class="on"/>
+<text x="592" y="337" class="value">157 fps</text>
+<text x="828" y="337" class="small" text-anchor="end">275 off, 1% low 86 fps</text>
+<text x="32" y="388" class="head">Sign-in</text>
+<text x="32" y="426" class="value">21.2 s</text>
+<text x="32" y="446" class="small">effects start</text>
+<text x="231" y="426" class="value">839 ms</text>
+<text x="231" y="446" class="small">worst frame</text>
+<text x="231" y="464" class="small good">limit 1500 ms</text>
+<text x="430" y="426" class="value">6</text>
+<text x="430" y="446" class="small">slow frames</text>
+<text x="430" y="464" class="small good">limit 12</text>
+<text x="629" y="426" class="value">2 ms</text>
+<text x="629" y="446" class="small">compiling on the game thread</text>
+<text x="629" y="464" class="small good">limit 100 ms</text>
+<text x="32" y="510" class="head">Tests</text>
+<text x="828" y="510" class="small" text-anchor="end">each runs in the game with nobody at the keyboard</text>
+<circle cx="40" cy="541" r="8" class="dot-good"/>
+<path d="M36 541 l3 3 l5 -6" class="tick"/>
+<text x="56" y="546" class="name">ashenvale-edge-strips</text>
+<circle cx="40" cy="565" r="8" class="dot-good"/>
+<path d="M36 565 l3 3 l5 -6" class="tick"/>
+<text x="56" y="570" class="name">development-guard-stealth</text>
+<circle cx="40" cy="589" r="8" class="dot-good"/>
+<path d="M36 589 l3 3 l5 -6" class="tick"/>
+<text x="56" y="594" class="name">development-horse-seethrough</text>
+<circle cx="40" cy="613" r="8" class="dot-good"/>
+<path d="M36 613 l3 3 l5 -6" class="tick"/>
+<text x="56" y="618" class="name">development-saturation</text>
+<circle cx="40" cy="637" r="8" class="dot-good"/>
+<path d="M36 637 l3 3 l5 -6" class="tick"/>
+<text x="56" y="642" class="name">development-windmill</text>
+<circle cx="40" cy="661" r="8" class="dot-good"/>
+<path d="M36 661 l3 3 l5 -6" class="tick"/>
+<text x="56" y="666" class="name">elwynn-own-face</text>
+<circle cx="40" cy="685" r="8" class="dot-good"/>
+<path d="M36 685 l3 3 l5 -6" class="tick"/>
+<text x="56" y="690" class="name">elwynn-ridge-fog</text>
+<circle cx="40" cy="709" r="8" class="dot-good"/>
+<path d="M36 709 l3 3 l5 -6" class="tick"/>
+<text x="56" y="714" class="name">elwynn-stump-edge</text>
+<circle cx="305" cy="541" r="8" class="dot-good"/>
+<path d="M301 541 l3 3 l5 -6" class="tick"/>
+<text x="321" y="546" class="name">elwynn-trough-shadow</text>
+<circle cx="305" cy="565" r="8" class="dot-good"/>
+<path d="M301 565 l3 3 l5 -6" class="tick"/>
+<text x="321" y="570" class="name">far-terrain-cache</text>
+<circle cx="305" cy="589" r="8" class="dot-good"/>
+<path d="M301 589 l3 3 l5 -6" class="tick"/>
+<text x="321" y="594" class="name">frame-rate-performance</text>
+<circle cx="305" cy="613" r="8" class="dot-good"/>
+<path d="M301 613 l3 3 l5 -6" class="tick"/>
+<text x="321" y="618" class="name">ironforge-ah-glow</text>
+<circle cx="305" cy="637" r="8" class="dot-good"/>
+<path d="M301 637 l3 3 l5 -6" class="tick"/>
+<text x="321" y="642" class="name">ironforge-gate-fog</text>
+<circle cx="305" cy="661" r="8" class="dot-good"/>
+<path d="M301 661 l3 3 l5 -6" class="tick"/>
+<text x="321" y="666" class="name">load-performance</text>
+<circle cx="305" cy="685" r="8" class="dot-good"/>
+<path d="M301 685 l3 3 l5 -6" class="tick"/>
+<text x="321" y="690" class="name">redridge-grass</text>
+<circle cx="305" cy="709" r="8" class="dot-good"/>
+<path d="M301 709 l3 3 l5 -6" class="tick"/>
+<text x="321" y="714" class="name">stormwind-canal-fog</text>
+<circle cx="571" cy="541" r="8" class="dot-good"/>
+<path d="M567 541 l3 3 l5 -6" class="tick"/>
+<text x="587" y="546" class="name">stormwind-canal-wake</text>
+<circle cx="571" cy="565" r="8" class="dot-good"/>
+<path d="M567 565 l3 3 l5 -6" class="tick"/>
+<text x="587" y="570" class="name">stormwind-harbour-ridge</text>
+<circle cx="571" cy="589" r="8" class="dot-good"/>
+<path d="M567 589 l3 3 l5 -6" class="tick"/>
+<text x="587" y="594" class="name">stormwind-harbour-ship-shadow</text>
+<circle cx="571" cy="613" r="8" class="dot-good"/>
+<path d="M567 613 l3 3 l5 -6" class="tick"/>
+<text x="587" y="618" class="name">stormwind-tower-speckle</text>
+<circle cx="571" cy="637" r="8" class="dot-good"/>
+<path d="M567 637 l3 3 l5 -6" class="tick"/>
+<text x="587" y="642" class="name">water-cost</text>
+<circle cx="571" cy="661" r="8" class="dot-good"/>
+<path d="M567 661 l3 3 l5 -6" class="tick"/>
+<text x="587" y="666" class="name">water-standing</text>
+<circle cx="571" cy="685" r="8" class="dot-good"/>
+<path d="M567 685 l3 3 l5 -6" class="tick"/>
+<text x="587" y="690" class="name">westfall-beach-swash</text>
+<circle cx="571" cy="709" r="8" class="dot-good"/>
+<path d="M567 709 l3 3 l5 -6" class="tick"/>
+<text x="587" y="714" class="name">westfall-far-waterline</text>
+</svg>

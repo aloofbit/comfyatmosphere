@@ -26,7 +26,10 @@ runs. The result, the script it ran, the probe and the screenshots go to `result
 
 Each test's result is also saved on its own, as `results\<time>-<test>.record.json`. `.\Build-Latest.ps1` makes one page
 of every test's latest result, whichever run it came from, with the time of that run beside each test:
-`results\latest-report.html`, also copied to `results\last-results.html`. `-Name` takes only some tests. A test
+`results\latest-report.html`, also copied to `results\last-results.html`. `-Name` takes only some tests.
+`-Card` also writes the README's results card, `..\media\test-results.svg` (`Write-Card.ps1`): the frame rate at each
+place with the effects on and off, the sign-in, and each test's latest result. It follows the reader's light or dark
+theme. It is written only when every test is taken. A test
 last run before the records were saved is read back from its text report, `results\<time>-<test>.txt`.
 
 Each run writes `results\<time>-report.html` and opens it (`-NoOpen` does not). The same page is copied to `results\last-results.html`: keep a tab open on it and refresh it after each run. It shows every test, its checks

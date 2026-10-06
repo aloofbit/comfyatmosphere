@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="166" viewBox="0 0 860 166" role="img" aria-label="comfyatmosphere test results, 2026-10-06: 24 of 24 tests pass">
+<style>
+  :root { --bg: #ffffff; --tile: #f6f8fa; --line: #d0d7de; --text: #1f2328; --muted: #59636e;
+          --on: #0969da; --off: #c8d1da; --good: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --tile: #161b22; --line: #30363d; --text: #e6edf3; --muted: #9198a1;
+            --on: #4493f8; --off: #2d333b; --good: #3fb950; --bad: #f85149; }
+  }
+  text { font-family: -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; fill: var(--text); }
+  .card { fill: var(--bg); stroke: var(--line); }
+  .rule { stroke: var(--line); }
+  .tile { fill: var(--tile); }
+  .title { font-size: 24px; font-weight: 600; }
+  .head { font-size: 16px; font-weight: 600; }
+  .big { font-size: 26px; font-weight: 600; }
+  .value { font-size: 15px; font-weight: 600; }
+  .label, .name { font-size: 13.5px; }
+  .muted, .small { fill: var(--muted); }
+  .muted { font-size: 13px; }
+  .small { font-size: 12.5px; }
+  .good { fill: var(--good); }
+  .bad { fill: var(--bad); }
+  .on { fill: var(--on); }
+  .off { fill: var(--off); }
+  .dot-good { fill: var(--good); }
+  .dot-bad { fill: var(--bad); }
+  .tick { fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+<rect x="0.5" y="0.5" width="859" height="165" rx="14" class="card"/>
+<text x="32" y="40" class="head">Test results</text>
+<text x="828" y="40" class="muted" text-anchor="end" xml:space="preserve">2026-10-06  ·  GeForce RTX 2080 Super with Max-Q Design</text>
+<rect x="32" y="60" width="255" height="78" rx="10" class="tile"/>
+<text x="50" y="100" class="big good">24 of 24</text>
+<text x="50" y="122" class="muted">in-game tests</text>
+<rect x="303" y="60" width="255" height="78" rx="10" class="tile"/>
+<text x="321" y="100" class="big">92 to 157 fps</text>
+<text x="321" y="122" class="muted">all effects, 3 places</text>
+<rect x="573" y="60" width="255" height="78" rx="10" class="tile"/>
+<text x="591" y="100" class="big">2.7 to 4.5 ms</text>
+<text x="591" y="122" class="muted">frame cost</text>
+</svg>

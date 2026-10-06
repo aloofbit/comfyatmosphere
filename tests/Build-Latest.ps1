@@ -11,13 +11,18 @@
   results\<time>-<test>.txt: the checks, where the character was, the errors, the shots and the recordings. Which
   Debug View each shot shows comes from the test's steps as they are now.
 
+  -Card also writes the results cards from the same records (Write-Card.ps1): media\test-summary.svg for the README,
+  and media\test-results.svg, the large one.
+
 .EXAMPLE
   .\Build-Latest.ps1                        # every test
   .\Build-Latest.ps1 -Name water-standing   # these tests only
+  .\Build-Latest.ps1 -Card                  # and the results cards
 #>
 param(
     [string[]]$Name,
     [switch]$NoOpen,
+    [switch]$Card,
     [string]$Client = (Join-Path $env:USERPROFILE 'Desktop\wow-clients\octow - Copy')
 )
 
@@ -121,6 +126,15 @@ $page = Join-Path $resultsDir 'latest-report.html'
 & (Join-Path $here 'Write-Report.ps1') -Records $records -Page $page -ExpectedDir $expectedDir -ViewNames $viewNames `
     -History (Join-Path $resultsDir 'perf-history.json') -Client $Client -Summary $summary
 Copy-Item $page (Join-Path $resultsDir 'last-results.html') -Force
+if ($Card) {
+    # Every test, so the card never shows a part of them as the whole.
+    if ($Name) { Write-Host 'card: not written, -Name takes only some tests' }
+    else {
+        & (Join-Path $here 'Write-Card.ps1') -Records $records -History (Join-Path $resultsDir 'perf-history.json') `
+            -Path (Join-Path $here '..\media\test-results.svg') -SummaryPath (Join-Path $here '..\media\test-summary.svg') `
+            -Client $Client
+    }
+}
 
 foreach ($r in $records) { Write-Host ('{0}  {1}  ({2})' -f $(if ($r.pass) { 'PASS' } else { 'FAIL' }), $r.name, $r.stamp) }
 if ($missing.Count) { Write-Host "never run: $($missing -join ', ')" }

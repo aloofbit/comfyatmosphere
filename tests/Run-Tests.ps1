@@ -91,6 +91,15 @@ if ($takesFocus.Count) {
     Write-Host "NOTE: $($takesFocus -join ', ') brings the game window to the front while it measures (behind other windows it holds 60 fps). Do not type in another window during it." -ForegroundColor Yellow
 }
 $log = Join-Path $Client 'comfyatmos.log'
+# The DLL a test ran on (2026-10-06): the client's log names it, and a test may restart the client, so it is read
+# after each test. It goes into each record and each number, so the README's results card names a version only
+# when every result came from that one.
+function DllVersion {
+    if (-not (Test-Path $log)) { return '' }
+    $m = Select-String -Path $log -Pattern '^comfyatmos: (v[^,]+),' | Select-Object -Last 1
+    if ($m) { return $m.Matches[0].Groups[1].Value }
+    return ''
+}
 $summary = @()
 # One login for the whole run (2026-10-04): a login a test cost about a minute each. Another login only for a
 # test that wants another character. Flight is read before each test (2026-10-05, wow-test-tool's flight on and
@@ -399,7 +408,7 @@ foreach ($file in $files) {
             $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = ('{0}{1}{2}' -f $value, $unit, $wantText); shot = 0 }
             if ($e.metric) {
                 $metrics += [pscustomobject]@{ stamp = $stamp; test = $t.name; metric = $e.metric; value = $value
-                    unit = "$($e.unit)"; max = $e.max; min = $e.min; ok = $ok }
+                    unit = "$($e.unit)"; max = $e.max; min = $e.min; ok = $ok; version = (DllVersion) }
             }
             continue
         }
@@ -519,7 +528,7 @@ foreach ($file in $files) {
     $record = [pscustomobject]@{
         name = $t.name; about = $t.about; pass = $pass; stamp = $stamp; checks = $checks
         positions = $positions; warnings = $warnings; shots = $shotCopies; views = $shotViews
-        recordings = $recCopies; recViews = $recViews; recLabels = $recLabels
+        recordings = $recCopies; recViews = $recViews; recLabels = $recLabels; version = (DllVersion)
     }
     $records += $record
     # Each test's result on its own (2026-10-06, the owner): Build-Latest.ps1 makes one page of every test's latest,

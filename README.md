@@ -10,7 +10,16 @@ Atmosphere mod the World of Warcraft 1.12 client. Volumetric lighting, fog, shad
 https://github.com/user-attachments/assets/67551de4-3ee5-4ea1-83ed-b72592bfce1d
 
 ## Status / Tests
-Latest test results: https://aloofbit.github.io/comfyatmosphere/runs/20261006-160606/
+[![Test results. Click for the latest run.](media/test-summary.svg)](https://aloofbit.github.io/comfyatmosphere/latest/)
+
+<details>
+<summary>All results</summary>
+
+![Frame rate at each place, sign-in and every test](media/test-results.svg)
+
+</details>
+
+[All runs](https://aloofbit.github.io/comfyatmosphere/) · [The tests](tests/README.md)
 
 ## Roadmap
 
