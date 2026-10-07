@@ -2,6 +2,7 @@
 #pragma once
 
 #include <d3d9.h>
+#include <intrin.h>
 
 // The sections before kBenchTop are our passes, one after another, and their sum is our GPU time. The rest
 // are parts of one of them or span them (2026-10-06): the seven shadow maps inside kBenchShadow, and the
@@ -28,6 +29,25 @@ bool BenchTiming();                                       // the bench or the fr
 void BenchCpuAddTicks(BenchCpu part, unsigned long long ticks);
 unsigned long long BenchSectionTicks();                   // ticks spent in our passes so far (a running sum)
 void BenchFrameBegin(IDirect3DDevice9* dev);              // the first BeginScene of a frame
+
+// The shadow pipeline's CPU, part by part (2026-10-07, perf-1), for the frame log. A part may hold others: the
+// names in kProfNames (bench.cpp) say which. Timed only while BenchTiming().
+enum BenchProf
+{
+    kProfRefresh, kProfPlace, kProfFileObj, kProfFromFiles, kProfClaim, kProfMatch, kProfAnimate, kProfEvict,
+    kProfTerrain, kProfPrep, kProfSave, kProfPasses, kProfFiles, kProfRestore, kProfCount
+};
+void BenchProfAdd(BenchProf p, unsigned long long ticks);
+inline unsigned long long BenchProfBegin() { return BenchTiming() ? __rdtsc() : 0; }
+inline void BenchProfEnd(BenchProf p, unsigned long long t) { if (t) BenchProfAdd(p, __rdtsc() - t); }
+struct BenchProfScope
+{
+    BenchProf p;
+    bool on;
+    unsigned long long t;
+    explicit BenchProfScope(BenchProf part) : p(part), on(BenchTiming()), t(on ? __rdtsc() : 0) {}
+    ~BenchProfScope() { if (on) BenchProfAdd(p, __rdtsc() - t); }
+};
 
 void BenchStart(IDirect3DDevice9* dev);                    // Alt + the probe key
 bool BenchFrame(IDirect3DDevice9* dev, double frameSeconds);   // at Present; true when it changed g_cfg

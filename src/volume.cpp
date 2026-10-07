@@ -248,11 +248,12 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // Leaves stop [volume] leafShade of the sun: all of it by default (2026-09-30), so the shafts under a
         // canopy come through its gaps. At the ground's 0.6, 40% came through every leaf and the air under the
         // canopy was lit almost evenly.
-        [branch] if (gL.w > 0.0)
+        // Not where the solid map shades the step already (2026-10-07, perf-1): the leaves and hills only scale hit.
+        [branch] if (gL.w > 0.0 && hit > 0.0)
             hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
         // Hills and mountains, in a map of their own since 2026-10-02; until then in the leaves' map. The same
         // share, so the light is as it was.
-        [branch] if (gG.w > 0.5)
+        [branch] if (gG.w > 0.5 && hit > 0.0)
             hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sTerr, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
         // The map ends at a hard line, and a caster crossing it used to gain or lose its shade in one
         // frame: flashes in the distance as you walked. Shadowing fades out over the last tenth of the
@@ -1383,7 +1384,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 2, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
-    IDirect3DTexture9* leaves = fogOnly ? nullptr : ShadowFarLeaves();
+    const bool noMaps = fogOnly || (g_cfg.shadow.debugSkip & 2);
+    IDirect3DTexture9* leaves = noMaps ? nullptr : ShadowFarLeaves();
     IDirect3DTexture9* terrMap = (fogOnly || !leaves) ? nullptr : ShadowFarTerrain();
     d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
     d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
@@ -1409,8 +1411,14 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         for (int c = 0; c < 4; ++c)
         {
             pc[r * 4 + c]      = inv.m[r][c];
-            pc[16 + r * 4 + c] = shadowVP.m[r][c];
+            pc[16 + r * 4 + c] = noMaps && !fogOnly ? 0.0f : shadowVP.m[r][c];
         }
+    if (noMaps && !fogOnly)
+    {
+        // [shadow] debugSkip 2: the march as with the fog alone, every point off the map and lit.
+        pc[28] = pc[29] = 4.0f;
+        pc[31] = 1.0f;
+    }
     pc[32] = sunDir[0]; pc[33] = sunDir[1]; pc[34] = sunDir[2]; pc[35] = v.anisotropy;
     // density / 4pi: the shader's Henyey-Greenstein term is left unnormalised to save the multiply.
     pc[36] = static_cast<float>(v.debug); pc[37] = v.maxDistance; pc[38] = fogOnly ? 0.0f : v.density * 0.0795775f; pc[39] = v.bias / span;
