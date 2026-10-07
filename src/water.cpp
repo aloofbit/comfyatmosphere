@@ -164,6 +164,11 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     // swell were the part that looked wrong. Gone between 80 and 220 yards; the light follows (amp).
     amp *= 1.0 - smoothstep(80.0, 220.0, length(rel));
     float  h   = amp * Swell(rel.xy + gSw.xy, gSw.z, gSs.x);
+    // Never over the camera near it (2026-10-07, the owner's choice): a swimmer's camera stays just over the game's
+    // flat water, and inside a wave the game drew the sea floor as dry sand in clear air (Westfall, Wave Height 30).
+    // Within 15 yards the swell rises at most to 0.3 yards under the camera, and from there to 40 yards it grows
+    // back to its full height. The surface between the grid's points is theirs drawn straight, so it keeps under too.
+    h = lerp(min(h, max(-rel.z - 0.3, 0.0)), h, smoothstep(15.0, 40.0, length(rel.xy)));
     o.pos = p.x * gM0 + p.y * gM1 + p.z * gM2 + gM3 + h * gUp;
     o.rel = rel + float3(0.0, 0.0, h);
     o.amp = amp;
@@ -385,8 +390,9 @@ float3 WaveNormal(float2 p, float t, float strength, float2 swell, float dist)
 float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2, float z0 : TEXCOORD3,
             float2 cell : TEXCOORD4, float2 vpos : VPOS) : COLOR
 {
-    // Seen from under the water: no foam.
-    clip(-rel.z);
+    // Seen from under the water: no foam. Under the flat water, not under the surface (2026-10-07): from 15 yards
+    // out a wave may stand higher than a swimmer's camera, seen from the front, and was dropped (clip(-rel.z)).
+    clip(-z0);
     float2 uv  = (vpos + 0.5) * gScr.xy;
     float  raw = tex2Dlod(sUnder, float4(uv, 0, 0)).r;
     // The client draws the world in a slice of the depth range (0..0.94 here) and its far terrain in another
@@ -399,6 +405,15 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float  zg  = farSlice ? 1e6 : gZ.y / (abs(den) > 1e-9 ? den : -1e-9);         // the bed's view depth
     float  zw  = max(dot(rel, gVz.xyz), 1e-3);                                     // the surface's
     float  depth = farSlice ? gd : rel.z * (1.0 - zg / zw);                       // yards under the surface
+    // A wave near the camera's height, seen from the front (2026-10-07): from 15 yards out a wave may stand as high
+    // as a swimmer's camera, or higher. Along a line of sight that meets the surface level or rising, the depth above
+    // falls to 0, or turns negative, over deep water: the water took the shore's look, and its colour jumped where
+    // the surface crossed the camera's height. There the map's depth stands in, with the wave's lift, as it does
+    // far out (mapK). Not where something stands in front of the water.
+    if (!farSlice && zg > zw)
+        depth = lerp(depth, gd + rel.z - z0, 1.0 - smoothstep(0.02, 0.08, -rel.z / max(length(rel), 1e-3)));
+    else if (!farSlice && rel.z > 0.0)
+        depth = -1.0;   // nearer than a wave over the camera: in front of it
     const float depthSeen = depth;   // from the depth copy: negative where something stands in front
     // On a body under the water (a character's legs, drawn in a draw of their own, below): it is seen through
     // the water, never a shore: no foam, no lip, no edge line (2026-10-02).

@@ -2458,6 +2458,31 @@ pass's own `flat` (the lip on the sand) is unchanged: that lip is off while the 
 The owner had no control for the wet sand: the Wet Sand slider (`comfyWaterWetSand`, 0 to 100, `wetSand` x 100)
 is on the Atmosphere page, after the swash's sliders.
 
+**The camera inside a wave (2026-10-07).** Swimming off the Westfall coast with Wave Height 30, the sea floor showed
+as dry sand in clear air (the owner; test `westfall-under-the-swell`). The game draws its underwater view only with
+the camera under its own flat water, and it keeps a swimmer's camera just over that (it pulls the camera in to hold
+it there). Our swell rises up to Wave Height over the flat water, so the camera sat inside the wave, and the game
+drew the world as in air. A wave ahead standing higher than the camera was dropped too: the water pass's
+`clip(-rel.z)` took all water to lie below the camera, and the floor behind showed dry.
+
+- Tried first: a full-screen pass that fogged each line of sight by its length under the swell, in the game's
+  underwater fog colour (0x245C66 here, from FOGCOLOR with the camera under the game's water; its fog start and end
+  do not change under water). It worked with the camera under the wave, but the camera bobs in and out of it
+  several times a second, and over it the dropped wave showed.
+- Tried second (the owner's idea): the camera kept over the highest wave, by writing its height into the game's
+  camera ([[0x00B4B2BC] + 0x65B8] + 0x08, the position, as comfytest.dll finds the camera) and into camAddr's copy.
+  Written at BeginScene or at the world's first view transform, the view did not move: the game sets the position
+  again after both. Moving it would take a hook in the game's own camera code.
+- Kept (the owner's choice): the swell never rises over the camera near it. In the vertex shader, within 15 yards
+  of the camera it rises at most to 0.3 yards under the camera, and it grows back to full height by 40. The grid's
+  triangles between points keep under too. The pixel shader drops only with the camera under the flat water
+  (`clip(-z0)`), so a wave further out as high as the camera is drawn, seen from the front. Along a line of sight
+  that meets the surface level or rising, the depth from the depth copy falls to 0 over deep water (the water took
+  the shore's look, and its colour jumped where the surface crossed the camera's height): there the map's depth and
+  the wave's lift stand in, over a slope of 0.08 to 0.02.
+
+A lighter patch with a straight side remains in this view, where the near terrain ends and the water uses the map's
+depth over the far terrain or the sky (Debug View 19). It was there before, hidden by the dry sand.
 `SeaPoints` keeps its answer for each chunk until `MapFilesVersion` changes. The probe line for each chunk gives the
 number of its points by the sea.
 

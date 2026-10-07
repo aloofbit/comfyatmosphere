@@ -1,0 +1,235 @@
+{
+    "name": "westfall-under-the-swell",
+    "about": "Swimming off the Westfall coast with Wave Height 30, the camera just over the game's flat water and under our swell: the sea floor showed as dry sand in clear air, and the game drew no underwater fog (2026-10-07, the owner). The game draws its underwater view only with the camera under its own flat water; our swell rose up to 3 yards over that. Now the swell never rises over the camera near it (the owner's choice: within 15 yards it keeps 0.3 yards under the camera, and grows back to its full height by 40), and a wave further out that stands as high as the camera is drawn as water seen from the front (NOTES.md, the camera inside a wave). Shots 1 and 2 two seconds apart (the swell moves): the sea floor through green water, the waves on the horizon. Shot 3 from 3 yards deeper, the camera under the flat water: the game's own underwater view.",
+    "config": {
+        "character": 1,
+        "flight": false,
+        "cameraZoom": 10.6,
+        "start": {
+            "map": 0,
+            "x": -9570.3,
+            "y": 1331.9,
+            "z": -1.2,
+            "facing": -12.8,
+            "about": "the owner's snapshot (2026-10-07): swimming off the Westfall coast, 1.2 yards under the flat water (the sea floor at -7.8), the camera 11 yards back, facing -12.8 degrees and 0.7 up: the owner's view in the shots taken 12 s after the snapshot, which read 2.6 yards, -10.6 and 5.4 up. The camera is just over the flat water and under the swell (Wave Height 30)"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 45
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 25,
+            "comfyClouds": 0,
+            "comfyRays": 0,
+            "comfyRaysStrength": 40,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 25,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 0,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 0,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 16,
+            "comfyVolumeDistance": 190,
+            "comfyVolumeDirection": 70,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 20,
+            "comfyMoonlight": 65,
+            "comfyMist": 0,
+            "comfyMistDensity": 25,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 120,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 200,
+            "comfyMistSky": 75,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 100,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 0,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 30,
+            "comfyWaveSize": 400,
+            "comfyWater": 1,
+            "comfyWaterColour": 20,
+            "comfyWaterClarity": 400,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 85,
+            "comfyWaterFoam": 35,
+            "comfyWaterSwash": 1,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 10,
+            "comfyWaterEdgeWidth": 1,
+            "comfyWaterBright": 70,
+            "comfyWaterRippleDepth": 100,
+            "comfyWaterSwashHeight": 5,
+            "comfyWaterSwashLength": 90,
+            "comfyWaterSwashSpeed": 30,
+            "comfyDaySaturation": 100,
+            "comfyNightSaturation": 100,
+            "comfyColor": 1,
+            "comfyWaterRippleMoving": 340,
+            "comfyWaterRippleSpread": 50,
+            "comfyWaterRippleSpreadMoving": 100,
+            "comfyWaterFoamDrawn": 1,
+            "comfyWaterFoamSize": 9,
+            "comfyWaterFoamReach": 30,
+            "comfyWaterOpenFoam": 1,
+            "comfyWaterOpenFoamAmount": 30,
+            "comfyWaterFoamEdge": 60,
+            "comfyWaterWakeFoam": 40,
+            "comfyWaterObjectFoam": 60,
+            "comfyWaterObjectFoamWidth": 8,
+            "comfyWaterLakeSwash": 0,
+            "comfyWaterLakeFoam": 30,
+            "comfyWaterLakeWaves": 0,
+            "comfyWaterRain": 100,
+            "comfyLighthouses": 1,
+            "comfyLighthouseBeam": 12,
+            "comfyLighthouseBeacon": 200,
+            "comfyLighthouseLength": 400,
+            "comfyLighthouseWidth": 5,
+            "comfyLighthouseSpread": 35,
+            "comfyLighthouseSpeed": 12,
+            "comfyLighthouseTwoBeams": 0,
+            "comfyLighthouseGlint": 200,
+            "comfyLighthouseFace": 160,
+            "comfyLighthouseFaceTilt": 50,
+            "comfyLighthouseFaceSoft": 80,
+            "comfyLighthouseWaterWidth": 150,
+            "comfyRainDarkness": 30,
+            "comfyWaterShipWake": 0,
+            "comfyWaterShipForward": 15,
+            "comfyWaterShipDepth": 200,
+            "comfyShadowOnWater": 65,
+            "comfyWaterWetSand": 15,
+            "comfyGrass": 0,
+            "comfyGrassWind": 200,
+            "comfyGrassSpeed": 30,
+            "comfyGrassLean": 35,
+            "comfyGrassWaveLength": 18,
+            "comfyGrassWindDir": 45,
+            "comfyGrassParting": 50,
+            "comfyGrassPartingRadius": 20
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": -12.8,
+                "pitch": 0.7
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "go": {
+                "x": -9570.3,
+                "y": 1331.9,
+                "z": -4.2,
+                "facing": -12.8,
+                "map": 0
+            }
+        },
+        {
+            "face": {
+                "heading": -12.8,
+                "pitch": 0.7
+            }
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "go": {
+                "x": -9570.3,
+                "y": 1331.9,
+                "z": -1.2,
+                "facing": -12.8,
+                "map": 0
+            }
+        }
+    ],
+    "expect": [
+        {
+            "about": "The sea floor under the camera, seen through the water: blue-green, not the dry sand's orange. Shot 1",
+            "shot": 1,
+            "box": [
+                0,
+                620,
+                1150,
+                860
+            ],
+            "warmMax": 5
+        },
+        {
+            "about": "The sea floor under the camera, seen through the water: blue-green, not the dry sand's orange. Shot 2",
+            "shot": 2,
+            "box": [
+                0,
+                620,
+                1150,
+                860
+            ],
+            "warmMax": 5
+        },
+        {
+            "about": "The sea floor under the camera, seen through the water: blue-green, not the dry sand's orange. Shot 3",
+            "shot": 3,
+            "box": [
+                0,
+                620,
+                1150,
+                860
+            ],
+            "warmMax": 5
+        }
+    ]
+}
