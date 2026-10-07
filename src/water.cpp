@@ -86,8 +86,11 @@ float4 gW2 : register(c246);
 float4 gW3 : register(c247);
 float4 gUp : register(c248);   // (view x projection)'s third row: a yard up, in clip space
 float4 gSw : register(c249);   // the camera's x and y in the world, seconds, the swell's height (0: none)
-float4 gSs : register(c250);   // 1 / waveScale; 1 for water in a building (no depth in its vertices, no swell)
+float4 gSs : register(c250);   // 1 / waveScale; 1 for water in a building (no depth in its vertices, no swell);
+                               // z the share of the swell a lake, a pond or a river gets (Lake Waves)
 float4 gCellsV : register(c251); // the chunk's wet cells, as the pixel shader's c210 (FullGridDraw)
+float4 gSeaV : register(c252);   // the chunk's 9 x 9 points that a cell of the sea touches: bit row x 9 + column,
+                                 // 24 bits a component (SeaPoints)
 // The swell: three long trains of waves, each its own way and length (24, 17 and 11 yards x waveScale),
 // at the speed of waves on deep water. 0 to 1: the surface only ever rises, so the game's flat water under
 // it never shows through a trough.
@@ -137,8 +140,8 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
     // dry points carry a deep water depth in the map files. The swell lifted the water's level in the dry cells,
     // and at each wave top the water ran far up the beach (Longshore). Wet: a cell of the 4 round the point.
     bool touchesWet = false;
+    const float2 g = floor(-p.xy * 0.24 + 0.5);   // the point's row and column (4.1667 yards apart)
     {
-        const float2 g = floor(-p.xy * 0.24 + 0.5);   // the point's row and column (4.1667 yards apart)
         [unroll] for (int i = 0; i < 4; ++i)
         {
             const float2 rc = g - float2(i / 2, i % 2);
@@ -149,7 +152,14 @@ O main(float3 p : POSITION, float2 uv : TEXCOORD0)
             }
         }
     }
-    float  amp = city || !touchesWet ? 0.0 : gSw.w * saturate((uv.y * 148.0 - 2.5) / 4.0);
+    // The sea's swell or a lake's (Lake Waves), point by point (2026-10-07): set for the whole chunk, a chunk the
+    // map calls a river beside the sea's stayed flat, and the surface split along their edge (Darkshore, the
+    // owner). A point on that edge reads the same cells from either chunk, so both lift it alike.
+    const float si   = clamp(g.x, 0.0, 8.0) * 9.0 + clamp(g.y, 0.0, 8.0);
+    const float sc   = floor((si + 0.5) / 24.0);
+    const float sb   = sc < 0.5 ? gSeaV.x : sc < 1.5 ? gSeaV.y : sc < 2.5 ? gSeaV.z : gSeaV.w;
+    const float seaP = fmod(floor(sb * exp2(-(si - sc * 24.0))), 2.0);
+    float  amp = city || !touchesWet ? 0.0 : gSw.w * lerp(gSs.z, 1.0, seaP) * saturate((uv.y * 148.0 - 2.5) / 4.0);
     // The open sea settles (2026-10-03): far out, real water reads as flat, and the grid's big triangles of
     // swell were the part that looked wrong. Gone between 80 and 220 yards; the light follows (amp).
     amp *= 1.0 - smoothstep(80.0, 220.0, length(rel));
@@ -3205,6 +3215,50 @@ namespace
     }
 }
 
+// Which of a chunk's 9 x 9 points a cell of the sea touches, for c252 (2026-10-07): point row r, column c is bit
+// r x 9 + c, 24 bits a component. A point reads the 4 cells round it in the map, by their middles in the world,
+// so a point on the edge of two chunks gets the same answer from both. Kept by chunk until the map files change.
+// Returns whether a cell of the chunk's own is the sea: the chunk's middle alone was asked until 2026-10-07, and a
+// chunk of the sea with a dry middle took a lake's swash and foam (Darkshore).
+static bool SeaPoints(float cornerX, float cornerY, float out[4])
+{
+    constexpr float kCell = 100.0f / 24.0f, kChunkSize = 100.0f / 3.0f;
+    struct Kept { float v[4]; bool sea; };
+    static std::unordered_map<long long, Kept> kept;
+    static unsigned version = 0;
+    if (MapFilesVersion() != version)
+    {
+        version = MapFilesVersion();
+        kept.clear();
+    }
+    const long long key = (static_cast<long long>(lroundf(cornerX / kChunkSize)) << 32) ^
+                          static_cast<unsigned>(lroundf(cornerY / kChunkSize));
+    const auto it = kept.find(key);
+    if (it != kept.end())
+    {
+        memcpy(out, it->second.v, sizeof(it->second.v));
+        return it->second.sea;
+    }
+    bool sea[10][10];   // the cells -1 to 8 along each side
+    for (int r = 0; r < 10; ++r)
+        for (int c = 0; c < 10; ++c)
+            sea[r][c] = MapWaterIsSea(cornerX - (r - 0.5f) * kCell, cornerY - (c - 0.5f) * kCell);
+    Kept k = {};
+    for (int r = 1; r < 9; ++r)
+        for (int c = 1; c < 9; ++c)
+            k.sea = k.sea || sea[r][c];
+    for (int r = 0; r < 9; ++r)
+        for (int c = 0; c < 9; ++c)
+            if (sea[r][c] || sea[r + 1][c] || sea[r][c + 1] || sea[r + 1][c + 1])
+            {
+                const int i = r * 9 + c;
+                k.v[i / 24] += static_cast<float>(1 << (i % 24));
+            }
+    kept[key] = k;
+    memcpy(out, k.v, sizeof(k.v));
+    return k.sea;
+}
+
 void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw)
 {
     if (!g_copyOk || !WaterWanted() || g_cfg.water.debug == 6)
@@ -3216,7 +3270,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     D3DMATRIX wv, wvp;
     Mul(*c.world, *c.view, wv);
     Mul(wv, *c.proj, wvp);
-    float vc[12 * 4] = {};
+    float vc[13 * 4] = {};
     memcpy(vc, &wvp, 64);
     memcpy(vc + 16, c.world, 64);
     // The swell: a yard up in clip space, and its height. Only with our surface: the game's flat water is
@@ -3229,14 +3283,14 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     vc[37] = g_psc[29];
     vc[38] = g_psc[10];   // seconds
     // On a lake, a pond or a river, Lake Waves of it (2026-10-05, the owner): the swell lifted a pond's water near
-    // its bank, and its edge crept up and down the sand.
+    // its bank, and its edge crept up and down the sand. Point by point since 2026-10-07 (c252, SeaPoints).
     const float chunkX = c.world->m[3][0] - 16.7f + g_psc[28], chunkY = c.world->m[3][1] - 16.7f + g_psc[29];
-    const bool chunkSea = !c.city && MapWaterIsSea(chunkX, chunkY);
-    vc[39] = g_sceneOk && g_cfg.water.surface > 0.0f
-                 ? g_cfg.water.waveHeight * (chunkSea ? 1.0f : g_cfg.water.lakeWaves) : 0.0f;
+    vc[39] = g_sceneOk && g_cfg.water.surface > 0.0f ? g_cfg.water.waveHeight : 0.0f;
     vc[40] = 1.0f / g_cfg.water.waveScale;
     vc[41] = c.city ? 1.0f : 0.0f;
+    vc[42] = g_cfg.water.lakeWaves;
     memcpy(vc + 44, kAllWet, sizeof(kAllWet));   // c251, the chunk's own for the whole grid (FullGridDraw)
+    const bool chunkSea = !c.city && SeaPoints(c.world->m[3][0] + g_psc[28], c.world->m[3][1] + g_psc[29], vc + 48);
 
     IDirect3DVertexShader9* oldVs = nullptr;
     IDirect3DPixelShader9*  oldPs = nullptr;
@@ -3249,9 +3303,9 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         if (old[i] != kFoamState[i])
             d->SetRenderState(dev, kTouched[i], kFoamState[i]);
     }
-    // The client sets vertex registers up to c255 (the probe, 2026-10-02): its own c240 to c247 go back after.
-    float oldVc[12 * 4];
-    const bool haveVc = SUCCEEDED(d->GetVertexShaderConstantF(dev, kVsReg, oldVc, 12));
+    // The client sets vertex registers up to c255 (the probe, 2026-10-02): its own c240 to c252 go back after.
+    float oldVc[13 * 4];
+    const bool haveVc = SUCCEEDED(d->GetVertexShaderConstantF(dev, kVsReg, oldVc, 13));
     // Not on a body: the body mask marks every unit's pixels in the stencil as the world is drawn, and the foam
     // passes only where the mark is clear. At a body's edge the foam took the body for flat ground beside the
     // water, and its hips went white (2026-10-02).
@@ -3271,13 +3325,13 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
     }
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, g_ps);
-    d->SetVertexShaderConstantF(dev, kVsReg, vc, 12);
+    d->SetVertexShaderConstantF(dev, kVsReg, vc, 13);
     // The frame's part: once, at the frame's first chunk (see g_frameSet).
     if (!g_frameSet)
         SetFrameState(dev);
     {
         // c211, the swash's length along the shore and its speed (2026-10-05): as the wet sand pass's c212.
-        // And whether this chunk is the sea (its middle, 16.7 yards in from its corner), and the share a lake gets.
+        // And whether this chunk is the sea (a cell of its own, SeaPoints), and the share a lake gets.
         // Set when it differs from the last chunk's: the sea's chunks come in runs.
         const float mx = chunkX, my = chunkY;
         const bool sea = chunkSea;
@@ -3285,8 +3339,15 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
                               sea ? 1.0f : g_cfg.water.lakeFoam, sea ? 1.0f : g_cfg.water.lakeSwash };
         SetChunkReg(dev, kPsReg + 91, g_c211, sw);
         if (g_probeOn && std::hypot(c.world->m[3][0] - 16.7f, c.world->m[3][1] - 16.7f) < 70.0f)
-            Log("water: the chunk with its middle at (%.1f %.1f) is %s: swash x %.2f, shore foam x %.2f, swell %.2f yards",
-                mx, my, c.city ? "a building's water" : sea ? "the sea" : "a lake, a pond or a river", sw[3], sw[2], vc[39]);
+        {
+            int seaPoints = 0;
+            for (int i = 0; i < 4; ++i)
+                seaPoints += __popcnt(static_cast<unsigned>(vc[48 + i]));
+            Log("water: the chunk with its middle at (%.1f %.1f) is %s: swash x %.2f, shore foam x %.2f; swell %.2f yards "
+                "on its %d of 81 points by the sea, %.2f on the others",
+                mx, my, c.city ? "a building's water" : sea ? "the sea" : "a lake, a pond or a river", sw[3], sw[2], vc[39],
+                seaPoints, vc[39] * vc[42]);
+        }
     }
 
     // With our surface, two draws (2026-10-02). The swell lifts a chunk over the next one on screen, and drawn
@@ -3355,7 +3416,7 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
         for (int i = 0; i < kStencilCount; ++i)
             d->SetRenderState(dev, kStencil[i], oldSt[i]);
     if (haveVc)
-        d->SetVertexShaderConstantF(dev, kVsReg, oldVc, 12);
+        d->SetVertexShaderConstantF(dev, kVsReg, oldVc, 13);
     d->SetVertexShader(dev, oldVs);
     d->SetPixelShader(dev, oldPs);
     for (int i = 0; i < kTouchedCount; ++i)
@@ -3730,7 +3791,7 @@ void WaterFrameEnd(IDirect3DDevice9* dev)
         std::string verts;
         for (const auto& v : g_pByVerts)
             verts += " " + std::to_string(v.second) + " x " + std::to_string(v.first);
-        Log("water: vertices a draw:%s; the client uses vertex shader registers below c%u, the foam c240 to c250",
+        Log("water: vertices a draw:%s; the client uses vertex shader registers below c%u, the foam c240 to c252",
             verts.empty() ? " none" : verts.c_str(), g_maxConstReg);
         for (const auto& t : g_pByTex)
             Log("water: texture %s; %u draws", t.second.c_str(), g_pTexCount[t.first]);

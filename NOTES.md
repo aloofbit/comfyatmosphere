@@ -2434,6 +2434,22 @@ the bank, since the swell lifted its water near the bank. Swell, swash and shore
 lifts the surface; the swash runs up the sand and back at the edge; the shore waves are crests rolling in, light and
 foam only. Water in a building counts as a lake.
 
+**The surface split at a chunk's edge (2026-10-07).** On the shore by Auberdine the sea floor showed through
+straight gaps in the water, and with Wave Height 0 they closed (the owner; test `darkshore-water-split`). The swell
+was set for each chunk as a whole (`c249.w` x Lake Waves when not the sea), so where a lake's chunk met the sea's,
+one side of the shared edge rose and fell and the other stayed flat. Two changes:
+
+- The swell is chosen for each of a chunk's 9 x 9 points. `SeaPoints` asks the map for the 4 cells round each point,
+  by their middles in the world, and sends the points a sea cell touches as 81 bits in `c252` (24 a component,
+  exact in a float). A point on the edge reads the same cells from both chunks, so both lift it alike. `c249.w` is
+  now Wave Height alone and `c250.z` Lake Waves. Inside a lake's chunk the swell fades over one cell (4.2 yards)
+  from a sea neighbour's edge.
+- A chunk is the sea when any of its own wet cells is. The chunk's middle alone was asked before, and here it was
+  a dry cell: a chunk of the sea took a lake's swash (0) and shore foam (0.3).
+
+`SeaPoints` keeps its answer for each chunk until `MapFilesVersion` changes. The probe line for each chunk gives the
+number of its points by the sea.
+
 ## Rain on the water (2026-10-05)
 
 Rings on the water while it rains (the owner). **When it rains** comes from the game's own rain: two probes, in

@@ -57,6 +57,8 @@
     box     [ left, top, right, bottom ] in pixels (every 2nd row is read)
     jumpMax the share of pixels allowed, in percent, whose brightness differs from the next one along the row
             by more than 60: speckle in the shade-alone view (Debug View 5) jumps, even shade or light does not
+    warmMax the share of pixels allowed, in percent, with more red than green (2026-10-07): the sea is blue-green,
+            and ground seen through a gap in its surface is brown
 
 .EXAMPLE
   .\Run-Tests.ps1                         # every test here
@@ -429,17 +431,28 @@ foreach ($file in $files) {
             if ($n -lt 1 -or $n -gt $shots.Count) { $results += "FAIL  no screenshot $n ($($shots.Count) taken): $($e.about)"; $checks += [pscustomobject]@{ ok = $false; about = $e.about; got = "no screenshot $n ($($shots.Count) taken)"; shot = 0 }; $pass = $false; continue }
             Add-Type -AssemblyName System.Drawing
             $bmp = [Drawing.Bitmap]::FromFile($shots[$n - 1].FullName)
-            $jumps = 0; $count = 0
+            $jumps = 0; $warm = 0; $count = 0
             try {
                 for ($y = [int]$e.box[1]; $y -le [int]$e.box[3] -and $y -lt $bmp.Height; $y += 2) {
                     for ($x = [int]$e.box[0]; $x -lt [int]$e.box[2] -and $x + 1 -lt $bmp.Width; $x++) {
                         $p = $bmp.GetPixel($x, $y); $q = $bmp.GetPixel($x + 1, $y)
                         if ([Math]::Abs(($p.R + $p.G + $p.B) - ($q.R + $q.G + $q.B)) / 3 -gt 60) { $jumps++ }
+                        if ($p.R -gt $p.G) { $warm++ }
                         $count++
                     }
                 }
             }
             finally { $bmp.Dispose() }
+            if ($null -ne $e.warmMax) {
+                # Ground seen through the water (2026-10-07): a gap in the surface shows brown in the blue-green sea.
+                $share = if ($count) { [Math]::Round(100 * $warm / $count, 1) } else { 0 }
+                $ok = $share -le [double]$e.warmMax
+                if (-not $ok) { $pass = $false }
+                $got = '{0}% of the box is redder than green (at most {1}%)' -f $share, $e.warmMax
+                $results += ('{0}  {1}: {2}' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $e.about, $got)
+                $checks += [pscustomobject]@{ ok = $ok; about = $e.about; got = $got; shot = $n }
+                continue
+            }
             $share = if ($count) { [int](100 * $jumps / $count) } else { 0 }
             $ok = $share -le [int]$e.jumpMax
             if (-not $ok) { $pass = $false }
