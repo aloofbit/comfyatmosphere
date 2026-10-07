@@ -1,6 +1,6 @@
 # Test tools
 
-**Commits:** `cfd4e38`, `279ee33` (comfyatmosphere), `80bba1b` (comfytime)
+**Commits:** `cfd4e38`, `279ee33`, `8f4988a` (comfyatmosphere), `80bba1b` (comfytime)
 
 ## A test can set the time of day
 
@@ -12,6 +12,13 @@ showed: the lighthouse test, made at night, ran by day on the release DLL.
 - comfytime reads `comfytime.ini` again when the file changes (it looks twice a second). This build is in the test
   client only: players do not need it, and it waits for comfytime's next release.
 - `tests/Snapshot.ps1` records the hour the sky shows, from the probe's `night: game time` line.
+
+## Snapshot knows a swimmer
+
+Snapshot took flight from the height over the ground. A swimmer off the Darkshore coast, 23 yards over the sea floor,
+came out as flying, and the runner waited for ground that never came. Snapshot now reads the water's level from the
+probe: a character at or under it swims, and flight stays off. The snapshot then says to start the steps with a
+jump, which brings a swimmer back up to the surface.
 
 ## No failed shader compile at each start
 
