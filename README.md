@@ -64,16 +64,14 @@ Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/rel
 3. Copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
 4. Start the game with `VanillaFixes.exe`.
 
-## Config
+## Options
 
 Use `/atmos options` in game to enable/disable and tune features of the mod.
 
-![The comfyatmosphere controls in the /atmos options window: volumetric light, its strength, quality, density, distance and direction, lamp glow and lamp distance.](media/settings-example.png)
+<img src="media/settings-example.png" width="200"/>
 
 
-## In-game controls `/atmos`
-
-`/atmos` reads and sets any value in `comfyatmos.ini` from the game's chat. A change shows at once.
+## Chat commands `/atmos`
 
 | Command | |
 | --- | --- |
