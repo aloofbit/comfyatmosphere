@@ -10,6 +10,9 @@
 // The grass in the wind is drawn here since 2026-10-06 (grass.cpp); it was comfygrass.dll before. Where an old
 // comfygrass.dll is still listed in dlls.txt, its grass is drawn and ours stays off, and comfyatmos still waits for
 // it to patch first, as it did for the old fog: whichever DLL patches last sits outermost.
+//
+// The time of day is set here since 2026-10-07 (timeofday.cpp); it was comfytime.dll before. Where an old
+// comfytime.dll is still loaded, its time is shown and ours stays off.
 
 #define CINTERFACE // C-style IDirect3DDevice9Vtbl, so slots are patched by name, not by index
 #define WIN32_LEAN_AND_MEAN
@@ -38,6 +41,7 @@
 #include "sun.h"
 #include "sunshadows.h"
 #include "terrainshade.h"
+#include "timeofday.h"
 #include "mapterrain.h"
 #include "volume.h"
 #include "water.h"
@@ -335,6 +339,7 @@ namespace
     bool     g_lastPersp  = false;
     bool     g_reloadDown = false;
     bool     g_probeDown  = false;
+    bool     g_scanDown = false, g_upDown = false, g_dnDown = false, g_saveDown = false, g_dayNightDown = false;
 
     void NoteFogState(DWORD st, DWORD raw, DWORD sent)
     {
@@ -797,6 +802,61 @@ namespace
         return pid == GetCurrentProcessId();
     }
 
+    // The time of day's keys, as comfytime had them.
+    void PollTimeKeys(bool focused)
+    {
+        auto down = [focused](int vk) { return focused && (GetAsyncKeyState(vk) & 0x8000) != 0; };
+        const bool ctrl = down(VK_CONTROL);
+
+        // Ctrl+Home writes the time being shown into the ini, under [time] hour: the sun you stepped to is
+        // then what the next start gives you, which is what testing the same way twice needs.
+        const bool save = down(g_cfg.saveKey);
+        if (save && !g_saveDown && ctrl)
+        {
+            const float hour = TimeCurrentHour();
+            wchar_t value[32];
+            _snwprintf_s(value, _TRUNCATE, L"%.4f", hour);
+            if (WritePrivateProfileStringW(L"time", L"hour", value, g_iniPath))
+                Log("--- time saved: hour = %.4f (%02d:%02d) ---", hour, static_cast<int>(hour),
+                    static_cast<int>(fmodf(hour * 60.0f, 60.0f)));
+            else
+                Log("time: could not write the ini (%lu)", GetLastError());
+        }
+        g_saveDown = save;
+
+        const bool dayNight = down(g_cfg.dayNightKey);
+        if (dayNight && !g_dayNightDown && ctrl)
+            TimeToggleDayNight();
+        g_dayNightDown = dayNight;
+
+        const bool scan = down(g_cfg.scanKey);
+        if (scan && !g_scanDown && ctrl)
+            TimeScanStart();
+        g_scanDown = scan;
+
+        // A press moves the time one step; holding the key keeps it moving, after a short wait so a
+        // single tap stays a single step.
+        const bool up = ctrl && down(VK_PRIOR);
+        const bool dn = ctrl && down(VK_NEXT);
+        const double now = Now();
+        static double heldSince = 0.0, lastRepeat = 0.0;
+        constexpr double kHoldWait    = 0.35;   // seconds before a held key starts repeating
+        constexpr double kRepeatEvery = 0.03;   // seconds between steps while held
+        if ((up && !g_upDown) || (dn && !g_dnDown))
+        {
+            TimeStep(up ? +g_cfg.time.step : -g_cfg.time.step);
+            heldSince = now;
+            lastRepeat = now;
+        }
+        else if ((up || dn) && now - heldSince > kHoldWait && now - lastRepeat >= kRepeatEvery)
+        {
+            TimeStep(up ? +g_cfg.time.step : -g_cfg.time.step);
+            lastRepeat = now;
+        }
+        g_upDown = up;
+        g_dnDown = dn;
+    }
+
     void PollKeys(IDirect3DDevice9* dev)
     {
         const bool focused = ClientFocused();
@@ -821,14 +881,14 @@ namespace
                 LoadSettings(g_iniPath);
                 CVarsAfterLoad();
                 RaysReload();
+                TimeReload();
                 LogFog("reloaded");
             }
         }
         g_reloadDown = reload;
 
         const bool probe = focused && (GetAsyncKeyState(g_cfg.probeKey) & 0x8000) != 0;
-        // Ctrl+F12 belongs to comfytime's clock search. Alt+F12 runs the benchmark; a plain press takes a
-        // probe.
+        // Ctrl+F12 is the clock search (PollTimeKeys). Alt+F12 runs the benchmark; a plain press takes a probe.
         if (probe && !g_probeDown && !(GetAsyncKeyState(VK_CONTROL) & 0x8000))
         {
             if (GetAsyncKeyState(VK_MENU) & 0x8000)
@@ -843,6 +903,7 @@ namespace
             }
         }
         g_probeDown = probe;
+        PollTimeKeys(focused);
         if (g_benchArmed)
         {
             g_benchArmed = false;
@@ -902,6 +963,9 @@ namespace
     // recording opens.
     HRESULT STDMETHODCALLTYPE hkBeginScene(IDirect3DDevice9* dev)
     {
+        // The chosen time first: the last chance to put it in place before the sky is drawn, and before the sun
+        // and the night read the clock.
+        TimeApply("BeginScene");
         CheckDevice(dev);
         if (!g_inPass)
         {
@@ -938,6 +1002,8 @@ namespace
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
                                         HWND wnd, const RGNDATA* dirty)
     {
+        TimeScanTick();
+        TimeApply("Present");
         CheckDevice(dev);
         StartupFrame(g_raysDone || g_raysArmed || g_worldEnded);   // the start-up measurement (2026-10-06)
         // Between captures, so the pass's own draws and state changes never show up in a probe.
@@ -1128,6 +1194,7 @@ namespace
             WaterProbe();
             BeaconProbe();
             GrassProbe();
+            TimeProbe();
             IDirect3DSurface9* bb = nullptr;
             if (SUCCEEDED(dev->lpVtbl->GetBackBuffer(dev, 0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb)
             {
@@ -2198,7 +2265,10 @@ namespace
 
         Log("device %s (vtable %p, SetRenderState orig=%p)", ok ? "hooked" : "HOOK FAILED", v, g_oSetRS);
         if (ok)
+        {
             GrassAttach({ g_oDrawPrim, g_oDrawIdxPrim, g_oSetVS, g_oSetVSConstF });
+            TimeAttach();
+        }
     }
 
     using Direct3DCreate9Fn = IDirect3D9*(WINAPI*)(UINT);
@@ -2456,6 +2526,7 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         DeleteFileW(g_logPath);
         LoadSettings(g_iniPath);
         CVarsAfterLoad();
+        TimeReload();
         Log("comfyatmos loaded (module=%p, effects %s)", self, g_cfg.master ? "on" : "off");
         if (oldIni)
             Log("comfyatmos.ini is not there, so comfyfog.ini is read (the old name, until v0.10.0-alpha). Rename it "

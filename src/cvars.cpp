@@ -46,6 +46,7 @@
 #include "cvars.h"
 #include "common.h"
 #include "config.h"
+#include "timeofday.h"
 #include "tune.h"
 
 #include <deque>
@@ -805,6 +806,7 @@ bool CVarsPoll()
             if (reloaded)
             {
                 CVarsAfterLoad();
+                TimeAfterTune();
                 changed = true;
             }
             const auto registerFn = reinterpret_cast<RegisterFn>(kRegister + Slide());

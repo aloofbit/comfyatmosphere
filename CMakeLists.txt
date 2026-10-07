@@ -38,6 +38,7 @@ add_library(comfyatmos SHARED
     src/water.cpp
     src/grade.cpp
     src/grass.cpp
+    src/timeofday.cpp
     src/beacon.cpp
     src/shadercache.cpp
 )

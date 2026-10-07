@@ -61,6 +61,7 @@ namespace
     const wchar_t* kColour  = L"colour";
     const wchar_t* kLighthouse = L"lighthouse";
     const wchar_t* kGrass   = L"grass";
+    const wchar_t* kTime    = L"time";
     const wchar_t* kBench   = L"bench";
     const wchar_t* kGeneral = L"general";
 
@@ -491,6 +492,16 @@ void LoadSettings(const wchar_t* ini)
     g.primType        = GetI(kGrass, L"primType", g.primType, ini);
     g.debug           = GetI(kGrass, L"debug", g.debug, ini);
 
+    TimeSettings& tm = s.time;
+    tm.enabled      = GetB(kTime, L"enabled", tm.enabled, ini);
+    tm.hour         = Clamp(GetF(kTime, L"hour", tm.hour, ini), 0.0f, 24.0f);
+    tm.step         = Clamp(GetF(kTime, L"step", tm.step, ini), 0.001f, 6.0f);
+    tm.dayHour      = Clamp(GetF(kTime, L"dayHour", tm.dayHour, ini), 0.0f, 24.0f);
+    tm.nightHour    = Clamp(GetF(kTime, L"nightHour", tm.nightHour, ini), 0.0f, 24.0f);
+    tm.addrMinutes  = GetX(kTime, L"addrMinutes",  tm.addrMinutes,  ini);
+    tm.addrFraction = GetX(kTime, L"addrFraction", tm.addrFraction, ini);
+    tm.addrMinutesF = GetX(kTime, L"addrMinutesF", tm.addrMinutesF, ini);
+
     s.bench.settle  = Clamp(GetF(kBench, L"settle",  s.bench.settle,  ini), 0.5f, 30.0f);
     s.bench.measure = Clamp(GetF(kBench, L"measure", s.bench.measure, ini), 1.0f, 60.0f);
 
@@ -502,6 +513,9 @@ void LoadSettings(const wchar_t* ini)
     s.master      = GetB(kGeneral, L"enabled",     s.master,      ini);
     s.reloadKey   = GetI(kGeneral, L"reloadKey",   s.reloadKey,   ini);
     s.probeKey    = GetI(kGeneral, L"probeKey",    s.probeKey,    ini);
+    s.scanKey     = GetI(kGeneral, L"scanKey",     s.scanKey,     ini);
+    s.saveKey     = GetI(kGeneral, L"saveKey",     s.saveKey,     ini);
+    s.dayNightKey = GetI(kGeneral, L"dayNightKey", s.dayNightKey, ini);
     s.chainWaitMs = GetI(kGeneral, L"chainWaitMs", s.chainWaitMs, ini);
     s.minWorldDraws = GetI(kGeneral, L"minWorldDraws", s.minWorldDraws, ini);
 

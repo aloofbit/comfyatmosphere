@@ -29,6 +29,7 @@ When bugs are reported we implement automation testing to reduce regression.
 - Lamps (From 16 to 256)
 - Night Config
 - Moving Grass
+- Time of day, on your screen only
 - Settings Addon for it all
 
 [![Lamps along a Duskwood road at night, the effects off and then on. Click for the full video.](media/lamps-night.gif)](media/lamps-night.mp4)
@@ -61,7 +62,7 @@ parts, with a hash of each file and every DLL loaded. Compare it with this table
 Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/releases), or build it (below).
 
 1. Copy `comfyatmos.dll` and `comfyatmos.ini` to the client folder.
-2. Add the line `comfyatmos.dll` to `dlls.txt`. ⚠️remove comfyfog/comfygrass if you have them
+2. Add the line `comfyatmos.dll` to `dlls.txt`. ⚠️remove comfyfog/comfygrass/comfytime if you have them
 3. Copy the folder `addon/ComfyAtmosphere` to `Interface\AddOns`.
 4. Start the game with `VanillaFixes.exe`.
 
@@ -108,6 +109,10 @@ The **Debug** button in the settings window, or `/atmos debug`, opens the debug 
 | Alt+F11 | Volumetric light on / off |
 | F12 | Log one frame of diagnostics to `Logs\comfyatmos.log` |
 | Alt+F12 | Run the benchmark (below) |
+| Ctrl+PageUp / PageDown | The time of day later / earlier by `[time] step` hours; hold to keep moving |
+| Ctrl+End | Switch between day (`[time] dayHour`) and night (`[time] nightHour`) |
+| Ctrl+Home | Save the time being shown into `[time] hour` in `comfyatmos.ini` |
+| Ctrl+F12 | Search memory for the game clock (read-only; for a different `WoW.exe`, see NOTES) |
 
 ## Benchmark
 

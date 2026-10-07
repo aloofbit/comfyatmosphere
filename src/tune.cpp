@@ -26,6 +26,7 @@
 #include "bench.h"
 #include "common.h"
 #include "config.h"
+#include "timeofday.h"
 #include "tune.h"
 
 #include <cctype>
@@ -534,6 +535,8 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
                 over[name] = value;
                 LoadSettings(ConfigIniPath());
                 reloaded = true;
+                if (k.section == "time")
+                    TimeReload();   // the hour set is shown, also when it equals the last (a test's hour)
                 const int j = Find(name);
                 const std::string now = j >= 0 ? ConfigKeys()[j].value : value;
                 out.push_back(name + " = " + now + " (was " + k.value + "). /atmos save writes it into "

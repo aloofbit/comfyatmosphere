@@ -10,7 +10,7 @@
     - flight: on when the character is more than 3 yards over the ground under it, and not swimming (at or
       under the water's level, from the probe's water line);
     - the sun the shadows use (the probe's sunshadows line);
-    - the hour the sky shows (the probe's night line, which comfytime sets);
+    - the hour the sky shows (the probe's night line, which [time] sets);
     - every Atmosphere page control, as last set (the log's "--- control:" lines), Debug View left out.
   It prints the config and saves it to results\<time>-snapshot.json. A test starts from that block.
 
@@ -56,8 +56,8 @@ if ($sun -match 'sun \((-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\)') {
     $az = [math]::Round([math]::Atan2($sy, $sx) * 180 / [math]::PI, 1)
     $el = [math]::Round([math]::Atan2($sz, [math]::Sqrt($sx * $sx + $sy * $sy)) * 180 / [math]::PI, 1)
 }
-# The hour the sky showed (2026-10-07): the probe's game time, which comfytime sets. A test writes it back into
-# comfytime.ini (config hour); without it a lighthouse test taken at night ran by day.
+# The hour the sky showed (2026-10-07): the probe's game time, which [time] sets. A test sets it again with /atmos
+# time.hour (config hour); without it a lighthouse test taken at night ran by day.
 $hour = $null
 $night = $lines | Where-Object { $_ -match '^night: game time (\d+):(\d+)' } | Select-Object -Last 1
 if ($night -match 'game time (\d+):(\d+)') { $hour = [math]::Round([double]$Matches[1] + [double]$Matches[2] / 60, 2) }

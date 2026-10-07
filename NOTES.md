@@ -3060,3 +3060,39 @@ Same as comfygrass. **32-bit only**: the 1.12 client is x86.
 cmake -B build -A Win32
 cmake --build build --config Release
 ```
+
+## The time of day (from comfytime, 2026-10-07)
+
+comfytime.dll set the time of day on the player's screen. It moved into comfyatmos.dll as it was
+(`timeofday.cpp`, `[time]` in the ini). The server keeps its own time, and other players see no change.
+
+The client keeps the time of day in three places. They were found by measurement in one `WoW.exe`, with the
+Ctrl+F12 search: take a snapshot of the client's writable memory, wait, and keep the values that increased by
+exactly the minutes that passed, in any of several encodings.
+
+| Address | What |
+| --- | --- |
+| `0x00CE9B60` | minutes since midnight, integer |
+| `0x00CE9B64` | fraction of the day, float (continuous: carries the seconds). `[client] clockAddr` reads it |
+| `0x00CE8574` | minutes since midnight, float |
+
+In the world, the client writes these values every frame, between `BeginScene` and `Present`. The chosen time
+is written at `Present`, and again at `BeginScene`, immediately before the sky is drawn. The second write wins.
+Both writes are the first thing the hooks do. comfytime chained on top of comfyatmos, so its hooks ran first,
+and the sun, the night and the rays read the chosen time. The order is the same now.
+
+Before its first write, the code checks that the three addresses hold a consistent time. If they do not, as on
+another client build, it does not write, and it logs why. To find the new addresses: read the minimap clock,
+press Ctrl+F12, and play for about six minutes. `Logs\comfyatmos.log` then lists the matches (`time scan:`
+lines). Put them in `[time]`.
+
+A reload (F11) does not check the addresses again when they have not changed. Mid-session they hold a mix of
+the client's time and ours, which the check rejects: time control went dead after the first F11 once.
+
+An old comfytime.dll still in `dlls.txt` writes the same three addresses from its own hooks, after ours. Its
+time is shown and ours stays off, with one `time:` line in the log.
+
+`/atmos time.hour <h>` shows that hour at once. Any other `/atmos` value leaves a time that Ctrl+PageUp moved
+alone; `/atmos reset` puts the ini's hour back when a `[time]` value was set. The test runner sets a test's
+`hour` this way. comfytime read its ini again when the file changed (its unreleased 80bba1b), for the runner;
+that is not carried over.

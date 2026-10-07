@@ -596,6 +596,19 @@ struct GrassSettings
     int   debug       = 0;      // 1: the bend as a colour (Debug View 30)
 };
 
+// The time of day on your screen only (timeofday.cpp, from comfytime, 2026-10-07). The server keeps its own.
+struct TimeSettings
+{
+    bool  enabled      = true;        // 0: the game's own time
+    float hour         = 13.0f;       // 0..24, fractions allowed (13.5 = 13:30)
+    float step         = 0.0167f;     // hours per Ctrl+PageUp / PageDown, 0.0167 is about a minute
+    float dayHour      = 13.0f;       // Ctrl+End switches between these two
+    float nightHour    = 1.0f;
+    DWORD addrMinutes  = 0x00CE9B60;  // int minutes since midnight   (found by the Ctrl+F12 search)
+    DWORD addrFraction = 0x00CE9B64;  // float fraction of the day
+    DWORD addrMinutesF = 0x00CE8574;  // float minutes since midnight; 0 = leave alone
+};
+
 // The benchmark (bench.cpp): Alt + the probe key runs each feature in turn and logs what it costs.
 struct BenchSettings
 {
@@ -621,6 +634,7 @@ struct Settings
     ColourSettings colour;
     LighthouseSettings lighthouse;
     GrassSettings grass;
+    TimeSettings time;
     ClientSettings client;
 
     bool  trace       = false;      // F12 then also traces the next 180 frames of the volumetric light:
@@ -633,6 +647,9 @@ struct Settings
                                     // stock: light, shadows, rays and lamps all off
     int   reloadKey   = VK_F11;     // reload comfyatmos.ini
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
+    int   scanKey     = VK_F12;     // with Ctrl: search memory for the game clock (read-only)
+    int   saveKey     = VK_HOME;    // with Ctrl: write the time being shown back to [time] hour
+    int   dayNightKey = VK_END;     // with Ctrl: switch between [time] dayHour and nightHour
     int   chainWaitMs = 10000;      // how long to wait for an old comfygrass.dll to finish patching first
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the end of the
                                     // world (depth, shadows and volumetric light run there)

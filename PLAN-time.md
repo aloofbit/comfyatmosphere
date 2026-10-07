@@ -7,7 +7,7 @@ Four stages, each one commit or more, each tested in `octow - Copy` before the n
 
 | Stage | What | State |
 | --- | --- | --- |
-| 1 | comfytime moves into comfyatmos.dll, as it is | to do |
+| 1 | comfytime moves into comfyatmos.dll, as it is | built, not tested in the client |
 | 2 | A time slider in the debug panel | to do |
 | 3 | Key bindings: the DLL's own keys off by default, every action in Key Bindings | to do |
 | 4 | Release v0.12.0-alpha, retire comfytime.dll in the launcher | to do |
