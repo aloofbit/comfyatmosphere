@@ -5,6 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
+- [Water fixes](2026-10-07-water-fixes.md): the surface no longer splits where a lake meets the sea, the wet sand
+  follows steep banks, a Wet Sand slider, and a swimmer's camera stays out of the waves.
 - [Inside a building, on the stats panel](2026-10-07-indoor-stats.md): the indoor test's answer, and the step that
   decided it.
 
