@@ -239,7 +239,8 @@ float4 gLhT  : register(c221);     // the lighthouse's light on the water: the w
                                    // at, how soft the edge is, the half width of the patch the beam lights (yards a yard out)
 float4 gLh   : register(c222);     // the nearest lighthouse's lamp, camera-relative (xyz); w its glint's strength (0 none)
 float4 gRain : register(c223);     // the rain: how hard it rains, 0..1 (from the game's own rain draws); Rain on Water;
-                                   // zw the nearest lighthouse's beam's way across the ground, 2 long with a second beam
+                                   // zw the nearest lighthouse's beam's way across the ground, as long as the beam
+                                   // (yards), 10000 longer with a second beam
 
 // The camera-relative point the depth under the water shows at a place on the screen: the bed, or what
 // stands on it.
@@ -1090,17 +1091,21 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         float  dl   = length(toLh);
         float  sl   = saturate(dot(R, toLh / max(dl, 1e-3)));
         // The beam sweeps it (the owner): bright where the beam points across this water, a trace elsewhere.
-        float  bl   = length(gRain.zw);
+        float  bl   = length(gRain.zw);                    // the beam's length; 10000 more with two beams; 0 none
+        bool   two  = bl > 5000.0;
+        float  blen = two ? bl - 10000.0 : bl;
         float2 away = -toLh.xy / max(length(toLh.xy), 1e-3);
         // The patch the beam lights follows the drawn beam's cone (Beam Width on Water, a share of its width). A
         // power over the beam's angle was here first: its tail lit three times the beam's width at its narrowest
         // (the owner: the slider did nothing).
         float2 bw     = gRain.zw / max(bl, 1e-3);
         float  along  = dot(bw, away);
-        along = bl > 1.5 ? abs(along) : along;
+        along = two ? abs(along) : along;
         float  across = abs(bw.x * away.y - bw.y * away.x);
         float  off    = across / max(along, 1e-3);   // yards off the beam's line, a yard out
         float  hit    = bl > 0.5 ? (along > 0.0 ? 1.0 - smoothstep(0.3 * gLhT.w, gLhT.w, off) : 0.0) : 1.0;
+        // No further than the beam reaches (2026-10-07, the owner): until then the patch ran on to the horizon.
+        hit *= bl > 0.5 ? 1.0 - smoothstep(0.75 * blen, blen, length(toLh.xy)) : 1.0;
         float  lhK  = gLh.w / (1.0 + dl / 150.0);
         glint += float3(1.0, 0.886, 0.659) * (lhK * (0.12 + 1.5 * hit) *
                                               (pow(sl, 900.0 * gGlint.x) * 7.0 + pow(sl, 90.0 * gGlint.x) * 0.15)
@@ -2945,7 +2950,8 @@ namespace
         float way[2] = { 0.0f, 0.0f };
         bool two = false;
         const bool beam = BeaconBeamWay(way, two);
-        const float wl = beam ? (two ? 2.0f : 1.0f) : 0.0f;
+        // The way's length is the beam's length, 10000 more with two beams (2026-10-07: no register was free).
+        const float wl = beam ? ls.beamLength + (two ? 10000.0f : 0.0f) : 0.0f;
         const float rain[4] = { g_rain, w.rain, way[0] * wl, way[1] * wl };
         memcpy(k + 103 * 4, rain, sizeof(rain));
         dev->lpVtbl->SetPixelShaderConstantF(dev, kPsReg, k, kFrameRegs);

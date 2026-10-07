@@ -38,8 +38,10 @@ bool MapDoodadAt(const float pos[3], float tol = 0.5f);
 void MapLogTiles(const float from[3]);
 bool MapAnimatedDoodadAt(const float pos[3], float tol);
 // The animated doodads the files place within `radius` yards of `at` (across the ground): their places, up to
-// `max`; the count (2026-10-04, the shadow cache's object table).
-int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max, std::string* names = nullptr);
+// `max`; the count (2026-10-04, the shadow cache's object table). With `nameHas` (upper case), only the ones whose
+// model's full name holds it, so the others do not fill `max` first.
+int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max, std::string* names = nullptr,
+                       const char* nameHas = nullptr);
 // The vertex counts of a model file's views (2026-10-04): a draw of the model holds one view's vertices, or a
 // whole number of copies of them (a batch). Null while the loader reads it, or if it could not be read.
 const std::vector<uint32_t>* MapModelViews(const std::string& name);

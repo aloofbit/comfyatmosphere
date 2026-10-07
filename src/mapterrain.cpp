@@ -2268,7 +2268,8 @@ void MapLogDoodadsNear(const float from[3], float radius)
     }
 }
 
-int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max, std::string* names)
+int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max, std::string* names,
+                       const char* nameHas)
 {
     int n = 0;
     for (const auto& kv : g_tiles)
@@ -2280,6 +2281,14 @@ int MapAnimatedDoodads(const float at[3], float radius, float (*out)[3], int max
             const float dx = a[i] - at[0], dy = a[i + 1] - at[1];
             if (dx * dx + dy * dy > radius * radius)
                 continue;
+            if (nameHas)
+            {
+                std::string up = i / 3 < full.size() ? full[i / 3] : std::string();
+                for (char& c : up)
+                    c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                if (up.find(nameHas) == std::string::npos)
+                    continue;
+            }
             out[n][0] = a[i]; out[n][1] = a[i + 1]; out[n][2] = a[i + 2];
             if (names)
                 names[n] = i / 3 < full.size() ? full[i / 3] : std::string();

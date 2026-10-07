@@ -65,7 +65,7 @@ float4 gZ    : register(c4);        // the world viewport's MinZ, 1 / (MaxZ - Mi
                                     // half width at the lamp
 float4 gB    : register(c5);        // the beacon's radius (yards), the beam's length, its widening a yard, the fog's reach
 float4 gCol  : register(c6);        // the light's colour, the beams' strength
-float4 gL[4] : register(c8);        // each lighthouse's lamp, camera-relative; w 1 in use
+float4 gL[4] : register(c8);        // each lighthouse's lamp, camera-relative; w its strength by its distance (0 none)
 float4 gD[4] : register(c12);       // each one's first beam: its way (xyz, unit); w 1 with a second beam opposite
 
 // The light of one beam along this line of sight.
@@ -98,14 +98,15 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     [unroll] for (int i = 0; i < 4; ++i)
     {
         float4 L = gL[i];
-        [branch] if (L.w > 0.5)
+        [branch] if (L.w > 0.0)
         {
+            float3 one  = 0.0;
             float3 p    = L.xyz;
             float  dist = length(p);
             float3 toL  = p / max(dist, 1e-3);
             float3 b1   = gD[i].xyz;
             float3 b2   = float3(-b1.xy, b1.z);
-            sum += gCol.rgb * gCol.w * (Beam(p, b1, dir, len) + gD[i].w * Beam(p, b2, dir, len));
+            one += gCol.rgb * gCol.w * (Beam(p, b1, dir, len) + gD[i].w * Beam(p, b2, dir, len));
             // The beacon: at least about a fifth of a degree wide, hidden behind what stands nearer.
             float cosA  = dot(dir, toL);
             float ang   = sqrt(max(2.0 * (1.0 - cosA), 0.0));
@@ -113,7 +114,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             float seen  = smoothstep(dist - 6.0, dist - 2.0, len);
             float flare = max(pow(saturate(dot(b1, -toL)), 60.0), gD[i].w * pow(saturate(dot(b2, -toL)), 60.0));
             float glow  = exp(-(ang * ang) / (rad * rad)) + 0.3 * exp(-ang / (rad * 5.0));
-            sum += gCol.rgb * glow * seen * exp(-dist / gB.w) * (1.2 + 5.0 * flare);
+            one += gCol.rgb * glow * seen * exp(-dist / gB.w) * (1.2 + 5.0 * flare);
+            sum += one * L.w;
         }
     }
     sum *= gZ.z;
@@ -130,6 +132,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     bool                    g_logNext = false;
     float                   g_lastNight = 0.0f;      // the last frame's day-and-night share
     float                   g_lamps[kMax][3] = {};   // the last lamps found, for the probe's draws
+    float                   g_lampFade[kMax] = {};   // each one's strength by its distance ([lighthouse] reach)
     int                     g_lampCount = 0;
     float                   g_effects[kMax][3] = {}; // the game's own lighthouse lights (LIGHTHOUSEEFFECT), their origins
     int                     g_effectCount = 0;
@@ -140,21 +143,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
     // The game's own lighthouse lights (2026-10-05): an animated doodad named LIGHTHOUSEEFFECT, at the tower's axis.
     // Each gives a lamp, lampRise over its origin: Stormwind's harbour lighthouse is one group 69 x 56 yards across,
-    // and its box said nothing of where the tower stands. The nearest first.
+    // and its box said nothing of where the tower stands. The nearest first. Until 2026-10-07 the search took the
+    // first 64 animated doodads of any name: Stormwind's harbour has more within kReach, the lighthouse's was not
+    // among them, and the game's light showed beside ours (the owner).
     int Effects(const float cam[3], float (*out)[3], int max)
     {
         static float pts[64][3];
-        static std::string names[64];
-        const int n = MapAnimatedDoodads(cam, kReach, pts, 64, names);
+        const int n = MapAnimatedDoodads(cam, kReach, pts, 64, nullptr, "LIGHTHOUSEEFFECT");
         int k = 0;
         float d2s[kMax];
         for (int i = 0; i < n; ++i)
         {
-            std::string up = names[i];
-            for (char& c : up)
-                c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
-            if (up.find("LIGHTHOUSEEFFECT") == std::string::npos)
-                continue;
             const float dx = pts[i][0] - cam[0], dy = pts[i][1] - cam[1], d2 = dx * dx + dy * dy;
             int at = k < max ? k : max;
             while (at > 0 && d2s[at - 1] > d2)
@@ -404,7 +403,26 @@ bool BeaconDraw(IDirect3DDevice9* dev)
             found[n][2] = roof[n][1] - s.lampDrop;
         ++n;
     }
+    // Within [lighthouse] reach only, faded out over its last quarter (2026-10-07, the owner: the light showed from
+    // too far, and its glitter lit the sea far off). Until then every lighthouse within kReach was drawn.
+    float fade[kMax];
+    {
+        int kept = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            const float dx = found[i][0] - cam[0], dy = found[i][1] - cam[1];
+            const float x = (sqrtf(dx * dx + dy * dy) - 0.75f * s.reach) / (0.25f * s.reach);
+            const float k = x <= 0.0f ? 1.0f : x >= 1.0f ? 0.0f : 1.0f - x * x * (3.0f - 2.0f * x);
+            if (k <= 0.0f)
+                continue;
+            memmove(found[kept], found[i], sizeof(found[i]));
+            memmove(roof[kept], roof[i], sizeof(roof[i]));
+            fade[kept++] = k;
+        }
+        n = kept;
+    }
     memcpy(g_lamps, found, sizeof(found[0]) * n);
+    memcpy(g_lampFade, fade, sizeof(fade[0]) * n);
     g_lampCount = n;
     // By day too, at [lighthouse] day of the night's strength (2026-10-05, the owner: 1, as bright by day).
     const float night = s.day + (1.0f - s.day) * Night();
@@ -417,13 +435,14 @@ bool BeaconDraw(IDirect3DDevice9* dev)
         return false;
     if (logThis)
     {
-        Log("beacon: %d lighthouses within %.0f yards, night %.2f", n, kReach, night);
+        Log("beacon: %d lighthouses drawn, night %.2f; %d of the game's own lights (LIGHTHOUSEEFFECT) within %.0f yards",
+            n, night, g_effectCount, kReach);
         for (int i = 0; i < n; ++i)
         {
-            Log("beacon:   lamp at (%.1f %.1f %.1f), %.0f yards off; the highest group from %.1f to %.1f up", found[i][0],
-                found[i][1], found[i][2],
+            Log("beacon:   lamp at (%.1f %.1f %.1f), %.0f yards off, strength %.2f by its distance (reach %.0f); the "
+                "highest group from %.1f to %.1f up", found[i][0], found[i][1], found[i][2],
                 sqrtf((found[i][0] - cam[0]) * (found[i][0] - cam[0]) + (found[i][1] - cam[1]) * (found[i][1] - cam[1])),
-                roof[i][0], roof[i][1]);
+                fade[i], s.reach, roof[i][0], roof[i][1]);
             MapLogDoodadsNear(found[i], 20.0f);   // the game's own light model, to leave out
         }
         // You, in the nearest lighthouse's own space: stand by a lamp and probe to place it by hand.
@@ -528,7 +547,7 @@ bool BeaconDraw(IDirect3DDevice9* dev)
         float* D = pc + 48 + i * 4;
         if (i < n)
         {
-            L[0] = found[i][0] - cam[0]; L[1] = found[i][1] - cam[1]; L[2] = found[i][2] - cam[2]; L[3] = 1.0f;
+            L[0] = found[i][0] - cam[0]; L[1] = found[i][1] - cam[1]; L[2] = found[i][2] - cam[2]; L[3] = fade[i];
             const float a = BeamAngle(found[i], t, s.beamSpeed);
             const float tilt = s.beamTilt;
             const float l = sqrtf(1.0f + tilt * tilt);
@@ -620,16 +639,18 @@ bool BeaconBeamWay(float way[2], bool& two)
 float BeaconGlint()
 {
     const LighthouseSettings& s = g_cfg.lighthouse;
-    return g_cfg.master && s.enabled ? s.glint * s.beacon * g_lastNight : 0.0f;
+    return g_cfg.master && s.enabled && g_lampCount > 0 ? s.glint * s.beacon * g_lastNight * g_lampFade[0] : 0.0f;
 }
 
-int BeaconLamps(float (*out)[3], int max)
+int BeaconLamps(float (*out)[3], int max, float* fades)
 {
     const LighthouseSettings& s = g_cfg.lighthouse;
     if (!g_cfg.master || !s.enabled)
         return 0;
     const int n = g_lampCount < max ? g_lampCount : max;
     memcpy(out, g_lamps, sizeof(g_lamps[0]) * n);
+    if (fades)
+        memcpy(fades, g_lampFade, sizeof(g_lampFade[0]) * n);
     return n;
 }
 

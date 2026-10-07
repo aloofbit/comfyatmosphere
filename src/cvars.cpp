@@ -92,7 +92,7 @@ namespace
                 kShadeTint, kSunTint, kLampGlow, kLampDistance, kNightDarkness, kMoonlight, kFog, kFogDensity,
                 kFogHeight, kFogBrightness, kFogSun, kFogPatches, kFogWind, kFogWindDir, kFogReach,
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
-                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kWetSand,
+                kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kWetSand, kLhReach,
                 kGrass, kGrassWind, kGrassSpeed, kGrassLean, kGrassWave, kGrassWindDir, kGrassParting, kGrassRadius,
                 kKnobs };
 
@@ -210,6 +210,7 @@ namespace
         "comfyWaterShipDepth",
         "comfyShadowOnWater",
         "comfyWaterWetSand",
+        "comfyLighthouseDistance",
         // The grass (2026-10-06, from comfygrass).
         "comfyGrass",
         "comfyGrassWind",
@@ -420,6 +421,7 @@ namespace
         case kShipDepth:      snprintf(out, cap, "%.0f", s.water.shipWakeDepth * 100.0f); break;   // percent
         case kShadowWater:    snprintf(out, cap, "%.0f", s.sunShadows.water * 100.0f); break;   // percent
         case kWetSand:        snprintf(out, cap, "%.0f", s.water.wetSand * 100.0f); break;     // percent
+        case kLhReach:        snprintf(out, cap, "%.0f", s.lighthouse.reach); break;          // yards
         case kGrass:          snprintf(out, cap, "%d", s.grass.enabled ? 1 : 0); break;
         case kGrassWind:      snprintf(out, cap, "%.0f", s.grass.scale * 100.0f); break;         // percent
         case kGrassSpeed:     snprintf(out, cap, "%.0f", s.grass.speed * 10.0f); break;          // tenths of a yard a second
@@ -550,6 +552,7 @@ namespace
         if (c[kShipDepth].seen)      s.water.shipWakeDepth = Clamp(c[kShipDepth].value * 0.01f, 0.0f, 6.0f);
         if (c[kShadowWater].seen)    s.sunShadows.water = Clamp(c[kShadowWater].value * 0.01f, 0.0f, 1.0f);
         if (c[kWetSand].seen)        s.water.wetSand   = Clamp(c[kWetSand].value * 0.01f, 0.0f, 1.0f);
+        if (c[kLhReach].seen)        s.lighthouse.reach = Clamp(c[kLhReach].value, 50.0f, 1500.0f);
         if (c[kGrass].seen)          s.grass.enabled = c[kGrass].value != 0.0f;
         if (c[kGrassWind].seen)      s.grass.scale = Clamp(c[kGrassWind].value * 0.01f, 0.0f, 5.0f);
         if (c[kGrassSpeed].seen)     s.grass.speed = Clamp(c[kGrassSpeed].value * 0.1f, 0.0f, 20.0f);

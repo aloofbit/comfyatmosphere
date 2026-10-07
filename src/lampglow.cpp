@@ -500,8 +500,8 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
     // rocks below, so Night Darkness is cut round it as round a street lamp. A fill light: the glow is beacon.cpp's.
     if (LampsOn())
     {
-        float lh[4][3];
-        const int nl = BeaconLamps(lh, 4);
+        float lh[4][3], fades[4];
+        const int nl = BeaconLamps(lh, 4, fades);
         const LighthouseSettings& ls = g_cfg.lighthouse;
         for (int i = 0; i < nl && found < kLampsMax; ++i)
         {
@@ -509,7 +509,7 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
             for (int j = 0; j < 3; ++j)
                 L.pos[j] = lh[i][j] - cam[j];
             L.dist = sqrtf(L.pos[0] * L.pos[0] + L.pos[1] * L.pos[1] + L.pos[2] * L.pos[2]);
-            const float k = ls.surface * ls.beacon;
+            const float k = ls.surface * ls.beacon * fades[i];
             L.colour[0] = ((ls.color >> 16) & 0xFF) / 255.0f * k;
             L.colour[1] = ((ls.color >> 8) & 0xFF) / 255.0f * k;
             L.colour[2] = (ls.color & 0xFF) / 255.0f * k;

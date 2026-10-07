@@ -88,6 +88,7 @@ namespace
         { "lighthouse.beam",     "Lighthouse Beam" },
         { "lighthouse.beacon",   "Lighthouse Beacon" },
         { "lighthouse.beamLength", "Beam Length" },
+        { "lighthouse.reach",   "Lighthouse Distance" },
         { "lighthouse.beamWidth", "Beam Width" },
         { "lighthouse.beamSpread", "Beam Spread" },
         { "lighthouse.beamSpeed", "Beam Speed" },

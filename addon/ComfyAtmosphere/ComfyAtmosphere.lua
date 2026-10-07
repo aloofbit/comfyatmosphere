@@ -83,6 +83,7 @@ COMFYATMOSPHERE_LIGHTHOUSES = "Lighthouses";
 COMFYATMOSPHERE_LIGHTHOUSE_BEAM = "Lighthouse Beam";
 COMFYATMOSPHERE_LH_BEACON = "Lighthouse Beacon";
 COMFYATMOSPHERE_LH_LENGTH = "Beam Length";
+COMFYATMOSPHERE_LH_DISTANCE = "Lighthouse Distance";
 COMFYATMOSPHERE_LH_WIDTH = "Beam Width";
 COMFYATMOSPHERE_LH_SPREAD = "Beam Spread";
 COMFYATMOSPHERE_LH_SPEED = "Beam Speed";
@@ -841,6 +842,18 @@ local ENTRIES = {
 		minval = 50,
 		maxval = 1000,
 		step = 25,
+		numberLabels = 1,
+	},
+	{
+		-- Yards: [lighthouse] reach.
+		name = "COMFYATMOSPHERE_LH_DISTANCE",
+		desc = "How far off a lighthouse's light shows, in yards. It fades out over the last quarter.",
+		type = "slider",
+		cvar = "comfyLighthouseDistance",
+		dependency = { "comfyLighthouses", "1" },
+		minval = 100,
+		maxval = 1500,
+		step = 50,
 		numberLabels = 1,
 	},
 	{
@@ -1636,7 +1649,7 @@ local WINDOW_SECTIONS = {
 	           "comfyMistReach", "comfyMistSky", "comfyMistPatches", "comfyMistLow", "comfyMistWater",
 	           "comfyMistMorning", "comfyMistLamps", "comfyMistWind", "comfyMistWindDir" } },
 	{ "Lamps", { "comfyLamps", "comfyLampGlow", "comfyLampDistance", "comfyLanternLight", "comfyTorchLight",
-	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
+	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseDistance", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
 	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfyShadowOnWater", "comfySunGlide", "comfyTreeShade", "comfySunlight", "comfyShadeTint",

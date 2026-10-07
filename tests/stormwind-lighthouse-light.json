@@ -1,0 +1,183 @@
+{
+    "name":  "stormwind-lighthouse-light",
+    "about":  "Stormwind\u0027s harbour lighthouse from the shore, 327 yards off (2026-10-07, the owner): the game\u0027s own lighthouse light showed beside ours, and ours showed from too far, with its glitter on the sea past the beam\u0027s end. The search for the game\u0027s light (LIGHTHOUSEEFFECT) took the first 64 animated doodads of any name, and the harbour has more, so the game\u0027s light was not left out and our lamp came from the building\u0027s box. Now only lighthouse doodads are counted. A lighthouse further than Lighthouse Distance is not drawn and fades out over the last quarter, and the beam\u0027s patch on the water ends at Beam Length. Shot 1 and a 10 s video: one lamp in the lamp room, no second light by it, the beam turning, its glitter only as far as the beam reaches.",
+    "config":  {
+                   "character":  1,
+                   "flight":  false,
+                   "cameraZoom":  0,
+                   "start":  {
+                                 "map":  0,
+                                 "x":  -8276.2,
+                                 "y":  1371.9,
+                                 "z":  6,
+                                 "facing":  56.3,
+                                 "about":  "the owner\u0027s snapshot (2026-10-07): on the shore of Stormwind\u0027s harbour, 327 yards from the lighthouse\u0027s lamp, facing 56.3 degrees, 10.1 up, the camera 1.3 yards back"
+                             },
+                   "sun":  {
+                               "azimuth":  45,
+                               "elevation":  45
+                           },
+                   "cvars":  {
+                                 "comfyVolume":  1,
+                                 "comfyVolumeStrength":  25,
+                                 "comfyClouds":  0,
+                                 "comfyRays":  0,
+                                 "comfyRaysStrength":  40,
+                                 "comfyVolumeQuality":  3,
+                                 "comfyNightStrength":  25,
+                                 "comfyRaysSoften":  1,
+                                 "comfyRaysSmooth":  0,
+                                 "comfyShadowResolution":  3,
+                                 "comfyShadowSoftness":  1,
+                                 "comfyShadowEvery":  1,
+                                 "comfySunShadows":  0,
+                                 "comfySunShadowStrength":  20,
+                                 "comfyAtmosphere":  1,
+                                 "comfySunlight":  35,
+                                 "comfyVolumeDensity":  16,
+                                 "comfyVolumeDistance":  190,
+                                 "comfyVolumeDirection":  70,
+                                 "comfySunShadowsWorld":  1,
+                                 "comfySunShadowsUnits":  1,
+                                 "comfyShadowLock":  0,
+                                 "comfyShadowTilt":  15,
+                                 "comfyShadeTint":  65,
+                                 "comfySunTint":  95,
+                                 "comfyLampGlow":  26,
+                                 "comfyLampDistance":  260,
+                                 "comfyNightDarkness":  20,
+                                 "comfyMoonlight":  65,
+                                 "comfyMist":  0,
+                                 "comfyMistDensity":  25,
+                                 "comfyMistHeight":  25,
+                                 "comfyMistBrightness":  120,
+                                 "comfyMistSun":  40,
+                                 "comfyMistPatches":  50,
+                                 "comfyMistWind":  15,
+                                 "comfyMistWindDir":  45,
+                                 "comfyMistReach":  200,
+                                 "comfyMistSky":  75,
+                                 "comfyMistLow":  150,
+                                 "comfyMistWater":  210,
+                                 "comfyMistMorning":  100,
+                                 "comfyMistLamps":  50,
+                                 "comfySunShadowsNight":  100,
+                                 "comfySunShadowsUnitStrength":  45,
+                                 "comfySunGlide":  3,
+                                 "comfyLamps":  1,
+                                 "comfyTorchLight":  23,
+                                 "comfyLanternLight":  69,
+                                 "comfyIndoorLamps":  29,
+                                 "comfyLampsDay":  51,
+                                 "comfySunShadowsBody":  30,
+                                 "comfyShadowNear":  32,
+                                 "comfyTreeShade":  60,
+                                 "comfyWaveHeight":  30,
+                                 "comfyWaveSize":  400,
+                                 "comfyWater":  1,
+                                 "comfyWaterColour":  20,
+                                 "comfyWaterClarity":  400,
+                                 "comfyWaterReflect":  15,
+                                 "comfyWaterBend":  25,
+                                 "comfyWaterCover":  50,
+                                 "comfyWaterWake":  85,
+                                 "comfyWaterFoam":  35,
+                                 "comfyWaterSwash":  1,
+                                 "comfyWaterGlint":  100,
+                                 "comfyWaterMoonGlint":  60,
+                                 "comfyWaterGlintSize":  100,
+                                 "comfyWaterEdge":  10,
+                                 "comfyWaterEdgeWidth":  1,
+                                 "comfyWaterBright":  70,
+                                 "comfyWaterRippleDepth":  100,
+                                 "comfyWaterSwashHeight":  5,
+                                 "comfyWaterSwashLength":  90,
+                                 "comfyWaterSwashSpeed":  30,
+                                 "comfyDaySaturation":  100,
+                                 "comfyNightSaturation":  100,
+                                 "comfyColor":  1,
+                                 "comfyWaterRippleMoving":  340,
+                                 "comfyWaterRippleSpread":  50,
+                                 "comfyWaterRippleSpreadMoving":  100,
+                                 "comfyWaterFoamDrawn":  1,
+                                 "comfyWaterFoamSize":  9,
+                                 "comfyWaterFoamReach":  30,
+                                 "comfyWaterOpenFoam":  1,
+                                 "comfyWaterOpenFoamAmount":  30,
+                                 "comfyWaterFoamEdge":  60,
+                                 "comfyWaterWakeFoam":  40,
+                                 "comfyWaterObjectFoam":  60,
+                                 "comfyWaterObjectFoamWidth":  8,
+                                 "comfyWaterLakeSwash":  0,
+                                 "comfyWaterLakeFoam":  30,
+                                 "comfyWaterLakeWaves":  0,
+                                 "comfyWaterRain":  100,
+                                 "comfyLighthouses":  1,
+                                 "comfyLighthouseBeam":  32,
+                                 "comfyLighthouseBeacon":  250,
+                                 "comfyLighthouseLength":  600,
+                                 "comfyLighthouseWidth":  46,
+                                 "comfyLighthouseSpread":  35,
+                                 "comfyLighthouseSpeed":  26,
+                                 "comfyLighthouseTwoBeams":  0,
+                                 "comfyLighthouseGlint":  200,
+                                 "comfyLighthouseFace":  160,
+                                 "comfyLighthouseFaceTilt":  50,
+                                 "comfyLighthouseFaceSoft":  80,
+                                 "comfyLighthouseWaterWidth":  150,
+                                 "comfyRainDarkness":  30,
+                                 "comfyWaterShipWake":  0,
+                                 "comfyWaterShipForward":  15,
+                                 "comfyWaterShipDepth":  200,
+                                 "comfyShadowOnWater":  65,
+                                 "comfyWaterWetSand":  15,
+                                 "comfyLighthouseDistance":  700,
+                                 "comfyGrass":  0,
+                                 "comfyGrassWind":  200,
+                                 "comfyGrassSpeed":  30,
+                                 "comfyGrassLean":  35,
+                                 "comfyGrassWaveLength":  18,
+                                 "comfyGrassWindDir":  45,
+                                 "comfyGrassParting":  50,
+                                 "comfyGrassPartingRadius":  20
+                             }
+               },
+    "steps":  [
+                  {
+                      "face":  {
+                                   "heading":  56.3,
+                                   "pitch":  10.1
+                               }
+                  },
+                  {
+                      "wait":  3
+                  },
+                  {
+                      "probe":  true
+                  },
+                  {
+                      "wait":  2
+                  },
+                  {
+                      "screenshot":  true
+                  },
+                  {
+                      "record":  {
+                                     "seconds":  10,
+                                     "label":  "the beam turning, from the shore"
+                                 }
+                  }
+              ],
+    "expect":  [
+                   {
+                       "about":  "The game\u0027s own light found (LIGHTHOUSEEFFECT), so it is left out and our lamp stands on the tower\u0027s axis",
+                       "log":  "^beacon: \\d+ lighthouses drawn, night [\\d.]+; (\\d+) of the game\u0027s own lights",
+                       "min":  1
+                   },
+                   {
+                       "about":  "The lighthouse drawn, 327 yards off, inside Lighthouse Distance",
+                       "log":  "^beacon: (\\d+) lighthouses drawn",
+                       "min":  1
+                   }
+               ]
+}

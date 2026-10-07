@@ -439,6 +439,7 @@ void LoadSettings(const wchar_t* ini)
     s.lighthouse.beamWidth  = Clamp(GetF(kLighthouse, L"beamWidth", s.lighthouse.beamWidth, ini), 0.05f, 10.0f);
     s.lighthouse.beamSpread = Clamp(GetF(kLighthouse, L"beamSpread", s.lighthouse.beamSpread, ini), 0.0f, 0.5f);
     s.lighthouse.beamLength = Clamp(GetF(kLighthouse, L"beamLength", s.lighthouse.beamLength, ini), 10.0f, 2000.0f);
+    s.lighthouse.reach      = Clamp(GetF(kLighthouse, L"reach", s.lighthouse.reach, ini), 50.0f, 1500.0f);
     s.lighthouse.beamSpeed  = Clamp(GetF(kLighthouse, L"beamSpeed", s.lighthouse.beamSpeed, ini), 1.0f, 120.0f);
     s.lighthouse.surface      = Clamp(GetF(kLighthouse, L"surface", s.lighthouse.surface, ini), 0.0f, 10.0f);
     s.lighthouse.faceStrength = Clamp(GetF(kLighthouse, L"faceStrength", s.lighthouse.faceStrength, ini), 0.0f, 4.0f);

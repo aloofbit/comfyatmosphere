@@ -2798,6 +2798,19 @@ side, with a soft edge from 30% in), in `c221` (the parting's particles went to 
 tail of that curve lit three times the beam's width even at 100, so the slider seemed to do nothing (the owner). The pixel shader's
 compiler keeps a constant of its own in c7, so the constants go up as c0 to c6 and c8 to c15.
 
+**The game's light came back, and ours showed from too far (2026-10-07, the owner).** From the harbour shore, 327
+yards off, the game's own light showed beside ours. The search for LIGHTHOUSEEFFECT took the first 64 animated
+doodads within 1500 yards, of any name, and Stormwind's harbour has more: the lighthouse's was not among them. So the
+game's light was not left out, and our lamp came from the building's box, 8 yards off the tower's axis and 6 yards
+low. `MapAnimatedDoodads` now takes a name (`nameHas`) and counts only the doodads whose model holds it. The probe
+says how many of the game's lights it found. And a lighthouse showed from up to 1500 yards, its glitter falling off
+slowly; the wave faces the beam lights had no end along the beam, so the patch ran past Beam Length to the horizon.
+Now a lighthouse further than `[lighthouse] reach` (Lighthouse Distance on the Lamps tab, 600) is not drawn, and it
+fades out over the last quarter: the beacon, the beams, the glint and the light on the tower (the lamp's `w` in
+`c8` to `c11` is its strength). The patch on the water fades out from 75% of Beam Length to its end. No register
+was free for the length: the beam's way in `c223.zw` is now as long as the beam, 10000 longer with a second beam.
+Test: `stormwind-lighthouse-light`.
+
 ## Performance: the volumetric light (2026-10-07, perf-1)
 
 The owner: the Volumetric Light box alone took about half the frame rate, 40 to 50 frames a second. The box turns on

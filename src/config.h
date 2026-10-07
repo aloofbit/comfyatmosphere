@@ -540,6 +540,8 @@ struct LighthouseSettings
     float beamWidth  = 0.5f;     // yards: the beam's half width at the lamp
     float beamSpread = 0.035f;   // yards it widens a yard out: 0.035 is about 2 degrees each side
     float beamLength = 400.0f;   // yards each beam reaches (200 at first)
+    float reach      = 600.0f;   // yards: a lighthouse further off is not drawn; it fades out over the last quarter
+                                 // (Lighthouse Distance; 1500 until 2026-10-07)
     float beamSpeed  = 12.0f;    // seconds the beams take to go round
     float beamTilt   = -0.03f;   // the beam's slope: below 0 it points a little down
     int   beamCount  = 1;        // 1 beam, or 2 opposite
