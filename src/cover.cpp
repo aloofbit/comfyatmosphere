@@ -175,7 +175,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         {
             g_shadersTried = true;
             g_psBright = MakeEither(dev, kBrightHlsl, "cover_bright");
-            g_psDepth  = MakeEither(dev, kDepthHlsl,  "cover_depth");
+            // ps_2_b only (2026-10-07): it takes 81 arithmetic slots, past ps_2_0's 64, so that try always failed.
+            g_psDepth  = MakePixelShader(dev, kDepthHlsl, "cover_depth", "ps_2_b");
             g_psEase   = MakePixelShader(dev, kEaseHlsl, "cover_ease", "ps_2_0");
         }
         if (!g_psBright || !g_psDepth || !g_psEase || g_failed)
@@ -329,7 +330,6 @@ void CoverReset()
 void CoverShaderList()
 {
     ShaderPrecompile("cover_bright", kBrightHlsl, "ps_2_0");
-    ShaderPrecompile("cover_depth", kDepthHlsl, "ps_2_0");
     ShaderPrecompile("cover_depth", kDepthHlsl, "ps_2_b");
     ShaderPrecompile("cover_ease", kEaseHlsl, "ps_2_0");
 }
