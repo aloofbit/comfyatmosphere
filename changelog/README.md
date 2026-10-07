@@ -5,6 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
+- [Creatures under the sea](2026-10-07-creatures-under-water.md): creatures under the water keep their texture and
+  show dim, not flat and pale; the fog ends at the water's surface.
 - [Lighthouses](2026-10-07-lighthouse-distance.md): the game's own light is left out again, a Lighthouse Distance
   slider, and the beam's light on the water ends where the beam ends.
 - [Water fixes](2026-10-07-water-fixes.md): the surface no longer splits where a lake meets the sea, the wet sand
