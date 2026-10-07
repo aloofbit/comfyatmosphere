@@ -1231,7 +1231,10 @@ float4 main(float2 vpos : VPOS) : COLOR
     }
     float  h    = A.z - lv;                                          // yards above the water
     float3 n    = cross(ddx(P), ddy(P));
-    float  flat = abs(n.z) > 0.85 * length(n) ? 1.0 : 0.0;           // not a body, a wall or a post
+    // Not a body, a wall or a post: full up to a slope of 60 degrees, none past 72. Until 2026-10-07 none past 32
+    // degrees: on a steep bank (Tel'Abim) the wet sand came and went with each of the ground's triangles, in
+    // pieces with straight edges.
+    float  flat = smoothstep(0.3, 0.5, abs(n.z) / max(length(n), 1e-9));
     // Still: uneven along the shore, never moving (2026-10-02: it moved with the time, and wet sand does not).
     float  top  = 0.4 + 0.1 * sin(A.x * 0.13 + A.y * 0.11);
     // Above the water only: under it the water pass shows the bed, and darkened there it made a dark band along

@@ -2447,6 +2447,15 @@ one side of the shared edge rose and fell and the other stayed flat. Two changes
 - A chunk is the sea when any of its own wet cells is. The chunk's middle alone was asked before, and here it was
   a dry cell: a chunk of the sea took a lake's swash (0) and shore foam (0.3).
 
+**The wet sand on a steep bank (2026-10-07).** On a beach east of Tanaris (Tel'Abim) the wet sand lay on part of
+the shore, in pieces with straight edges in the middle, and not at all on the rest (the owner; test
+`telabim-wet-sand`). The sea level there is 0 in every chunk, so the level texture was not the cause. A debug
+build showed the band unbroken without the pass's masks: the `flat` mask cut it. It passed only ground under 32
+degrees of slope, to keep bodies, posts and walls dry, and the slope comes from the depth's derivatives, one value
+for each terrain triangle. The bank is steeper than 32 degrees in places, so the band came and went triangle by
+triangle. `flat` is now a ramp: 1 up to 60 degrees, 0 past 72. A body or a post stands near 90 degrees. The water
+pass's own `flat` (the lip on the sand) is unchanged: that lip is off while the swash is on.
+
 `SeaPoints` keeps its answer for each chunk until `MapFilesVersion` changes. The probe line for each chunk gives the
 number of its points by the sea.
 

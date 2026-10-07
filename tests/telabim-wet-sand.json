@@ -1,0 +1,215 @@
+{
+    "name": "telabim-wet-sand",
+    "about": "On a jungle beach east of Tanaris (Tel'Abim, by the map position) the wet sand was broken: a dark band on part of the shore, pieces with straight edges in the middle, none on the rest (2026-10-07, the owner). The wet sand pass drew only on ground under 32 degrees of slope, which keeps bodies and posts dry; the bank here is steeper, and the slope is per terrain triangle, so the band came and went triangle by triangle. Now full up to 60 degrees, none past 72 (NOTES.md, the wet sand on a steep bank). Shot 1 in the normal view, shot 2 in the wet sand alone (Debug View 18).",
+    "config": {
+        "character": 1,
+        "flight": true,
+        "cameraZoom": 0,
+        "flightFrom": {
+            "x": -7816.7,
+            "y": -7016.7,
+            "z": 10.6,
+            "about": "on the beach in front of the start, ground 8.6 and no water in the map files: the start is over the sea"
+        },
+        "start": {
+            "map": 1,
+            "x": -7858.4,
+            "y": -6997.9,
+            "z": 6.6,
+            "facing": -4.8,
+            "about": "the owner's snapshot (2026-10-07): 10 yards over a beach east of Tanaris, over the sea (ground at -3.5), the camera facing -4.8 degrees and 21.9 down, 0.8 yards back"
+        },
+        "sun": {
+            "azimuth": 45,
+            "elevation": 45
+        },
+        "cvars": {
+            "comfyVolume": 1,
+            "comfyVolumeStrength": 25,
+            "comfyClouds": 0,
+            "comfyRays": 0,
+            "comfyRaysStrength": 40,
+            "comfyVolumeQuality": 3,
+            "comfyNightStrength": 25,
+            "comfyRaysSoften": 1,
+            "comfyRaysSmooth": 0,
+            "comfyShadowResolution": 3,
+            "comfyShadowSoftness": 1,
+            "comfyShadowEvery": 1,
+            "comfySunShadows": 0,
+            "comfySunShadowStrength": 20,
+            "comfyAtmosphere": 1,
+            "comfySunlight": 35,
+            "comfyVolumeDensity": 16,
+            "comfyVolumeDistance": 190,
+            "comfyVolumeDirection": 70,
+            "comfySunShadowsWorld": 1,
+            "comfySunShadowsUnits": 1,
+            "comfyShadowLock": 0,
+            "comfyShadowTilt": 15,
+            "comfyShadeTint": 65,
+            "comfySunTint": 95,
+            "comfyLampGlow": 26,
+            "comfyLampDistance": 260,
+            "comfyNightDarkness": 20,
+            "comfyMoonlight": 65,
+            "comfyMist": 0,
+            "comfyMistDensity": 25,
+            "comfyMistHeight": 25,
+            "comfyMistBrightness": 120,
+            "comfyMistSun": 40,
+            "comfyMistPatches": 50,
+            "comfyMistWind": 15,
+            "comfyMistWindDir": 45,
+            "comfyMistReach": 200,
+            "comfyMistSky": 75,
+            "comfyMistLow": 150,
+            "comfyMistWater": 210,
+            "comfyMistMorning": 100,
+            "comfyMistLamps": 50,
+            "comfySunShadowsNight": 100,
+            "comfySunShadowsUnitStrength": 45,
+            "comfySunGlide": 3,
+            "comfyLamps": 0,
+            "comfyTorchLight": 23,
+            "comfyLanternLight": 69,
+            "comfyIndoorLamps": 29,
+            "comfyLampsDay": 51,
+            "comfySunShadowsBody": 30,
+            "comfyShadowNear": 32,
+            "comfyTreeShade": 60,
+            "comfyWaveHeight": 8,
+            "comfyWaveSize": 250,
+            "comfyWater": 1,
+            "comfyWaterColour": 20,
+            "comfyWaterClarity": 400,
+            "comfyWaterReflect": 15,
+            "comfyWaterBend": 25,
+            "comfyWaterCover": 50,
+            "comfyWaterWake": 85,
+            "comfyWaterFoam": 55,
+            "comfyWaterSwash": 1,
+            "comfyWaterGlint": 100,
+            "comfyWaterMoonGlint": 60,
+            "comfyWaterGlintSize": 100,
+            "comfyWaterEdge": 10,
+            "comfyWaterEdgeWidth": 1,
+            "comfyWaterBright": 70,
+            "comfyWaterRippleDepth": 100,
+            "comfyWaterSwashHeight": 5,
+            "comfyWaterSwashLength": 90,
+            "comfyWaterSwashSpeed": 30,
+            "comfyDaySaturation": 100,
+            "comfyNightSaturation": 100,
+            "comfyColor": 1,
+            "comfyWaterRippleMoving": 340,
+            "comfyWaterRippleSpread": 50,
+            "comfyWaterRippleSpreadMoving": 100,
+            "comfyWaterFoamDrawn": 1,
+            "comfyWaterFoamSize": 9,
+            "comfyWaterFoamReach": 30,
+            "comfyWaterOpenFoam": 1,
+            "comfyWaterOpenFoamAmount": 30,
+            "comfyWaterFoamEdge": 60,
+            "comfyWaterWakeFoam": 55,
+            "comfyWaterObjectFoam": 60,
+            "comfyWaterObjectFoamWidth": 8,
+            "comfyWaterLakeSwash": 0,
+            "comfyWaterLakeFoam": 30,
+            "comfyWaterLakeWaves": 0,
+            "comfyWaterRain": 100,
+            "comfyLighthouses": 1,
+            "comfyLighthouseBeam": 12,
+            "comfyLighthouseBeacon": 200,
+            "comfyLighthouseLength": 400,
+            "comfyLighthouseWidth": 5,
+            "comfyLighthouseSpread": 35,
+            "comfyLighthouseSpeed": 12,
+            "comfyLighthouseTwoBeams": 0,
+            "comfyLighthouseGlint": 200,
+            "comfyLighthouseFace": 160,
+            "comfyLighthouseFaceTilt": 50,
+            "comfyLighthouseFaceSoft": 80,
+            "comfyLighthouseWaterWidth": 150,
+            "comfyRainDarkness": 30,
+            "comfyWaterShipWake": 0,
+            "comfyWaterShipForward": 15,
+            "comfyWaterShipDepth": 200,
+            "comfyShadowOnWater": 65,
+            "comfyGrass": 0,
+            "comfyGrassWind": 200,
+            "comfyGrassSpeed": 30,
+            "comfyGrassLean": 35,
+            "comfyGrassWaveLength": 18,
+            "comfyGrassWindDir": 45,
+            "comfyGrassParting": 50,
+            "comfyGrassPartingRadius": 20
+        }
+    },
+    "steps": [
+        {
+            "face": {
+                "heading": -4.8,
+                "pitch": -21.9
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 18"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        }
+    ],
+    "expect": [
+        {
+            "about": "The wet sand alone (Debug View 18): row 300 crosses the band on the steep part of the bank, where it was missing. 84 after the fix (2026-10-07); under 10 before it",
+            "shot": 2,
+            "row": 300,
+            "from": 400,
+            "to": 480,
+            "mean": 40
+        },
+        {
+            "about": "The wet sand alone (Debug View 18): row 340 crosses the band on the steep part of the bank, where it was missing. 132 after the fix (2026-10-07); under 10 before it",
+            "shot": 2,
+            "row": 340,
+            "from": 480,
+            "to": 570,
+            "mean": 40
+        },
+        {
+            "about": "The wet sand alone (Debug View 18): row 380 crosses the band on the steep part of the bank, where it was missing. 155 after the fix (2026-10-07); under 10 before it",
+            "shot": 2,
+            "row": 380,
+            "from": 560,
+            "to": 670,
+            "mean": 40
+        },
+        {
+            "about": "The wet sand alone (Debug View 18): row 420 crosses the band on the steep part of the bank, where it was missing. 179 after the fix (2026-10-07); under 10 before it",
+            "shot": 2,
+            "row": 420,
+            "from": 670,
+            "to": 800,
+            "mean": 40
+        }
+    ]
+}

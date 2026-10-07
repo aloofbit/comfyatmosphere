@@ -16,7 +16,8 @@
     flySpeed    yards a second while flying with W, to turn "fly" yards into seconds (7 is the run speed)
     start       { map, x, y, z }: where the test begins, by .go xyz
     flightFrom  { x, y, z }: with flight, where it is turned on, on land, before the start (2026-10-06): a start in
-                the air over deep water dropped the character into the water, where the ground wait never ends
+                the air over deep water dropped the character into the water, where the ground wait never ends.
+                The run goes back there before flight goes off, when this test is the last (2026-10-07)
     restart     true: the client is restarted and signed in before the test (at the start, when there is one), and
                 the test's log checks read the whole log since the client started (2026-10-06, load-performance)
     sun         { azimuth, elevation } in degrees: a fixed sun ([sun] fixed), the same light every run
@@ -116,6 +117,7 @@ $summary = @()
 # test that wants another character. Flight is read before each test (2026-10-05, wow-test-tool's flight on and
 # flight off, from comfytest.dll): a toggle the runner kept track of lost step, and a test started with it off.
 $loggedAs = $null
+$land = $null   # the last test's flightFrom, where the run ends (below)
 $metrics = @()   # the performance tests' numbers this run (2026-10-06), for results\perf-history.json
 $runStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $runStarted = Get-Date
@@ -187,11 +189,13 @@ foreach ($file in $files) {
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
         # Or to flightFrom, on land, when the start is over deep water (2026-10-06).
         $f = if ($cfg.flightFrom) { $cfg.flightFrom } else { $cfg.start }
+        $land = if ($cfg.flightFrom) { @{ x = $f.x; y = $f.y; z = $f.z; map = $cfg.start.map } } else { $null }
         if ($f) { $lines += "chat .go xyz $($f.x) $($f.y) $($f.z) $($cfg.start.map)"; $lines += "arrive $($f.x) $($f.y) $($f.z)" }
         $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
         $lines += 'ground 60 unlessflying'; $lines += 'flight on'
     }
     else {
+        $land = $null
         $lines += Say 'flight off'
         $lines += 'flight off'
     }
@@ -562,6 +566,11 @@ foreach ($file in $files) {
 
 # The character is left as a login leaves it: the camera behind it (face turns the camera alone), flight off.
 $end = @('say putting the camera back, flight off', 'camback', 'flight off', 'say done')
+# A last test that started over the sea (flightFrom) ends there: with flight off the character dropped into the
+# water, and the next run's login started it swimming (2026-10-07). Back to its land first.
+if ($land) {
+    $end = @("chat .go xyz $($land.x) $($land.y) $($land.z) $($land.map)", "arrive $($land.x) $($land.y) $($land.z)") + $end
+}
 $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-end.script.txt"
 [IO.File]::WriteAllText($script, ($end -join "`r`n") + "`r`n")
 & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null
