@@ -5,6 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
+- [Lighthouses](2026-10-07-lighthouse-distance.md): the game's own light is left out again, a Lighthouse Distance
+  slider, and the beam's light on the water ends where the beam ends.
 - [Water fixes](2026-10-07-water-fixes.md): the surface no longer splits where a lake meets the sea, the wet sand
   follows steep banks, a Wet Sand slider, and a swimmer's camera stays out of the waves.
 - [Inside a building, on the stats panel](2026-10-07-indoor-stats.md): the indoor test's answer, and the step that
