@@ -11,7 +11,7 @@
             "y": 1331.9,
             "z": -1.2,
             "facing": -12.8,
-            "about": "the owner's snapshot (2026-10-07): swimming off the Westfall coast, 1.2 yards under the flat water (the sea floor at -7.8), the camera 11 yards back, facing -12.8 degrees and 0.7 up: the owner's view in the shots taken 12 s after the snapshot, which read 2.6 yards, -10.6 and 5.4 up. The camera is just over the flat water and under the swell (Wave Height 30)"
+            "about": "the owner's snapshot (2026-10-07): swimming off the Westfall coast, 1.2 yards under the flat water (the sea floor at -7.8), the camera 11 yards back, facing -12.8 degrees and 0.7 up: the owner's view in the shots taken 12 s after the snapshot, which read 2.6 yards, -10.6 and 5.4 up. The camera is just over the flat water and under the swell (Wave Height 30). A jump first: dropped in by the teleport the swimmer sank to -1.8, the camera under the flat water"
         },
         "sun": {
             "azimuth": 45,
@@ -142,6 +142,9 @@
         }
     },
     "steps": [
+        {
+            "jump": 1
+        },
         {
             "face": {
                 "heading": -12.8,

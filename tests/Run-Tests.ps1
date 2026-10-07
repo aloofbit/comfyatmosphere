@@ -249,7 +249,11 @@ foreach ($file in $files) {
     # Or the camera's own distance (cameraZoom, 2026-10-05), the field the wheel moves, set exactly by
     # comfytest.dll: close in, camdist was a notch off.
     if ($null -ne $cfg.cameraZoom -or $null -ne $cfg.cameraDistance -or $null -ne $cfg.camera) { $lines += Say 'moving the camera' }
-    if ($null -ne $cfg.cameraZoom) { $lines += "camzoom $($cfg.cameraZoom)" }
+    # All the way in first (2026-10-07): the game keeps a distance of its own that its zoom sets, and each frame
+    # puts the camera there, or nearer where the ground is in the way. After a test 11 yards out, a slope behind
+    # the camera held it at 3.8 yards whatever camzoom wrote, and the next test's first person never came. Zoomed
+    # in, the game's distance is 0, and the one written holds wherever nothing pulls the camera in.
+    if ($null -ne $cfg.cameraZoom) { $lines += 'zoom -30'; $lines += 'wait 1'; $lines += "camzoom $($cfg.cameraZoom)" }
     elseif ($null -ne $cfg.cameraDistance) { $lines += "camdist $($cfg.cameraDistance)" }
     elseif ($null -ne $cfg.camera) {
         $cam = if ($cfg.camera -eq 'zoomed') { 0 } elseif ($cfg.camera -eq 'far') { 10 } else { [int]$cfg.camera }
@@ -264,6 +268,7 @@ foreach ($file in $files) {
     $shotViews = @()
     $recViews = @(); $recLabels = @()
     $nShot = 0; $nRec = 0; $nProbe = 0
+    $zoomAgain = $false   # the camera's distance written again at the first face (below)
     foreach ($st in $t.steps) {
         $p = $st.PSObject.Properties | Select-Object -First 1
         $v = $p.Value
@@ -314,7 +319,13 @@ foreach ($file in $files) {
             'back'       { $lines += ('hold S {0:0.##}' -f ([double]$v / ($speed * 0.64))); $lines += 'wait 1.2'; $lines += "pos after back $v" }   # backing up is 64% of the speed
             'turn'       { $lines += "turnby $v"; $lines += 'wait 1.2'; $lines += "pos after turn $v" }   # to the left; by face, not Ctrl+Shift+F, which broke the camera (2026-10-05)
             'pos'        { $lines += 'wait 1.2'; $lines += 'pos' }
-            'face'       { $lines += "heading $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" } }   # the character and the camera, checked against comfyStats: right-drags turn, wow-test-tool tilts
+            'face'       {   # the character and the camera, checked against comfyStats: right-drags turn, wow-test-tool tilts
+                $lines += "heading $($v.heading)"; if ($null -ne $v.pitch) { $lines += "pitch $($v.pitch)$(if ($v.leftDrag) { ' left' })" }
+                # The distance again at the first face (2026-10-07): written before it, at the last test's pitch, the
+                # camera met the water or the ground, and the game took it in to its own distance, 0 after the
+                # zoom in above. A snapshot's own pitch is clear: the owner's camera stood there.
+                if ($null -ne $cfg.cameraZoom -and -not $zoomAgain) { $zoomAgain = $true; $lines += "camzoom $($cfg.cameraZoom)" }
+            }
             'probe'      { $lines += 'atmos probe' }
             'screenshot' { $shotViews += $view; $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'ui show' }   # without the UI, then the UI back (Alt+Z without comfytest.dll)
             'record'     {   # a video, without the UI as a screenshot: { seconds, label } or the seconds alone
