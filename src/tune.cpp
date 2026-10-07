@@ -83,6 +83,7 @@ namespace
         { "water.lakeFoam",      "Lake Foam" },
         { "water.lakeWaves",     "Lake Waves" },
         { "water.rain",          "Rain on Water" },
+        { "water.wetSand",       "Wet Sand" },
         { "lighthouse.enabled",  "Lighthouses" },
         { "lighthouse.beam",     "Lighthouse Beam" },
         { "lighthouse.beacon",   "Lighthouse Beacon" },

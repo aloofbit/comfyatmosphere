@@ -1,6 +1,6 @@
 {
     "name": "telabim-wet-sand",
-    "about": "On a jungle beach east of Tanaris (Tel'Abim, by the map position) the wet sand was broken: a dark band on part of the shore, pieces with straight edges in the middle, none on the rest (2026-10-07, the owner). The wet sand pass drew only on ground under 32 degrees of slope, which keeps bodies and posts dry; the bank here is steeper, and the slope is per terrain triangle, so the band came and went triangle by triangle. Now full up to 60 degrees, none past 72 (NOTES.md, the wet sand on a steep bank). Shot 1 in the normal view, shot 2 in the wet sand alone (Debug View 18).",
+    "about": "On a jungle beach east of Tanaris (Tel'Abim, by the map position) the wet sand was broken: a dark band on part of the shore, pieces with straight edges in the middle, none on the rest (2026-10-07, the owner). The wet sand pass drew only on ground under 32 degrees of slope, which keeps bodies and posts dry; the bank here is steeper, and the slope is per terrain triangle, so the band came and went triangle by triangle. Now full up to 60 degrees, none past 72 (NOTES.md, the wet sand on a steep bank). Shot 1 in the normal view, shot 2 in the wet sand alone (Debug View 18), shot 3 in the normal view with the Wet Sand slider at 0 (2026-10-07: the slider is new).",
     "config": {
         "character": 1,
         "flight": true,
@@ -176,6 +176,18 @@
         },
         {
             "cvar": "comfyDebugView 0"
+        },
+        {
+            "cvar": "comfyWaterWetSand 0"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyWaterWetSand 45"
         }
     ],
     "expect": [

@@ -2455,6 +2455,8 @@ degrees of slope, to keep bodies, posts and walls dry, and the slope comes from 
 for each terrain triangle. The bank is steeper than 32 degrees in places, so the band came and went triangle by
 triangle. `flat` is now a ramp: 1 up to 60 degrees, 0 past 72. A body or a post stands near 90 degrees. The water
 pass's own `flat` (the lip on the sand) is unchanged: that lip is off while the swash is on.
+The owner had no control for the wet sand: the Wet Sand slider (`comfyWaterWetSand`, 0 to 100, `wetSand` x 100)
+is on the Atmosphere page, after the swash's sliders.
 
 `SeaPoints` keeps its answer for each chunk until `MapFilesVersion` changes. The probe line for each chunk gives the
 number of its points by the sea.
