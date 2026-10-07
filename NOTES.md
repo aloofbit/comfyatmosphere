@@ -2795,7 +2795,7 @@ ms. The cache's upkeep was 1.1 ms of CPU a frame.
   Redrawn each second all the same.
 - The march does not read the leaves' and hills' maps where the solid map already shades the step.
 
-Shots in Debug View 5 and the normal view with Fetch4 and without (`tests/fetch4-compare.json`) match; at the
+Shots in Debug View 5 and the normal view with Fetch4 and without (a test made for it, then removed, since it had no checks of its own) match; at the
 harbour only a moving ship's sails differ.
 
 **After.** `tests/volume-cost.json` before and after, the warm logs (the first after a `.go` left out). The GPU ran
