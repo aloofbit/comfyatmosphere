@@ -3,6 +3,11 @@
 One file for each big change, named `date-short-description.md`. A file says what changed, why, and which
 controls it adds. The reasoning and the measurements are in `NOTES.md`, one section for each problem.
 
+## 2026-10-07
+
+- [Inside a building, on the stats panel](2026-10-07-indoor-stats.md): the indoor test's answer, and the step that
+  decided it.
+
 ## 2026-10-06
 
 - [The log in the Logs folder](2026-10-06-logs-folder.md): `Logs\comfyatmos.log`, the shader cache in

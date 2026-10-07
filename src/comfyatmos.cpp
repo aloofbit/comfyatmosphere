@@ -1074,6 +1074,14 @@ namespace
                 snprintf(line, sizeof(line), "fps=%.0f;x=%.1f;y=%.1f;z=%.1f;gz=%s;pos=%d;map=%s;",
                          statsFrames / (now - statsLast), pl[0], pl[1], pl[2], gzText, havePl ? 1 : 0, map);
                 std::string text = line;
+                // Inside a building (2026-10-07): MapIndoors's answer and the step that decided it.
+                char why[160] = "";
+                const bool in = havePl && MapIndoors(pl, why, sizeof(why));
+                for (char* c = why; *c; ++c)
+                    if (*c == ';' || *c == '=')
+                        *c = ' ';
+                snprintf(line, sizeof(line), "in=%d;inwhy=%s;", in ? 1 : 0, havePl ? why : "no player");
+                text += line;
                 SunStatsText(text);
                 ShadowStatsText(text);
                 VolumeStatsText(text);

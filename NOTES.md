@@ -1138,6 +1138,25 @@ yards up over the city. No portal leads to them, so the client never draws them.
 a group with 0x80 whole, for the shadows and the indoor test alike. Of Stormwind's 306 groups, 304 carry
 the indoor flag, the streets included, which is also why the box test alone failed there.
 
+**The indoor test on the stats panel (2026-10-07).** The owner saw the Goldshire inn fail. The test kept no
+record of what decided, so the stats panel now shows Inside building (true or false), the building and Why: the
+furthest step any building reached (no building, not loaded, no rooms, no room's box, no ceiling with the lowest
+triangle above, or the ceiling's height). The test runs every frame, up to three times: the sun shadows, Night
+Darkness and Indoor Lamps each ask, and each keeps its own fade. Each asks only while its pass draws. The
+buildings it tests are those the shadow pass loaded (`MapTerrainUpdate`, called from `ShadowWorldEnded`), so
+with the shadow map off or `[shadow] mapTerrain 0`, no building loads and the answer is always false.
+
+Two faults found while reading the code, not fixed:
+
+- The 0x40 rule drops real rooms. The core's `IsOutdoorWMO` (`source/src/game/Maps/GridMap.cpp`) lists
+  measured flags: the Gadgetzan inn is 0x2841, so it counts as outdoors here. The tunnels (0xa040) and the open
+  city groups (Stormwind 0xaa41, Orgrimmar 0xa841) have 0x8000 and the inn does not. Dropping a group only when
+  it has both 0x40 and 0x8000 keeps every other measured case as it is (Ironforge 0xa005 and the Undercity
+  0x3a05 stay indoors). The core's own rule, `(flags & 0xf000) != 0x2000` is outdoors, would put Ironforge and
+  the Undercity outdoors.
+- Dungeons never count as indoors. The loader reads only the buildings the `.adt` tiles place. A dungeon's one
+  building is placed in the map's `.wdt` (MODF), which nothing reads.
+
 **Candles from the files.** Inside a building the client has no point lights and its candles are particles
 (the Darkshire inn probe), so the lamps never found them. A building's root file places its own doodads
 (MODN names, MODS sets, MODD: 40 bytes, name offset in the low 24 bits, position, rotation as a quaternion,

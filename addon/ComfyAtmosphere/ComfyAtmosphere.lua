@@ -2206,6 +2206,15 @@ local function StatsRows(v)
 	if v.pos == "1" then
 		Row("World", G("x") .. ", " .. G("y") .. ", " .. G("z") .. ((v.map and v.map ~= "") and ("  (" .. v.map .. ")") or ""));
 	end
+	-- The DLL's indoor test (MapIndoors): the answer, and the step that decided it.
+	Row("Inside building", v["in"] == "1" and "true" or (v["in"] == "0" and "false" or "?"));
+	local _, _, building, reason = string.find(G("inwhy"), "^(.-): (.*)$");
+	if building then
+		Row("Building", building);
+		Row("Why", reason);
+	else
+		Row("Why", G("inwhy"));
+	end
 
 	Head("Frame");
 	Row("Frame rate", G("fps") .. " fps");
@@ -2327,9 +2336,9 @@ function ComfyAtmosphere_StatsToggle()
 	if statsFrame:IsShown() then
 		statsFrame:Hide();
 	else
-		-- The DLL writes into the CVar's own string, so it must hold 600 characters. The game saves it in
+		-- The DLL writes into the CVar's own string, so it must hold 1000 characters (kStatsLen in cvars.cpp). The game saves it in
 		-- Config.wtf, and at the next start it came back empty, with no room: it is set again here.
-		SetCVar("comfyStats", string.rep(" ", 600));
+		SetCVar("comfyStats", string.rep(" ", 1000));
 		statsFrame:Show();
 	end
 end
