@@ -7,7 +7,8 @@
   moving anything:
     - the place and the map (ComfyTest pos, the log's map name, Map.dbc for its id);
     - the camera: heading, pitch and distance (ComfyTest look, from comfyatmos.dll's comfyStats);
-    - flight: on when the character is more than 3 yards over the ground under it;
+    - flight: on when the character is more than 3 yards over the ground under it, and not swimming (at or
+      under the water's level, from the probe's water line);
     - the sun the shadows use (the probe's sunshadows line);
     - the hour the sky shows (the probe's night line, which comfytime sets);
     - every Atmosphere page control, as last set (the log's "--- control:" lines), Debug View left out.
@@ -79,16 +80,24 @@ Import-Module (Join-Path $tool 'Robot.psm1') -Force -DisableNameChecking
 $zoom = $null
 if ((Send-ComfyTest 'camera') -match 'EC=([\d.]+)') { $zoom = [math]::Round([double]$Matches[1], 3) }
 
+# Swimming (2026-10-07): the probe's water line gives the water's level where the character is. A swimmer at the
+# surface sits about 1.2 yards under it, and over deep water it is many yards over the ground: taken by its height
+# alone, a swimmer off the Darkshore coast, 23 yards over the sea floor, came out as flying, and the runner then
+# waited for ground before it turned flight on.
+$swim = $false
+$wl = $lines | Where-Object { $_ -match '^water: you stand at' } | Select-Object -Last 1
+if ($wl -match 'water at (-?[\d.]+)') { $swim = $z -le [double]$Matches[1] + 1.0 }
+
 $camera = if ($null -ne $dist -and $dist -lt 1.5) { 0 } else { $null }
 $config = [ordered]@{
     character = 1
-    flight    = ($z - $gz) -gt 3.0
+    flight    = -not $swim -and ($z - $gz) -gt 3.0
 }
 if ($null -ne $zoom) { $config.cameraZoom = $zoom }
 elseif ($null -ne $camera) { $config.camera = 0 } elseif ($null -ne $dist) { $config.cameraDistance = [math]::Round($dist, 1) }
 $config.start = [ordered]@{
     map = [int]$mapId; x = $x; y = $y; z = $z; facing = [math]::Round($yaw, 1)
-    about = ('the owner''s snapshot: {0:0.0} yards over the ground ({1:0.0}); the camera faced {2:0.0} degrees, {3:0.0} {4}, {5} yards back; the sun from their probe' -f ($z - $gz), $gz, $yaw, [math]::Abs($pitch), $(if ($pitch -lt 0) { 'down' } else { 'up' }), $(if ($null -ne $dist) { '{0:0.0}' -f $dist } else { '?' }))
+    about = ('the owner''s snapshot: {6}{0:0.0} yards over the ground ({1:0.0}); the camera faced {2:0.0} degrees, {3:0.0} {4}, {5} yards back; the sun from their probe' -f ($z - $gz), $gz, $yaw, [math]::Abs($pitch), $(if ($pitch -lt 0) { 'down' } else { 'up' }), $(if ($null -ne $dist) { '{0:0.0}' -f $dist } else { '?' }), $(if ($swim) { 'swimming, ' } else { '' }))
 }
 $config.sun = [ordered]@{ azimuth = $az; elevation = $el }
 if ($null -ne $hour) { $config.hour = $hour }
@@ -100,3 +109,5 @@ $file = Join-Path $here ("results\{0}-snapshot.json" -f (Get-Date).ToString('yyy
 [IO.File]::WriteAllText($file, $json)
 $json
 "saved: $file"
+# A swimmer brought to the start sinks about 0.6 yards: a jump step brings it up (darkshore-underwater-npcs).
+if ($swim) { 'swimming: start the test''s steps with { "jump": 1 }' }
