@@ -1,6 +1,6 @@
 {
     "name":  "stormwind-lighthouse-light",
-    "about":  "Stormwind\u0027s harbour lighthouse from the shore, 327 yards off (2026-10-07, the owner): the game\u0027s own lighthouse light showed beside ours, and ours showed from too far, with its glitter on the sea past the beam\u0027s end. The search for the game\u0027s light (LIGHTHOUSEEFFECT) took the first 64 animated doodads of any name, and the harbour has more, so the game\u0027s light was not left out and our lamp came from the building\u0027s box. Now only lighthouse doodads are counted. A lighthouse further than Lighthouse Distance is not drawn and fades out over the last quarter, and the beam\u0027s patch on the water ends at Beam Length. Shot 1 and a 10 s video: one lamp in the lamp room, no second light by it, the beam turning, its glitter only as far as the beam reaches.",
+    "about":  "Stormwind\u0027s harbour lighthouse from the shore, 327 yards off (2026-10-07, the owner): the game\u0027s own lighthouse light showed beside ours, and ours showed from too far, with its glitter on the sea past the beam\u0027s end. The search for the game\u0027s light (LIGHTHOUSEEFFECT) took the first 64 animated doodads of any name, and the harbour has more, so the game\u0027s light was not left out and our lamp came from the building\u0027s box. Now only lighthouse doodads are counted. A lighthouse further than Lighthouse Distance is not drawn and fades out over the last quarter, and the beam\u0027s patch on the water ends at Beam Length. Shot 1 and a 10 s video: one lamp in the lamp room, no second light by it, the beam turning, its glitter only as far as the beam reaches. At 1:00 by comfytime (config hour, 2026-10-07): the run on the release DLL had taken the client\u0027s hour and came out by day.",
     "config":  {
                    "character":  1,
                    "flight":  false,
@@ -140,7 +140,8 @@
                                  "comfyGrassWindDir":  45,
                                  "comfyGrassParting":  50,
                                  "comfyGrassPartingRadius":  20
-                             }
+                             },
+                   "hour":  1
                },
     "steps":  [
                   {
@@ -178,6 +179,11 @@
                        "about":  "The lighthouse drawn, 327 yards off, inside Lighthouse Distance",
                        "log":  "^beacon: (\\d+) lighthouses drawn",
                        "min":  1
+                   },
+                   {
+                       "about":  "Night: the game time comfytime set (1:00)",
+                       "log":  "^night: game time \\d+:\\d+, night ([\\d.]+)",
+                       "min":  0.9
                    }
                ]
 }

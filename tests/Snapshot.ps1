@@ -9,6 +9,7 @@
     - the camera: heading, pitch and distance (ComfyTest look, from comfyatmos.dll's comfyStats);
     - flight: on when the character is more than 3 yards over the ground under it;
     - the sun the shadows use (the probe's sunshadows line);
+    - the hour the sky shows (the probe's night line, which comfytime sets);
     - every Atmosphere page control, as last set (the log's "--- control:" lines), Debug View left out.
   It prints the config and saves it to results\<time>-snapshot.json. A test starts from that block.
 
@@ -54,6 +55,11 @@ if ($sun -match 'sun \((-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\)') {
     $az = [math]::Round([math]::Atan2($sy, $sx) * 180 / [math]::PI, 1)
     $el = [math]::Round([math]::Atan2($sz, [math]::Sqrt($sx * $sx + $sy * $sy)) * 180 / [math]::PI, 1)
 }
+# The hour the sky showed (2026-10-07): the probe's game time, which comfytime sets. A test writes it back into
+# comfytime.ini (config hour); without it a lighthouse test taken at night ran by day.
+$hour = $null
+$night = $lines | Where-Object { $_ -match '^night: game time (\d+):(\d+)' } | Select-Object -Last 1
+if ($night -match 'game time (\d+):(\d+)') { $hour = [math]::Round([double]$Matches[1] + [double]$Matches[2] / 60, 2) }
 # The map: its name in the log, its id from Map.dbc.
 $mapName = ($lines | Where-Object { $_ -match 'map terrain: map "([^"]+)"' } | Select-Object -Last 1) -replace '.*map terrain: map "([^"]+)".*', '$1'
 $mapId = @{ 'Azeroth' = 0; 'Kalimdor' = 1; 'development' = 451 }[$mapName]
@@ -85,6 +91,7 @@ $config.start = [ordered]@{
     about = ('the owner''s snapshot: {0:0.0} yards over the ground ({1:0.0}); the camera faced {2:0.0} degrees, {3:0.0} {4}, {5} yards back; the sun from their probe' -f ($z - $gz), $gz, $yaw, [math]::Abs($pitch), $(if ($pitch -lt 0) { 'down' } else { 'up' }), $(if ($null -ne $dist) { '{0:0.0}' -f $dist } else { '?' }))
 }
 $config.sun = [ordered]@{ azimuth = $az; elevation = $el }
+if ($null -ne $hour) { $config.hour = $hour }
 $config.cvars = $cvars
 $snap = [ordered]@{ config = $config; face = [ordered]@{ heading = [math]::Round($yaw, 1); pitch = [math]::Round($pitch, 1) } }
 

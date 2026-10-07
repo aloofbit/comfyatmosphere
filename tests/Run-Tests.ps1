@@ -21,6 +21,9 @@
     restart     true: the client is restarted and signed in before the test (at the start, when there is one), and
                 the test's log checks read the whole log since the client started (2026-10-06, load-performance)
     sun         { azimuth, elevation } in degrees: a fixed sun ([sun] fixed), the same light every run
+    hour        the time of day, 0..24 (2026-10-07): written into the client's comfytime.ini, which comfytime reads
+                again when it changes, and the file put back after the test. Without it the sky shows whatever hour
+                the client had (a lighthouse test ran by day)
     ini         { "section.key": value, ... }: comfyatmos.ini values for this test, by /atmos. /atmos reset runs
                 before and after, so nothing stays set
     debugView   the Debug View to show (the comfyDebugView control)
@@ -380,7 +383,19 @@ foreach ($file in $files) {
     $log = ClientLog
     $logStart = if ($restarted) { 0 } elseif (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
-    $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String
+    # The hour (2026-10-07): comfytime.ini's hour, enabled with it, for this test only. comfytime reads the file again
+    # within half a second of a change; the start's steps take longer than that.
+    $timeIni = Join-Path $Client 'comfytime.ini'
+    $timeBefore = $null
+    if ($null -ne $cfg.hour -and (Test-Path $timeIni)) {
+        $timeBefore = [IO.File]::ReadAllText($timeIni)
+        $h = ([double]$cfg.hour).ToString([Globalization.CultureInfo]::InvariantCulture)
+        $text = [regex]::Replace($timeBefore, '(?m)^(hour\s*=\s*)[^;\r\n]*?(\s*(;|\r?$))', "`${1}$h`${2}")
+        $text = [regex]::Replace($text, '(?m)^(enabled\s*=\s*)[^;\r\n]*?(\s*(;|\r?$))', '${1}1${2}')
+        [IO.File]::WriteAllText($timeIni, $text)
+    }
+    try { $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String }
+    finally { if ($null -ne $timeBefore) { [IO.File]::WriteAllText($timeIni, $timeBefore) } }
     $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|arrive|face|heading|pitch) ' })
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
