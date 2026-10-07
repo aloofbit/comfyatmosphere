@@ -6,7 +6,7 @@
 // own. So:
 //   - Every compile goes through ShaderCacheCompile, keyed by a 64-bit FNV-1a hash of the source, the name, the
 //     entry, the profile, the flags and the defines. A result is kept for the session, and on disk as
-//     comfyatmos-cache\<key>.cso, so a later start reads it in a millisecond. A changed source is a new key.
+//     WDB\comfyatmos\<key>.cso, so a later start reads it in a millisecond. A changed source is a new key.
 //   - A worker started with the DLL compiles (or reads) every shader the passes list, below normal priority, while
 //     the client is still at its login screen. A key the game's thread asks for while the worker has it waits for
 //     the worker instead of compiling it twice.

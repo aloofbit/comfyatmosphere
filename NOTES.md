@@ -2540,6 +2540,14 @@ first world frame and long before the effects needed it; 21 ms of compiling on t
 of about 1 s is left as the effects start: creating the shader objects in DXVK and the render targets, the
 4096 x 4096 shadow maps among them. Turning the effects on one at a time would spread that frame.
 
+**The folder moves to WDB (2026-10-06, the owner).** The cache is `WDB\comfyatmos\` in the client folder, not
+`comfyatmos-cache\`. WDB is the client's cache folder, and players already delete it to fix a fault; deleting it costs
+only the worker's background compile at the next start. The launcher's "Clear the cache" deletes `*.wdb` files only
+(`ClearWdb` in comfylauncher's `Operations.cs`), so it keeps the `.cso` files. At start the attach thread moves an old
+`comfyatmos-cache` into `WDB\comfyatmos` when that is not there yet, then deletes the `.cso` and `.tmp` files of
+`comfyatmos-cache` and `comfyfog-cache` and the folders. When WDB cannot be made, the cache stays in
+`comfyatmos-cache`. The log names the folder in use (`shaders: the cache is ...`).
+
 ## The new file names: comfyatmos (2026-10-06)
 
 The owner, for v0.10.0-alpha: `comfyfog.dll` and `comfyfog.ini` become `comfyatmos.dll` and `comfyatmos.ini`; the log and

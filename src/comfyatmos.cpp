@@ -2324,6 +2324,26 @@ namespace
         return true;
     }
 
+    // Deletes a shader cache folder an older version left in the client folder: its .cso files, a .tmp a write did
+    // not finish, then the folder. Nothing else is touched, so a folder holding anything else stays.
+    void RemoveOldCache(const wchar_t* dir)
+    {
+        const wchar_t* patterns[] = {L"\\*.cso", L"\\*.tmp"};
+        for (const wchar_t* p : patterns)
+        {
+            const std::wstring base = dir;
+            WIN32_FIND_DATAW fd;
+            HANDLE h = FindFirstFileW((base + p).c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE)
+                continue;
+            do
+                DeleteFileW((base + L"\\" + fd.cFileName).c_str());
+            while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+        RemoveDirectoryW(dir);
+    }
+
     // Off the loader lock: DllMain must not load libraries or create devices.
     DWORD WINAPI AttachThread(LPVOID)
     {
@@ -2332,13 +2352,38 @@ namespace
         Log("attach %s in %.0f ms", ok ? "succeeded" : "FAILED", 1000.0 * (Now() - t0));
         if (!ok)
             return 0;
-        // The shaders' worker (2026-10-06): every pass's shader compiled or read from comfyatmos-cache\ now, while the
-        // client is at its login screen, not in the world's first frames (11 s of compiles, two frames of 5 and 7 s).
-        // Beside the ini, in the client folder: the log is in Logs\ since 2026-10-06, and the cache stays put.
-        wchar_t dir[MAX_PATH];
+        // The shaders' worker (2026-10-06): every pass's shader compiled or read from the cache now, while the client
+        // is at its login screen, not in the world's first frames (11 s of compiles, two frames of 5 and 7 s).
+        // The cache is in WDB\comfyatmos (2026-10-06, the owner): WDB is the client's cache folder, and deleting it
+        // costs only a background compile. The launcher's Clear the cache deletes *.wdb only, so it keeps these.
+        // The cache was comfyatmos-cache (and comfyfog-cache before the rename) in the client folder: the first is
+        // moved in, then both are deleted. When WDB cannot be made, the cache stays in comfyatmos-cache.
+        wchar_t dir[MAX_PATH], oldDir[MAX_PATH];
         wcscpy_s(dir, g_iniPath);
         wchar_t* slash = wcsrchr(dir, L'\\') + 1;
-        wcscpy_s(slash, MAX_PATH - (slash - dir), L"comfyatmos-cache");
+        const size_t room = MAX_PATH - (slash - dir);
+        wcscpy_s(oldDir, dir);
+        wchar_t* oldSlash = oldDir + (slash - dir);
+        wcscpy_s(slash, room, L"WDB");
+        bool inWdb = CreateDirectoryW(dir, nullptr) || GetLastError() == ERROR_ALREADY_EXISTS;
+        if (inWdb)
+        {
+            wcscpy_s(slash, room, L"WDB\\comfyatmos");
+            wcscpy_s(oldSlash, room, L"comfyatmos-cache");
+            if (GetFileAttributesW(dir) == INVALID_FILE_ATTRIBUTES && MoveFileW(oldDir, dir))
+                Log("shaders: comfyatmos-cache moved to WDB\\comfyatmos");
+            inWdb = CreateDirectoryW(dir, nullptr) || GetLastError() == ERROR_ALREADY_EXISTS;
+        }
+        if (inWdb)
+        {
+            wcscpy_s(oldSlash, room, L"comfyatmos-cache");
+            RemoveOldCache(oldDir);
+            wcscpy_s(oldSlash, room, L"comfyfog-cache");
+            RemoveOldCache(oldDir);
+        }
+        else
+            wcscpy_s(slash, room, L"comfyatmos-cache");
+        Log("shaders: the cache is %ls", slash);
         ShaderCacheStart(dir);
         return 0;
     }
