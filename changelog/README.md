@@ -5,6 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
+- [Test tools](2026-10-07-test-tools.md): a test can set the time of day (`hour`), Snapshot records it, and no
+  failed shader compile at each start.
 - [Creatures under the sea](2026-10-07-creatures-under-water.md): creatures under the water keep their texture and
   show dim, not flat and pale; the fog ends at the water's surface.
 - [Lighthouses](2026-10-07-lighthouse-distance.md): the game's own light is left out again, a Lighthouse Distance
