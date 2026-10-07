@@ -158,6 +158,11 @@ float FogAt(float3 P)
         float floorAt = (g.r - g.a >= 1.0) ? min(g.a + gGr.w, P.z) : P.z;
         base = lerp(base, floorAt, under);
         mult = lerp(mult, 1.0, under);
+        // None under the water (2026-10-07): the water pass gives what lies under it its colour and its fade. A
+        // creature under the sea writes the depth there (the water's draw over a body writes none), and the march
+        // went on under the surface into the mist's thickest part, its cap times the water's boost: the creature
+        // showed flat and pale through the water, and more with more fog. Gone over the first half yard down.
+        mult *= 1.0 - g.g * saturate((g.r + gGr.w - P.z) * 2.0);
     }
     return gF.x * mult * exp(min((base - P.z) * gF.y, 4.0));
 }
@@ -1862,6 +1867,10 @@ float FogThicknessAt(const float rel[3])
             base += (floorAt - base) * u;
             mult += (1.0f - mult) * u;
         }
+        // None under the water, as the shader does.
+        float under = (g_gSurf[k] - p[2]) * 2.0f;
+        under = under < 0.0f ? 0.0f : (under > 1.0f ? 1.0f : under);
+        mult *= 1.0f - g_gWet[k] * under;
     }
     const float up = (base - p[2]) / fs.height;
     return mult * expf(up < 4.0f ? up : 4.0f);

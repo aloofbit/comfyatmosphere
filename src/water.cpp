@@ -1051,7 +1051,9 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // A body under the water is covered more than the bed beside it ([water] cover, Underwater Cover): at 0.5
     // three times the water it is seen through, and at least half a yard of it. By the bare distance, legs just under the surface showed in their full
     // colour, as if they stood beside the water rather than in it (2026-10-02).
-    path = onBody ? max(path * (1.0 + 4.0 * gSw2.z), gSw2.z) : path;   // Underwater Cover: 0.5 = x3, half a yard
+    // The extra stops growing after the first yard (2026-10-07): a creature well under the sea had three times its
+    // water, its texture was lost, and it showed as one flat patch of the deep colour, paler than the sea round it.
+    path = onBody ? max(path + 4.0 * gSw2.z * min(path, 1.0), gSw2.z) : path;   // Underwater Cover: 0.5 = x3 up to a yard, half a yard at least
     float3 T    = exp(-gAbs.rgb * path);
     // Seen through it, the bed takes the water's hue, keeping its own brightness, more with every yard of water.
     // Filtering alone could not do it: orange sand has hardly any blue to keep, and under blue water it turned

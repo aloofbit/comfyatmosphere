@@ -2892,6 +2892,27 @@ and a ship cover it, not its 45,000 triangles. The cache's CPU on Elwynn's ridge
 the client's draws 0.4 (the files' check 0.15 of it), the seven passes 0.4, matching 0.1; and recording the draws
 0.3 ms in the hooks.
 
+## Creatures under the sea, flat and pale (2026-10-07)
+
+Swimming off the Darkshore coast, creatures under the sea showed as flat pale shapes with no texture, plain to see
+through 24 yards of water. Fog made it worse, and it was easier to see with sun shadows off (the owner; test
+`darkshore-underwater-npcs`). With our water off the creatures were dark and textured, as the sea floor. Shots with
+one control off at a time gave two causes:
+
+- **The mist under the water** (most of it). The water's draw over a body (bodymask.cpp's stencil mark) writes no
+  depth, so the depth over a creature is the creature's, not the surface's. The march went on under the surface. The
+  fog's base over water is the surface, and below its base the fog grows to its cap (`exp(4)`, 54.6 times), times
+  the water's boost: the creature took a thick layer of pale mist. Debug View 12 showed the creatures grey in clear
+  water. `FogAt` (and `FogThicknessAt` on the CPU) now has no fog under the water's surface in a wet cell, gone
+  over the first half yard down. The water pass gives what lies under the surface its colour and its fade.
+- **Underwater Cover.** On a body, the water in front of it was three times its path (`[water] cover` 0.5). For legs
+  just under the surface that is right; for a creature 10 yards down it was 30 yards of water, all texture lost and
+  the deep colour alone, paler than the sea over the dark floor beside it. The extra now stops growing after the
+  first yard: a body has its path plus up to 2 yards at 0.5, and half a yard at the least, as before.
+
+With both, the creatures keep their shape and shade and show dim through the water. The tests of legs in the
+shallows, the canal fog, the camera under the swell and the swimmer's wake are unchanged.
+
 ## The framing that matters
 
 **comfygrass is a vertex-shader substitution mod. This is a post-process mod.** comfygrass never allocates
