@@ -3,10 +3,15 @@
 One file for each big change, named `date-short-description.md`. A file says what changed, why, and which
 controls it adds. The reasoning and the measurements are in `NOTES.md`, one section for each problem.
 
+## 2026-10-07
+
+- [Inside a building, on the stats panel](2026-10-07-indoor-stats.md): the indoor test's answer, and the step that
+  decided it.
+
 ## 2026-10-06
 
-- [The log in the Logs folder](2026-10-06-logs-folder.md): `Logs\comfyatmos.log`, and the benchmark's results
-  in the chat.
+- [The log in the Logs folder](2026-10-06-logs-folder.md): `Logs\comfyatmos.log`, the shader cache in
+  `WDB\comfyatmos`, and the benchmark's results in the chat.
 - [Rain Darkness](2026-10-06-rain-darkness.md): a rainy night is no longer brighter than a clear one.
 - [Ship wake](2026-10-06-ship-wake.md): a ship under way leaves a wake. Off by default.
 - [A ridge under the sea](2026-10-06-ridge-under-the-sea.md): far terrain under the water no longer shows as a dark

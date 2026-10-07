@@ -476,7 +476,7 @@ bool LampGlowDraw(IDirect3DDevice9* dev)
 {
     const bool logThis = g_logNext;
     g_logNext = false;
-    if (!LampGlowActive())
+    if (!LampGlowActive() || (g_cfg.shadow.debugSkip & 16))
         return false;
 
     const LampSettings& l = g_cfg.lamps;

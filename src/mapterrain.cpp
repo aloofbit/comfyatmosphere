@@ -1856,14 +1856,37 @@ void MapObjectsLog(const float at[3], float radius)
     Log("map terrain: %d of %d game objects within %.0f yards", shown, n, radius);
 }
 
-bool MapIndoors(const float p[3])
+bool MapIndoors(const float p[3], char* why, size_t whySize)
 {
+    // why (the stats panel, 2026-10-07): the furthest step any building got to, with its file name.
+    int   whyStep = 0;
+    char  whyText[160] = "no building here";
+    const auto said = [&](int step, const Inst& i, const char* fmt, auto... args) {
+        if (!why || step <= whyStep)
+            return;
+        whyStep = step;
+        const size_t slash = i.p->name.find_last_of('\\');
+        const char*  file = i.p->name.c_str() + (slash == std::string::npos ? 0 : slash + 1);
+        char rest[96];
+        snprintf(rest, sizeof(rest), fmt, args...);
+        snprintf(whyText, sizeof(whyText), "%s: %s", file, rest);
+    };
+    bool in = false;
     for (const Inst& i : g_insts)
     {
-        if (i.m->state != Model::kReady || i.m->indoor.empty())
-            continue;
         if (p[0] < i.lo[0] || p[0] > i.hi[0] || p[1] < i.lo[1] || p[1] > i.hi[1] || p[2] < i.lo[2] || p[2] > i.hi[2])
             continue;
+        if (i.m->state != Model::kReady)
+        {
+            said(1, i, "not loaded yet");
+            continue;
+        }
+        if (i.m->indoor.empty())
+        {
+            said(2, i, "no rooms");
+            continue;
+        }
+        said(3, i, "in no room's box");
         // Into the building's own space: world = own * rot + pos, and rot is a turn, so own = (world - pos) rot^T.
         const float d[3] = { p[0] - i.p->pos[0], p[1] - i.p->pos[1], p[2] - i.p->pos[2] };
         float q[3];
@@ -1880,7 +1903,12 @@ bool MapIndoors(const float p[3])
             // over the point: one of its triangles straight above, more than 1.5 yards up and within 40.
             const size_t g = k / 6;
             if (g >= i.m->indoorTris.size())
-                return true;   // no triangles kept: the box alone, as before
+            {
+                said(5, i, "room %d, by its box alone", static_cast<int>(g));
+                in = true;   // no triangles kept: the box alone, as before
+                break;
+            }
+            float above = -1.0f;   // the lowest of the room's triangles over the point, for why
             const std::vector<float>& t = i.m->indoorTris[g];
             for (size_t n = 0; n + 8 < t.size(); n += 9)
             {
@@ -1897,11 +1925,27 @@ bool MapIndoors(const float p[3])
                     continue;
                 const float z = a[2] + u * (c[2] - a[2]) + v * (e[2] - a[2]);
                 if (z > q[2] + 1.5f && z < q[2] + 40.0f)
-                    return true;
+                {
+                    said(5, i, "room %d, ceiling %.1f yd up", static_cast<int>(g), z - q[2]);
+                    in = true;
+                    break;
+                }
+                if (z > q[2] && (above < 0.0f || z - q[2] < above))
+                    above = z - q[2];
             }
+            if (in)
+                break;
+            if (above >= 0.0f)
+                said(4, i, "room %d, no ceiling (lowest %.1f yd up)", static_cast<int>(g), above);
+            else
+                said(4, i, "room %d, nothing above you", static_cast<int>(g));
         }
+        if (in)
+            break;
     }
-    return false;
+    if (why)
+        strncpy_s(why, whySize, whyText, _TRUNCATE);
+    return in;
 }
 
 bool MapFloorHeight(float x, float y, float below, float& z)

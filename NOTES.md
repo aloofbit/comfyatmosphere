@@ -1138,6 +1138,25 @@ yards up over the city. No portal leads to them, so the client never draws them.
 a group with 0x80 whole, for the shadows and the indoor test alike. Of Stormwind's 306 groups, 304 carry
 the indoor flag, the streets included, which is also why the box test alone failed there.
 
+**The indoor test on the stats panel (2026-10-07).** The owner saw the Goldshire inn fail. The test kept no
+record of what decided, so the stats panel now shows Inside building (true or false), the building and Why: the
+furthest step any building reached (no building, not loaded, no rooms, no room's box, no ceiling with the lowest
+triangle above, or the ceiling's height). The test runs every frame, up to three times: the sun shadows, Night
+Darkness and Indoor Lamps each ask, and each keeps its own fade. Each asks only while its pass draws. The
+buildings it tests are those the shadow pass loaded (`MapTerrainUpdate`, called from `ShadowWorldEnded`), so
+with the shadow map off or `[shadow] mapTerrain 0`, no building loads and the answer is always false.
+
+Two faults found while reading the code, not fixed:
+
+- The 0x40 rule drops real rooms. The core's `IsOutdoorWMO` (`source/src/game/Maps/GridMap.cpp`) lists
+  measured flags: the Gadgetzan inn is 0x2841, so it counts as outdoors here. The tunnels (0xa040) and the open
+  city groups (Stormwind 0xaa41, Orgrimmar 0xa841) have 0x8000 and the inn does not. Dropping a group only when
+  it has both 0x40 and 0x8000 keeps every other measured case as it is (Ironforge 0xa005 and the Undercity
+  0x3a05 stay indoors). The core's own rule, `(flags & 0xf000) != 0x2000` is outdoors, would put Ironforge and
+  the Undercity outdoors.
+- Dungeons never count as indoors. The loader reads only the buildings the `.adt` tiles place. A dungeon's one
+  building is placed in the map's `.wdt` (MODF), which nothing reads.
+
 **Candles from the files.** Inside a building the client has no point lights and its candles are particles
 (the Darkshire inn probe), so the lamps never found them. A building's root file places its own doodads
 (MODN names, MODS sets, MODD: 40 bytes, name offset in the low 24 bits, position, rotation as a quaternion,
@@ -2540,6 +2559,14 @@ first world frame and long before the effects needed it; 21 ms of compiling on t
 of about 1 s is left as the effects start: creating the shader objects in DXVK and the render targets, the
 4096 x 4096 shadow maps among them. Turning the effects on one at a time would spread that frame.
 
+**The folder moves to WDB (2026-10-06, the owner).** The cache is `WDB\comfyatmos\` in the client folder, not
+`comfyatmos-cache\`. WDB is the client's cache folder, and players already delete it to fix a fault; deleting it costs
+only the worker's background compile at the next start. The launcher's "Clear the cache" deletes `*.wdb` files only
+(`ClearWdb` in comfylauncher's `Operations.cs`), so it keeps the `.cso` files. At start the attach thread moves an old
+`comfyatmos-cache` into `WDB\comfyatmos` when that is not there yet, then deletes the `.cso` and `.tmp` files of
+`comfyatmos-cache` and `comfyfog-cache` and the folders. When WDB cannot be made, the cache stays in
+`comfyatmos-cache`. The log names the folder in use (`shaders: the cache is ...`).
+
 ## The new file names: comfyatmos (2026-10-06)
 
 The owner, for v0.10.0-alpha: `comfyfog.dll` and `comfyfog.ini` become `comfyatmos.dll` and `comfyatmos.ini`; the log and
@@ -2718,6 +2745,87 @@ light). The beam's way across the ground goes in `c223.zw`, from the same angle 
 side, with a soft edge from 30% in), in `c221` (the parting's particles went to 8). It was a power over the beam's angle (waterWedge, 40 then 20): the
 tail of that curve lit three times the beam's width even at 100, so the slider seemed to do nothing (the owner). The pixel shader's
 compiler keeps a constant of its own in c7, so the constants go up as c0 to c6 and c8 to c15.
+
+## Performance: the volumetric light (2026-10-07, perf-1)
+
+The owner: the Volumetric Light box alone took about half the frame rate, 40 to 50 frames a second. The box turns on
+more than the light: the seven shadow maps, the sun shadows, the bodies' mask and the lamps' glow all follow it
+(`VolumeLightActive`).
+
+**How it was measured.** `tests/volume-cost.json` logs 10 s of frames with the light on, off, on, off, on, at the
+harbour and on Elwynn's ridges, with frame-rate-performance's controls. `[shadow] debugSkip` (added up: 1 the sun
+shadows' pass, 2 the march's reads of the maps, 4 drawing the maps, 8 the cache's upkeep, 16 the lamps' glow) leaves
+out one part at a time, and `tests/volume-parts.json` measures each with every effect on between them. The frame log
+has two more lines: each pass's CPU, and the shadow pipeline's CPU part by part (`BenchProf` in bench.h).
+
+The test client runs at 1152x864 with 4x anti-aliasing. `nvidia-smi` showed the laptop's GPU held by a power limit of
+about 55 W: under load it ran at 735 MHz of its 2100. At the harbour the GPU was at 99% load and only GPU work moved
+the frame time; on Elwynn's ridges it was at 78 to 89%, and our CPU on the game's thread set the frame time. The
+GPU's speed drifts as it warms: single 10 s logs a few minutes apart differed by more than the changes measured
+(the light-off frame went from 8.9 to 10.1 ms in one session). Variants are compared in rounds instead (A, B, C, A,
+B, C, 6 s each, four or five rounds), leaving out the first round after a `.go`, which is cold.
+
+At the start, by leaving each part out at the harbour: drawing the maps 1.1 ms, the sun shadows' pass 1.0 ms (it
+shades the water's own surface too), the march's reads of the maps nothing; on Elwynn's ridges 0.65, 0.25 and 0.15
+ms. The cache's upkeep was 1.1 ms of CPU a frame.
+
+**What changed, all with the same picture:**
+- `AnimateObjects` found each animated object's pose by trying every 2 ms of a 300 ms window round its clock: 151
+  tries of up to 12 bone chains, every frame. It now walks downhill from the clock, and tries the window only when
+  the walk ends on no match. 0.5 ms of CPU to 0.07.
+- `FileUnderObjects` and `UnitModelNear` asked every object in the table, and every unit, for every model draw.
+  They find the ones near a draw through lists sorted along x. A filter by the models' vertex counts was tried and
+  left out: it asked for every object's model at once, the windmill's came late, and a batch of windmills drawn
+  before it was known stayed in the cache (development-windmill failed).
+- The sun shadows' taps read their four texels with one Fetch4 read (`[sunshadows] fetch4`). DXVK gathers on a
+  sampler set to MIPMAPLODBIAS 'GET4' with an INTZ texture and point filtering, and only 'GET1' turns it off again:
+  a state block's 0 leaves it on, and the light's march reads the same maps a texel at a time. The order of the four
+  is found at the start, on a 4x4 map of known depths (`Fetch4Probe`): this client's DXVK gives top left, top right,
+  bottom left and bottom right in w, x, y and z. A d3d9.dll without it fails the probe, and the pass reads as before.
+- At softness 1, the default, the nine taps (and the five of the leaves and units) cover a 4x4 block of texels. Four
+  gathers read it, weighed as the taps weigh each texel: along each axis 1 - f, 1, 1, f for the nine. The sums are
+  the same as the taps' (checked to 1e-15 on random depths). The water's own shade spaces its taps three texels
+  apart: at softness 1 they form a 4x4 grid of points too, 16 single reads in place of 56. The shader went from 4312
+  instruction slots to 1813.
+- The middle map is drawn on every second rebuild (`[shadow] midEvery` 2), on those the far maps skip, so no frame
+  draws both. In between it is read through the matrix it was drawn with, as the far map is. Players and creatures
+  32 to 100 yards off move their shade at half the frame rate.
+- The leaves' maps and the hills' map are kept while nothing in them changes (`[shadow] keepStill`): the same matrix,
+  the same map files, and the same entries with the same places, poses and textures. Units never go in these maps.
+  Redrawn each second all the same.
+- The march does not read the leaves' and hills' maps where the solid map already shades the step.
+
+Shots in Debug View 5 and the normal view with Fetch4 and without (a test made for it, then removed, since it had no checks of its own) match; at the
+harbour only a moving ship's sails differ.
+
+**After.** `tests/volume-cost.json` before and after, the warm logs (the first after a `.go` left out). The GPU ran
+cooler in the second run, so the frames without the light were faster too; what the light adds is the measure:
+
+| | harbour, on / off | Elwynn, on / off |
+| --- | --- | --- |
+| before | 78.3 / 112.9 fps: 3.9 ms more a frame | 97.7 / 126.8 fps: 2.35 ms |
+| after | 98.1 / 126.7 fps: 2.3 ms | 106.8 / 126.3 fps: 1.45 ms |
+
+In rounds (A/B, four each): without Fetch4 0.3 ms more at the harbour, without keepStill 0.15 ms more; on Elwynn's
+ridges, where our CPU sets the frame time, neither changes it. There, Shadow Redraw (`[shadow] mapEvery`) 2 halves the
+CPU: the light cost 0.8 ms, 10 frames a second (111.5 against 122); at the harbour 2.0 ms. The control is at 1 in
+frame-rate-performance's settings, the owner's. At 2 the shade of what moves is a frame older; the notes of
+2026-09-29 found 3 looked the same as 1 in game.
+
+The object table's check is still 0.15 ms on Elwynn's ridges: most model draws stand within 400 yards of some object.
+
+**Tried and left out.**
+- The near map, its leaves and the middle map at 2048 (the far map's size is the Shadow Resolution control): 0.44
+  ms less at the harbour, nothing on Elwynn's ridges, but lit walls and boxes near you showed a stipple of their own
+  shade, as the depth slack in texels no longer covered them.
+- Leaving players and creatures past 120 yards out of the far maps: nothing measurable.
+- `[shadow] farEvery` 4: 0.3 ms less at the harbour, nothing on Elwynn's ridges. It stays at 2: the far maps hold the
+  volumetric light's shade of everything that moves.
+
+**Still open.** The near map at the harbour costs 0.4 to 0.5 ms of GPU a frame: filling 4096 x 4096 where the dock
+and a ship cover it, not its 45,000 triangles. The cache's CPU on Elwynn's ridges is about 1.2 ms a frame: placing
+the client's draws 0.4 (the files' check 0.15 of it), the seven passes 0.4, matching 0.1; and recording the draws
+0.3 ms in the hooks.
 
 ## The framing that matters
 

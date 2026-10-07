@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <intrin.h>
+#include <string>
 #include <vector>
 
 namespace
@@ -141,6 +142,13 @@ namespace
     unsigned g_flGpuFrames = 0;
     double   g_flCpuSum[kBenchSections] = {};
     unsigned long long g_flParts[kCpuParts] = {};
+    unsigned long long g_flProf[kProfCount] = {};
+    // In the order of BenchProf. Indented: a part of the one above it.
+    const char* const kProfNames[kProfCount] = {
+        "refresh objects", "merge: place", "  of which objects' parts", "  of which the files' check",
+        "merge: claims", "merge: match", "animate objects", "evict", "map terrain update", "replay prep",
+        "state save", "the seven passes", "  of which the files' draws", "state restore",
+    };
 
     unsigned long long g_sectionTicks = 0;      // every pass's CPU ticks, a running sum (BenchSectionTicks)
     unsigned long long g_secTick[kBenchSections] = {};
@@ -529,6 +537,12 @@ bool BenchTiming()
     return g_running || g_flOn;
 }
 
+void BenchProfAdd(BenchProf p, unsigned long long ticks)
+{
+    if (g_flOn)
+        g_flProf[p] += ticks;
+}
+
 void BenchCpuAddTicks(BenchCpu part, unsigned long long ticks)
 {
     if (g_running && InMeasure(Now()))
@@ -654,6 +668,21 @@ namespace
             Log("framelog: our CPU in all a frame %.2f ms: %.2f ms in the hooks on the client's draws (the water "
                 "%.2f ms of it), %.2f ms in our passes (the shadow maps %.2f ms)", hooks + passes, hooks,
                 g_flParts[kCpuWater] * k, passes, 1000.0 * g_flCpuSum[kBenchShadow] / n);
+            // Each pass's CPU (2026-10-07, perf-1): the shadow maps were 2 of 6 ms in our passes.
+            const double c = 1000.0 / n;
+            Log("framelog: our passes' CPU a frame: shadow maps %.2f, sun shadows %.2f, light and fog %.2f, lamp fog "
+                "%.2f, rays %.2f, lighthouses %.2f, body mask and depth %.2f, saturation %.2f ms",
+                g_flCpuSum[kBenchShadow] * c, g_flCpuSum[kBenchSunShadows] * c, g_flCpuSum[kBenchVolume] * c,
+                g_flCpuSum[kBenchLamps] * c, g_flCpuSum[kBenchRays] * c, g_flCpuSum[kBenchBeacon] * c,
+                g_flCpuSum[kBenchMask] * c, g_flCpuSum[kBenchGrade] * c);
+            std::string split;
+            for (int p = 0; p < kProfCount; ++p)
+            {
+                char part[96];
+                _snprintf_s(part, sizeof(part), _TRUNCATE, "%s%s %.3f", p ? "; " : "", kProfNames[p], g_flProf[p] * k);
+                split += part;
+            }
+            Log("framelog: shadow CPU split, ms a frame: %s", split.c_str());
             Log("framelog: the water's CPU a frame: %.2f ms reading the wet cells, %.2f ms issuing our draws over the "
                 "chunks, %.2f ms the rest", g_flParts[kCpuWaterCells] * k, g_flParts[kCpuWaterDraws] * k,
                 (g_flParts[kCpuWater] - g_flParts[kCpuWaterCells] - g_flParts[kCpuWaterDraws]) * k);
@@ -715,6 +744,8 @@ void FrameLogStart(double seconds)
         g_flGpuSum[s] = g_flCpuSum[s] = 0.0, g_flGpuRan[s] = 0;
     g_flGpuFrames = 0;
     for (unsigned long long& t : g_flParts)
+        t = 0;
+    for (unsigned long long& t : g_flProf)
         t = 0;
     ShadowTiming(true);
     double r, c, p;

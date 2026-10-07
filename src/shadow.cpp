@@ -678,6 +678,24 @@ namespace
         unsigned syncs = 0, searches = 0;
     };
     std::vector<ObjRec> g_objects;
+    // The table's places along x, sorted, with each object's index (2026-10-07, perf-1): FileUnderObjects asked every
+    // object, twice, for every model draw. Built after RefreshObjects; nothing between it and Merge adds or removes one.
+    std::vector<std::pair<float, int>> g_objByX;
+    const std::vector<uint32_t>* ObjViews(const ObjRec& o);
+
+    void IndexObjects()
+    {
+        g_objByX.clear();
+        for (size_t i = 0; i < g_objects.size(); ++i)
+            g_objByX.push_back({ g_objects[i].place[0], static_cast<int>(i) });
+        std::sort(g_objByX.begin(), g_objByX.end());
+    }
+
+    // The first index entry at x or past it.
+    std::vector<std::pair<float, int>>::const_iterator ObjFrom(float x)
+    {
+        return std::lower_bound(g_objByX.begin(), g_objByX.end(), std::make_pair(x, -1));
+    }
     // Bones a copy of a model's part holds, by buffer, shader and the part's first index, learnt from a draw of
     // one copy: a batch of N copies holds N groups of that many (2026-10-04).
     std::unordered_map<unsigned long long, int> g_bonesPerCopy;
@@ -854,13 +872,24 @@ namespace
     // A draw whose own bones stand on records' places: filed under each (a copy, its references held), and
     // true; the caller then lets the draw go. Not a unit's own model (UnitModelNear): a character standing on
     // a doodad's place is still a character.
+    // The vertex counts of the views of an object's model, or null while not known.
+    const std::vector<uint32_t>* ObjViews(const ObjRec& o)
+    {
+        if (o.kind == 1)
+            return MapModelViews(o.model);
+        if (const std::string* name = MapGameObjectModel(o.display))
+            return MapModelViews(*name);
+        return nullptr;
+    }
+
     bool FileUnderObjects(const Rec& r, const D3DMATRIX& absolute, const float pos[3], double now)
     {
-        if (!r.vs || g_objects.empty())
+        if (!r.vs || g_objects.empty() || g_objByX.size() != g_objects.size())
             return false;
         bool nearAny = false;
-        for (const ObjRec& o : g_objects)
+        for (auto it = ObjFrom(pos[0] - 400.0f); it != g_objByX.end() && it->first < pos[0] + 400.0f; ++it)
         {
+            const ObjRec& o = g_objects[it->second];
             const float dx = o.place[0] - pos[0], dy = o.place[1] - pos[1], dz = o.place[2] - pos[2];
             if (dx * dx + dy * dy + dz * dz < 400.0f * 400.0f)   // a batch's first bone: up to 300 yards off
             {
@@ -890,11 +919,7 @@ namespace
         // The number of copies of the object's model the draw holds (1: the model itself; more: a batch), or 0
         // when the draw is not its model.
         const auto ownCopies = [&](const ObjRec& o) -> UINT {
-            const std::vector<uint32_t>* views = nullptr;
-            if (o.kind == 1)
-                views = MapModelViews(o.model);
-            else if (const std::string* name = MapGameObjectModel(o.display))
-                views = MapModelViews(*name);
+            const std::vector<uint32_t>* views = ObjViews(o);
             if (!views || !verts)
                 return 0;
             for (uint32_t v : *views)
@@ -913,11 +938,19 @@ namespace
                 lo[j] = (std::min)(lo[j], bw[k][j] - kObjBone);
                 hi[j] = (std::max)(hi[j], bw[k][j] + kObjBone);
             }
-        for (ObjRec& o : g_objects)
+        // The objects inside the box, in the table's order, as before the index.
+        static std::vector<int> inBox;
+        inBox.clear();
+        for (auto it = ObjFrom(lo[0]); it != g_objByX.end() && it->first <= hi[0]; ++it)
         {
-            if (o.place[0] < lo[0] || o.place[0] > hi[0] || o.place[1] < lo[1] || o.place[1] > hi[1] ||
-                o.place[2] < lo[2] || o.place[2] > hi[2])
-                continue;
+            const ObjRec& o = g_objects[it->second];
+            if (o.place[1] >= lo[1] && o.place[1] <= hi[1] && o.place[2] >= lo[2] && o.place[2] <= hi[2])
+                inBox.push_back(it->second);
+        }
+        std::sort(inBox.begin(), inBox.end());
+        for (int oi : inBox)
+        {
+            ObjRec& o = g_objects[oi];
             for (int k = 0; k < nb; ++k)
             {
                 const float dx = bw[k][0] - o.place[0], dy = bw[k][1] - o.place[1], dz = bw[k][2] - o.place[2];
@@ -1259,10 +1292,35 @@ namespace
                 };
                 if (o.timed)   // near where the clock says
                 {
+                    // Downhill from the clock in 2 ms steps, each way while the error falls (2026-10-07, perf-1).
+                    // The whole 300 ms window, 151 times up to 12 bone chains a frame for each object, was a
+                    // quarter of the shadow pipeline's CPU in Elwynn (0.5 ms). The clock is seldom more than a
+                    // step or two off, so the walk takes three to five. It falls back to the window when it ends
+                    // on no match.
                     const M2Anim::Sequence& q = m->seqs[o.seq];
-                    for (float t = (std::max)(static_cast<float>(q.start), o.ms - 150.0f);
-                         t <= (std::min)(static_cast<float>(q.end), o.ms + 150.0f); t += 2.0f)
-                        consider(o.seq, t, ObsError(*m, obs, o.seq, t));
+                    const float lo = (std::max)(static_cast<float>(q.start), o.ms - 150.0f);
+                    const float hi = (std::min)(static_cast<float>(q.end), o.ms + 150.0f);
+                    if (lo <= hi)
+                    {
+                        const float t0 = (std::min)((std::max)(o.ms, lo), hi);
+                        const float e0 = ObsError(*m, obs, o.seq, t0);
+                        consider(o.seq, t0, e0);
+                        for (float dir = -2.0f; dir <= 2.0f; dir += 4.0f)
+                        {
+                            float last = e0;
+                            for (float t = t0 + dir; t >= lo && t <= hi; t += dir)
+                            {
+                                const float e = ObsError(*m, obs, o.seq, t);
+                                consider(o.seq, t, e);
+                                if (e >= last)
+                                    break;
+                                last = e;
+                            }
+                        }
+                        if (bestErr > kSyncErr)
+                            for (float t = lo; t <= hi; t += 2.0f)
+                                consider(o.seq, t, ObsError(*m, obs, o.seq, t));
+                    }
                 }
                 if (bestErr > kSyncErr && now - o.searchedAt > 0.5)   // everywhere, at most twice a second
                 {
@@ -1656,6 +1714,9 @@ namespace
     // the cover test matches the place only.
     int g_refusedLogs = 0;
     std::unordered_map<long long, std::vector<int>> g_filesUnitCells;
+    // The units along x, sorted, with each one's index (2026-10-07, perf-1): UnitModelNear went through every unit
+    // for every model draw, from four places.
+    std::vector<std::pair<float, int>> g_filesUnitsByX;
     float g_filesUnits[512][3];
     unsigned g_filesUnitModels[512][2];   // each unit's display id and mount display id (0: none)
     bool g_filesUnitStealthed[512];       // stealthed, and not the player
@@ -1666,6 +1727,7 @@ namespace
     void TakeUnits()
     {
         g_filesUnitCells.clear();
+        g_filesUnitsByX.clear();
         static ClientUnit list[512];
         const int n = ClientUnitList(list, 512);
         g_filesUnitCount = n;
@@ -1687,7 +1749,9 @@ namespace
                 MapCreatureModelViews(list[i].mount);
             g_filesUnitCells[(static_cast<long long>(floorf(g_filesUnits[i][0] * 0.5f)) << 32) ^
                              (static_cast<long long>(floorf(g_filesUnits[i][1] * 0.5f)) & 0xFFFFFFFFll)].push_back(i);
+            g_filesUnitsByX.push_back({ g_filesUnits[i][0], i });
         }
+        std::sort(g_filesUnitsByX.begin(), g_filesUnitsByX.end());
     }
 
     // A unit's own model, by what it draws (2026-10-04). The client draws a unit's model, and its mount, from a
@@ -1710,8 +1774,11 @@ namespace
     {
         known = true;
         const UINT verts = RecVertices(r);
-        for (int i = 0; i < g_filesUnitCount; ++i)
+        for (auto it = std::lower_bound(g_filesUnitsByX.begin(), g_filesUnitsByX.end(),
+                                        std::make_pair(pos[0] - kUnitModelReach, -1));
+             it != g_filesUnitsByX.end() && it->first <= pos[0] + kUnitModelReach; ++it)
         {
+            const int i = it->second;
             const float dx = pos[0] - g_filesUnits[i][0], dy = pos[1] - g_filesUnits[i][1],
                         dz = pos[2] - g_filesUnits[i][2];
             if (dx * dx + dy * dy > kUnitModelReach * kUnitModelReach || dz < -kUnitModelReach || dz > kUnitModelReach)
@@ -2007,6 +2074,7 @@ namespace
         // tree already stored was matched took that tree's entry as "moved" (2026-09-29).
         struct Placed { bool ok; D3DMATRIX absolute; float pos[3]; };
         std::vector<Placed> placed(g_frame.size());
+        const unsigned long long profPlace = BenchProfBegin();
         for (size_t fi = 0; fi < g_frame.size(); ++fi)
         {
             Rec& r = g_frame[fi];
@@ -2098,13 +2166,23 @@ namespace
                 pos[0] = e.absolute.m[3][0]; pos[1] = e.absolute.m[3][1]; pos[2] = e.absolute.m[3][2];
             }
             // An object's draw goes to its record (the object table), not to the cache.
-            if (r.vs && FileUnderObjects(r, e.absolute, pos, now))
+            bool underObjects = false;
+            {
+                BenchProfScope prof(kProfFileObj);
+                underObjects = r.vs && FileUnderObjects(r, e.absolute, pos, now);
+            }
+            if (underObjects)
             {
                 ReleaseRec(r);
                 r = Rec{};
                 continue;
             }
-            if (FromFiles(r, pos, e.absolute, r.vs ? &g_constPool[r.consts] : nullptr, (std::min)(r.nregs, r.nregsOwn)))
+            bool fromFiles = false;
+            {
+                BenchProfScope prof(kProfFromFiles);
+                fromFiles = FromFiles(r, pos, e.absolute, r.vs ? &g_constPool[r.consts] : nullptr, (std::min)(r.nregs, r.nregsOwn));
+            }
+            if (fromFiles)
             {
                 NoteNear("refused, the files place it", r, pos, player, havePlayer, 0);
                 if (!r.vs && !r.terrain && g_refusedLogs > 0)
@@ -2130,7 +2208,9 @@ namespace
             memcpy(pl.pos, pos, sizeof(pos));
         }
 
+        BenchProfEnd(kProfPlace, profPlace);
         // Claims: the nearest unclaimed instance within kMatchRadius, for each draw.
+        const unsigned long long profClaim = BenchProfBegin();
         for (size_t fi = 0; fi < g_frame.size(); ++fi)
         {
             if (!placed[fi].ok)
@@ -2154,7 +2234,9 @@ namespace
             if (nearest)
                 nearest->claimed = now;
         }
+        BenchProfEnd(kProfClaim, profClaim);
 
+        BenchProfScope profMatch(kProfMatch);
         for (size_t fi = 0; fi < g_frame.size(); ++fi)
         {
             if (!placed[fi].ok)
@@ -2651,6 +2733,10 @@ namespace
     IDirect3DTexture9*    g_depthTex  = nullptr;
     IDirect3DSurface9*    g_depthSurf = nullptr;
     IDirect3DSurface9*    g_colour    = nullptr;   // a render target has to be bound; nothing is written to it
+    // A map kept from its last drawing ([shadow] keepStill): what it was drawn from, and when.
+    struct KeptMap { bool ok = false; unsigned long long hash = 0; D3DMATRIX m = {}; double at = 0.0; };
+    KeptMap               g_kept[7];
+    unsigned              g_keptPasses = 0;        // passes kept, for the probe
     UINT                  g_size      = 0;
     IDirect3DStateBlock9* g_sb        = nullptr;
     bool                  g_failed    = false;
@@ -2834,6 +2920,8 @@ namespace
         SafeRelease(g_depthSurf);
         SafeRelease(g_depthTex);
         SafeRelease(g_colour);
+        for (KeptMap& k : g_kept)
+            k.ok = false;
         SafeRelease(g_sb);
         g_size  = 0;
         g_valid = false;
@@ -3562,15 +3650,27 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         memcpy(g_logPlayer, pl, sizeof(g_logPlayer));
     }
     double tCache = t0;   // where the replay's own timing starts
-    if (g_fullFrame)
+    if (g_fullFrame && (s.debugSkip & 8))
+        ReleaseFrame();
+    else if (g_fullFrame)
     {
         g_objDraws = g_objFiled = 0;
-        RefreshObjects(pl, g_cfg.shadow.range + g_cfg.shadow.keepMargin, now);
+        {
+            BenchProfScope prof(kProfRefresh);
+            RefreshObjects(pl, g_cfg.shadow.range + g_cfg.shadow.keepMargin, now);
+            IndexObjects();
+        }
         Merge(camVP, camVPInv, cam, cam, now);
-        AnimateObjects(now);
+        {
+            BenchProfScope prof(kProfAnimate);
+            AnimateObjects(now);
+        }
         const double tMerged = Now();
         g_samplesLeft = 0;
-        Evict(camVP, cam, pl, now);
+        {
+            BenchProfScope prof(kProfEvict);
+            Evict(camVP, cam, pl, now);
+        }
         tCache = Now();
         if (logThis)
             Log("shadow: time: matching %.2f ms, eviction %.2f ms", 1000.0 * (tMerged - t0),
@@ -3589,8 +3689,11 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // The ground from the map files (mapterrain.cpp): the tiles the far map can reach. Its box runs
     // ShadowMapDepth() yards toward the sun, so a ridge that far off can still shade you.
     const float mapDepth = ShadowMapDepth();
-    MapTerrainUpdate(dev, pl, s.mapTerrain ? (std::max)(s.range, mapDepth) + 60.0f : 0.0f,
-                     (std::max)(s.range, s.depth) + 60.0f);   // past this, the ground alone
+    {
+        BenchProfScope prof(kProfTerrain);
+        MapTerrainUpdate(dev, pl, s.mapTerrain ? (std::max)(s.range, mapDepth) + 60.0f : 0.0f,
+                         (std::max)(s.range, s.depth) + 60.0f);   // past this, the ground alone
+    }
 
     // Nothing to draw only if the cache is empty and the files are off: with them on, the cache holds only
     // what moves, and can be empty on a hill with nobody about.
@@ -3696,9 +3799,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // changes from one frame to the next, while the near map, where the player and everything close
     // stand, is redrawn each time. It cost 5 ms of a 10.8 ms replay. In between it is read, like the map
     // on a frame without a replay, through the matrix it was drawn with, brought to this camera.
-    static unsigned farTick = 0;
+    // One count of the replays for the far and middle maps (2026-10-07, perf-1), so the middle map can be drawn on the
+    // replays the far maps skip.
+    static unsigned replayTick = 0;
+    const unsigned tick = replayTick++;
     const unsigned farEvery = s.farEvery > 1 ? static_cast<unsigned>(s.farEvery) : 1u;
-    const bool drawFar = !g_valid || farEvery <= 1 || (farTick++ % farEvery) == 0;
+    const bool drawFar = !g_valid || farEvery <= 1 || (tick % farEvery) == 0;
     if (drawFar)
     {
         g_shadowVP    = sunVP;
@@ -3750,14 +3856,26 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         narrowMap(s.nearRange, nearProj, nearVP, nearAbsToSun, nearCutAbsToSun);
     // The middle map ([shadow] midRange, 2026-10-02): past the near map, a shadow cast from under a yard
     // away (a merlon on the wall behind it, an eave) was lost in the far map's slack, up to 1.4 yards.
-    const bool doMid = s.midRange > 0.0f && g_midSurf;
+    // Every midEvery-th replay (2026-10-07, perf-1), on the replays the far maps skip; read in between as the far map
+    // is, through the matrix it was drawn with. It holds the units 32 to 100 yards off, whose shade then moves at half
+    // the frame rate at 2.
+    const bool haveMid = s.midRange > 0.0f && g_midSurf;
+    const unsigned midEvery = s.midEvery > 1 ? static_cast<unsigned>(s.midEvery) : 1u;
+    const bool doMid = haveMid && (!g_midValid || midEvery <= 1 || (tick % midEvery) == 1 % midEvery);
     D3DMATRIX midProj, midVP, midAbsToSun, midCutAbsToSun;
     if (doMid)
         narrowMap(s.midRange, midProj, midVP, midAbsToSun, midCutAbsToSun);
+    else if (haveMid && g_midValid)
+    {
+        D3DMATRIX toAbs;
+        Translation(cam[0], cam[1], cam[2], toAbs);
+        Mul(toAbs, g_midAbsToSun, g_midVP);
+    }
 
     auto* d = dev->lpVtbl;
 
     // --- save ---------------------------------------------------------------------------------------
+    const unsigned long long profSave = BenchProfBegin();
     IDirect3DSurface9* oldRT = nullptr;
     IDirect3DSurface9* oldDS = nullptr;
     d->GetRenderTarget(dev, 0, &oldRT);
@@ -3839,6 +3957,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetStreamSourceFreq(dev, 0, 1);
     d->SetStreamSourceFreq(dev, 1, 1);
 
+    BenchProfEnd(kProfSave, profSave);
+    const unsigned long long profPrep = BenchProfBegin();
     UINT drawn = 0, drawnVS = 0, unseen = 0, skipped = 0, nearDrawn = 0;
     // Four passes: far solid, far leaves, near solid, near leaves. What goes to the leaves: any model
     // with an alpha-tested part, whole (a tree with its trunk, a bush), and any other alpha-tested draw;
@@ -3978,8 +4098,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     for (const ObjRec& o : g_objects)
         for (const auto& kv : o.parts)
             replayList.push_back({ &kv.second, doLeaves && isLeaf(kv.second) });
+    BenchProfEnd(kProfPrep, profPrep);
+    const unsigned long long profPasses = BenchProfBegin();
     for (int pass = 0; pass < 7; ++pass)
     {
+    if (s.debugSkip & 4)
+        break;
     const bool unitPass = pass == 5;
     const bool midPass  = pass == 4;
     const bool terrPass = pass == 6;
@@ -3988,13 +4112,134 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (((pass < 2 || terrPass) && !drawFar) || (nearPass && !doNear) || (midPass && !doMid) ||
         (leafPass && !doLeaves) || (unitPass && !doUnits) || (terrPass && !doTerr))
         continue;
+    const float mapRange = nearPass ? s.nearRange : midPass ? s.midRange : s.range;
+    const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
+    const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
+    // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
+    // the map: 2000 to 5000 draws a frame, 6 to 9 ms of CPU, which the game feels. An entry whose
+    // reference point is well outside the box the map covers cannot mark it, so it is not drawn. The
+    // margin is generous because a model's reference point is its first bone, which for some models sits
+    // far from the geometry (trees measured at 85 to 95 yards away).
+    // The near map's margin is 16 yards, not 40 (2026-09-29): 40 around a 32-yard map was a box more than
+    // twice its size, and 2,000 draws; 16 still takes in a big tree's crown beside it.
+    const float sideReach = mapRange + (nearPass || midPass ? s.nearMargin : 40.0f);   // `range` either side
+    const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
+    // [sunshadows] world and units (2026-09-30): the near maps are the sun shadows' alone, so the world is
+    // left out of them when its shadows are off; units are left out of every map when theirs are.
+    const bool worldHere = (!(nearPass || midPass) || g_cfg.sunShadows.world) && !unitPass;
+    const bool unitsHere = g_cfg.sunShadows.units;
+    // Whether this pass draws an entry of the cache or the object table. count: add it to the probe's figures.
+    const auto wants = [&](const ReplayItem& item, bool count) -> bool {
+        const Entry& e = *item.e;
+        const Rec&   r = e.rec;
+        if (count && e.lastSeen < now && pass < 2)
+            ++unseen;
+        // The client's terrain goes to the terrain's map when there is one, and nothing else does.
+        if (terrPass != (doTerr && r.terrain != 0))
+            return false;
+        // With leaf maps, the leaves go there and everything else to the solid map.
+        if (!terrPass && doLeaves && item.leaf != leafPass)
+            return false;
+        // With the units' map drawn, the units stay out of the near solid map (2026-10-01): a character's
+        // shadow then comes from one map, with one outline. In both, its shadow was drawn twice with two
+        // outlines, a lighter one and a darker one, and the near map's slack kept the darker one off the feet.
+        if (e.unit ? (!unitsHere || (nearPass && !leafPass && !unitPass && doUnits)) : !worldHere)
+            return false;
+        if (unitPass && !(r.vs && e.unit))
+            return false;
+        // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
+        // hundred of them rather than thousands, and one chunk covers so much ground that the point we
+        // hold for it can sit well outside the map while its geometry crosses the middle: culling those
+        // took the shade out from under a mountain 150 yards away.
+        if (r.vs)
+        {
+            const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1], dz = e.pos[2] - pl[2];
+            const float along = dx * sunDir[0] + dy * sunDir[1] + dz * sunDir[2];
+            const float sx = dx - along * sunDir[0], sy = dy - along * sunDir[1], sz = dz - along * sunDir[2];
+            const float side2 = sx * sx + sy * sy + sz * sz;
+            const float sr = sideReach + e.spread, ar = alongReach + e.spread;   // a batch: any of its models
+            if (side2 > sr * sr || along > ar || along < -ar)
+            {
+                if (count && pass < 2)
+                    ++skipped;
+                return false;
+            }
+            // Small models far off stay out of the far map ([shadow] minTriangles): a flower or a stone
+            // 60 yards away is a few texels, and each costs a draw (about 1 microsecond) all the same.
+            // By the whole model, not the part (2026-10-04): a Westfall windmill is drawn in parts of 108, 88,
+            // 60 and 30 triangles, 286 in all. Each part was under 200, so past 60 yards its blades (leaves,
+            // the far map alone) were gone, and past 100 (the middle map's reach) the tower too: coming in
+            // from afar its shade arrived in steps, the building, then the blades.
+            if (pass < 2 && dx * dx + dy * dy > 60.0f * 60.0f &&
+                ModelTriangles(r) < static_cast<UINT>(s.minTriangles))
+            {
+                if (count)
+                    ++skipped;
+                return false;
+            }
+        }
+        return true;
+    };
+    // The leaves' maps and the hills' map are kept while nothing in them changes ([shadow] keepStill, 2026-10-07,
+    // perf-1): the same matrix, the same files, and the same entries with the same places, poses and textures. Units
+    // never go in these maps, and what is in them stands still while you do. Redrawn each second all the same, so
+    // nothing this does not see stays wrong for long.
+    if (s.keepStill && (leafPass || terrPass))
+    {
+        // Eight bytes a step: a model's bones are up to 4 KB, and a byte a step cost 0.15 ms a frame in Elwynn.
+        unsigned long long h = 1469598103934665603ull;
+        const auto mix = [&h](const void* data, size_t bytes) {
+            const unsigned char* b = static_cast<const unsigned char*>(data);
+            size_t i = 0;
+            for (; i + 8 <= bytes; i += 8)
+            {
+                unsigned long long w;
+                memcpy(&w, b + i, 8);
+                h = (h ^ w) * 1099511628211ull;
+                h ^= h >> 29;
+            }
+            for (; i < bytes; ++i)
+                h = (h ^ b[i]) * 1099511628211ull;
+        };
+        const unsigned files = MapFilesVersion();
+        mix(&files, sizeof(files));
+        mix(&s.leafAlpha, sizeof(s.leafAlpha));
+        for (const ReplayItem& item : replayList)
+        {
+            if (!wants(item, false))
+                continue;
+            const Entry& e = *item.e;
+            const Rec& r = e.rec;
+            const void* ids[] = { item.e, r.vb[0], r.vb[1], r.ib, r.vs, r.decl, r.tex0 };
+            mix(ids, sizeof(ids));
+            const UINT nums[] = { r.vbOffset[0], r.startIndex, r.primCount, static_cast<UINT>(r.baseVertex), r.fvf,
+                                  r.alphaTest, r.alphaRef, r.alphaFunc };
+            mix(nums, sizeof(nums));
+            mix(&e.absolute, sizeof(e.absolute));
+            if (r.vs && !e.consts.empty())
+                mix(e.consts.data(), (std::min)(e.consts.size() / 4, static_cast<size_t>((std::max)(r.nregsOwn, 34u))) * 16);
+        }
+        KeptMap& k = g_kept[pass];
+        bool same = k.ok && k.hash == h && now - k.at < 1.0;
+        for (int i = 0; i < 4 && same; ++i)
+            for (int j = 0; j < 4 && same; ++j)
+                same = fabsf(k.m.m[i][j] - passAbsToSun.m[i][j]) <= (i == 3 ? 1e-4f : 1e-6f);
+        if (same)
+        {
+            ++g_keptPasses;
+            continue;
+        }
+        k.ok = true;
+        k.hash = h;
+        k.m = passAbsToSun;
+        k.at = now;
+    }
+    else
+        g_kept[pass].ok = false;
     const double passStart = Now();
     static const BenchSection kPassSection[7] = { kBenchMapFar, kBenchMapFarLeaf, kBenchMapNear, kBenchMapNearLeaf,
                                                   kBenchMapMid, kBenchMapUnits, kBenchMapTerrain };
     BenchSectionBegin(dev, kPassSection[pass]);   // each map's own GPU time (2026-10-06)
-    const float mapRange = nearPass ? s.nearRange : midPass ? s.midRange : s.range;
-    const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
-    const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
     if (unitPass)
         d->SetRenderTarget(dev, 0, g_unitColour);   // the restore puts the client's back
     d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : terrPass ? g_terrSurf
@@ -4013,21 +4258,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     }
     d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : midPass ? &midProj : &sunProj);
 
-    // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
-    // the map: 2000 to 5000 draws a frame, 6 to 9 ms of CPU, which the game feels. An entry whose
-    // reference point is well outside the box the map covers cannot mark it, so it is not drawn. The
-    // margin is generous because a model's reference point is its first bone, which for some models sits
-    // far from the geometry (trees measured at 85 to 95 yards away).
-    // The near map's margin is 16 yards, not 40 (2026-09-29): 40 around a 32-yard map was a box more than
-    // twice its size, and 2,000 draws; 16 still takes in a big tree's crown beside it.
-    const float sideReach = mapRange + (nearPass || midPass ? s.nearMargin : 40.0f);   // `range` either side
-    const float alongReach = s.depth + 40.0f;    // and `depth` toward the sun and away from it
-    // [sunshadows] world and units (2026-09-30): the near maps are the sun shadows' alone, so the world is
-    // left out of them when its shadows are off; units are left out of every map when theirs are.
-    const bool worldHere = (!(nearPass || midPass) || g_cfg.sunShadows.world) && !unitPass;
-    const bool unitsHere = g_cfg.sunShadows.units;
     // The ground from the files goes where the client's terrain would: the terrain's map, or else the leaf
     // map with terrainLeaves.
+    const unsigned long long profFiles = BenchProfBegin();
     if (worldHere && s.mapTerrain && (doTerr ? terrPass : !terrPass && (doLeaves ? leafPass == s.terrainLeaves : !leafPass)))
     {
         const unsigned n = MapTerrainDraw(dev, passAbsToSun, cam, s.terrainLow);
@@ -4050,6 +4283,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             n += MapDoodadsDraw(dev, passCut, cam, true, static_cast<DWORD>(s.leafAlpha), D3DCMP_GREATEREQUAL);
         if (nearPass) nearDoodads += n; else if (midPass) midDoodads += n; else farDoodads += n;
     }
+    BenchProfEnd(kProfFiles, profFiles);
     IDirect3DPixelShader9* passPs = nullptr;   // the UV alpha mask bound, if any (UvOutput)
     // What the last draw of this pass bound (2026-10-06). Entries of one model follow each other, and each
     // draw set its shader, format, buffers, texture and alpha test again: about ten calls a draw, each through
@@ -4066,51 +4300,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     {
         const Entry& e = *item.e;
         const Rec&   r = e.rec;
-        if (e.lastSeen < now && pass < 2)
-            ++unseen;
-        // The client's terrain goes to the terrain's map when there is one, and nothing else does.
-        if (terrPass != (doTerr && r.terrain != 0))
+        if (!wants(item, true))
             continue;
-        // With leaf maps, the leaves go there and everything else to the solid map.
-        if (!terrPass && doLeaves && item.leaf != leafPass)
-            continue;
-        // With the units' map drawn, the units stay out of the near solid map (2026-10-01): a character's
-        // shadow then comes from one map, with one outline. In both, its shadow was drawn twice with two
-        // outlines, a lighter one and a darker one, and the near map's slack kept the darker one off the feet.
-        if (e.unit ? (!unitsHere || (nearPass && !leafPass && !unitPass && doUnits)) : !worldHere)
-            continue;
-        if (unitPass && !(r.vs && e.unit))
-            continue;
-        // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
-        // hundred of them rather than thousands, and one chunk covers so much ground that the point we
-        // hold for it can sit well outside the map while its geometry crosses the middle: culling those
-        // took the shade out from under a mountain 150 yards away.
-        if (r.vs)
-        {
-            const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1], dz = e.pos[2] - pl[2];
-            const float along = dx * sunDir[0] + dy * sunDir[1] + dz * sunDir[2];
-            const float sx = dx - along * sunDir[0], sy = dy - along * sunDir[1], sz = dz - along * sunDir[2];
-            const float side2 = sx * sx + sy * sy + sz * sz;
-            const float sr = sideReach + e.spread, ar = alongReach + e.spread;   // a batch: any of its models
-            if (side2 > sr * sr || along > ar || along < -ar)
-            {
-                if (pass < 2)
-                    ++skipped;
-                continue;
-            }
-            // Small models far off stay out of the far map ([shadow] minTriangles): a flower or a stone
-            // 60 yards away is a few texels, and each costs a draw (about 1 microsecond) all the same.
-            // By the whole model, not the part (2026-10-04): a Westfall windmill is drawn in parts of 108, 88,
-            // 60 and 30 triangles, 286 in all. Each part was under 200, so past 60 yards its blades (leaves,
-            // the far map alone) were gone, and past 100 (the middle map's reach) the tower too: coming in
-            // from afar its shade arrived in steps, the building, then the blades.
-            if (pass < 2 && dx * dx + dy * dy > 60.0f * 60.0f &&
-                ModelTriangles(r) < static_cast<UINT>(s.minTriangles))
-            {
-                ++skipped;
-                continue;
-            }
-        }
         if (r.vs)
         {
             D3DMATRIX m;
@@ -4218,6 +4409,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     passTime[pass] = Now() - passStart;
     BenchSectionEnd(dev, kPassSection[pass], true);
     }   // the maps
+    BenchProfEnd(kProfPasses, profPasses);
     if (logThis)
     {
         Log("shadow: %s; far map %u tiles, %u buildings and %u doodad draws, near map %u, %u and %u; the "
@@ -4227,6 +4419,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (doMid)
             Log("shadow: middle map, %.0f yards either side: %u tiles, %u buildings and %u doodad draws, %u of the "
                 "game's draws, in %.2f ms", s.midRange, midTiles, midWmos, midDoodads, midDrawn, 1000.0 * passTime[4]);
+        Log("shadow: %u drawings of the leaves' and hills' maps kept since the last probe ([shadow] keepStill)",
+            g_keptPasses);
+        g_keptPasses = 0;
         // The models the cache keeps: those at units (characters, creatures) and the others (the server's
         // objects, animated doodads, the furniture inside buildings, anything past the tiles loaded).
         {
@@ -4521,12 +4716,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         g_midAbsToSun = midAbsToSun;
         g_midValid    = true;
     }
-    else
+    else if (!haveMid)
     {
         g_midValid = false;
     }
 
     // --- restore ------------------------------------------------------------------------------------
+    const unsigned long long profRestore = BenchProfBegin();
     for (int i = 0; i < kTouchedCount; ++i)
         d->SetRenderState(dev, kTouched[i], saved[i]);
     for (int i = 0; i < kStageTouchedCount; ++i)
@@ -4543,6 +4739,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     d->SetRenderTarget(dev, 0, oldRT);
     d->SetDepthStencilSurface(dev, oldDS);
     g_sb->lpVtbl->Apply(g_sb);
+    BenchProfEnd(kProfRestore, profRestore);
 
     SafeRelease(oldRT);
     SafeRelease(oldDS);

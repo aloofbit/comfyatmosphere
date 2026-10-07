@@ -126,9 +126,9 @@
     ],
     "expect": [
         {
-            "about": "The back face's rim is in the stump's shade up to the top edge, in the shade alone (Debug View 5): row 222 crosses the rim, which the camera sees from below its top. Before the fix columns 520 to 690 averaged 155 (lit), after it 39",
+            "about": "The back face's rim is in the stump's shade up to the top edge, in the shade alone (Debug View 5): row 312 crosses the rim, which the camera sees from below its top. Before the fix columns 520 to 690 averaged 155 (lit), after it 39. Row 222 until 2026-10-07, placed at 1280x800: at 1152x864 it ran over the trees behind the stump, about 45 rows above its top",
             "shot": 2,
-            "row": 222,
+            "row": 312,
             "from": 520,
             "to": 690,
             "meanMax": 80

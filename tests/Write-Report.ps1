@@ -413,6 +413,10 @@ ul.checks li.bad::before { content: "\2717"; color: var(--fail); }
 figure { margin: 0; min-width: 0; }
 figure img { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--line); }
 video { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--line); background: #000; }
+/* The two sides of a pair in one frame (2026-10-07): a shot taken at another window size (1280x800 against 1152x864)
+   sat shorter than the one beside it. 4:3 is the test client's; cover crops the other shape's edges. The link opens
+   the whole shot. */
+.pair figure img, .pair video { aspect-ratio: 4 / 3; object-fit: cover; }
 img.sheet { width: 100%; height: auto; display: block; margin-top: 6px; border-radius: 6px; }
 figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
 .none { border: 1px dashed var(--line); border-radius: 6px; aspect-ratio: 16 / 10; display: grid; place-items: center; color: var(--dim); font-size: 13px; text-align: center; padding: 8px; }

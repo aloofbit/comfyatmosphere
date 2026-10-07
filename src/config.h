@@ -113,6 +113,9 @@ struct DepthSettings
 struct ShadowSettings
 {
     bool  enabled = true;
+    int   debugSkip = 0;     // for measuring (2026-10-07, perf-1), added up: 1 leaves out the sun shadows' pass, 2 the
+                             // march's reads of the maps, 4 drawing the maps (they keep the last), 8 the cache's upkeep
+                             // (the client's draws are dropped), 16 the lamps' glow
     int   size    = 4096;     // texels per side. 4096 took twice the GPU time and gave the volumetric
                               // light the same look (benchmark, 2026-09-24: 2.35 against 1.66
                               // microseconds a caster); it gives the sun shadows sharper edges. The
@@ -120,6 +123,10 @@ struct ShadowSettings
     float range   = 250.0f;    // yards covered either side of the player
     float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
+    bool  keepStill = true;    // 1 = the leaves' maps and the hills' map are not drawn again while nothing in them
+                               // changes (2026-10-07, perf-1)
+    int   midEvery  = 2;       // of the rebuilds, redraw the middle map on every Nth, on those the far map skips
+                               // (2026-10-07, perf-1), 1..8
     float midRange  = 100.0f;  // the middle map, for the sun shadows past the near one: yards either side
                                // (0 = none). The far map's slack lost a merlon's shade on the wall behind
                                // it past the near map (2026-10-02)
@@ -221,6 +228,8 @@ struct VolumeSettings
 struct SunShadowSettings
 {
     bool  enabled    = true;
+    bool  fetch4     = true;   // 1 = each tap reads its four texels in one (Fetch4) where the d3d9.dll gives them
+                               // (2026-10-07, perf-1); 0 = four reads, as before
     // What casts (2026-09-30): the world (terrain, buildings, trees, doodads) and the units (players,
     // creatures). Off, the world is left out of the near maps and the sun shadows stop reading the far map,
     // which the volumetric light keeps, and the terrain's own baked shadow comes back; units off leaves

@@ -138,13 +138,27 @@ float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
     float  len = length(g);
     return len > most ? g * (most / len) : g;
 }
+#ifndef F4
+#define F4 0
+#endif
+#if F4
+// Fetch4 (2026-10-07, perf-1): the 2x2 texels from the one uv falls in, in one read, as top left, top right, bottom
+// left, bottom right. F4SW is the order this d3d9.dll gives them in, found at the start (Fetch4Probe). On the samplers
+// of the maps every read is one of these, so a single texel is the top left.
+float4 Quad(sampler2D m, float2 uv) { float4 v = tex2Dlod(m, float4(uv, 0, 0)); return v.F4SW; }
+float  R1(sampler2D m, float2 uv) { return Quad(m, uv).x; }
+#else
+float  R1(sampler2D m, float2 uv) { return tex2Dlod(m, float4(uv, 0, 0)).r; }
+#endif
 float Test(sampler2D m, float2 uv, float z, float bias)
 {
-    return (z <= tex2Dlod(m, float4(uv, 0, 0)).r + bias) ? 1.0 : 0.0;
+    return (z <= R1(m, uv) + bias) ? 1.0 : 0.0;
 }
 // One tap: the four texels around uv tested, each against the surface's depth at that texel (z at uv0,
-// plus the slope g across), and the answers blended by where uv falls between them.
-float Tap(sampler2D m, float2 uv, float z, float2 uv0, float2 g, float bias, float size, float texel)
+// plus the slope g across), and the answers blended by where uv falls between them. TapS reads the four one at a
+// time: for a grid coarser than the map's own (the water's soft edge, three texels), where a gather would read the
+// four next to each other.
+float TapS(sampler2D m, float2 uv, float z, float2 uv0, float2 g, float bias, float size, float texel)
 {
     float2 t = uv * size - 0.5;
     float2 f = frac(t);
@@ -156,6 +170,66 @@ float Tap(sampler2D m, float2 uv, float z, float2 uv0, float2 g, float bias, flo
     float  e = Test(m, bxy, z + dot(g, bxy - uv0), bias);
     return lerp(lerp(a, c, f.x), lerp(d, e, f.x), f.y);
 }
+#if F4
+float Tap(sampler2D m, float2 uv, float z, float2 uv0, float2 g, float bias, float size, float texel)
+{
+    float2 t = uv * size - 0.5;
+    float2 f = frac(t);
+    float2 b = (t - f + 0.5) * texel;
+    float2 bx = b + float2(texel, 0.0), by = b + float2(0.0, texel), bxy = b + float2(texel, texel);
+    float4 zz = z + float4(dot(g, b - uv0), dot(g, bx - uv0), dot(g, by - uv0), dot(g, bxy - uv0));
+    float4 l  = step(zz, Quad(m, b) + bias);
+    return lerp(lerp(l.x, l.y, f.x), lerp(l.z, l.w, f.x), f.y);
+}
+#else
+#define Tap TapS
+#endif
+#ifndef SOFT1
+#define SOFT1 0
+#endif
+)HLSL" R"HLSL(
+#if F4 && SOFT1
+// Softness 1 (2026-10-07, perf-1): the taps a texel apart, so the nine (or five) of them read the 4x4 texels from the
+// one up and to the left of the texel uv falls in. Four gathers read those once, and each texel's answer counts as
+// often as the taps cover it: the same sum as the taps, with a quarter of the reads and a fifth of the arithmetic.
+// q00, q10, q01 and q11 are the 2x2 blocks top left, top right, bottom left and bottom right, each as Quad gives it.
+void Grid(sampler2D m, float4 s, float2 g, float bias, float texel, out float2 f,
+          out float4 l00, out float4 l10, out float4 l01, out float4 l11)
+{
+    float2 uv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
+    float2 t  = uv / texel - 0.5;
+    f = frac(t);
+    float2 b  = (t - f + 0.5) * texel;           // the centre of the texel up and to the left of uv
+    // Each texel's depth to test against: z at uv, plus the slope across to the texel's centre.
+    float  z0 = s.z + dot(g, b - uv);
+    float  gx = g.x * texel, gy = g.y * texel;
+    l00 = step(z0 + float4(-gx - gy,       -gy,       -gx,      0.0), Quad(m, b + float2(-texel, -texel)) + bias);
+    l10 = step(z0 + float4( gx - gy, 2.0 * gx - gy,    gx, 2.0 * gx), Quad(m, b + float2( texel, -texel)) + bias);
+    l01 = step(z0 + float4(-gx + gy,        gy, -gx + 2.0 * gy, 2.0 * gy), Quad(m, b + float2(-texel,  texel)) + bias);
+    l11 = step(z0 + float4( gx + gy, 2.0 * gx + gy, gx + 2.0 * gy, 2.0 * (gx + gy)), Quad(m, b + float2(texel, texel)) + bias);
+}
+float Lit(sampler2D m, float4 s, float2 g, float bias, float texel)
+{
+    float2 f;
+    float4 l00, l10, l01, l11;
+    Grid(m, s, g, bias, texel, f, l00, l10, l01, l11);
+    // Nine bilinear taps a texel apart: along each axis the texels weigh 1 - f, 1, 1, f.
+    float  ax = 1.0 - f.x, ay = 1.0 - f.y;
+    return (dot(l00, float4(ax * ay, ay, ax, 1.0)) + dot(l10, float4(ay, f.x * ay, 1.0, f.x)) +
+            dot(l01, float4(ax, 1.0, ax * f.y, f.y)) + dot(l11, float4(1.0, f.x, f.y, f.x * f.y))) / 9.0;
+}
+float Lit5(sampler2D m, float4 s, float2 g, float bias, float texel)
+{
+    float2 f;
+    float4 l00, l10, l01, l11;
+    Grid(m, s, g, bias, texel, f, l00, l10, l01, l11);
+    // The centre and the four corners: each block takes a corner tap's bilinear weights, and the centre tap adds its
+    // own to the texel each block has next to the middle.
+    float  A = (1.0 - f.x) * (1.0 - f.y), B = f.x * (1.0 - f.y), C = (1.0 - f.x) * f.y, D = f.x * f.y;
+    return (dot(l00, float4(A, B, C, D + A)) + dot(l10, float4(A, B, C + B, D)) +
+            dot(l01, float4(A, B + C, C, D)) + dot(l11, float4(A + D, B, C, D))) / 5.0;
+}
+#else
 // The share of nine taps, a texel x softness apart, that sees the sun.
 float Lit(sampler2D m, float4 s, float2 g, float bias, float texel)
 {
@@ -183,6 +257,70 @@ float Lit5(sampler2D m, float4 s, float2 g, float bias, float texel)
               + Tap(m, uv + float2(-o,  o), z, uv, g, bias, n, texel) + Tap(m, uv + float2( o,  o), z, uv, g, bias, n, texel);
     return lit / 5.0;
 }
+#endif
+)HLSL" R"HLSL(
+// The same over a coarser grid (texel a multiple of the map's): the water's soft edge.
+#if SOFT1
+// At softness 1 the taps' corners form a 4x4 grid of points a grid texel apart: 16 reads, not 36 (or 20), weighed as
+// in Grid. The water's shade passes no slope, so none is taken.
+void GridS(sampler2D m, float4 s, float bias, float texel, out float2 f,
+           out float4 l00, out float4 l10, out float4 l01, out float4 l11)
+{
+    float2 uv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
+    float2 t  = uv / texel - 0.5;
+    f = frac(t);
+    float2 b  = (t - f + 0.5) * texel;
+    float  z  = s.z - bias;
+    float2 dx = float2(texel, 0.0), dy = float2(0.0, texel);
+    l00 = step(z, float4(R1(m, b - dx - dy), R1(m, b - dy), R1(m, b - dx), R1(m, b)));
+    l10 = step(z, float4(R1(m, b + dx - dy), R1(m, b + 2.0 * dx - dy), R1(m, b + dx), R1(m, b + 2.0 * dx)));
+    l01 = step(z, float4(R1(m, b - dx + dy), R1(m, b + dy), R1(m, b - dx + 2.0 * dy), R1(m, b + 2.0 * dy)));
+    l11 = step(z, float4(R1(m, b + dx + dy), R1(m, b + 2.0 * dx + dy), R1(m, b + dx + 2.0 * dy), R1(m, b + 2.0 * (dx + dy))));
+}
+float LitS(sampler2D m, float4 s, float2 g, float bias, float texel)
+{
+    float2 f;
+    float4 l00, l10, l01, l11;
+    GridS(m, s, bias, texel, f, l00, l10, l01, l11);
+    float  ax = 1.0 - f.x, ay = 1.0 - f.y;
+    return (dot(l00, float4(ax * ay, ay, ax, 1.0)) + dot(l10, float4(ay, f.x * ay, 1.0, f.x)) +
+            dot(l01, float4(ax, 1.0, ax * f.y, f.y)) + dot(l11, float4(1.0, f.x, f.y, f.x * f.y))) / 9.0;
+}
+float Lit5S(sampler2D m, float4 s, float2 g, float bias, float texel)
+{
+    float2 f;
+    float4 l00, l10, l01, l11;
+    GridS(m, s, bias, texel, f, l00, l10, l01, l11);
+    float  A = (1.0 - f.x) * (1.0 - f.y), B = f.x * (1.0 - f.y), C = (1.0 - f.x) * f.y, D = f.x * f.y;
+    return (dot(l00, float4(A, B, C, D + A)) + dot(l10, float4(A, B, C + B, D)) +
+            dot(l01, float4(A, B + C, C, D)) + dot(l11, float4(A + D, B, C, D))) / 5.0;
+}
+#else
+float LitS(sampler2D m, float4 s, float2 g, float bias, float texel)
+{
+    float2 uv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
+    float  n  = 1.0 / texel;
+    float  o  = texel * gB.w;
+    float  z  = s.z;
+    float lit = TapS(m, uv, z, uv, g, bias, n, texel)
+              + TapS(m, uv + float2(-o, -o), z, uv, g, bias, n, texel) + TapS(m, uv + float2(0.0, -o), z, uv, g, bias, n, texel)
+              + TapS(m, uv + float2( o, -o), z, uv, g, bias, n, texel) + TapS(m, uv + float2(-o, 0.0), z, uv, g, bias, n, texel)
+              + TapS(m, uv + float2( o, 0.0), z, uv, g, bias, n, texel) + TapS(m, uv + float2(-o,  o), z, uv, g, bias, n, texel)
+              + TapS(m, uv + float2(0.0,  o), z, uv, g, bias, n, texel) + TapS(m, uv + float2( o,  o), z, uv, g, bias, n, texel);
+    return lit / 9.0;
+}
+float Lit5S(sampler2D m, float4 s, float2 g, float bias, float texel)
+{
+    float2 uv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
+    float  n  = 1.0 / texel;
+    float  o  = texel * max(gB.w, 0.5);
+    float  z  = s.z;
+    float lit = TapS(m, uv, z, uv, g, bias, n, texel)
+              + TapS(m, uv + float2(-o, -o), z, uv, g, bias, n, texel) + TapS(m, uv + float2( o, -o), z, uv, g, bias, n, texel)
+              + TapS(m, uv + float2(-o,  o), z, uv, g, bias, n, texel) + TapS(m, uv + float2( o,  o), z, uv, g, bias, n, texel);
+    return lit / 5.0;
+}
+#endif
 // The shade on the water's own surface (2026-10-06, the owner): solid things and leaves (a ship's sails are alpha
 // tested) from the near map, else the far one, with no facing, slope or hill check (the surface is flat), its taps
 // three texels apart for a soft edge. 1 shaded, 0 lit.
@@ -197,8 +335,8 @@ float SurfaceShade(float3 Q)
         wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
         [branch] if (wn > 0.0)
         {
-            float leaf = gCh.y > 0.5 ? 1.0 - Lit5(sNearL, sn, 0.0, gNB.x, gNB.z * 3.0) : 0.0;
-            sh = 1.0 - Lit(sNear, sn, 0.0, gNB.x, gNB.z * 3.0) * (1.0 - gCh.x * leaf);
+            float leaf = gCh.y > 0.5 ? 1.0 - Lit5S(sNearL, sn, 0.0, gNB.x, gNB.z * 3.0) : 0.0;
+            sh = 1.0 - LitS(sNear, sn, 0.0, gNB.x, gNB.z * 3.0) * (1.0 - gCh.x * leaf);
         }
     }
     [branch] if (wn < 1.0 && gCh.w > 0.5)
@@ -206,8 +344,8 @@ float SurfaceShade(float3 Q)
         float4 sf   = Q.x * gSh0 + Q.y * gSh1 + Q.z * gSh2 + gSh3;
         float2 ef   = abs(sf.xy);
         float  fade = saturate((1.0 - max(ef.x, ef.y)) * 10.0);
-        float  leaf = gCh.z > 0.5 ? 1.0 - Lit5(sFarL, sf, 0.0, gB.x, gB.z * 3.0) : 0.0;
-        float  shF  = (1.0 - Lit(sShadow, sf, 0.0, gB.x, gB.z * 3.0) * (1.0 - gCh.x * leaf)) * fade;
+        float  leaf = gCh.z > 0.5 ? 1.0 - Lit5S(sFarL, sf, 0.0, gB.x, gB.z * 3.0) : 0.0;
+        float  shF  = (1.0 - LitS(sShadow, sf, 0.0, gB.x, gB.z * 3.0) * (1.0 - gCh.x * leaf)) * fade;
         sh = lerp(shF, sh, wn);
     }
     return sh;
@@ -387,24 +525,24 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         {
             float2 uvf = float2(sf.x * 0.5 + 0.5, 0.5 - sf.y * 0.5);
             float  o   = gB.z * max(gB.w, 0.5) * 2.0;
-            float  dT  = tex2Dlod(sTerr, float4(uvf, 0, 0)).r;
+            float  dT  = R1(sTerr, uvf);
             float  m   = 1.0 / (gTr.z * 0.1);
             float  gate = max(terr, away) * saturate((sf.z - dT) * m - 1.0);
             gateV = gate;
             [branch] if (gCh.z > 0.5)
             {
-                float dL = min(min(tex2Dlod(sFarL, float4(uvf, 0, 0)).r,
-                                   min(tex2Dlod(sFarL, float4(uvf + float2(-o, -o), 0, 0)).r,
-                                       tex2Dlod(sFarL, float4(uvf + float2( o, -o), 0, 0)).r)),
-                               min(tex2Dlod(sFarL, float4(uvf + float2(-o,  o), 0, 0)).r,
-                                   tex2Dlod(sFarL, float4(uvf + float2( o,  o), 0, 0)).r));
+                float dL = min(min(R1(sFarL, uvf),
+                                   min(R1(sFarL, uvf + float2(-o, -o)),
+                                       R1(sFarL, uvf + float2( o, -o)))),
+                               min(R1(sFarL, uvf + float2(-o,  o)),
+                                   R1(sFarL, uvf + float2( o,  o))));
                 through = max(saturate((dT - dL) * m - 1.0), saturate((sf.z - dL) / gTr.w - 1.0)) * gate;
             }
-            float dS = min(min(tex2Dlod(sShadow, float4(uvf, 0, 0)).r,
-                               min(tex2Dlod(sShadow, float4(uvf + float2(-o, -o), 0, 0)).r,
-                                   tex2Dlod(sShadow, float4(uvf + float2( o, -o), 0, 0)).r)),
-                           min(tex2Dlod(sShadow, float4(uvf + float2(-o,  o), 0, 0)).r,
-                               tex2Dlod(sShadow, float4(uvf + float2( o,  o), 0, 0)).r));
+            float dS = min(min(R1(sShadow, uvf),
+                               min(R1(sShadow, uvf + float2(-o, -o)),
+                                   R1(sShadow, uvf + float2( o, -o)))),
+                           min(R1(sShadow, uvf + float2(-o,  o)),
+                               R1(sShadow, uvf + float2( o,  o))));
             throughS = max(saturate((dT - dS) * m - 1.0), saturate((sf.z - dS) / gTr.w - 1.0)) * gate;
             // In units of the margin (0.1 of terrainBias): 100 of them full.
             depthsV = float3(saturate((dT - dS) * m * 0.01), saturate((dS - dT) * m * 0.01), saturate((sf.z - dT) * m * 0.01));
@@ -442,8 +580,12 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         float2 ut   = uu / gU.z - 0.5;
         float2 uf   = frac(ut);
         float2 ub   = (ut - uf + 0.5) * gU.z;
-        float4 d4   = float4(tex2Dlod(sUnit, float4(ub, 0, 0)).r, tex2Dlod(sUnit, float4(ub + float2(gU.z, 0.0), 0, 0)).r,
-                             tex2Dlod(sUnit, float4(ub + float2(0.0, gU.z), 0, 0)).r, tex2Dlod(sUnit, float4(ub + gU.zz, 0, 0)).r);
+#if F4
+        float4 d4   = Quad(sUnit, ub);
+#else
+        float4 d4   = float4(R1(sUnit, ub), R1(sUnit, ub + float2(gU.z, 0.0)),
+                             R1(sUnit, ub + float2(0.0, gU.z)), R1(sUnit, ub + gU.zz));
+#endif
         float4 w4   = float4((1.0 - uf.x) * (1.0 - uf.y), uf.x * (1.0 - uf.y), (1.0 - uf.x) * uf.y, uf.x * uf.y)
                     * step(d4, 0.99999);
         float  wsum = dot(w4, 1.0);
@@ -452,8 +594,8 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         [branch] if (du >= 0.99999)
         {
             float o = gU.z * max(gB.w, 0.5);
-            du = min(min(tex2Dlod(sUnit, float4(uu + float2(-o, -o), 0, 0)).r, tex2Dlod(sUnit, float4(uu + float2(o, -o), 0, 0)).r),
-                     min(tex2Dlod(sUnit, float4(uu + float2(-o,  o), 0, 0)).r, tex2Dlod(sUnit, float4(uu + float2(o,  o), 0, 0)).r));
+            du = min(min(R1(sUnit, uu + float2(-o, -o)), R1(sUnit, uu + float2(o, -o))),
+                     min(R1(sUnit, uu + float2(-o,  o)), R1(sUnit, uu + float2(o,  o))));
         }
         float below = du >= 0.99999 ? 0.0 : (sn.z - du) * gU2.y;
         // The units' shade, from their map alone: the near map leaves them out while this map is drawn, so
@@ -556,14 +698,14 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         if (p) { p->lpVtbl->Release(p); p = nullptr; }
     }
 
-    OgBlob* Compile(const char* src, const char* name, const char* profile)
+    OgBlob* Compile(const char* src, const char* name, const char* profile, const char* const* defines = nullptr)
     {
         auto compile = reinterpret_cast<PFN_D3DCompile>(CompilerProc("D3DCompile"));
         if (!compile)
             return nullptr;
         OgBlob* code = nullptr;
         OgBlob* errs = nullptr;
-        const HRESULT hr = compile(src, strlen(src), name, nullptr, nullptr, "main", profile, 0, 0, &code, &errs);
+        const HRESULT hr = compile(src, strlen(src), name, defines, nullptr, "main", profile, 0, 0, &code, &errs);
         if (FAILED(hr) || !code)
         {
             Log("sunshadows: %s failed to compile hr=0x%08X: %s", name, hr,
@@ -652,6 +794,149 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         D3DRS_SCISSORTESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_SRGBWRITEENABLE,
     };
     constexpr int kTouchedCount = sizeof(kTouched) / sizeof(kTouched[0]);
+
+    // Fetch4 (2026-10-07, perf-1). DXVK gives a sampler with MIPMAPLODBIAS 'GET4', an INTZ texture and point
+    // filtering the 2x2 texels from the one a point falls in, in one read (a gather). Each tap of the pass tested four
+    // texels with four reads; with this, one. Only GET1 turns it off again: a state block's 0 leaves it on, and the
+    // light's march, which reads the same maps one texel at a time, would get gathers.
+    // The order the four come back in, and whether they come at all, is found once, on a 4x4 map of known depths
+    // (Fetch4Probe), and the pass uses the variant only when the probe read all four.
+    const DWORD kGet4 = MAKEFOURCC('G', 'E', 'T', '4');
+    const DWORD kGet1 = MAKEFOURCC('G', 'E', 'T', '1');
+    const DWORD kF4Samplers[] = { 1, 2, 3, 4, 5, 7, 8 };   // the maps; not the depth (0), bodies (6) or water (9)
+    IDirect3DPixelShader9* g_psF4[2] = {};   // [1]: softness 1, the taps read as one 4x4 grid (SOFT1)
+    bool g_psF4Tried[2] = {};
+    int  g_f4State = 0;        // 0 not probed yet, 1 works, -1 does not
+    char g_f4Order[5] = {};    // for the top left, top right, bottom left and bottom right texels: their component
+
+    const char* kF4ProbeHlsl = R"HLSL(
+sampler2D s0 : register(s0);
+float4 gAt : register(c0);
+float4 main(float2 uv : TEXCOORD0) : COLOR { return tex2Dlod(s0, float4(gAt.xy, 0, 0)); }
+)HLSL";
+
+    float ProbeZ(int x, int y) { return (1.0f + x + 4.0f * y) / 20.0f; }
+
+    // Runs with the device's state captured by the caller, which puts back its target and viewport after it.
+    bool Fetch4Probe(IDirect3DDevice9* dev, char order[5])
+    {
+        auto* d = dev->lpVtbl;
+        const D3DFORMAT intz = static_cast<D3DFORMAT>(MAKEFOURCC('I', 'N', 'T', 'Z'));
+        IDirect3DTexture9* dt = nullptr;
+        IDirect3DSurface9 *ds = nullptr, *rt4 = nullptr, *rt1 = nullptr, *sys = nullptr;
+        IDirect3DPixelShader9* ps = nullptr;
+        float got[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+        bool read = false;
+        do
+        {
+            if (FAILED(d->CreateTexture(dev, 4, 4, 1, D3DUSAGE_DEPTHSTENCIL, intz, D3DPOOL_DEFAULT, &dt, nullptr)) ||
+                FAILED(dt->lpVtbl->GetSurfaceLevel(dt, 0, &ds)) ||
+                FAILED(d->CreateRenderTarget(dev, 4, 4, D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE, &rt4, nullptr)) ||
+                FAILED(d->CreateRenderTarget(dev, 1, 1, D3DFMT_A32B32G32R32F, D3DMULTISAMPLE_NONE, 0, FALSE, &rt1, nullptr)) ||
+                FAILED(d->CreateOffscreenPlainSurface(dev, 1, 1, D3DFMT_A32B32G32R32F, D3DPOOL_SYSTEMMEM, &sys, nullptr)))
+                break;
+            OgBlob* code = Compile(kF4ProbeHlsl, "sunshadows_f4probe", "ps_3_0");
+            if (!code)
+                break;
+            const HRESULT hr = d->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)), &ps);
+            code->lpVtbl->Release(code);
+            if (FAILED(hr))
+                break;
+            d->SetRenderTarget(dev, 0, rt4);
+            d->SetDepthStencilSurface(dev, ds);
+            d->SetRenderState(dev, D3DRS_SCISSORTESTENABLE, FALSE);
+            for (int y = 0; y < 4; ++y)
+                for (int x = 0; x < 4; ++x)
+                {
+                    const D3DRECT r = { x, y, x + 1, y + 1 };
+                    d->Clear(dev, 1, &r, D3DCLEAR_ZBUFFER, 0, ProbeZ(x, y), 0);
+                }
+            d->SetDepthStencilSurface(dev, nullptr);
+            d->SetRenderTarget(dev, 0, rt1);
+            d->SetRenderState(dev, D3DRS_ZENABLE, D3DZB_FALSE);
+            d->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
+            d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, FALSE);
+            d->SetRenderState(dev, D3DRS_ALPHATESTENABLE, FALSE);
+            d->SetRenderState(dev, D3DRS_STENCILENABLE, FALSE);
+            d->SetRenderState(dev, D3DRS_CULLMODE, D3DCULL_NONE);
+            d->SetRenderState(dev, D3DRS_FOGENABLE, FALSE);
+            d->SetRenderState(dev, D3DRS_SRGBWRITEENABLE, FALSE);
+            d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, 0xF);
+            d->SetTexture(dev, 0, reinterpret_cast<IDirect3DBaseTexture9*>(dt));
+            d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+            d->SetSamplerState(dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+            d->SetSamplerState(dev, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+            d->SetSamplerState(dev, 0, D3DSAMP_SRGBTEXTURE, 0);
+            d->SetSamplerState(dev, 0, D3DSAMP_MIPMAPLODBIAS, kGet4);
+            d->SetVertexShader(dev, g_vs);
+            d->SetPixelShader(dev, ps);
+            const float half[4] = { -1.0f, 1.0f, 0.0f, 0.0f };
+            d->SetVertexShaderConstantF(dev, 0, half, 1);
+            const float at[4] = { 1.5f / 4.0f, 1.5f / 4.0f, 0.0f, 0.0f };   // the centre of texel (1, 1)
+            d->SetPixelShaderConstantF(dev, 0, at, 1);
+            const ClipVertex q[4] = {
+                { -1.0f,  1.0f, 0.0f, 0.0f, 0.0f }, {  1.0f,  1.0f, 0.0f, 1.0f, 0.0f },
+                { -1.0f, -1.0f, 0.0f, 0.0f, 1.0f }, {  1.0f, -1.0f, 0.0f, 1.0f, 1.0f },
+            };
+            d->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
+            d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+            d->SetSamplerState(dev, 0, D3DSAMP_MIPMAPLODBIAS, kGet1);
+            d->SetSamplerState(dev, 0, D3DSAMP_MIPMAPLODBIAS, 0);
+            d->SetTexture(dev, 0, nullptr);
+            D3DLOCKED_RECT lr = {};
+            if (FAILED(d->GetRenderTargetData(dev, rt1, sys)) ||
+                FAILED(sys->lpVtbl->LockRect(sys, &lr, nullptr, D3DLOCK_READONLY)))
+                break;
+            memcpy(got, lr.pBits, sizeof(got));
+            sys->lpVtbl->UnlockRect(sys);
+            read = true;
+        } while (false);
+        SafeRelease(ps);
+        SafeRelease(sys);
+        SafeRelease(rt1);
+        SafeRelease(rt4);
+        SafeRelease(ds);
+        SafeRelease(dt);
+        // Texel (1, 1) and its right, lower and lower right neighbours, each found in one component.
+        const float want[4] = { ProbeZ(1, 1), ProbeZ(2, 1), ProbeZ(1, 2), ProbeZ(2, 2) };
+        bool ok = read;
+        for (int k = 0; k < 4 && ok; ++k)
+        {
+            int at = -1;
+            for (int c = 0; c < 4; ++c)
+                if (fabsf(got[c] - want[k]) < 1e-4f)
+                    at = c;
+            ok = at >= 0;
+            order[k] = ok ? "xyzw"[at] : '?';
+        }
+        order[4] = 0;
+        Log("sunshadows: Fetch4 probe read (%.4f %.4f %.4f %.4f) for (%.4f %.4f %.4f %.4f): %s", got[0], got[1], got[2],
+            got[3], want[0], want[1], want[2], want[3], ok ? "works" : read ? "not given, four reads a tap" :
+            "could not run, four reads a tap");
+        return ok;
+    }
+
+    // After the probe: the pass's variant that gathers, compiled for the order found, when first needed.
+    IDirect3DPixelShader9* Fetch4Shader(IDirect3DDevice9* dev, int soft1)
+    {
+        if (!g_psF4Tried[soft1])
+        {
+            g_psF4Tried[soft1] = true;
+            const char* defines[8] = { "F4", "1", "F4SW", g_f4Order, "SOFT1", soft1 ? "1" : "0", nullptr, nullptr };
+            if (OgBlob* code = Compile(kPsHlsl, "sunshadows_ps", "ps_3_0", defines))
+            {
+                if (FAILED(dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)),
+                                                          &g_psF4[soft1])))
+                    g_psF4[soft1] = nullptr;
+                code->lpVtbl->Release(code);
+            }
+            Log("sunshadows: the Fetch4 variant%s %s (order %s)", soft1 ? " for softness 1" : "",
+                g_psF4[soft1] ? "is ready" : "failed to build", g_f4Order);
+        }
+        return g_psF4[soft1];
+    }
 }
 
 namespace
@@ -670,6 +955,8 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const bool logThis = g_logNext;
     g_logNext = false;
     const SunShadowSettings& ss = g_cfg.sunShadows;
+    if (g_cfg.shadow.debugSkip & 1)
+        return false;
     if (!ss.enabled || g_failed || (ss.strength <= 0.0f && ss.sunlight <= 0.0f && !ss.debug) || !VolumeLightActive())
     {
         if (logThis)
@@ -777,6 +1064,17 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->GetFVF(dev, &oldFVF);
 
     // --- draw ---------------------------------------------------------------------------------------
+    if (g_f4State == 0 && ss.fetch4)
+    {
+        D3DVIEWPORT9 vp = {};
+        const bool haveVp = SUCCEEDED(d->GetViewport(dev, &vp));
+        g_f4State = Fetch4Probe(dev, g_f4Order) ? 1 : -1;
+        d->SetRenderTarget(dev, 0, target);
+        if (haveVp)
+            d->SetViewport(dev, &vp);
+    }
+    IDirect3DPixelShader9* psF4 = ss.fetch4 && g_f4State == 1 ? Fetch4Shader(dev, ss.softness == 1.0f ? 1 : 0) : nullptr;
+    const bool f4 = psF4 != nullptr;
     d->SetDepthStencilSurface(dev, nullptr);   // the scene's depth is read, so it cannot be bound
     d->SetRenderState(dev, D3DRS_ZENABLE,           D3DZB_FALSE);
     d->SetRenderState(dev, D3DRS_ZWRITEENABLE,      FALSE);
@@ -825,8 +1123,11 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
         d->SetSamplerState(dev, st, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
         d->SetSamplerState(dev, st, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
     }
+    if (f4)
+        for (DWORD st : kF4Samplers)
+            d->SetSamplerState(dev, st, D3DSAMP_MIPMAPLODBIAS, kGet4);
     d->SetVertexShader(dev, g_vs);
-    d->SetPixelShader(dev, g_ps);
+    d->SetPixelShader(dev, f4 ? psF4 : g_ps);
 
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
@@ -944,6 +1245,12 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     };
     d->SetFVF(dev, D3DFVF_XYZ | D3DFVF_TEX1);
     d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(ClipVertex));
+    if (f4)
+        for (DWORD st : kF4Samplers)
+        {
+            d->SetSamplerState(dev, st, D3DSAMP_MIPMAPLODBIAS, kGet1);   // off: see kGet4
+            d->SetSamplerState(dev, st, D3DSAMP_MIPMAPLODBIAS, 0);
+        }
     d->SetTexture(dev, 1, nullptr);
     d->SetTexture(dev, 2, nullptr);
     d->SetTexture(dev, 3, nullptr);
@@ -988,6 +1295,10 @@ void SunShadowsReset()
     SafeRelease(g_sb);
     SafeRelease(g_vs);
     SafeRelease(g_ps);
+    SafeRelease(g_psF4[0]);
+    SafeRelease(g_psF4[1]);
+    g_psF4Tried[0] = g_psF4Tried[1] = false;
+    g_f4State = 0;   // probed again on the new device
     g_shadersTried = false;
     g_failed = false;
 }
@@ -1001,5 +1312,11 @@ void SunShadowsProbe()
 void SunShadowsShaderList()
 {
     ShaderPrecompile("sunshadows_vs", kVsHlsl, "vs_3_0");
+    // The Fetch4 variant in the order DXVK gives (its gather, swizzled to D3D9's order), which the probe finds.
+    for (const char* soft1 : { "0", "1" })
+    {
+        const char* f4[8] = { "F4", "1", "F4SW", "wxyz", "SOFT1", soft1, nullptr, nullptr };
+        ShaderPrecompile("sunshadows_ps", kPsHlsl, "ps_3_0", f4);
+    }
     ShaderPrecompile("sunshadows_ps", kPsHlsl, "ps_3_0");
 }

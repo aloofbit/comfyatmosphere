@@ -269,6 +269,8 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.range      = Clamp(GetF(kShadow, L"range", s.shadow.range, ini), 5.0f, 1000.0f);
     s.shadow.nearRange  = Clamp(GetF(kShadow, L"nearRange", s.shadow.nearRange, ini), 0.0f, 200.0f);
     s.shadow.midRange   = Clamp(GetF(kShadow, L"midRange", s.shadow.midRange, ini), 0.0f, 250.0f);
+    s.shadow.keepStill  = GetI(kShadow, L"keepStill", s.shadow.keepStill ? 1 : 0, ini) != 0;
+    s.shadow.midEvery   = static_cast<int>(Clamp(static_cast<float>(GetI(kShadow, L"midEvery", s.shadow.midEvery, ini)), 1.0f, 8.0f));
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
     s.shadow.horizonDepth = Clamp(GetF(kShadow, L"horizonDepth", s.shadow.horizonDepth, ini), 0.0f, 5000.0f);
     s.shadow.horizon    = GetB(kShadow, L"horizon", s.shadow.horizon, ini);
@@ -280,6 +282,7 @@ void LoadSettings(const wchar_t* ini)
     if (s.shadow.copyMax > 4096)    s.shadow.copyMax = 4096;
     s.shadow.mapEvery   = GetI(kShadow, L"mapEvery", s.shadow.mapEvery, ini);
     s.shadow.farEvery   = GetI(kShadow, L"farEvery", s.shadow.farEvery, ini);
+    s.shadow.debugSkip  = GetI(kShadow, L"debugSkip", s.shadow.debugSkip, ini);
     s.shadow.minTriangles = GetI(kShadow, L"minTriangles", s.shadow.minTriangles, ini);
     s.shadow.nearMargin = Clamp(GetF(kShadow, L"nearMargin", s.shadow.nearMargin, ini), 0.0f, 200.0f);
     s.shadow.leaves     = GetB(kShadow, L"leaves", s.shadow.leaves, ini);
@@ -358,6 +361,7 @@ void LoadSettings(const wchar_t* ini)
     s.sunShadows.water        = Clamp(GetF(kSunShadows, L"water",        s.sunShadows.water,        ini), 0.0f, 1.0f);
     s.sunShadows.sunlight   = Clamp(GetF(kSunShadows, L"sunlight",   s.sunShadows.sunlight,   ini), 0.0f, 0.5f);
     s.sunShadows.softness   = Clamp(GetF(kSunShadows, L"softness",   s.sunShadows.softness,   ini), 0.0f, 8.0f);
+    s.sunShadows.fetch4     = GetI(kSunShadows, L"fetch4", s.sunShadows.fetch4 ? 1 : 0, ini) != 0;
     s.sunShadows.debug      = GetI(kSunShadows, L"debug", s.sunShadows.debug, ini);
 
     s.lamps.enabled      = GetB(kLamps, L"enabled", s.lamps.enabled, ini);

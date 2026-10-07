@@ -281,7 +281,7 @@ namespace
     char     g_tuneLast[256] = {};
     std::deque<std::string> g_tuneText;   // names and values given to Register, kept for good
     std::deque<std::string> g_notices;    // lines for chat, not yet registered
-    constexpr size_t kStatsLen = 600;
+    constexpr size_t kStatsLen = 1000;   // 600 until 2026-10-07: the indoor pair made it longer; the addon sets as many
     void*    g_stats = nullptr;             // comfyStats
     unsigned long g_noticeSeq = 0;
 
