@@ -521,7 +521,7 @@ struct WaterSettings
                                  // 2 = the foam alone, white on black; 3 = the wet sand alone; 10 = the depth
                                  // under the water on a doubling scale (Debug View 29)
     int   debugSkip = 0;         // for measuring (2026-10-06), added up: 1 leaves out the sand part's draw, 2 the
-                                 // water part's, 4 the bodies' draw
+                                 // water part's, 4 the bodies' draw, 8 the surface's depth over them
 };
 
 // Lighthouses at night (beacon.cpp, 2026-10-05): a beacon in the lamp room and two turning beams.

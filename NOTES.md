@@ -2910,8 +2910,22 @@ one control off at a time gave two causes:
   the deep colour alone, paler than the sea over the dark floor beside it. The extra now stops growing after the
   first yard: a body has its path plus up to 2 yards at 0.5, and half a yard at the least, as before.
 
-With both, the creatures keep their shape and shade and show dim through the water. The tests of legs in the
-shallows, the canal fog, the camera under the swell and the swimmer's wake are unchanged.
+With both, the creatures kept their shape and shade, but at Water Clarity 25 they still showed as flat shapes
+paler than the water beside them (the owner). Fully covered, the water pass gives them the water's colour, so the
+rest came after it: with the volumetric light off they were gone. The same depth was the cause:
+
+- **The surface's depth over a body.** The march went on under the surface over a creature and added the light it
+  gathered there (the air's glow, `[volume] density`, which the fog's cut does not touch). The sun shadows shaded
+  the creature, not the water (a dark shape with shadows on). After the draw over the bodies, a second draw writes
+  the surface's depth there with colour off (`kBodyDepthPsHlsl`, 23 instructions): it drops only what the water's
+  shader drops (the camera under the flat water, a dry cell), and the depth test keeps it to what lies under the
+  surface, so legs over the water keep their own depth. Every pass after the water now sees water there, as beside
+  the creature. `[water] debugSkip 8` leaves it out. In the shallows' foam view (`water-standing` shot 2) a sunken
+  ruin had shown as a grey patch: the same light, now gone.
+
+Now the creatures at 4 to 10 yards are faint at Clarity 100 and gone at 25, with sun shadows off or on. The tests of
+legs in the shallows, the canal fog, the camera under the swell, the swimmer's wake and a ship's shade are
+unchanged.
 
 ## The framing that matters
 

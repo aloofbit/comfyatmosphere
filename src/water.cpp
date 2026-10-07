@@ -1187,6 +1187,25 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
 }
 )HLSL";
 
+    // The surface's depth over a body under the water (2026-10-07): the draw over the bodies writes no depth (see
+    // its comment), so the depth there stayed the body's, under the surface, and every pass after the water read
+    // it. The volumetric light marched on under the surface and added the light it gathered there, and the sun
+    // shadows shaded the body, not the water: a creature under the sea showed as a pale (or a dark) shape through
+    // the water beside it. This draw writes the surface's depth there, colour off. It drops what the water's own
+    // shader drops: the camera under the flat water, and a cell the game leaves dry.
+    const char* kBodyDepthPsHlsl = R"HLSL(
+float4 gCells : register(c210);    // the chunk's wet cells, as the water's shader
+float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2, float z0 : TEXCOORD3,
+            float2 cell : TEXCOORD4) : COLOR
+{
+    const float2 rc   = clamp(floor(-cell * 0.24), 0.0, 7.0);
+    const float  bits = rc.x < 2.0 ? gCells.x : rc.x < 4.0 ? gCells.y : rc.x < 6.0 ? gCells.z : gCells.w;
+    const float  wet  = fmod(floor(bits * exp2(-(fmod(rc.x, 2.0) * 8.0 + rc.y))), 2.0);
+    clip(min(-z0, wet - 0.5));
+    return float4(0, 0, 0, 0);
+}
+)HLSL";
+
     // The wet sand (2026-10-02): one full-screen pass before the first water draw. Each pixel's ground point
     // comes from the depth under the water; the water level near it from a texture of the map's water around
     // you (the highest of the 3 x 3 cells round it, so a cell beside the water counts). Sand up to about 0.4
@@ -1380,6 +1399,7 @@ float4 main(float2 vpos : VPOS) : COLOR
 
     IDirect3DVertexShader9* g_vs = nullptr;
     IDirect3DPixelShader9*  g_ps = nullptr;
+    IDirect3DPixelShader9*  g_psBodyDepth = nullptr;   // the surface's depth over a body (kBodyDepthPsHlsl)
     bool                    g_tried  = false;
     bool                    g_failed = false;
 
@@ -1611,6 +1631,13 @@ float4 main(float2 vpos : VPOS) : COLOR
         {
             if (FAILED(dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)), &g_ps)))
                 g_ps = nullptr;
+            code->lpVtbl->Release(code);
+        }
+        // Without it the water still draws; the depth over a body stays the body's, as before.
+        if (OgBlob* code = Compile(kBodyDepthPsHlsl, "water_bodydepth", "ps_3_0"))
+        {
+            if (FAILED(dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)), &g_psBodyDepth)))
+                g_psBodyDepth = nullptr;
             code->lpVtbl->Release(code);
         }
         if (!g_vs || !g_ps)
@@ -3430,6 +3457,20 @@ void WaterAfterDraw(IDirect3DDevice9* dev, const WaterChunk& c, WaterDrawFn draw
             // flat water, which its own draw wrote ([depth] waterDepth), not our swell's.
             d->SetRenderState(dev, D3DRS_ZWRITEENABLE, FALSE);
             draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+            // Then the surface's depth over them, colour off (kBodyDepthPsHlsl, 2026-10-07): a shader of a few
+            // instructions, so its clip() costs little where the stencil is tested late. The depth test keeps
+            // it to what lies under the surface: legs over the water keep their own depth.
+            if (g_psBodyDepth && !(g_cfg.water.debugSkip & 8))
+            {
+                DWORD oldCw = 0xF;
+                d->GetRenderState(dev, D3DRS_COLORWRITEENABLE, &oldCw);
+                d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, 0);
+                d->SetRenderState(dev, D3DRS_ZWRITEENABLE, TRUE);
+                d->SetPixelShader(dev, g_psBodyDepth);
+                draw(dev, c.prim, c.baseVertex, c.minIndex, c.numVertices, c.startIndex, c.primCount);
+                d->SetPixelShader(dev, g_ps);
+                d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, oldCw);
+            }
             d->SetRenderState(dev, D3DRS_STENCILFUNC, D3DCMP_EQUAL);
         }
         for (int i = 0; i < 4; ++i)
@@ -3984,6 +4025,7 @@ void WaterReset()
     SafeRelease(g_under);
     SafeRelease(g_vs);
     SafeRelease(g_ps);
+    SafeRelease(g_psBodyDepth);
     g_underW = g_underH = 0;
     g_tried = false;
     g_failed = false;
@@ -4127,6 +4169,7 @@ void WaterShaderList()
 {
     ShaderPrecompile("water_vs", kVsHlsl, "vs_3_0");
     ShaderPrecompile("water_ps", kPsHlsl, "ps_3_0");
+    ShaderPrecompile("water_bodydepth", kBodyDepthPsHlsl, "ps_3_0");
     ShaderPrecompile("wet_vs", kWetVsHlsl, "vs_3_0");
     ShaderPrecompile("wet_ps", kWetPsHlsl, "ps_3_0");
 }
