@@ -1271,14 +1271,22 @@ float4 main(float2 vpos : VPOS) : COLOR
     float3 P   = wp.xyz / wp.w;
     float3 A   = P + gCam.xyz;
     float2 cell = floor((A.xy - gLv.xy) * gLv.z);
-    float  lv  = -10000.0, seaW = 0.0;
+    // The level here: the wet cells round it, each by how near its middle is (2026-10-08). It was the highest of
+    // the nine, and a river runs downhill: the cell upstream stood up to a yard over the water beside the bank, and
+    // the wet band lay as a contour on the grass well up a gentle bank, with a step at each cell's edge
+    // (Hillsbrad, the owner).
+    float  lvSum = 0.0, lvW = 0.0, seaW = 0.0;
+    const float2 inCell = (A.xy - gLv.xy) * gLv.z - cell;   // 0..1 across this cell
     [unroll] for (int y = -1; y <= 1; ++y)
     [unroll] for (int x = -1; x <= 1; ++x)
     {
         float2 lc = tex2Dlod(sLevel, float4((cell + float2(x, y) + 0.5) * gLv.w, 0, 0)).rg;
-        lv   = max(lv, lc.r);
+        float  w  = saturate(1.5 - length(float2(x, y) + 0.5 - inCell)) * (lc.r > -1000.0 ? 1.0 : 0.0);
+        lvSum += lc.r * w;
+        lvW   += w;
         seaW = max(seaW, lc.g);   // the sea if any cell round it is (2026-10-05)
     }
+    float  lv  = lvW > 1e-4 ? lvSum / lvW : -10000.0;
     float  h    = A.z - lv;                                          // yards above the water
     float3 n    = cross(ddx(P), ddy(P));
     // Not a body, a wall or a post: full up to a slope of 60 degrees, none past 72. Until 2026-10-07 none past 32
@@ -1291,6 +1299,11 @@ float4 main(float2 vpos : VPOS) : COLOR
     // the shore, darker than the water further out (2026-10-02).
     float  wet  = (1.0 - smoothstep(top * 0.5, top, h)) * smoothstep(-0.05, 0.02, h) * flat;
     wet *= lv > -1000.0 ? 1.0 : 0.0;
+    // Its share of the pixel (2026-10-08, the owner: a hard dark line where a lighthouse's rock met the sea, some
+    // 300 yards off): far off a pixel stands taller than the wet band, and took it whole from its middle. The band
+    // darkens only its share of the pixel's height; on a pixel across an edge, the rock's and the water's, the
+    // heights in it jump, and it fades too.
+    wet *= saturate(top * 0.75 / max(max(abs(ddx(P).z), abs(ddy(P).z)), 1e-4));
     if (gScr.z > 2.5 && gScr.z < 3.5)
         return float4(wet.xxx, 1.0);                                 // debug 3: the wet sand alone
     float wa = wet * gZ.z;

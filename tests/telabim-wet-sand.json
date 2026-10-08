@@ -1,6 +1,6 @@
 {
     "name": "telabim-wet-sand",
-    "about": "On a jungle beach east of Tanaris (Tel'Abim, by the map position) the wet sand was broken: a dark band on part of the shore, pieces with straight edges in the middle, none on the rest (2026-10-07, the owner). The wet sand pass drew only on ground under 32 degrees of slope, which keeps bodies and posts dry; the bank here is steeper, and the slope is per terrain triangle, so the band came and went triangle by triangle. Now full up to 60 degrees, none past 72 (NOTES.md, the wet sand on a steep bank). Shot 1 in the normal view, shot 2 in the wet sand alone (Debug View 18), shot 3 in the normal view with the Wet Sand slider at 0 (2026-10-07: the slider is new).",
+    "about": "On a jungle beach east of Tanaris (Tel'Abim, by the map position) the wet sand was broken: a dark band on part of the shore, pieces with straight edges in the middle, none on the rest (2026-10-07, the owner). The wet sand pass drew only on ground under 32 degrees of slope, which keeps bodies and posts dry; the bank here is steeper, and the slope is per terrain triangle, so the band came and went triangle by triangle. Now full up to 60 degrees, none past 72 (NOTES.md, the wet sand on a steep bank). Shot 1 in the normal view, shot 2 in the wet sand alone (Debug View 18), shot 3 in the normal view with the Wet Sand slider at 0 (2026-10-07: the slider is new). Then Old Hillsbrad (the Caverns of Time, map 269), the owner's snapshot over a river, with their settings (2026-10-08): the wet sand on the far bank lay as a contour on the grass, well over the water, with a step at each map cell's edge. A river runs downhill across a chunk, and each map cell took the chunk's highest water level; now the mean of its four points, and the wet pass weighs the cells round a point by how near they are. Shots 4 to 6 as 1 to 3.",
     "config": {
         "character": 1,
         "flight": true,
@@ -188,6 +188,114 @@
         },
         {
             "cvar": "comfyWaterWetSand 45"
+        },
+        {
+            "go": {
+                "x": 2202.6,
+                "y": 669.1,
+                "z": 46.9,
+                "facing": -69.8,
+                "map": 269
+            }
+        },
+        {
+            "cvar": "comfyRays 1"
+        },
+        {
+            "cvar": "comfySunShadows 1"
+        },
+        {
+            "cvar": "comfyMist 1"
+        },
+        {
+            "cvar": "comfyMistDensity 55"
+        },
+        {
+            "cvar": "comfyLamps 1"
+        },
+        {
+            "cvar": "comfyWaveHeight 10"
+        },
+        {
+            "cvar": "comfyWaveSize 200"
+        },
+        {
+            "cvar": "comfyWaterColour 25"
+        },
+        {
+            "cvar": "comfyWaterClarity 100"
+        },
+        {
+            "cvar": "comfyWaterFoam 80"
+        },
+        {
+            "cvar": "comfyWaterWakeFoam 50"
+        },
+        {
+            "cvar": "comfyShadowOnWater 40"
+        },
+        {
+            "cvar": "comfyWaterWetSand 75"
+        },
+        {
+            "cvar": "comfyLighthouseDistance 600"
+        },
+        {
+            "cvar": "comfyGrass 1"
+        },
+        {
+            "cvar": "comfyWaterZone 1"
+        },
+        {
+            "cvar": "comfyWaterSunset 100"
+        },
+        {
+            "cvar": "comfyMistToward 30"
+        },
+        {
+            "cvar": "comfyMistHorizon 100"
+        },
+        {
+            "face": {
+                "heading": -69.8,
+                "pitch": -13.9
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 18"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        },
+        {
+            "cvar": "comfyWaterWetSand 0"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyWaterWetSand 75"
         }
     ],
     "expect": [
@@ -222,6 +330,38 @@
             "from": 670,
             "to": 800,
             "mean": 40
+        },
+        {
+            "about": "Old Hillsbrad, the wet sand alone (Debug View 18): row 450 crosses the far bank's grass, 40 rows over the waterline. Before the fix (2026-10-08, the owner) the band lay as a contour on the grass of this gentle bank, well over the water: each map cell took its chunk's highest water level, up to a yard over a river running downhill",
+            "shot": 5,
+            "row": 450,
+            "from": 895,
+            "to": 905,
+            "meanMax": 60
+        },
+        {
+            "about": "Old Hillsbrad, the wet sand alone (Debug View 18): row 491 crosses the band at the far bank's waterline (rows 488 to 494 at column 900 after the fix)",
+            "shot": 5,
+            "row": 491,
+            "from": 895,
+            "to": 905,
+            "mean": 120
+        },
+        {
+            "about": "Old Hillsbrad, the wet sand alone (Debug View 18): row 470, further along the far bank, 45 rows over the waterline",
+            "shot": 5,
+            "row": 470,
+            "from": 995,
+            "to": 1005,
+            "meanMax": 60
+        },
+        {
+            "about": "Old Hillsbrad, the wet sand alone (Debug View 18): row 518 crosses the band at the waterline there (rows 515 to 522 at column 1000 after the fix)",
+            "shot": 5,
+            "row": 518,
+            "from": 995,
+            "to": 1005,
+            "mean": 120
         }
     ]
 }

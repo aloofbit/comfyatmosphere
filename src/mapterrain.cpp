@@ -678,6 +678,15 @@ namespace
                     {
                         const int gx0 = static_cast<int>(floorf((ox - pos[0]) / kUnit + 0.5f));
                         const int gy0 = static_cast<int>(floorf((oy - pos[1]) / kUnit + 0.5f));
+                        // Each cell at the mean of its four points' heights (2026-10-08): the 9 x 9 points after the
+                        // range, 8 bytes each, the height a float at +4. The chunk's top alone (range[1]) was up to a
+                        // yard over a river running downhill across it, and the wet sand lay as a contour well up a
+                        // gentle bank (Hillsbrad, the owner). The top stays where a point's height is not in range.
+                        const auto pointZ = [&](int pr, int pc) {
+                            float z;
+                            memcpy(&z, &d[lq + 8 + 8 + (pr * 9 + pc) * 8 + 4], 4);
+                            return z;
+                        };
                         for (int r = 0; r < 8; ++r)
                             for (int c = 0; c < 8; ++c)
                             {
@@ -685,7 +694,10 @@ namespace
                                 if ((d[lq + 8 + 8 + 648 + r * 8 + c] & 0x0F) != 0x0F && gx >= 0 && gx < 128 &&
                                     gy >= 0 && gy < 128)
                                 {
-                                    m.water[gx * 128 + gy] = range[1];
+                                    const float z = 0.25f * (pointZ(r, c) + pointZ(r, c + 1) + pointZ(r + 1, c) +
+                                                             pointZ(r + 1, c + 1));
+                                    const bool inRange = std::isfinite(z) && z >= range[0] - 0.5f && z <= range[1] + 0.5f;
+                                    m.water[gx * 128 + gy] = inRange ? z : range[1];
                                     m.sea[gx * 128 + gy] = (flags & 0x08) ? 1 : 0;
                                 }
                             }
