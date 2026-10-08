@@ -303,6 +303,7 @@ foreach ($file in $files) {
             'chat'       { $lines += Say "chat: $v" }
             'target'     { $lines += Say "targeting $v" }
             'camera'     { $lines += Say 'moving the camera' }
+            'cameraZoom' { $lines += Say "the camera $v yards back" }
             'jump'       { $lines += Say 'jumping' }
         }
         switch ($p.Name) {
@@ -368,6 +369,9 @@ foreach ($file in $files) {
                 $lines += 'zoom -30'
                 if ([int]$v -ge 10) { $lines += 'zoom 30' } elseif ([int]$v -gt 0) { $lines += 'wait 1'; $lines += "wheel $([int]$v)" }
             }   # typed into the chat box as a player types: a slash command (/target Pinto)
+            'cameraZoom' {   # the camera's own distance partway through, as config.cameraZoom (2026-10-08)
+                $lines += 'zoom -30'; $lines += 'wait 1'; $lines += "camzoom $v"
+            }
             default      { throw "$($t.name): unknown step '$($p.Name)'" }
         }
     }
