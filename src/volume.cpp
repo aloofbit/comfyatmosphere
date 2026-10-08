@@ -1268,6 +1268,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
     // The sun's light on the fog when the fog draws alone: [volume] strength 25 times maxIntensity 3.0.
     constexpr float kFogOnlyGain = 0.75f;
+    float g_fogSeaRel = -10000.0f, g_fogHorizon = 0.0f;   // the glows' sea height and horizon, for the probe
 
     bool FogOn()
     {
@@ -1619,6 +1620,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
             horizon = (std::min)((std::max)(horizon, -0.3f), 0.3f);
         }
     }
+    g_fogSeaRel = seaRel; g_fogHorizon = horizon;
     const float fg[4] = { fs.toward, fs.horizonGlow, horizon, seaRel };
     d->SetPixelShaderConstantF(dev, 18, fg, 1);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
@@ -1980,6 +1982,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
                 fs.density, fs.height, g_fogBase, -groundRel, g_fogBaseFrom, fs.reach, fs.skyDistance, fs.sunLight, fogLit,
                 fogCol & 0xFFFFFF,
                 haveFogCol ? "" : " (no game fog colour yet)", fs.brightness, fogDebug);
+            Log("fog: the glows: the sea %.2f yards from the camera (-10000: none found), its horizon %.4f, sun height %.3f",
+                g_fogSeaRel, g_fogHorizon, sunDir[2]);
             Log("fog: patches %s: patchiness %.2f, %.0f yd across, %.2f as tall, wind %.1f yd/s toward %.0f deg; "
                 "the camera at (%.3f %.3f %.3f) in the noise", patches ? "on" : g_noiseFailed ? "off (no texture)" : "off",
                 fs.patchiness, fs.scale, 1.0f / fs.flatten, fs.windSpeed, fs.windDeg, pn[0], pn[1], pn[2]);
