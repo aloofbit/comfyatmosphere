@@ -102,7 +102,7 @@ namespace
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
                 kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kWetSand, kLhReach,
                 kGrass, kGrassWind, kGrassSpeed, kGrassLean, kGrassWave, kGrassWindDir, kGrassParting, kGrassRadius,
-                kHotkeys, kWaterZone,
+                kHotkeys, kWaterZone, kWaterSunset,
                 kKnobs };
 
     const char* const kNames[kKnobs] = {
@@ -233,6 +233,8 @@ namespace
         "comfyHotkeys",
         // Zone Colour (2026-10-07): [water] zone.
         "comfyWaterZone",
+        // Sunset Water (2026-10-07): [water] sunset, as a percentage.
+        "comfyWaterSunset",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -451,6 +453,7 @@ namespace
         case kGrassRadius:    snprintf(out, cap, "%.0f", s.grass.radius * 10.0f); break;         // tenths of a yard
         case kHotkeys:        snprintf(out, cap, "%d", s.hotkeys ? 1 : 0); break;
         case kWaterZone:      snprintf(out, cap, "%d", s.water.zone ? 1 : 0); break;
+        case kWaterSunset:    snprintf(out, cap, "%.0f", s.water.sunset * 100.0f); break;   // percent
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -584,6 +587,7 @@ namespace
         if (c[kGrassRadius].seen)    s.grass.radius = Clamp(c[kGrassRadius].value * 0.1f, 0.1f, 20.0f);
         if (c[kHotkeys].seen)        s.hotkeys = c[kHotkeys].value != 0.0f;
         if (c[kWaterZone].seen)      s.water.zone = c[kWaterZone].value != 0.0f;
+        if (c[kWaterSunset].seen)    s.water.sunset = Clamp(c[kWaterSunset].value * 0.01f, 0.0f, 3.0f);
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);

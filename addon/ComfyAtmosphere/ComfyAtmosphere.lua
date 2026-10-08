@@ -56,6 +56,7 @@ COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
 COMFYATMOSPHERE_WATER          = "Water Effects";
 COMFYATMOSPHERE_WATER_COLOUR   = "Water Colour";
 COMFYATMOSPHERE_WATER_ZONE     = "Zone Colour";
+COMFYATMOSPHERE_WATER_SUNSET   = "Sunset Water";
 COMFYATMOSPHERE_WATER_CLARITY  = "Water Clarity";
 COMFYATMOSPHERE_WATER_BRIGHT   = "Water Brightness";
 COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
@@ -609,6 +610,18 @@ local ENTRIES = {
 		type = "checkbutton",
 		cvar = "comfyWaterZone",
 		dependency = { "comfyWater", "1" },
+	},
+	{
+		-- A percentage: comfyatmos.dll divides it by 100 for [water] sunset (2026-10-07).
+		name = "COMFYATMOSPHERE_WATER_SUNSET",
+		desc = "How red the water turns with the sun low, from the sky's glow over the horizon, and how much more of the sky it shows. 0 is none.",
+		type = "slider",
+		cvar = "comfyWaterSunset",
+		dependency = { "comfyWater", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 10,
+		numberLabels = 1,
 	},
 	{
 		-- comfyatmos.dll takes it as [water] colour.
@@ -1669,7 +1682,7 @@ local WINDOW_SECTIONS = {
 	{ "Color", { "comfyColor", "comfyDaySaturation", "comfyNightSaturation" } },
 	{ "Grass", { "comfyGrass", "comfyGrassWind", "comfyGrassSpeed", "comfyGrassWaveLength", "comfyGrassWindDir",
 	             "comfyGrassLean", "comfyGrassParting", "comfyGrassPartingRadius", "frillDensity" } },
-	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterZone", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterFoamDrawn", "comfyWaterFoamSize", "comfyWaterFoamReach", "comfyWaterFoamEdge", "comfyWaterWakeFoam", "comfyWaterShipWake", "comfyWaterShipForward", "comfyWaterShipDepth", "comfyWaterLakeSwash", "comfyWaterLakeFoam", "comfyWaterLakeWaves", "comfyWaterRain", "comfyWaterObjectFoam", "comfyWaterObjectFoamWidth", "comfyWaterOpenFoam", "comfyWaterOpenFoamAmount", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWetSand", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
+	{ "Water", { "comfyWater", "comfyWaterColour", "comfyWaterZone", "comfyWaterSunset", "comfyWaterBright", "comfyWaterClarity", "comfyWaterReflect", "comfyWaterBend", "comfyWaterCover", "comfyWaterFoam", "comfyWaterFoamDrawn", "comfyWaterFoamSize", "comfyWaterFoamReach", "comfyWaterFoamEdge", "comfyWaterWakeFoam", "comfyWaterShipWake", "comfyWaterShipForward", "comfyWaterShipDepth", "comfyWaterLakeSwash", "comfyWaterLakeFoam", "comfyWaterLakeWaves", "comfyWaterRain", "comfyWaterObjectFoam", "comfyWaterObjectFoamWidth", "comfyWaterOpenFoam", "comfyWaterOpenFoamAmount", "comfyWaterSwash", "comfyWaterSwashHeight", "comfyWaterSwashLength", "comfyWaterSwashSpeed", "comfyWaterWetSand", "comfyWaterWake", "comfyWaterRippleDepth", "comfyWaterRippleMoving", "comfyWaterRippleSpread", "comfyWaterRippleSpreadMoving",
 	             "comfyWaterEdge", "comfyWaterEdgeWidth",
 	             "comfyWaterGlint", "comfyWaterMoonGlint", "comfyWaterGlintSize",
 	             "comfyWaveHeight",
