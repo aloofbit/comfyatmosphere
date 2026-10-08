@@ -395,6 +395,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // Seen from under the water: no foam. Under the flat water, not under the surface (2026-10-07): from 15 yards
     // out a wave may stand higher than a swimmer's camera, seen from the front, and was dropped (clip(-rel.z)).
     clip(-z0);
+    // Some chunks of the open sea carry no number for the map's depth (2026-10-08, NaN in a debug view at
+    // Stormwind's harbour, about 1200 yards out). The cut below dropped those chunks whole, and the game's own
+    // water showed through as pale dashes along the horizon (the owner). They count as deep water.
+    gd = gd >= 0.0 ? gd : 30.0;
     float2 uv  = (vpos + 0.5) * gScr.xy;
     float  raw = tex2Dlod(sUnder, float4(uv, 0, 0)).r;
     // The client draws the world in a slice of the depth range (0..0.94 here) and its far terrain in another
