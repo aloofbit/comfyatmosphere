@@ -462,6 +462,7 @@ float4 gC    : register(c6);        // the sun's colour x gain; a = 1 when sCove
 float4 gA    : register(c7);        // the sky's colour on the fog; a = fog debug (1 transmittance, 2 sky light)
 float4 gDisc0 : register(c8);       // the way to the sun (by night the larger moon), 1 when known
 float4 gDisc1 : register(c9);       // the way to the other moon, 1 by night when known
+float4 gH    : register(c10);       // the sky's colour just over the horizon, at full brightness; w 1 when known
 float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
 {
     float4 s  = tex2Dlod(sGlow, float4((base + o + 0.5) * gT.zw, 0, 0));
@@ -503,7 +504,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     if (gA.w > 0.5)
         return float4(T, T, T, 1.0);                                       // fog debug 1: the transmittance
     // Blended as ONE, SRCALPHA: the world times the transmittance, plus the light.
-    float3 rgb  = gC.rgb * m.r * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a) + gA.rgb * m.g;
+    // Far off, the fog takes the sky's colour just over the horizon at full brightness, not Fog Brightness's
+    // (2026-10-08, the owner: a dark strip of fog on the open sea at the horizon). The far sea past our water, the far
+    // land and the sky lie past the world's slice; nearer, from 300 yards to full at 1000. Fog Brightness (55 there)
+    // made the thick fog on the far sea darker than the sky over it and the water under it.
+    float  farV = (raw > gZ.x + 1.0 / gZ.y + 1e-5) ? 1.0 : smoothstep(300.0, 1000.0, dist);
+    float3 skyA = lerp(gA.rgb, gH.rgb, farV * gH.w);
+    float3 rgb  = gC.rgb * m.r * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a) + skyA * m.g;
     return float4(rgb, T);
 }
 )HLSL";
@@ -1881,7 +1888,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     }
     else
     {
-        float kc[40] = {};
+        float kc[44] = {};
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c)
                 kc[r * 4 + c] = inv.m[r][c];
@@ -1913,7 +1920,16 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         }
         d->SetVertexShader(dev, g_vsMarch);
         d->SetPixelShader(dev, g_psComp);
-        d->SetPixelShaderConstantF(dev, 0, kc, 10);
+        // c10: the sky's colour just over the horizon, for the far fog (2026-10-08); the fog's own colour, unscaled by
+        // Fog Brightness, when the sky has not been read.
+        {
+            float glow[3];
+            const bool haveGlow = SkyGlowColour(glow);
+            for (int i = 0; i < 3; ++i)
+                kc[40 + i] = haveGlow ? (std::max)(glow[i], fogRgb[i]) : fogRgb[i];
+            kc[43] = v.debug ? 0.0f : 1.0f;
+        }
+        d->SetPixelShaderConstantF(dev, 0, kc, 11);
         ClipQuad(dev, wd.Width, wd.Height);
         d->SetTexture(dev, 1, nullptr);
         d->SetVertexShader(dev, nullptr);
