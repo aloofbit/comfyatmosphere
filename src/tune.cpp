@@ -55,6 +55,7 @@ namespace
         { "sunshadows.leafShade", "Tree Shadow Strength" },
         { "water.enabled",       "Water Effects" },
         { "water.colour",        "Water Colour" },
+        { "water.zone",          "Zone Water" },
         { "water.clarity",       "Water Clarity" },
         { "water.reflection",    "Sky Reflection" },
         { "water.refraction",    "Underwater Distortion" },

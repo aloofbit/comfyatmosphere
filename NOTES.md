@@ -3196,3 +3196,12 @@ Seven places, noon and 19:30 (`wow-test-tool` run 20261007221514). Sky columns a
 
 Our reflected sky (`[water] skyColor`, 0x5A9AD8) is near Stormwind's 16.8 ring at noon (3AA2CE) and far from every
 dusk and from Duskwood, the swamp, Darkshore and Tel'Abim. Duskwood's light 0 read all zero at both hours.
+
+**Used (2026-10-07).** The dome's vertices between 12 and 30 degrees up, averaged, are the sky the water reflects
+(`[water] skyFromGame`), without the night's dimming, since the game's sky already dims. The ramp's middle row
+(shallow and deep averaged) is read at the frame's first water chunk that is not a building's, four times a
+second, while the game's own state is bound. Its hue, at the luma of Water Colour's colour, is mixed in by Zone
+Water (`[water] zone`); the absorption follows the mixed colour. A frame with both the sea and a lake takes the
+first chunk's. Measured in the probe: Stormwind's sea read 0.033 0.198 0.245, and Zone Water 50 gave deep water
+0.077 0.310 0.302; the swamp's lake read 0.461 0.373 0.076. At Sky Reflection 0.15 the sky's change is small on
+screen at a Stormwind dusk.

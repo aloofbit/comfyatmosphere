@@ -48,6 +48,8 @@ bool WaterShipNear(const float p[3]);
 // The light the water takes from what lies under it a yard, by brightness, at the current colour and Clarity (0
 // before the water was first drawn): the sun shadows fade the bed's shade by it.
 float WaterBedFade();
+// The sky's colour about 20 degrees up, read from the game's sky dome (comfyatmos.cpp): the water reflects it.
+void WaterSetSkyColour(const float rgb[3]);
 void WaterNoteRain(IDirect3DDevice9* dev, UINT prims);   // a DrawPrimitive: counted if it is the game's rain
 float WaterRainAmount();                                  // how hard it rains, 0..1, eased
 void WaterReset();      // before Reset, and for a new device

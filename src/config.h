@@ -473,8 +473,13 @@ struct WaterSettings
     float surface   = 1.0f;      // 0..1: how much of our water is drawn over the game's (0 = the game's alone)
     float clarity   = 1.0f;      // how clear the water is: the light it absorbs is divided by this
     float colour    = 25.0f;     // 0..100: the colour deep water turns, green (0), teal (50) or blue (100)
+    // Zone Water (2026-10-07): 0..100, how far the colour deep water turns leans to the game's own water colour for
+    // the zone and the hour, at our brightness. 0 is Water Colour alone.
+    float zone      = 50.0f;
     float reflection = 0.15f;    // 0..1: how much of the sky the water shows at a glancing look
     DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
+    bool  skyFromGame = true;    // the sky the water reflects is the game's own sky for the zone and the hour, read
+                                 // from its sky dome; skyColor until the dome is read
     float brightness = 0.7f;     // 0.25..2: the water's own colour, lighter or darker (Water Brightness)
     float glint     = 1.0f;      // 0..3: the sun's glint on the waves (Sun Glint)
     float moonGlint = 0.6f;      // 0..3: the moons' glint on the waves by night (Moon Glint)

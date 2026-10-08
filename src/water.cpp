@@ -1524,6 +1524,72 @@ float4 main(float2 vpos : VPOS) : COLOR
     std::vector<std::array<float, 3>> g_movingShips;
     float g_bedFade = 0.0f;   // the light the water takes from the bed a yard, by brightness (WaterBedFade)
 
+    // The zone's colours (2026-10-07). The game's water colour: the middle of its shallow to deep ramp (ReadGameRamp),
+    // the sea's or a lake's as last read. The sky: the dome's colour about 20 degrees up (WaterSetSkyColour). Each
+    // is eased toward what was read, over about half a second (ZoneColours).
+    float  g_gameWater[3] = {}, g_gameSky[3] = {};
+    bool   g_haveGameWater = false, g_haveGameSky = false, g_gameWaterSea = true;
+    float  g_easedWater[3] = {}, g_easedSky[3] = {};
+    bool   g_easedWaterSet = false, g_easedSkySet = false;
+    double g_rampRead = 0.0, g_zoneEased = 0.0;
+
+    // The game's water ramp, on stage 0 of its water draw: 8 x 64 A8R8G8B8 in the managed pool, row 0 shallow and
+    // row 63 deep, a straight line between them (the probe of 2026-10-07). The sea's rows run alpha 0xBF to 0xFF, a
+    // river's or a lake's 0x7F to 0xFD. Read four times a second, at the frame's first water draw.
+    void ReadGameRamp(IDirect3DDevice9* dev)
+    {
+        const double now = Now();
+        if (now < g_rampRead)
+            return;
+        g_rampRead = now + 0.25;
+        IDirect3DBaseTexture9* t = nullptr;
+        dev->lpVtbl->GetTexture(dev, 0, &t);
+        if (!t)
+            return;
+        if (t->lpVtbl->GetType(t) == D3DRTYPE_TEXTURE)
+        {
+            auto* t2 = reinterpret_cast<IDirect3DTexture9*>(t);
+            D3DSURFACE_DESC td = {};
+            D3DLOCKED_RECT lr = {};
+            if (SUCCEEDED(t2->lpVtbl->GetLevelDesc(t2, 0, &td)) && td.Format == D3DFMT_A8R8G8B8 && td.Width == 8 &&
+                td.Height == 64 && td.Pool == D3DPOOL_MANAGED &&
+                SUCCEEDED(t2->lpVtbl->LockRect(t2, 0, &lr, nullptr, D3DLOCK_READONLY)) && lr.pBits)
+            {
+                const auto* bits = static_cast<const uint8_t*>(lr.pBits);
+                DWORD a = 0, b = 0;
+                memcpy(&a, bits, 4);
+                memcpy(&b, bits + 63 * lr.Pitch, 4);
+                t2->lpVtbl->UnlockRect(t2, 0);
+                for (int i = 0; i < 3; ++i)
+                {
+                    const int sh = 16 - 8 * i;
+                    g_gameWater[i] = (((a >> sh) & 0xFF) + ((b >> sh) & 0xFF)) / 510.0f;
+                }
+                g_gameWaterSea = (a >> 24) >= 0xA0;
+                g_haveGameWater = true;
+            }
+        }
+        t->lpVtbl->Release(t);
+    }
+
+    // The colours eased toward what was read, once a frame (FrameConstants).
+    void ZoneColours()
+    {
+        const double now = Now();
+        const float dt = static_cast<float>((std::min)((std::max)(now - g_zoneEased, 0.0), 1.0));
+        g_zoneEased = now;
+        const float f = 1.0f - expf(-dt / 0.5f);
+        const auto ease = [f](float* eased, bool& set, const float* target) {
+            for (int i = 0; i < 3; ++i)
+                eased[i] = set ? eased[i] + (target[i] - eased[i]) * f : target[i];
+            set = true;
+        };
+        if (g_haveGameWater)
+            ease(g_easedWater, g_easedWaterSet, g_gameWater);
+        if (g_haveGameSky)
+            ease(g_easedSky, g_easedSkySet, g_gameSky);
+    }
+
     // Last frame's units, to tell how fast each moves: a unit is the one nearest its place last frame.
     float  g_lastUnits[256][3];
     int    g_lastUnitCount = 0;
@@ -2261,6 +2327,18 @@ float4 main(float2 vpos : VPOS) : COLOR
         float deep[3];
         for (int i = 0; i < 3; ++i)
             deep[i] = kPalette[lo][i] + (kPalette[lo + 1][i] - kPalette[lo][i]) * f;
+        // Zone Water (2026-10-07): toward the game's water colour for the zone and the hour, at this colour's
+        // brightness. The game's colours are dark (it adds its water texture over them) and dim at dusk, so only
+        // their hue is taken; the night dims ours (day). Its absorption below follows the hue.
+        ZoneColours();
+        const auto luma = [](const float* c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; };
+        const float zone = w.zone * 0.01f;
+        if (zone > 0.0f && g_easedWaterSet && luma(g_easedWater) > 0.005f)
+        {
+            const float scale = luma(deep) / luma(g_easedWater);
+            for (int i = 0; i < 3; ++i)
+                deep[i] += ((std::min)(g_easedWater[i] * scale, 1.0f) - deep[i]) * zone;
+        }
         k[172] = deep[0] * day;
         k[173] = deep[1] * day;
         k[174] = deep[2] * day;
@@ -2279,9 +2357,28 @@ float4 main(float2 vpos : VPOS) : COLOR
         // kept 26% where the floor kept 64% (the owner).
         g_bedFade = (std::min)((std::min)(k[176], k[177]), k[178]);
         k[179] = w.refraction;
-        k[180] = ((w.skyColor >> 16) & 0xFF) / 255.0f * day;
-        k[181] = ((w.skyColor >> 8) & 0xFF) / 255.0f * day;
-        k[182] = (w.skyColor & 0xFF) / 255.0f * day;
+        // The game's sky (2026-10-07): it follows the zone and the hour, dusk and night included, so the night does
+        // not dim it again.
+        if (w.skyFromGame && g_easedSkySet)
+            for (int i = 0; i < 3; ++i)
+                k[180 + i] = g_easedSky[i];
+        else
+        {
+            k[180] = ((w.skyColor >> 16) & 0xFF) / 255.0f * day;
+            k[181] = ((w.skyColor >> 8) & 0xFF) / 255.0f * day;
+            k[182] = (w.skyColor & 0xFF) / 255.0f * day;
+        }
+        if (g_probeOn && !(g_pColours & 4u))
+        {
+            g_pColours |= 4u;
+            Log("water: zone colours: the game's water (%s) %.3f %.3f %.3f eased %.3f %.3f %.3f, Zone Water %.0f, deep "
+                "water %.3f %.3f %.3f; the game's sky %s %.3f %.3f %.3f eased %.3f %.3f %.3f, reflected %.3f %.3f %.3f",
+                !g_haveGameWater ? "not read" : g_gameWaterSea ? "the sea" : "a lake or a river", g_gameWater[0],
+                g_gameWater[1], g_gameWater[2], g_easedWater[0], g_easedWater[1], g_easedWater[2], w.zone, k[172], k[173],
+                k[174], g_haveGameSky ? (w.skyFromGame ? "used" : "read, not used (skyFromGame 0)") : "not read",
+                g_gameSky[0], g_gameSky[1], g_gameSky[2], g_easedSky[0], g_easedSky[1], g_easedSky[2], k[180], k[181],
+                k[182]);
+        }
         k[183] = w.waves;
         // The moon's colour is the Moonlight Colour's hue ([night] moonColor), at 0.75 in its brightest channel.
         const DWORD mc = g_cfg.night.moonColor;
@@ -2930,6 +3027,8 @@ void WaterBeforeDraw(IDirect3DDevice9* dev, const WaterChunk& c)
     if (g_copied || !WaterWanted())
         return;
     g_copied = true;
+    if (!c.city)
+        ReadGameRamp(dev);   // the game's water colour, while its own state is bound (Zone Water)
     // The water's GPU time (2026-10-06): its copies and the wet sand here, and the span from here to the world's
     // end, with our draws over each chunk in it (and the game's own, which cannot be taken apart from them).
     BenchSectionBegin(dev, kBenchWaterSpan);
@@ -3758,6 +3857,12 @@ bool WaterGameWake(IDirect3DDevice9* dev, const WaterChunk& c)
 float WaterBedFade()
 {
     return g_bedFade;
+}
+
+void WaterSetSkyColour(const float rgb[3])
+{
+    memcpy(g_gameSky, rgb, sizeof(g_gameSky));
+    g_haveGameSky = true;
 }
 
 bool WaterShipNear(const float p[3])
