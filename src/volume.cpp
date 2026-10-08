@@ -482,9 +482,46 @@ float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
     wsum += w;
     return s.rgb * w;
 }
+float DistAt(float raw, float2 ndc)   // yards to the depth raw along the pixel's line of sight
+{
+    float  d  = min(saturate((raw - gZ.x) * gZ.y), 0.99999);
+    float4 wp = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
+    return min(length(wp.xyz / max(wp.w, 1e-6)), 30000.0);
+}
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
     float  raw  = tex2Dlod(sDepth, float4(uv, 0, 0)).r;
+    // A crack in the game's water (2026-10-08, the owner: white dots on the sea, sprinkled as the camera moved): a
+    // pixel or two where the sky shows between its chunks. As the sky it took the far fog's full brightness, among
+    // water that has the near fog's. And in the near water (the owner: the tips of the terrain), the sea bed through
+    // a crack: farther than the water, it took thicker fog, a light dot. A pixel with something at least a fifth
+    // nearer within 2 pixels on both sides of it, above and below or left and right, takes the nearer depth of the
+    // two sides (past the world's slice: the world's slice on both sides). And the fog covers it whole (crack, at the
+    // end): its own colour is the sky's or the sea bed's, a light dot through the near fog too.
+    const float worldEnd = gZ.x + 1.0 / gZ.y + 1e-5;
+    const float2 px = float2(abs(ddx(uv.x)), abs(ddy(uv.y)));
+    const float2 ndc0 = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    const float rawIn = raw;
+    {
+        float up = 1.0, dn = 1.0, lf = 1.0, rt = 1.0;
+        for (int i = 1; i <= 2; ++i)
+        {
+            up = min(up, tex2Dlod(sDepth, float4(uv.x, uv.y - i * px.y, 0, 0)).r);
+            dn = min(dn, tex2Dlod(sDepth, float4(uv.x, uv.y + i * px.y, 0, 0)).r);
+            lf = min(lf, tex2Dlod(sDepth, float4(uv.x - i * px.x, uv.y, 0, 0)).r);
+            rt = min(rt, tex2Dlod(sDepth, float4(uv.x + i * px.x, uv.y, 0, 0)).r);
+        }
+        const float sv = max(up, dn), sh = max(lf, rt);   // the farther of the two sides' nearest
+        // The distances only where both sides of a pair are nearer: most pixels leave here.
+        [branch] if (sv < raw || sh < raw)
+        {
+            const float own = DistAt(raw, ndc0);
+            if (sv < raw && (raw > worldEnd ? sv < worldEnd : own > 1.25 * DistAt(sv, ndc0) + 1.0))
+                raw = sv;
+            else if (sh < raw && (raw > worldEnd ? sh < worldEnd : own > 1.25 * DistAt(sh, ndc0) + 1.0))
+                raw = sh;
+        }
+    }
     float  d    = min(saturate((raw - gZ.x) * gZ.y), 0.99999);
     float2 ndc  = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     float4 wp   = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
@@ -519,10 +556,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // (2026-10-08, the owner: a dark strip of fog on the open sea at the horizon). The far sea past our water, the far
     // land and the sky lie past the world's slice; nearer, from 300 yards to full at 1000. Fog Brightness (55 there)
     // made the thick fog on the far sea darker than the sky over it and the water under it.
-    float  farV = (raw > gZ.x + 1.0 / gZ.y + 1e-5) ? 1.0 : smoothstep(300.0, 1000.0, dist);
+    float  farV = raw > worldEnd ? 1.0 : smoothstep(300.0, 1000.0, dist);
     float3 skyA = lerp(gA.rgb, gH.rgb, farV * gH.w);
     float3 rgb  = gC.rgb * m.r * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a) + skyA * m.g;
-    return float4(rgb, T);
+    return float4(rgb, raw < rawIn ? 0.0 : T);   // a crack: the fog's light alone
 }
 )HLSL";
 
