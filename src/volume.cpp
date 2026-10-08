@@ -1473,7 +1473,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // takes kFogOnlyGain times Fog Sunlight whatever Light Strength is, faded only as the sun goes under (full at
     // 1 degree up, none at 1 degree down). The light keeps its own strength and fade.
     const float lightGain = fogOnly ? 0.0f : (v.strength * 0.01f) * v.maxIntensity * sunset;
-    const float fogSunGain = fogOn ? kFogOnlyGain * (std::min)((std::max)((sunDir[2] + 0.0175f) / 0.035f, 0.0f), 1.0f) *
+    // 0.25, not kFogOnlyGain (2026-10-08): with the light's tie and fade gone and the fog's own phase toward the sun,
+    // 0.75 made the haze round a low sun some 50 times what it was, and washed the cliffs out (the owner).
+    const float fogSunGain = fogOn ? 0.25f * (std::min)((std::max)((sunDir[2] + 0.0175f) / 0.035f, 0.0f), 1.0f) *
                                      NightScale() : 0.0f;
     const float sunGain = (std::max)(lightGain, fogSunGain);
     if (!v.debug)
