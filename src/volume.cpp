@@ -314,6 +314,11 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // the sunlight on forward. It took the light's (Light Toward the Sun, 0.07 there), next to even all round.
     float gf    = gFg.x;
     float phaseF = (1.0 - gf * gf) / pow(max(1.0 + gf * gf - 2.0 * gf * c, 1e-4), 1.5);
+    // And a narrow glow right round the sun, half at 3 degrees, as mist's forward peak (2026-10-08, the owner: a
+    // bright line under a sun on the sea's horizon). The game's own aura round the disc is about that size; on the
+    // sky the fog is cleared over it (the composite), and under the horizon the fog over the water stayed an even
+    // grey, so the aura ended in a flat bright edge. Now the fog under the sun glows as the aura does above it.
+    phaseF += 50.0 * gf * pow(saturate(c), 500.0);
     // The glow along the water's horizon with the sun low (2026-10-08, the owner's reference of a sunset at sea): the
     // fog lights up along the top of the water across the whole horizon, brightest under the sun. Added for a view
     // within some 7 degrees of level, by its bearing to the sun (full toward it, a little to the sides and behind),
