@@ -1,6 +1,6 @@
 {
     "name": "development-guard-stealth",
-    "about": "On the development map (451), where the Charger test stands, the owner's Stormwind City Guard (a world spawn, guid 2950067, 3.7 yards in front of the start) given Stealth (.aura 1784). The game draws a stealthed unit flat: its depth passes, then its colour passes with a layer after each, against its own depth. Its passes go into a scratch depth, copied from the world's once, at its first depth pass (2026-10-04, a stealthed Pinto with dark spots). A unit's cached shadow goes once it is stealthed, which needs its model, read on the map thread as the unit is first seen (2026-10-05: a half second of shadow as Stealth went on). His helmet, shoulders and weapons are models of their own: they are taken as his within 1.5 yards, or they cast on the ground under a guard with no body, and again with the player standing inside him (2026-10-05, the owner). The test records Stealth going on, takes a shot in stealth, records Stealth going off, then stealths him again, moves the character into him and takes a shot: no shadow of his. It used a Pinto until 2026-10-05, but the game itself leans a stealthing horse forward and draws it black for a second. The guard is left out of stealth after.",
+    "about": "On the development map (451), where the Charger test stands, the owner's Stormwind City Guard (a world spawn, guid 2950067, 3.7 yards in front of the start) given Stealth (.aura 1784). The game draws a stealthed unit flat: its depth passes, then its colour passes with a layer after each, against its own depth. Its passes go into a scratch depth, copied from the world's once, at its first depth pass (2026-10-04, a stealthed Pinto with dark spots). A unit's cached shadow goes once it is stealthed, which needs its model, read on the map thread as the unit is first seen (2026-10-05: a half second of shadow as Stealth went on). His helmet, shoulders and weapons are models of their own: they are taken as his within 1.5 yards, or they cast on the ground under a guard with no body, and again with the player standing inside him (2026-10-05, the owner). The test records Stealth going on, takes a shot in stealth, records Stealth going off, then stealths him again, moves the character into him and takes a shot: no shadow of his. It used a Pinto until 2026-10-05, but the game itself leans a stealthing horse forward and draws it black for a second. The guard is left out of stealth after. Then you, stealthed (2026-10-08, a player's report: a rogue in stealth cast a shadow of their own, and no other stealthed unit did): the owner's snapshot at the same place, with the sun 69.2 degrees up, out of the building's shade, the camera 8.996 yards back. The probe before and in stealth, and shots in the shade alone (Debug View 5) before and in stealth, then the normal view.",
     "config": {
         "character": 1,
         "flight": false,
@@ -96,7 +96,7 @@
         {
             "face": {
                 "heading": 167.4,
-                "pitch": -22.0
+                "pitch": -22
             }
         },
         {
@@ -182,7 +182,7 @@
         {
             "face": {
                 "heading": 167.4,
-                "pitch": -22.0
+                "pitch": -22
             }
         },
         {
@@ -208,6 +208,90 @@
         },
         {
             "clearTarget": true
+        },
+        {
+            "clearTarget": true
+        },
+        {
+            "go": {
+                "x": 4617.3,
+                "y": -452.7,
+                "z": 289.7,
+                "facing": 171.7,
+                "map": 451
+            }
+        },
+        {
+            "atmos": "sun.azimuth 45"
+        },
+        {
+            "atmos": "sun.elevation 69.2"
+        },
+        {
+            "cameraZoom": 8.996
+        },
+        {
+            "face": {
+                "heading": 171.7,
+                "pitch": -28.2
+            }
+        },
+        {
+            "chat": ".unaura 1784"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "cvar": "comfyDebugView 5"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        },
+        {
+            "chat": ".aura 1784"
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "cvar": "comfyDebugView 5"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "cvar": "comfyDebugView 0"
+        },
+        {
+            "wait": 1
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "chat": ".unaura 1784"
         }
     ],
     "expect": [
@@ -240,6 +324,34 @@
             "probeAt": 2,
             "probe": "near you: M2 .*its buffer (345|131|465|64) vertices",
             "max": 0
+        },
+        {
+            "about": "You, before stealth (probe 3): the probe lists you, not stealthed",
+            "probeAt": 3,
+            "probe": "shadow:   unit at .*UNIT_FIELD_BYTES_1 0x[0-9A-F]{8}, you$",
+            "min": 1
+        },
+        {
+            "about": "You in stealth (probe 4): the probe lists you as stealthed (2026-10-08, a player's report: a rogue in stealth cast a shadow of their own; the player was left out of the stealthed units)",
+            "probeAt": 4,
+            "probe": "shadow:   unit at .*, stealthed, you$",
+            "min": 1
+        },
+        {
+            "about": "You, before stealth, in the shade alone (Debug View 5): row 474 crosses your shadow on the ground. 7 on 2026-10-08",
+            "shot": 3,
+            "row": 474,
+            "from": 598,
+            "to": 622,
+            "meanMax": 60
+        },
+        {
+            "about": "You in stealth, in the shade alone (Debug View 5): row 474, where your shadow lay, is lit. 255 after the fix (2026-10-08); with the player left out of the stealthed units, your shadow stayed",
+            "shot": 4,
+            "row": 474,
+            "from": 598,
+            "to": 622,
+            "mean": 200
         }
     ]
 }

@@ -1739,7 +1739,7 @@ namespace
     std::vector<std::pair<float, int>> g_filesUnitsByX;
     float g_filesUnits[512][3];
     unsigned g_filesUnitModels[512][2];   // each unit's display id and mount display id (0: none)
-    bool g_filesUnitStealthed[512];       // stealthed, and not the player
+    bool g_filesUnitStealthed[512];       // stealthed (by its flag), the player too
     unsigned g_filesUnitBytes1[512];      // UNIT_FIELD_BYTES_1 as read, for the probe
     bool g_filesUnitSelf[512];
     int g_filesUnitCount = 0;
@@ -1756,7 +1756,12 @@ namespace
             memcpy(g_filesUnits[i], list[i].pos, sizeof(list[i].pos));
             g_filesUnitModels[i][0] = list[i].display;
             g_filesUnitModels[i][1] = list[i].mount;
-            g_filesUnitStealthed[i] = list[i].stealthed && !list[i].self;
+            // The player too (2026-10-08, a player's report: a rogue in stealth cast a shadow of their own, and no
+            // other stealthed unit did). The player was left out on 2026-10-04, when the see-through rule took the
+            // client's fade of your character and your mount, zoomed in, for stealth; the rule reads the stealth
+            // flag now, and a fade without it is not taken. Zoomed in, [depth] seeThroughNear still keeps your own
+            // depth (your face through the back of your head).
+            g_filesUnitStealthed[i] = list[i].stealthed;
             g_filesUnitBytes1[i] = list[i].bytes1;
             g_filesUnitSelf[i] = list[i].self;
             // Each unit's model is asked for as the unit is first seen (2026-10-05). The read is a job on the
@@ -1836,7 +1841,7 @@ namespace
     // models of their own, not views of the unit's, and the client draws them stealthed too: a depth pass, then a
     // blended one. Not known as the unit's, the depth passes went into the shadow cache as solid casters, and the
     // owner saw a helmet, shoulders and a sword on the ground under a guard with no body. An attachment stands at
-    // its unit: a stealthed unit (not the player) stands within kAttachReach across the ground, and no unit within
+    // its unit: a stealthed unit (the player too, since 2026-10-08) stands within kAttachReach across the ground, and no unit within
     // kUnitModelReach wears a model with that many vertices. The guard's parts stood 0.2 to 0.6 yards from his
     // place, 0.7 to 1.4 yards up. Any stealthed unit there, not the nearest unit: with the player inside the guard,
     // the nearest was the player, and the parts cast again. The player's own parts are not taken by this: the
