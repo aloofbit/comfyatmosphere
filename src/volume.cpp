@@ -1533,12 +1533,15 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // the sea in Tirisfal Glades). The march adds the two (gP.z and gG.x) and the composite multiplies the sum by one
     // gain. That gain was the light's: Light Strength (5 there), and faded out below a sun height of 0.1. So the fog
     // toward a low sun, lit from behind, showed next to none of its light, where it should be brightest. The fog now
-    // takes kFogOnlyGain times Fog Sunlight whatever Light Strength is, faded only as the sun goes under (full at
-    // 1 degree up, none at 1 degree down). The light keeps its own strength and fade.
+    // takes its own gain times Fog Sunlight whatever Light Strength is, faded only as the sun goes under (below). The
+    // light keeps its own strength and fade.
     const float lightGain = fogOnly ? 0.0f : (v.strength * 0.01f) * v.maxIntensity * sunset;
     // 0.25, not kFogOnlyGain (2026-10-08): with the light's tie and fade gone and the fog's own phase toward the sun,
     // 0.75 made the haze round a low sun some 50 times what it was, and washed the cliffs out (the owner).
-    const float fogSunGain = fogOn ? 0.25f * (std::min)((std::max)((sunDir[2] + 0.0175f) / 0.035f, 0.0f), 1.0f) *
+    // Full until the sun's centre is 1 degree under the horizon, none at 2.6 under (2026-10-08): with it half set over
+    // Stormwind's harbour (-0.010) the fog's light was down to a fifth, and the glows with it, while the game still
+    // showed half the disc and its aura. It was full at 1 degree up and none at 1 under.
+    const float fogSunGain = fogOn ? 0.25f * (std::min)((std::max)((sunDir[2] + 0.045f) / 0.028f, 0.0f), 1.0f) *
                                      NightScale() : 0.0f;
     const float sunGain = (std::max)(lightGain, fogSunGain);
     if (!v.debug)
