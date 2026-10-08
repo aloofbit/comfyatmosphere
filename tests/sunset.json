@@ -1,6 +1,6 @@
 {
-    "name": "tirisfal-sunset",
-    "about": "The sun setting over the sea off Tirisfal Glades' north coast, at 20:30 by [time], with the owner's settings (2026-10-08). Here the fog and the water at sunset were tuned: no fog over the water, the hard cut under the sun, the fog's glow toward the sun and along the water's horizon, the far sea's dark strip, the white dots of the water's cracks. No fixed sun: the hour places it. Shot 1 in the normal view, for a look; no check reads it yet.",
+    "name": "sunset",
+    "about": "The sun setting over the sea, with the owner's settings (2026-10-08). Here the fog and the water at sunset were tuned: no fog over the water, the hard cut under the sun, the fog's glow toward the sun and along the water's horizon, the far sea's dark strip, the white dots of the water's cracks. No fixed sun: the hour places it. Shot 1: a beach of Tirisfal Glades' north coast at 20:30, under its green sky. Shot 2: the mouth of Booty Bay at 20:25, the sun past the cliff, the statue and a ship in silhouette. In the normal view, for a look; no check reads them yet.",
     "config": {
         "character": 1,
         "flight": false,
@@ -148,6 +148,36 @@
             "face": {
                 "heading": 38.4,
                 "pitch": 17
+            }
+        },
+        {
+            "wait": 3
+        },
+        {
+            "probe": true
+        },
+        {
+            "wait": 2
+        },
+        {
+            "screenshot": true
+        },
+        {
+            "go": {
+                "x": -14147.5,
+                "y": 505.8,
+                "z": 1.3,
+                "facing": 69.9,
+                "map": 0
+            }
+        },
+        {
+            "atmos": "time.hour 20.42"
+        },
+        {
+            "face": {
+                "heading": 69.9,
+                "pitch": 11.8
             }
         },
         {
