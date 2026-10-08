@@ -25,6 +25,7 @@
 #include <d3d9.h>
 
 #include "grass.h"
+#include "bodymask.h"
 #include "client.h"
 #include "common.h"
 #include "config.h"
@@ -803,6 +804,7 @@ bool GrassDraw(IDirect3DDevice9* dev, const GrassDrawArgs& d, HRESULT& hr)
         g_calls.setVSConstF(dev, 0, &g_vsConst[0][0], kWindConsts);
         return false;
     }
+    BodyMarkGrass(dev);   // the sun shadows shade it as the ground round it (2026-10-08)
     hr = d.indexed ? g_calls.drawIdxPrim(dev, d.prim, d.bvi, d.mvi, d.nv, d.si, d.pc)
                    : g_calls.drawPrim(dev, d.prim, d.sv, d.pc);
     // The fixed-function pipeline back, and the client's constants.

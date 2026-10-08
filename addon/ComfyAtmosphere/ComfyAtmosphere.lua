@@ -53,6 +53,10 @@ COMFYATMOSPHERE_SHADOW_LOCK    = "Lock Shadow Angle";
 COMFYATMOSPHERE_SHADOW_TILT    = "Shadow Angle";
 COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
+COMFYATMOSPHERE_FOLIAGE_SIZE   = "Foliage Shade Size";
+COMFYATMOSPHERE_FOLIAGE_EDGE   = "Foliage Shade Edge";
+COMFYATMOSPHERE_FOLIAGE_SELF   = "Foliage Self Shade";
+COMFYATMOSPHERE_FOLIAGE_UNITS  = "Creature Shadow on Foliage";
 COMFYATMOSPHERE_WATER          = "Water Effects";
 COMFYATMOSPHERE_WATER_COLOUR   = "Water Colour";
 COMFYATMOSPHERE_WATER_ZONE     = "Zone Colour";
@@ -616,6 +620,54 @@ local ENTRIES = {
 		desc = "How dark the shadows of trees and bushes are. They still show inside the shadow of a hill or a mountain.",
 		type = "slider",
 		cvar = "comfyTreeShade",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 100,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard: comfyatmos.dll divides it by 10 for [sunshadows] foliageRadius (2026-10-08).
+		name = "COMFYATMOSPHERE_FOLIAGE_SIZE",
+		desc = "Ferns, bushes and leaves take the shade of the ground round them, this many tenths of a yard across, so a plant is dark under cover and lit in the open, with no dapples on it. 0 lets the shade fall on them as it falls.",
+		type = "slider",
+		cvar = "comfyFoliageShadeSize",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 50,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyatmos.dll divides it by 100 for [sunshadows] foliageEdge (2026-10-08).
+		name = "COMFYATMOSPHERE_FOLIAGE_EDGE",
+		desc = "How softly a plant goes from lit to dark at the edge of a shadow. Low switches it at once; high blends it over a wider edge.",
+		type = "slider",
+		cvar = "comfyFoliageShadeEdge",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 50,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Tenths of a yard: comfyatmos.dll divides it by 10 for [sunshadows] foliageSlack (2026-10-08).
+		name = "COMFYATMOSPHERE_FOLIAGE_SELF",
+		desc = "Ferns, bushes and leaves take no shade from leaves nearer than this many tenths of a yard: their own and their neighbours'. Higher stops a tall bush shading itself; a tree's crown higher up still shades it.",
+		type = "slider",
+		cvar = "comfyFoliageSelfShade",
+		dependency = { "comfyVolume", "1" },
+		minval = 0,
+		maxval = 50,
+		step = 1,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyatmos.dll divides it by 100 for [sunshadows] foliageUnits (2026-10-08).
+		name = "COMFYATMOSPHERE_FOLIAGE_UNITS",
+		desc = "How much of the shadows of characters and creatures falls on the ground's grass and ferns. 0 is none, so a passer-by does not print its shape on them.",
+		type = "slider",
+		cvar = "comfyFoliageCreatureShadow",
 		dependency = { "comfyVolume", "1" },
 		minval = 0,
 		maxval = 100,
@@ -1700,7 +1752,7 @@ local WINDOW_SECTIONS = {
 	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseDistance", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfySunShadowStrength", "comfySunShadowsNight",
-	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfyShadowOnWater", "comfySunGlide", "comfyTreeShade", "comfySunlight", "comfyShadeTint",
+	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfyShadowOnWater", "comfySunGlide", "comfyTreeShade", "comfyFoliageShadeSize", "comfyFoliageShadeEdge", "comfyFoliageSelfShade", "comfyFoliageCreatureShadow", "comfySunlight", "comfyShadeTint",
 	               "comfySunTint", "comfyShadowResolution", "comfyShadowSoftness", "comfyShadowEvery",
 	               "comfyShadowNear" } },
 	{ "Sky", { "comfyRays", "comfyRaysStrength", "comfyRaysSoften", "comfyRaysSmooth", "comfyNightStrength",

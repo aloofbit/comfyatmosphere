@@ -120,6 +120,8 @@ float4 gM2   : register(c30);
 float4 gM3   : register(c31);
 float4 gMB   : register(c32);       // middle map: depth bias, normal offset, one texel, 1 if there is one
 float4 gTr   : register(c33);       // the terrain: terrainShade, 1 if there is a map of it, its least depth bias
+float4 gFol  : register(c35);       // foliage: the disc's radius (yards, 0 = off), how far each side of half lit it turns,
+                                   // the share of creatures' shadows it takes
 float4 gWt   : register(c34);       // the water: 1 if the depth under it is there, light absorbed a yard;
                                     // w Shadow on Water (0..1)
                                     // (map units)
@@ -434,9 +436,16 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float2 bodyM = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).rg : float2(0.0, 1.0);
     float body  = bodyM.x;
     float bodyS = gBody.y > 0.5 ? body : 1.0;
+    // Foliage, the ground's grass and ferns (blue in the mask, 2026-10-08, the owner: ferns in Redridge striped with their
+    // own shade at Shadow Resolution 2048, the stripes crawling as they swayed). A fern is in the leaf maps too, and
+    // at that resolution its blades shaded each other. Against the leaf maps it takes [sunshadows] foliageSlack
+    // (gBody.w, map units): a leaf nearer the sun than that is its own or a neighbour's, and only a canopy higher up
+    // shades it. So a fern under a tree goes dark with the ground round it, and one in the sun stays as drawn.
+    float fol = gBody.y > 0.5 ? tex2Dlod(sBody, float4(uv, 0, 0)).b : 0.0;
     // The normal offset stays off the bodies (2026-10-02): a body's facing from the depth is per triangle,
-    // and the offset put its triangles on the character. Walls and the ground take all of it.
-    float offK = 1.0 - body;
+    // and the offset put its triangles on the character. Walls and the ground take all of it. Off foliage too
+    // (2026-10-08): a leaf card's facing from the depth is noise.
+    float offK = 1.0 - max(body, fol);
     // Which way the offset goes (2026-10-05). Along the facing where the sun reaches the surface. On a face
     // turned from the sun, straight away from the sun instead: the back of a stump in Elwynn leans in toward
     // its top, so its facing points a little up, and near the top edge the offset lifted the point over the
@@ -459,7 +468,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             float2 g = Slope(N, gN0, gN1, gN2, gG.y) * gT.x;
             litN = Lit(sNear, sn, g, gNB.x, gNB.z);
             [branch] if (gCh.y > 0.5)
-                leafN = Lit5(sNearL, sn, g, gNB.x, gNB.z);
+                leafN = Lit5(sNearL, sn, g, gNB.x + fol * gBody.w, gNB.z);
         }
     }
     // The middle map ([shadow] midRange, 2026-10-02) where the near map does not cover all of the shade,
@@ -500,7 +509,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         [branch] if (wn < 1.0 && wm < 1.0)
             litF = lerp(1.0, Lit(sShadow, sf, g, bF, gB.z), fade);
         [branch] if (wn < 1.0 && gCh.z > 0.5)
-            leafF = lerp(1.0, Lit5(sFarL, sf, g, bF, gB.z), fade);
+            leafF = lerp(1.0, Lit5(sFarL, sf, g, bF + fol * gBody.w, gB.z), fade);
         [branch] if (gTr.y > 0.5)
             terr = 1.0 - lerp(1.0, Lit5(sTerr, sf, g, max(bF, gTr.z), gB.z), fade);
         // A tree's shade through a hill (2026-10-03): with the sun low behind a ridge, the trees on its crest
@@ -546,6 +555,46 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             throughS = max(saturate((dT - dS) * m - 1.0), saturate((sf.z - dS) / gTr.w - 1.0)) * gate;
             // In units of the margin (0.1 of terrainBias): 100 of them full.
             depthsV = float3(saturate((dT - dS) * m * 0.01), saturate((dS - dT) * m * 0.01), saturate((sf.z - dT) * m * 0.01));
+        }
+    }
+)HLSL" R"HLSL(
+    // Foliage takes no shade's detail (2026-10-08, the owner): a fern is all dark under cover and as drawn in the
+    // open, not printed with the canopy's dapples nor cut in two by a shadow's edge. Each map's shade on it is the
+    // share of 8 points on a disc [sunshadows] foliageRadius yards round it (gFol.x) that see the sun, one read each,
+    // pushed toward dark or lit (gFol.y each side of half). Every pixel of a plant reads near the same disc, so the
+    // whole plant goes dark or stays lit together. Against the leaf maps the foliage slack holds (gBody.w).
+    [branch] if (fol > 0.5 && gFol.x > 0.0)
+    {
+        const float3 Qb = P + gSun.xyz * gT.y;
+        float sN = 0.0, sNL = 0.0, sM = 0.0, sF = 0.0, sFL = 0.0;
+        [unroll] for (int k = 0; k < 8; ++k)
+        {
+            const float  ang = k < 6 ? k * 1.0472 : (k - 6) * 3.1416 + 0.5236;
+            const float  rr  = k < 6 ? gFol.x : gFol.x * 0.4;
+            const float3 Q   = Qb + float3(cos(ang) * rr, sin(ang) * rr, 0.0);
+            const float4 s   = Q.x * gN0 + Q.y * gN1 + Q.z * gN2 + gN3;
+            const float2 us  = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
+            sN  += step(s.z, R1(sNear, us) + gNB.x);
+            sNL += gCh.y > 0.5 ? step(s.z, R1(sNearL, us) + gNB.x + gBody.w) : 1.0;
+            const float4 m4  = Q.x * gM0 + Q.y * gM1 + Q.z * gM2 + gM3;
+            sM  += step(m4.z, R1(sMid, float2(m4.x * 0.5 + 0.5, 0.5 - m4.y * 0.5)) + gMB.x);
+            const float4 f4  = Q.x * gSh0 + Q.y * gSh1 + Q.z * gSh2 + gSh3;
+            const float2 uf  = float2(f4.x * 0.5 + 0.5, 0.5 - f4.y * 0.5);
+            sF  += step(f4.z, R1(sShadow, uf) + gB.x);
+            sFL += gCh.z > 0.5 ? step(f4.z, R1(sFarL, uf) + gB.x + gBody.w) : 1.0;
+        }
+        const float lo = 0.5 - gFol.y, hi = 0.5 + gFol.y;
+        if (wn > 0.0)
+        {
+            litN  = smoothstep(lo, hi, sN / 8.0);
+            leafN = smoothstep(lo, hi, sNL / 8.0);
+        }
+        if (wm > 0.0)
+            litM = smoothstep(lo, hi, sM / 8.0);
+        if (gCh.w > 0.5 && wn < 1.0)
+        {
+            litF  = smoothstep(lo, hi, sF / 8.0);
+            leafF = smoothstep(lo, hi, sFL / 8.0);
         }
     }
     // Solid things stop the sun; leaves stop leafShade of it, and hills terrainShade. They multiply
@@ -630,6 +679,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                             (1.0 - smoothstep(-0.02, 0.03, dot(Nu, gSun.xyz))) * smoothstep(1.5, 2.5, along));
             unit *= 1.0 - off;
         }
+    }
+    // Creatures' shadows on the ground's grass and ferns (2026-10-08, the owner): [sunshadows] foliageUnits of them
+    // (gFol.z), none by default, so a character walking by does not print its shape on the ferns.
+    {
+        const float kf = lerp(1.0, gFol.z, fol);
+        unitShade *= kf;
+        unit      *= kf;
     }
     // Character Backside Shadow ([sunshadows] bodyShade, 2026-10-01): the shade on a body, scaled. Only the
     // units' own (2026-10-04): the world's maps leave the units out, so their shade on a body is a hill's, a
@@ -1132,7 +1188,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[140] = {};
+    float pc[144] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -1212,6 +1268,9 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[108] = ss.bodyShade * 0.01f;
     pc[109] = bodyMask ? 1.0f : 0.0f;
     pc[110] = ss.sunOffset / span;                              // undone off a body, in the units' map
+    pc[111] = ss.foliageSlack / span;                           // foliage against the leaf maps, map units
+    pc[140] = ss.foliageRadius; pc[141] = ss.foliageEdge;      // c35: foliage takes a disc's share, dark or lit
+    pc[142] = ss.foliageUnits;                                 // and this much of the creatures' shadows
     // The middle map: its texel, and the same bias and normal offset in texels of it.
     const float midTex_ = midRange * 2.0f / size;
     for (int r = 0; r < 4; ++r)
@@ -1233,7 +1292,7 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[136] = under ? 1.0f : 0.0f;
     pc[137] = WaterBedFade() > 0.0f ? WaterBedFade() : 0.25f / g_cfg.water.clarity;
     pc[139] = ss.water;                                              // Shadow on Water
-    d->SetPixelShaderConstantF(dev, 0, pc, 35);
+    d->SetPixelShaderConstantF(dev, 0, pc, 36);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);

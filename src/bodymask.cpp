@@ -60,6 +60,11 @@ namespace
     // its untextured terrain chunks far off so, and under the water they showed as a smooth dark ridge (the owner).
     // Debug View 16 shows them; buildings, the dock walls among them, are drawn with a texture and never carry it.
     constexpr DWORD kBareBit = 0x08;
+    // The ground's grass and ferns (2026-10-08): the client's clutter, drawn through our wind shader (grass.cpp,
+    // BodyMarkGrass). The sun shadows give it the shade of the ground round it, a plant dark or lit as a whole.
+    // Not the leaf bit: that is every alpha tested model, the trees' crowns too, and the owner saw the trees
+    // change and not the ferns.
+    constexpr DWORD kGrassBit = 0x04;
 
     template <typename T> void SafeRelease(T*& p)
     {
@@ -220,7 +225,7 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_STENCILENABLE, TRUE);
     DWORD zw = 0;
     d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
-    const DWORD writeMask = zw ? kBit | kModelBit | kLeafBit | kGroundBit | kBareBit : 0;
+    const DWORD writeMask = zw ? kBit | kModelBit | kLeafBit | kGroundBit | kBareBit | kGrassBit : 0;
     IDirect3DVertexShader9* mvs = nullptr;
     if (zw)
         d->GetVertexShader(dev, &mvs);
@@ -301,6 +306,19 @@ void BodyMarkDraw(IDirect3DDevice9* dev)
     }
 }
 
+void BodyMarkGrass(IDirect3DDevice9* dev)
+{
+    // Called by the grass draw, after BodyMarkDraw set the mark for it: the grass bit in place of what that set.
+    if (!g_started || g_skipFrame || !g_writeMask)
+        return;
+    if (g_ref != kGrassBit)
+    {
+        dev->lpVtbl->SetRenderState(dev, D3DRS_STENCILREF, kGrassBit);
+        g_ref = kGrassBit;
+    }
+    g_anyModel = true;   // so the mask is built
+}
+
 bool BodyMarkLive(DWORD& bit)
 {
     bit = kBit | kModelBit;
@@ -378,6 +396,12 @@ void BodyMarkWorldEnded(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_STENCILREF,          kModelBit);
         d->SetRenderState(dev, D3DRS_STENCILMASK,         kModelBit);
         d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_GREEN);
+        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
+        // Blue: the ground's grass and ferns (2026-10-08). The sun shadows give it the shade of the ground round it,
+        // and slack against the leaf maps (sunshadows.cpp, [sunshadows] foliageRadius, foliageSlack).
+        d->SetRenderState(dev, D3DRS_STENCILREF,          kGrassBit);
+        d->SetRenderState(dev, D3DRS_STENCILMASK,         kGrassBit);
+        d->SetRenderState(dev, D3DRS_COLORWRITEENABLE,    D3DCOLORWRITEENABLE_BLUE);
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, q, sizeof(QuadVertex));
         if (g_msSurf)
             d->StretchRect(dev, g_msSurf, nullptr, g_texSurf, nullptr, D3DTEXF_NONE);

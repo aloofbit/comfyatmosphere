@@ -102,7 +102,7 @@ namespace
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
                 kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kWetSand, kLhReach,
                 kGrass, kGrassWind, kGrassSpeed, kGrassLean, kGrassWave, kGrassWindDir, kGrassParting, kGrassRadius,
-                kHotkeys, kWaterZone, kWaterSunset, kFogToward, kFogHorizon,
+                kHotkeys, kWaterZone, kWaterSunset, kFogToward, kFogHorizon, kFoliageRadius, kFoliageEdge, kFoliageSlack, kFoliageUnits,
                 kKnobs };
 
     const char* const kNames[kKnobs] = {
@@ -239,6 +239,13 @@ namespace
         "comfyMistToward",
         // Fog Horizon Glow (2026-10-08): [fog] horizonGlow, as a percentage.
         "comfyMistHorizon",
+        // The foliage's shade (2026-10-08): [sunshadows] foliageRadius and foliageSlack in tenths of a yard,
+        // foliageEdge as a percentage.
+        "comfyFoliageShadeSize",
+        "comfyFoliageShadeEdge",
+        "comfyFoliageSelfShade",
+        // Creature Shadow on Foliage (2026-10-08): [sunshadows] foliageUnits, as a percentage.
+        "comfyFoliageCreatureShadow",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -460,6 +467,10 @@ namespace
         case kWaterSunset:    snprintf(out, cap, "%.0f", s.water.sunset * 100.0f); break;   // percent
         case kFogToward:      snprintf(out, cap, "%.0f", s.fog.toward * 100.0f); break;     // percent
         case kFogHorizon:     snprintf(out, cap, "%.0f", s.fog.horizonGlow * 100.0f); break; // percent
+        case kFoliageRadius:  snprintf(out, cap, "%.0f", s.sunShadows.foliageRadius * 10.0f); break; // tenths of a yard
+        case kFoliageEdge:    snprintf(out, cap, "%.0f", s.sunShadows.foliageEdge * 100.0f); break;  // percent
+        case kFoliageSlack:   snprintf(out, cap, "%.0f", s.sunShadows.foliageSlack * 10.0f); break;  // tenths of a yard
+        case kFoliageUnits:   snprintf(out, cap, "%.0f", s.sunShadows.foliageUnits * 100.0f); break; // percent
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -596,6 +607,10 @@ namespace
         if (c[kWaterSunset].seen)    s.water.sunset = Clamp(c[kWaterSunset].value * 0.01f, 0.0f, 3.0f);
         if (c[kFogToward].seen)      s.fog.toward = Clamp(c[kFogToward].value * 0.01f, 0.0f, 0.9f);
         if (c[kFogHorizon].seen)     s.fog.horizonGlow = Clamp(c[kFogHorizon].value * 0.01f, 0.0f, 2.0f);
+        if (c[kFoliageRadius].seen)  s.sunShadows.foliageRadius = Clamp(c[kFoliageRadius].value * 0.1f, 0.0f, 10.0f);
+        if (c[kFoliageEdge].seen)    s.sunShadows.foliageEdge = Clamp(c[kFoliageEdge].value * 0.01f, 0.0f, 0.5f);
+        if (c[kFoliageSlack].seen)   s.sunShadows.foliageSlack = Clamp(c[kFoliageSlack].value * 0.1f, 0.0f, 10.0f);
+        if (c[kFoliageUnits].seen)   s.sunShadows.foliageUnits = Clamp(c[kFoliageUnits].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);

@@ -324,6 +324,12 @@ struct SunShadowSettings
     float sunlight   = 0.35f;      // 0..0.5: what the sun reaches is brightened by up to this share (the
                                   // Sunlight control, in percent). A forest in shade was dark all over
     int   debug      = 0;         // 1 = the shade alone (white = lit); 2 = the leaves' shade alone
+    float foliageSlack = 1.5f;    // yards: foliage (alpha tested models) takes no shade from leaves nearer the sun than
+                                  // this, its own or a neighbour's; only a canopy higher up shades it (2026-10-08)
+    float foliageRadius = 1.9f;   // yards: foliage takes each map's shade as the share of a disc this wide round it that
+                                  // sees the sun, so a plant is dark under cover and as drawn in the open; 0 = off
+    float foliageEdge   = 0.35f;  // 0..0.5: how far either side of half lit that share turns from dark to lit
+    float foliageUnits  = 0.0f;   // 0..1: how much of the creatures' shadows falls on the ground's grass and ferns
 };
 
 // Lamps, lanterns and torches (lamps.cpp finds them, lampglow.cpp draws): the fog glowing around them, and

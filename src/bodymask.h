@@ -3,6 +3,7 @@
 
 #include <d3d9.h>
 
+void BodyMarkGrass(IDirect3DDevice9* dev);        // the grass draw (grass.cpp): marked as the ground's grass
 void BodyMarkDraw(IDirect3DDevice9* dev);         // before each client draw in the world: the stencil mark
 void BodyMarkWorldEnded(IDirect3DDevice9* dev);   // the world is drawn: build the mask, put the states back
 void BodyMarkFrameEnd(IDirect3DDevice9* dev);     // at Present: a world that never ended gets its states back
