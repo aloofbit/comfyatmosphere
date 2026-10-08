@@ -1560,7 +1560,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetPixelShaderConstantF(dev, 0, pc, 14);
     d->SetPixelShaderConstantF(dev, 14, pn, 2);
     // The water's horizon as the camera sees it: the water toward the sun, 150 yards out (or 300, or under the
-    // camera), seen at the game's fog end, where the drawn water ends. Level when no water is found.
+    // camera), seen 2000 yards off, where the game's far mesh meets the sky (it reaches 2112). Not at the game's fog
+    // end, where our water ends (2026-10-08): the glow then sat on the near water, under a dark strip of far sea.
+    // Level when no water is found.
     float horizon = 0.0f;
     if (camRead)
     {
@@ -1571,7 +1573,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         const bool wet = MapWaterHeight(cam[0] + sxy[0] * 150.0f, cam[1] + sxy[1] * 150.0f, wz) ||
                          MapWaterHeight(cam[0] + sxy[0] * 300.0f, cam[1] + sxy[1] * 300.0f, wz) ||
                          MapWaterHeight(cam[0], cam[1], wz);
-        const float reachTo = pc[43] > 100.0f ? pc[43] : 400.0f;
+        const float reachTo = 2000.0f;
         if (wet)
         {
             const float dz = wz - cam[2];
