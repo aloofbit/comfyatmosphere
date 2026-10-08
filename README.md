@@ -40,6 +40,7 @@ When bugs are reported we implement automation testing to reduce regression.
 *Sun shadows and lanterns on a harbour walkway.*
 
 ## Compatibility
+> ⚠ Please start here if having problems. Start with a fresh client, install DXVK 2.7.1, then comfyatmos.
 
 Tested on a fresh OctoWoW client with no other mods:
 
