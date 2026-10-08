@@ -472,7 +472,7 @@ struct WaterSettings
                                  // 1 is 1.1 yards a second (Standing Ripple Spread)
     float rippleSpreadMoving = 1.0f;  // 0.1..3: the same for the rings of anyone walking or swimming (Moving Ripple
                                       // Spread): 1 is a third of their speed, 1.1 to 3 yards a second
-    float wetSand   = 0.45f;     // 0..1: how much darker the sand is where the water reaches (Wet Sand)
+    float wetSand   = 0.2f;      // 0..1: how much darker the sand is where the water reaches (Wet Sand)
     // The surface (2026-10-02): the water drawn by us in place of the game's: its colour by the real depth, the
     // sky in it, the sun's glint, small waves, whitecaps far out.
     float surface   = 1.0f;      // 0..1: how much of our water is drawn over the game's (0 = the game's alone)
