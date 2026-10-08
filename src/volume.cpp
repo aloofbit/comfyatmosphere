@@ -436,12 +436,15 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float  T    = saturate(m.b);
     // The sun and the moons through the fog on the sky (2026-10-04): the fog dims what lies behind it, and the
     // discs went with it, a low moon most (the sky near the horizon takes the full reach). Round each disc the
-    // fog lets the light through, 4 degrees in full, gone by 9, so the disc keeps its brightness in a foggy sky.
+    // fog lets the light through, 2.5 degrees in full, gone by 4, so the disc keeps its brightness in a foggy sky.
+    // It was 4 in full and gone by 9 until 2026-10-08: with the sun on the sea's horizon (Tirisfal Glades) the
+    // clear sky round the disc showed as a bright round halo in the fog, and as the rule takes only the sky, it
+    // ended in a straight line on the water. The disc is some 2 degrees across (14 pixels a degree, 1152 wide).
     if (raw >= 0.99)   // the sky, not land past 437 yards or the far horizon (see the march)
     {
         const float3 vd = normalize(wp.xyz / max(wp.w, 1e-6));
-        const float  k  = max(smoothstep(0.98769, 0.99756, dot(vd, gDisc0.xyz)) * gDisc0.w,
-                              smoothstep(0.98769, 0.99756, dot(vd, gDisc1.xyz)) * gDisc1.w);
+        const float  k  = max(smoothstep(0.99756, 0.99905, dot(vd, gDisc0.xyz)) * gDisc0.w,
+                              smoothstep(0.99756, 0.99905, dot(vd, gDisc1.xyz)) * gDisc1.w);
         T = lerp(T, 1.0, k);
     }
     if (gA.w > 1.5)
