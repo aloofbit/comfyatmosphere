@@ -5,6 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
+- [A windmill's frozen copy from login](2026-10-07-windmill-at-login.md): draws made before a model was known no
+  longer stay in the shadow cache; development-windmill no longer fails now and then.
 - [The time of day, and key bindings](2026-10-07-time-of-day.md): comfytime is part of comfyatmos.dll, a time
   slider and Lock time in the debug panel, every action in Key Bindings, the DLL's own keys off, and a probe
   copies its lines to the clipboard.
