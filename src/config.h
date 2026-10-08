@@ -645,6 +645,7 @@ struct Settings
     bool  sliders     = true;       // register the CVars the in-game controls set (cvars.cpp)
     bool  master      = true;       // [general] enabled: every effect at once. Off, the game draws as
                                     // stock: light, shadows, rays and lamps all off
+    bool  hotkeys     = false;      // 1: the keys below work (the debug panel's Developer keys box)
     int   reloadKey   = VK_F11;     // reload comfyatmos.ini
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
     int   scanKey     = VK_F12;     // with Ctrl: search memory for the game clock (read-only)

@@ -8,8 +8,8 @@ Four stages, each one commit or more, each tested in `octow - Copy` before the n
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | comfytime moves into comfyatmos.dll, as it is | built, not tested in the client |
-| 2 | A time slider in the debug panel | to do |
-| 3 | Key bindings: the DLL's own keys off by default, every action in Key Bindings | to do |
+| 2 | A time slider in the debug panel | built, not tested in the client |
+| 3 | Key bindings: the DLL's own keys off by default, every action in Key Bindings | built, not tested in the client |
 | 4 | Release v0.12.0-alpha, retire comfytime.dll in the launcher | to do |
 
 ## Stage 1: comfytime inside comfyatmos.dll
@@ -169,8 +169,10 @@ In this order:
 
 1. **A player's comfytime.ini settings.** Copy `hour`, `dayHour`, `nightHour`, `step` and `enabled` into
    `[time]` at the first start, or start from the defaults? A copy needs code that runs once and a marker.
-2. **Where "Developer keys" is kept.** In `comfyatmos.ini` (written with `/atmos save`), or in a saved
-   variable of the addon that sends `/atmos general.hotkeys` at login? The addon has no saved variables
-   yet.
-3. **Should the time keys (Ctrl+PageUp and the rest) also be off by default?** They are the player feature
-   of comfytime today. With them off, a player who used them must bind them in Key Bindings.
+
+Decided on 2026-10-07:
+
+- All ten keys are off by default, the time keys among them (the owner: "disable keybinds by default and have
+  checkbox in debug to turn them on").
+- "Developer keys" is the control CVar `comfyHotkeys`, so the client keeps it in Config.wtf. No saved variable.
+- The debug panel's box is "Set the time of day" (ticked: ours), not "Game time".

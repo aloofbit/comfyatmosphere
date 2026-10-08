@@ -438,6 +438,35 @@ float TimeCurrentHour()
     return g_hour < 0.0f ? g_cfg.time.hour : g_hour;
 }
 
+void TimeSet(float hour)
+{
+    if (!g_cfg.time.enabled || g_otherDll)
+        return;
+    g_hour = fmodf(fmodf(hour, 24.0f) + 24.0f, 24.0f);
+}
+
+// The sun you stepped to is then what the next start gives you, which is what testing the same way twice needs.
+void TimeSaveHour()
+{
+    const float hour = TimeCurrentHour();
+    wchar_t value[32];
+    _snwprintf_s(value, _TRUNCATE, L"%.4f", hour);
+    if (WritePrivateProfileStringW(L"time", L"hour", value, ConfigIniPath()))
+        Log("--- time saved: hour = %.4f (%02d:%02d) ---", hour, static_cast<int>(hour),
+            static_cast<int>(fmodf(hour * 60.0f, 60.0f)));
+    else
+        Log("time: could not write the ini (%lu)", GetLastError());
+}
+
+int TimeState()
+{
+    if (g_otherDll)
+        return 2;
+    if (!g_cfg.time.enabled)
+        return 0;
+    return g_checked && !g_usable ? 3 : 1;
+}
+
 void TimeApply(const char* where)
 {
     const TimeSettings& t = g_cfg.time;

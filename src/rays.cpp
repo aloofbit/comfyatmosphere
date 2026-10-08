@@ -1042,10 +1042,11 @@ void RaysReload()
     g_failed = false;   // retry after a failure; changed sizes are picked up by EnsureResources
 }
 
-void RaysToggle()
+bool RaysToggle()
 {
     g_on = !g_on;
     Log("--- rays %s ---", g_on ? "ON" : "OFF");
+    return g_on;
 }
 
 // The shaders this pass compiles, as it compiles them, for the cache's worker (shadercache.cpp, 2026-10-06).

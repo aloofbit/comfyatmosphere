@@ -1916,11 +1916,12 @@ void VolumeReset()
     g_failed = false;
 }
 
-void VolumeToggle()
+bool VolumeToggle()
 {
     g_on = !g_on;
     g_histValid = false;
     Log("--- volume %s ---", g_on ? "ON" : "OFF");
+    return g_on;
 }
 
 void VolumeProbe()

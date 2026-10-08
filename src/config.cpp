@@ -511,6 +511,7 @@ void LoadSettings(const wchar_t* ini)
     s.hook        = GetB(kGeneral, L"hook",        s.hook,        ini);
     s.sliders     = GetB(kGeneral, L"sliders",     s.sliders,     ini);
     s.master      = GetB(kGeneral, L"enabled",     s.master,      ini);
+    s.hotkeys     = GetB(kGeneral, L"hotkeys",     s.hotkeys,     ini);
     s.reloadKey   = GetI(kGeneral, L"reloadKey",   s.reloadKey,   ini);
     s.probeKey    = GetI(kGeneral, L"probeKey",    s.probeKey,    ini);
     s.scanKey     = GetI(kGeneral, L"scanKey",     s.scanKey,     ini);

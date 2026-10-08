@@ -8,5 +8,5 @@ void RaysBeforeClouds(IDirect3DDevice9* dev); // the sky is drawn and the clouds
 bool RaysPresent(IDirect3DDevice9* dev);     // before the client's frame is shown; ends the frame
 void RaysReset();                            // before Reset: drop every D3DPOOL_DEFAULT object
 void RaysReload();                           // after the ini is reloaded
-void RaysToggle();
+bool RaysToggle();                           // true: now on
 void RaysProbe();                            // log this frame's brightest pixel (probe key)

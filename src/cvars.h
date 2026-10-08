@@ -10,5 +10,8 @@ bool CVarsPoll();        // once a frame, at Present; true when a control change
 void CVarsNotice(const char* text);
 // The on-screen stats (/atmos stats): written into comfyStats in place, as name=value; pairs.
 void CVarsStats(const std::string& text);
+// The time of day from the debug panel and the key bindings (2026-10-07), once a frame: comfyTimeSet carries
+// "<number> <verb> [value]" from the addon, and comfyTimeShown the hour back, written in place.
+void CVarsTime();
 // The controls' values as the client last gave them, as name=value, for the client report (report.cpp).
 void CVarsControlsText(std::string& out);

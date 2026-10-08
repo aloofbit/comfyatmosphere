@@ -7,7 +7,7 @@
 
 bool VolumeDraw(IDirect3DDevice9* dev);   // at the end of the world, after the shadow map; true if drawn
 void VolumeReset();                       // before Reset
-void VolumeToggle();
+bool VolumeToggle();                         // true: now on
 void VolumeProbe();                       // log the next draw
 bool VolumeActive();                      // is the pass drawing: the light, or the fog alone?
 bool VolumeLightActive();                 // is the light drawing? the shadow map is for it

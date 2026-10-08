@@ -26,8 +26,10 @@
 #include "bench.h"
 #include "common.h"
 #include "config.h"
+#include "rays.h"
 #include "timeofday.h"
 #include "tune.h"
+#include "volume.h"
 
 #include <cctype>
 #include <cstdio>
@@ -36,9 +38,10 @@
 
 namespace
 {
-    struct Control { const char* key; const char* name; };
+    struct Control { const char* key; const char* name; const char* where = "on the Atmosphere page"; };
     const Control kControls[] = {
         { "general.enabled",     "Atmosphere Effects" },
+        { "general.hotkeys",     "Developer keys", "in the debug panel" },
         { "volume.enabled",      "Volumetric Light" },
         { "volume.strength",     "Volumetric Light Strength" },
         { "volume.quality",      "Volumetric Light Quality" },
@@ -163,11 +166,11 @@ namespace
 
     std::string Name(const ConfigKey& k) { return k.section + "." + k.key; }
 
-    const char* ControlFor(const std::string& name)
+    const Control* ControlFor(const std::string& name)
     {
         for (const Control& c : kControls)
             if (Same(name, c.key))
-                return c.name;
+                return &c;
         return nullptr;
     }
 
@@ -252,8 +255,8 @@ namespace
             break;
         }
         }
-        if (const char* c = ControlFor(Name(k)))
-            s += std::string(". The ") + c + " control on the Atmosphere page sets it";
+        if (const Control* c = ControlFor(Name(k)))
+            s += std::string(". The ") + c->name + " control " + c->where + " sets it";
         return s;
     }
 
@@ -411,6 +414,8 @@ namespace
         out.push_back("/atmos <section>.<key>: show one value. /atmos <section>: show a section.");
         out.push_back("/atmos list: the values set this way. /atmos reset: drop them. /atmos save: write "
                       "them into comfyatmos.ini. /atmos probe: log a frame, as F12 does.");
+        out.push_back("/atmos reload: read comfyatmos.ini again, as F11 does. /atmos rays, /atmos volume: the sun "
+                      "rays or the volumetric light on or off, as Ctrl+F11 and Alt+F11 do.");
         std::vector<std::string> sections;
         for (const ConfigKey& k : ConfigKeys())
         {
@@ -451,6 +456,27 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
     {
         ProbeArm();
         out.push_back("The next frame is logged to Logs\\comfyatmos.log, as F12 does.");
+    }
+    // The key bindings' commands (2026-10-07): what F11, Ctrl+F11 and Alt+F11 do, for a player who binds them.
+    else if (w.size() == 1 && Same(w[0], "reload"))
+    {
+        BenchCancel("/atmos reload", false);
+        LoadSettings(ConfigIniPath());
+        reloaded = true;
+        RaysReload();
+        TimeReload();
+        out.push_back(over.empty() ? "comfyatmos.ini read again." :
+                      "comfyatmos.ini read again. The values set with /atmos stay on top (/atmos list).");
+    }
+    else if (w.size() == 1 && Same(w[0], "rays"))
+    {
+        BenchCancel("/atmos rays", true);
+        out.push_back(RaysToggle() ? "Sun rays on." : "Sun rays off.");
+    }
+    else if (w.size() == 1 && Same(w[0], "volume"))
+    {
+        BenchCancel("/atmos volume", true);
+        out.push_back(VolumeToggle() ? "Volumetric light on." : "Volumetric light off.");
     }
     else if (w.size() == 1 && Same(w[0], "bench"))
     {
@@ -526,8 +552,8 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
             const ConfigKey k = ConfigKeys()[i];
             const std::string name = Name(k);
             std::string value;
-            if (const char* c = ControlFor(name))
-                out.push_back(name + " is set by the " + c + " control on the Atmosphere page. Use that.");
+            if (const Control* c = ControlFor(name))
+                out.push_back(name + " is set by the " + c->name + " control " + c->where + ". Use that.");
             else if (!Value(w[next], value))
                 out.push_back("\"" + w[next] + "\" is not a number (or on, off).");
             else

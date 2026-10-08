@@ -3096,3 +3096,29 @@ time is shown and ours stays off, with one `time:` line in the log.
 alone; `/atmos reset` puts the ini's hour back when a `[time]` value was set. The test runner sets a test's
 `hour` this way. comfytime read its ini again when the file changed (its unreleased 80bba1b), for the runner;
 that is not carried over.
+
+## The time slider and the keys players can turn off (2026-10-07)
+
+The debug panel sets the time of day, and every action is in Key Bindings > ComfyAtmosphere.
+
+**The time channel.** The addon sets `comfyTimeSet` to `<number> <verb> [value]`: `set <hour>`, `step <steps>`
+(in `[time] step` hours), `daynight`, `save`. The number makes each command new, so the same command twice runs
+twice. It starts from `GetTime()` in milliseconds, so a /reload does not send the last number again.
+`CVarsTime` reads the CVar every frame, not every 0.2 s as the controls are read: a held binding steps the time
+every 0.03 s. The first value read is left alone. It is what Config.wtf kept from the last session, and the
+addon sets the CVar back to empty at logout.
+
+The DLL writes `<hour> <state>` into `comfyTimeShown` in place, 16 characters, as `comfyStats` is written. The
+slider follows the hour that the keys and the bindings move. The client saves the string in Config.wtf, and it
+comes back at another length; the addon sets 16 spaces again when it finds that.
+
+**Why the DLL's keys are off.** The DLL reads F11, F12, Ctrl+PageUp and the rest with `GetAsyncKeyState`, past
+the game's key bindings. A player cannot unbind them, and they fire whatever the game has bound to the same
+key. `[general] hotkeys = 0` turns all of them off. The debug panel's Developer keys box is the control CVar
+`comfyHotkeys` over it, so the client keeps the choice in Config.wtf. `/atmos general.hotkeys` is refused, as
+for any control.
+
+**The bindings.** Each binding calls the addon: `/atmos reload`, `rays`, `volume`, `bench` and `probe` for the
+others, and the time channel for the four time actions. Time later and Time earlier use `runOnUp`, and the
+addon repeats the step while the key is held: one step at once, then after 0.35 s one every 0.03 s, as
+Ctrl+PageUp does. A release can be lost when a window covers the game, so the repeat also ends after 15 s.

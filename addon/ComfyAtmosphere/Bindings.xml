@@ -8,4 +8,28 @@
 	<Binding name="COMFYATMOSPHERE_DEBUG">
 		ComfyAtmosphere_DebugToggle();
 	</Binding>
+	<Binding name="COMFYATMOSPHERE_RELOAD">
+		ComfyAtmosphere_Command("reload");
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_RAYS">
+		ComfyAtmosphere_Command("rays");
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_VOLUME">
+		ComfyAtmosphere_Command("volume");
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_BENCH">
+		ComfyAtmosphere_Command("bench");
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_TIME_LATER" runOnUp="true">
+		ComfyAtmosphere_TimeKey(1, keystate);
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_TIME_EARLIER" runOnUp="true">
+		ComfyAtmosphere_TimeKey(-1, keystate);
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_DAYNIGHT">
+		ComfyAtmosphere_DayNight();
+	</Binding>
+	<Binding name="COMFYATMOSPHERE_SAVE_HOUR">
+		ComfyAtmosphere_SaveHour();
+	</Binding>
 </Bindings>

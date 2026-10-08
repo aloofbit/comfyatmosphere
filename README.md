@@ -83,6 +83,8 @@ Use `/atmos options` in game to enable/disable and tune features of the mod.
 | `/atmos stats` | Show or hide the stats panel (below) |
 | `/atmos probe` | Log one frame to `Logs\comfyatmos.log`, as F12 does |
 | `/atmos bench` | Run the benchmark, as Alt+F12 does |
+| `/atmos reload` | Read `comfyatmos.ini` again, as F11 does |
+| `/atmos rays`, `/atmos volume` | The sun rays or the volumetric light on or off, as Ctrl+F11 and Alt+F11 do |
 | `/atmos framelog [seconds]` | Time every frame for that long (10), then log the slowest frames and our share of each |
 | `/atmos <section>` | Every value in a section |
 | `/atmos <section>.<key>` | One value, and where it came from |
@@ -96,11 +98,19 @@ Atmosphere page sets is refused: use the control.
 
 ### Debugging Help
 
-The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel:
+The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel. It also sets the time of
+day (a slider, a step either way, Day/Night and Save hour), and has the Developer keys box:
 
 ![debug menu](media/debug-menu.png)
 
 ## Keys
+
+Key Bindings > ComfyAtmosphere has every action: the probe, the stats, the debug panel, reading `comfyatmos.ini`
+again, the sun rays and the volumetric light on or off, the benchmark, the time of day later and earlier, day or
+night, and saving the hour. No key is bound at first.
+
+The keys below are for development. They are read past the game's key bindings, so they are off. Tick
+**Developer keys** in the debug panel to turn them on.
 
 | Key | |
 | --- | --- |

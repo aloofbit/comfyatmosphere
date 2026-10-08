@@ -808,20 +808,10 @@ namespace
         auto down = [focused](int vk) { return focused && (GetAsyncKeyState(vk) & 0x8000) != 0; };
         const bool ctrl = down(VK_CONTROL);
 
-        // Ctrl+Home writes the time being shown into the ini, under [time] hour: the sun you stepped to is
-        // then what the next start gives you, which is what testing the same way twice needs.
+        // Ctrl+Home writes the time being shown into the ini, under [time] hour.
         const bool save = down(g_cfg.saveKey);
         if (save && !g_saveDown && ctrl)
-        {
-            const float hour = TimeCurrentHour();
-            wchar_t value[32];
-            _snwprintf_s(value, _TRUNCATE, L"%.4f", hour);
-            if (WritePrivateProfileStringW(L"time", L"hour", value, g_iniPath))
-                Log("--- time saved: hour = %.4f (%02d:%02d) ---", hour, static_cast<int>(hour),
-                    static_cast<int>(fmodf(hour * 60.0f, 60.0f)));
-            else
-                Log("time: could not write the ini (%lu)", GetLastError());
-        }
+            TimeSaveHour();
         g_saveDown = save;
 
         const bool dayNight = down(g_cfg.dayNightKey);
@@ -859,7 +849,10 @@ namespace
 
     void PollKeys(IDirect3DDevice9* dev)
     {
-        const bool focused = ClientFocused();
+        // [general] hotkeys (2026-10-07): the keys below are read from the keyboard, past the game's own key
+        // bindings, so a player could not unbind them. They are off unless the debug panel's Developer keys box
+        // is ticked. Key Bindings > ComfyAtmosphere has every action, on keys the player chooses.
+        const bool focused = g_cfg.hotkeys && ClientFocused();
 
         const bool reload = focused && (GetAsyncKeyState(g_cfg.reloadKey) & 0x8000) != 0;
         if (reload && !g_reloadDown)
@@ -1158,6 +1151,7 @@ namespace
         }
         if (CVarsPoll())
             BenchCancel("a control in Video > Atmosphere moved", false);
+        CVarsTime();
 
         g_frame++;
         if (g_probe.armed)

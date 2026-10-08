@@ -36,6 +36,13 @@
 // the same length, so the client's buffer is never outgrown and never replaced. Only while its length is
 // still kStatsLen: had anything set the CVar, the string would be another, and it is left alone.
 //
+// The time of day (2026-10-07): the debug panel's slider and the key bindings send "<number> <verb> [value]" in
+// comfyTimeSet, a new number each time, so the same verb twice runs twice. The verbs: set <hour>, step <steps>
+// (in [time] step hours), daynight, save. The first value read is left alone: it is what Config.wtf kept from the
+// last session. comfyTimeShown carries "<hour> <state>" back (TimeState), written in place as comfyStats is, and
+// only while it still holds kTimeLen characters. CVarsTime runs every frame, not every 0.2 s as the controls do: a
+// held key steps the time every 0.03 s.
+//
 // All of this runs on the client's main thread (Present is called from the client's render), the same
 // thread Lua runs on, so nothing here races the options panel.
 
@@ -95,6 +102,7 @@ namespace
                 kFogSky, kFogLow, kFogWater, kFogMorning, kFogLamps, kShadowsNight, kShadowsUnitStrength, kSunGlide, kLamps, kTorchLight, kLanternLight, kIndoorLamps, kLampsDay,
                 kShadowsBody, kShadowNear, kTreeShade, kWaveHeight, kWaveSize, kWater, kWaterColour, kWaterClarity, kWaterReflect, kWaterBend, kWaterCover, kWaterWake, kWaterFoam, kWaterSwash, kWaterGlint, kWaterMoonGlint, kWaterGlintSize, kWaterEdge, kWaterEdgeWidth, kWaterBright, kWaterRippleDepth, kWaterSwashHeight, kWaterSwashLength, kWaterSwashSpeed, kDaySaturation, kNightSaturation, kColour, kWaterRippleMoving, kWaterSpread, kWaterSpreadMoving, kFoamDrawn, kFoamSize, kFoamReach, kOpenFoam, kOpenFoamAmount, kFoamEdge, kWakeFoam, kObjectFoam, kObjectFoamWidth, kLakeSwash, kLakeFoam, kLakeWaves, kRainOnWater, kLighthouses, kLighthouseBeam, kLhBeacon, kLhLength, kLhWidth, kLhSpread, kLhSpeed, kLhTwo, kLhGlint, kLhFace, kLhTilt, kLhSoft, kLhWaterWidth, kRainDarkness, kShipWake, kShipForward, kShipDepth, kShadowWater, kWetSand, kLhReach,
                 kGrass, kGrassWind, kGrassSpeed, kGrassLean, kGrassWave, kGrassWindDir, kGrassParting, kGrassRadius,
+                kHotkeys,
                 kKnobs };
 
     const char* const kNames[kKnobs] = {
@@ -221,6 +229,8 @@ namespace
         "comfyGrassWindDir",
         "comfyGrassParting",
         "comfyGrassPartingRadius",
+        // The debug panel's Developer keys box (2026-10-07): [general] hotkeys.
+        "comfyHotkeys",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -286,6 +296,12 @@ namespace
     std::deque<std::string> g_notices;    // lines for chat, not yet registered
     constexpr size_t kStatsLen = 1000;   // 600 until 2026-10-07: the indoor pair made it longer; the addon sets as many
     void*    g_stats = nullptr;             // comfyStats
+    constexpr size_t kTimeLen = 16;
+    void*    g_timeSet   = nullptr;         // comfyTimeSet
+    void*    g_timeShown = nullptr;         // comfyTimeShown
+    char     g_timeSetLast[64] = {};
+    bool     g_timeSetSeen = false;
+    char     g_timeShownLast[kTimeLen + 1] = {};
     unsigned long g_noticeSeq = 0;
 
     intptr_t Slide()
@@ -431,6 +447,7 @@ namespace
         case kGrassWindDir:   snprintf(out, cap, "%.0f", fmodf(fmodf(s.grass.directionDeg, 360.0f) + 360.0f, 360.0f)); break;
         case kGrassParting:   snprintf(out, cap, "%.0f", s.grass.forceCenter * 100.0f); break;   // percent
         case kGrassRadius:    snprintf(out, cap, "%.0f", s.grass.radius * 10.0f); break;         // tenths of a yard
+        case kHotkeys:        snprintf(out, cap, "%d", s.hotkeys ? 1 : 0); break;
         case kWaterSwashHeight: snprintf(out, cap, "%.0f", s.water.swashHeight * 100.0f); break; // hundredths of a yard
         case kWaterSwashLength: snprintf(out, cap, "%.0f", s.water.swashLength); break;          // yards
         case kWaterSwashSpeed:  snprintf(out, cap, "%.0f", s.water.swashSpeed * 100.0f); break;  // percent
@@ -562,6 +579,7 @@ namespace
         if (c[kGrassWindDir].seen)   s.grass.directionDeg = Clamp(c[kGrassWindDir].value, 0.0f, 360.0f);
         if (c[kGrassParting].seen)   s.grass.forceCenter = Clamp(c[kGrassParting].value * 0.01f, 0.0f, 3.0f);
         if (c[kGrassRadius].seen)    s.grass.radius = Clamp(c[kGrassRadius].value * 0.1f, 0.1f, 20.0f);
+        if (c[kHotkeys].seen)        s.hotkeys = c[kHotkeys].value != 0.0f;
         if (c[kWaterSwashHeight].seen) s.water.swashHeight = Clamp(c[kWaterSwashHeight].value * 0.01f, 0.0f, 1.0f);
         if (c[kWaterSwashLength].seen) s.water.swashLength = Clamp(c[kWaterSwashLength].value, 5.0f, 200.0f);
         if (c[kWaterSwashSpeed].seen)  s.water.swashSpeed  = Clamp(c[kWaterSwashSpeed].value * 0.01f, 0.1f, 4.0f);
@@ -708,6 +726,16 @@ namespace
         {
             g_tuneText.push_back(std::string(kStatsLen, ' '));
             g_stats = registerFn("comfyStats", nullptr, 0, g_tuneText.back().c_str(), nullptr, kCategory, 0, nullptr);
+        }
+        g_timeSet = lookup("comfyTimeSet");
+        if (!g_timeSet)
+            g_timeSet = registerFn("comfyTimeSet", nullptr, 0, "", nullptr, kCategory, 0, nullptr);
+        g_timeShown = lookup("comfyTimeShown");
+        if (!g_timeShown)
+        {
+            g_tuneText.push_back(std::string(kTimeLen, ' '));
+            g_timeShown = registerFn("comfyTimeShown", nullptr, 0, g_tuneText.back().c_str(), nullptr, kCategory, 0,
+                                     nullptr);
         }
         g_tune = lookup("comfyTune");
         if (!g_tune)
@@ -869,6 +897,51 @@ namespace
             return false;
         }
     }
+}
+
+void CVarsTime()
+{
+    if (!g_ready)
+        return;
+
+    char cmd[64];
+    DWORD str = 0;
+    if (g_timeSet && SafeCopy(reinterpret_cast<uintptr_t>(g_timeSet) + 0x20, &str, 4) && str &&
+        SafeString(str, cmd, sizeof(cmd)) && (!g_timeSetSeen || strcmp(cmd, g_timeSetLast) != 0))
+    {
+        const bool first = !g_timeSetSeen;
+        g_timeSetSeen = true;
+        strcpy_s(g_timeSetLast, cmd);
+        // The number only makes each command new; it is skipped.
+        char verb[16] = {};
+        float value = 0.0f;
+        const int n = first ? 0 : sscanf_s(cmd, "%*s %15s %f", verb, static_cast<unsigned>(sizeof(verb)), &value);
+        if (n == 2 && strcmp(verb, "set") == 0)
+            TimeSet(value);
+        else if (n == 2 && strcmp(verb, "step") == 0)
+            TimeStep(value * g_cfg.time.step);
+        else if (n >= 1 && strcmp(verb, "daynight") == 0)
+            TimeToggleDayNight();
+        else if (n >= 1 && strcmp(verb, "save") == 0)
+            TimeSaveHour();
+        else if (!first && cmd[0])
+            Log("comfyTimeSet: \"%s\" is not a command", cmd);
+    }
+
+    char shown[kTimeLen + 1];
+    snprintf(shown, sizeof(shown), "%.4f %d", TimeCurrentHour(), TimeState());
+    const size_t len = strlen(shown);
+    memset(shown + len, ' ', kTimeLen - len);
+    shown[kTimeLen] = 0;
+    if (strcmp(shown, g_timeShownLast) == 0)
+        return;
+    char probe[kTimeLen + 2];
+    str = 0;
+    if (!g_timeShown || !SafeCopy(reinterpret_cast<uintptr_t>(g_timeShown) + 0x20, &str, 4) || !str ||
+        !SafeString(str, probe, sizeof(probe)) || strlen(probe) != kTimeLen)
+        return;
+    if (SafeWrite(str, shown, kTimeLen))
+        strcpy_s(g_timeShownLast, shown);
 }
 
 void CVarsStats(const std::string& text)
