@@ -81,7 +81,7 @@ Use `/atmos options` in game to enable/disable and tune features of the mod.
 | `/atmos options` | Open or close the settings window |
 | `/atmos debug` | Open or close the debug panel (below) |
 | `/atmos stats` | Show or hide the stats panel (below) |
-| `/atmos probe` | Log one frame to `Logs\comfyatmos.log`, as F12 does |
+| `/atmos probe` | Log one frame to `Logs\comfyatmos.log`, as F12 does, and copy those lines to the clipboard |
 | `/atmos bench` | Run the benchmark, as Alt+F12 does |
 | `/atmos reload` | Read `comfyatmos.ini` again, as F11 does |
 | `/atmos rays`, `/atmos volume` | The sun rays or the volumetric light on or off, as Ctrl+F11 and Alt+F11 do |
@@ -99,15 +99,16 @@ Atmosphere page sets is refused: use the control.
 ### Debugging Help
 
 The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel. It also sets the time of
-day (a slider, a step either way, Day/Night and Save hour), and has the Developer keys box:
+day: a slider, a step either way, Day/Night, and **Lock time**. Ticked, the hour stays where you put it, also
+after a restart. Unticked, the server's time shows. The panel also has the Developer keys box:
 
 ![debug menu](media/debug-menu.png)
 
 ## Keys
 
 Key Bindings > ComfyAtmosphere has every action: the probe, the stats, the debug panel, reading `comfyatmos.ini`
-again, the sun rays and the volumetric light on or off, the benchmark, the time of day later and earlier, day or
-night, and saving the hour. No key is bound at first.
+again, the sun rays and the volumetric light on or off, the benchmark, the time of day later and earlier, and day
+or night. No key is bound at first.
 
 The keys below are for development. They are read past the game's key bindings, so they are off. Tick
 **Developer keys** in the debug panel to turn them on.
@@ -121,7 +122,6 @@ The keys below are for development. They are read past the game's key bindings, 
 | Alt+F12 | Run the benchmark (below) |
 | Ctrl+PageUp / PageDown | The time of day later / earlier by `[time] step` hours; hold to keep moving |
 | Ctrl+End | Switch between day (`[time] dayHour`) and night (`[time] nightHour`) |
-| Ctrl+Home | Save the time being shown into `[time] hour` in `comfyatmos.ini` |
 | Ctrl+F12 | Search memory for the game clock (read-only; for a different `WoW.exe`, see NOTES) |
 
 ## Benchmark

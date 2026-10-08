@@ -29,7 +29,4 @@
 	<Binding name="COMFYATMOSPHERE_DAYNIGHT">
 		ComfyAtmosphere_DayNight();
 	</Binding>
-	<Binding name="COMFYATMOSPHERE_SAVE_HOUR">
-		ComfyAtmosphere_SaveHour();
-	</Binding>
 </Bindings>

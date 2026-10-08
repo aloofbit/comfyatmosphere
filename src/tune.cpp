@@ -429,6 +429,11 @@ namespace
     }
 }
 
+bool TuneWriteIni(const std::map<std::string, std::string>& values, std::string& error)
+{
+    return SaveToIni(values, error);
+}
+
 std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
 {
     reloaded = false;

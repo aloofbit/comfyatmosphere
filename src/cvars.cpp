@@ -38,7 +38,7 @@
 //
 // The time of day (2026-10-07): the debug panel's slider and the key bindings send "<number> <verb> [value]" in
 // comfyTimeSet, a new number each time, so the same verb twice runs twice. The verbs: set <hour>, step <steps>
-// (in [time] step hours), daynight, save. The first value read is left alone: it is what Config.wtf kept from the
+// (in [time] step hours), daynight, lock <0 or 1>. The first value read is left alone: it is what Config.wtf kept from the
 // last session. comfyTimeShown carries "<hour> <state>" back (TimeState), written in place as comfyStats is, and
 // only while it still holds kTimeLen characters. CVarsTime runs every frame, not every 0.2 s as the controls do: a
 // held key steps the time every 0.03 s.
@@ -922,11 +922,20 @@ void CVarsTime()
             TimeStep(value * g_cfg.time.step);
         else if (n >= 1 && strcmp(verb, "daynight") == 0)
             TimeToggleDayNight();
-        else if (n >= 1 && strcmp(verb, "save") == 0)
-            TimeSaveHour();
+        else if (n == 2 && strcmp(verb, "lock") == 0)
+        {
+            if (TimeLockWrite(value != 0.0f))
+            {
+                LoadSettings(ConfigIniPath());
+                CVarsAfterLoad();
+                TimeReload();
+            }
+        }
         else if (!first && cmd[0])
             Log("comfyTimeSet: \"%s\" is not a command", cmd);
     }
+
+    TimePersistTick();
 
     char shown[kTimeLen + 1];
     snprintf(shown, sizeof(shown), "%.4f %d", TimeCurrentHour(), TimeState());

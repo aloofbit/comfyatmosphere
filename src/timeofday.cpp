@@ -42,10 +42,14 @@
 #include "common.h"
 #include "config.h"
 #include "timeofday.h"
+#include "tune.h"
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace
@@ -342,6 +346,21 @@ namespace
     double g_reportT    = 0.0;
     DWORD g_checkedAddr[3] = {};   // the addresses that passed Validate
     TimeSettings g_loaded;         // [time] as the last TimeReload saw it (TimeAfterTune)
+    bool   g_moved   = false;      // the player moved the hour since it was last written (TimePersistTick)
+    double g_movedAt = 0.0;
+
+    void Moved()
+    {
+        g_moved = true;
+        g_movedAt = Now();
+    }
+
+    std::string HourText(float hour)
+    {
+        char text[32];
+        snprintf(text, sizeof(text), "%.4f", hour);
+        return text;
+    }
 
     bool Writable(uintptr_t a)
     {
@@ -396,6 +415,7 @@ void TimeReload()
     g_hour  = -1.0f;
     g_wrote = false;
     g_loaded = t;
+    g_moved = false;
 }
 
 // /atmos reloads every setting for any value it sets. Only a [time] change puts the ini's hour back: a time that
@@ -416,6 +436,7 @@ void TimeStep(float hours)
     if (g_hour < 0.0f)
         g_hour = g_cfg.time.hour;
     g_hour = fmodf(g_hour + hours + 24.0f, 24.0f);
+    Moved();
     Log("--- time: %02d:%02d ---", static_cast<int>(g_hour), static_cast<int>(fmodf(g_hour * 60.0f, 60.0f)));
 }
 
@@ -429,6 +450,7 @@ void TimeToggleDayNight()
     auto apart = [now](float h) { const float d = fabsf(fmodf(now - h + 48.0f, 24.0f)); return d < 12.0f ? d : 24.0f - d; };
     const bool isDay = apart(g_cfg.time.dayHour) <= apart(g_cfg.time.nightHour);
     g_hour = fmodf((isDay ? g_cfg.time.nightHour : g_cfg.time.dayHour) + 24.0f, 24.0f);
+    Moved();
     Log("--- %s: %02d:%02d ---", isDay ? "night" : "day", static_cast<int>(g_hour),
         static_cast<int>(fmodf(g_hour * 60.0f, 60.0f)));
 }
@@ -443,19 +465,40 @@ void TimeSet(float hour)
     if (!g_cfg.time.enabled || g_otherDll)
         return;
     g_hour = fmodf(fmodf(hour, 24.0f) + 24.0f, 24.0f);
+    Moved();
 }
 
-// The sun you stepped to is then what the next start gives you, which is what testing the same way twice needs.
-void TimeSaveHour()
+bool TimeLockWrite(bool on)
 {
-    const float hour = TimeCurrentHour();
-    wchar_t value[32];
-    _snwprintf_s(value, _TRUNCATE, L"%.4f", hour);
-    if (WritePrivateProfileStringW(L"time", L"hour", value, ConfigIniPath()))
-        Log("--- time saved: hour = %.4f (%02d:%02d) ---", hour, static_cast<int>(hour),
-            static_cast<int>(fmodf(hour * 60.0f, 60.0f)));
+    if (g_otherDll)
+        return false;
+    std::map<std::string, std::string> values = { { "time.enabled", on ? "1" : "0" } };
+    if (on)
+        values["time.hour"] = HourText(TimeCurrentHour());
+    std::string error;
+    if (!TuneWriteIni(values, error))
+    {
+        Log("time: Lock time not written: %s", error.c_str());
+        return false;
+    }
+    Log("--- time %s (written into comfyatmos.ini)%s ---", on ? "locked" : "unlocked: the server's time",
+        on ? (", hour " + values["time.hour"]).c_str() : "");
+    if (ConfigOverrides().count("time.enabled"))
+        Log("time: /atmos time.enabled is set and wins over the ini until /atmos reset");
+    return true;
+}
+
+void TimePersistTick()
+{
+    if (!g_moved || !g_cfg.time.enabled || g_otherDll || Now() - g_movedAt < 1.0)
+        return;
+    g_moved = false;
+    const std::string hour = HourText(TimeCurrentHour());
+    std::string error;
+    if (TuneWriteIni({ { "time.hour", hour } }, error))
+        Log("--- time kept: [time] hour = %s ---", hour.c_str());
     else
-        Log("time: could not write the ini (%lu)", GetLastError());
+        Log("time: the hour not written: %s", error.c_str());
 }
 
 int TimeState()

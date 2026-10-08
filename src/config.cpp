@@ -515,7 +515,6 @@ void LoadSettings(const wchar_t* ini)
     s.reloadKey   = GetI(kGeneral, L"reloadKey",   s.reloadKey,   ini);
     s.probeKey    = GetI(kGeneral, L"probeKey",    s.probeKey,    ini);
     s.scanKey     = GetI(kGeneral, L"scanKey",     s.scanKey,     ini);
-    s.saveKey     = GetI(kGeneral, L"saveKey",     s.saveKey,     ini);
     s.dayNightKey = GetI(kGeneral, L"dayNightKey", s.dayNightKey, ini);
     s.chainWaitMs = GetI(kGeneral, L"chainWaitMs", s.chainWaitMs, ini);
     s.minWorldDraws = GetI(kGeneral, L"minWorldDraws", s.minWorldDraws, ini);

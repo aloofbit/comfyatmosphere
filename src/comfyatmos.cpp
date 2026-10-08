@@ -339,7 +339,7 @@ namespace
     bool     g_lastPersp  = false;
     bool     g_reloadDown = false;
     bool     g_probeDown  = false;
-    bool     g_scanDown = false, g_upDown = false, g_dnDown = false, g_saveDown = false, g_dayNightDown = false;
+    bool     g_scanDown = false, g_upDown = false, g_dnDown = false, g_dayNightDown = false;
 
     void NoteFogState(DWORD st, DWORD raw, DWORD sent)
     {
@@ -794,6 +794,99 @@ namespace
             D2F(g_fog.end), g_fog.color & 0xFFFFFF);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // The probe's lines to the clipboard (2026-10-07, the owner): everything the log got from the probe's start
+    // until the client report has ended and the lamps' window has closed. The report is written by its own thread
+    // when it is done, and the lamps take kWindow frames, so the copy waits for both, 15 s at most.
+
+    struct ProbeClip
+    {
+        bool     pending = false;
+        LONGLONG offset  = 0;     // the log's size when the probe started
+        double   start   = 0.0;
+        double   nextLook = 0.0;
+    };
+    ProbeClip g_clip;
+
+    LONGLONG LogSize()
+    {
+        WIN32_FILE_ATTRIBUTE_DATA fa = {};
+        if (!GetFileAttributesExW(g_logPath, GetFileExInfoStandard, &fa))
+            return 0;
+        return (static_cast<LONGLONG>(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow;
+    }
+
+    void ProbeClipStart()
+    {
+        Guard g;
+        g_clip.pending  = true;
+        g_clip.offset   = LogSize();
+        g_clip.start    = Now();
+        g_clip.nextLook = g_clip.start + 0.5;
+    }
+
+    bool ToClipboard(const std::string& text)
+    {
+        std::wstring wide;
+        wide.reserve(text.size() + text.size() / 32);
+        for (char c : text)
+        {
+            if (c == '\n')
+                wide += L'\r';
+            wide += static_cast<wchar_t>(static_cast<unsigned char>(c));
+        }
+        if (!OpenClipboard(nullptr))
+            return false;
+        bool ok = false;
+        EmptyClipboard();
+        HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
+        if (mem)
+        {
+            memcpy(GlobalLock(mem), wide.c_str(), (wide.size() + 1) * sizeof(wchar_t));
+            GlobalUnlock(mem);
+            ok = SetClipboardData(CF_UNICODETEXT, mem) != nullptr;
+            if (!ok)
+                GlobalFree(mem);
+        }
+        CloseClipboard();
+        return ok;
+    }
+
+    void ProbeClipTick()
+    {
+        if (!g_clip.pending)
+            return;
+        const double now = Now();
+        if (now < g_clip.nextLook)
+            return;
+        g_clip.nextLook = now + 0.5;
+        std::string text;
+        {
+            Guard g;
+            FILE* f = nullptr;
+            if (_wfopen_s(&f, g_logPath, L"rb") != 0 || !f)
+                return;
+            _fseeki64(f, g_clip.offset, SEEK_SET);
+            char chunk[65536];
+            size_t n;
+            while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0)
+                text.append(chunk, n);
+            fclose(f);
+        }
+        const bool done = !LampsActive() && text.find("=== end of client report") != std::string::npos;
+        if (!done && now - g_clip.start < 15.0)
+            return;
+        g_clip.pending = false;
+        const size_t lines = static_cast<size_t>(std::count(text.begin(), text.end(), '\n'));
+        char notice[160];
+        if (ToClipboard(text))
+            snprintf(notice, sizeof(notice), "Probe copied to the clipboard: %u lines%s.", static_cast<unsigned>(lines),
+                     done ? "" : " (not complete after 15 s)");
+        else
+            snprintf(notice, sizeof(notice), "Probe not copied: the clipboard is in use (%lu).", GetLastError());
+        CVarsNotice(notice);
+    }
+
     // Keys only count while the client has focus, so typing F11 into another window does nothing here.
     bool ClientFocused()
     {
@@ -807,12 +900,6 @@ namespace
     {
         auto down = [focused](int vk) { return focused && (GetAsyncKeyState(vk) & 0x8000) != 0; };
         const bool ctrl = down(VK_CONTROL);
-
-        // Ctrl+Home writes the time being shown into the ini, under [time] hour.
-        const bool save = down(g_cfg.saveKey);
-        if (save && !g_saveDown && ctrl)
-            TimeSaveHour();
-        g_saveDown = save;
 
         const bool dayNight = down(g_cfg.dayNightKey);
         if (dayNight && !g_dayNightDown && ctrl)
@@ -891,6 +978,7 @@ namespace
             else
             {
                 g_probe.armed = true;
+                ProbeClipStart();
                 ReportStart("F12");
                 CVarsNotice("Probe taken. The frame goes to Logs\\comfyatmos.log. Stand still for a second while the lamps are logged.");
             }
@@ -1152,6 +1240,7 @@ namespace
         if (CVarsPoll())
             BenchCancel("a control in Video > Atmosphere moved", false);
         CVarsTime();
+        ProbeClipTick();
 
         g_frame++;
         if (g_probe.armed)
@@ -2473,6 +2562,7 @@ bool WorldFogColor(DWORD& color)
 void ProbeArm()
 {
     g_probe.armed = true;
+    ProbeClipStart();
     ReportStart("/atmos probe");
     g_orderArm = true;
 }

@@ -649,7 +649,6 @@ struct Settings
     int   reloadKey   = VK_F11;     // reload comfyatmos.ini
     int   probeKey    = VK_F12;     // log one frame of fog state changes and draw counts; with Alt, benchmark
     int   scanKey     = VK_F12;     // with Ctrl: search memory for the game clock (read-only)
-    int   saveKey     = VK_HOME;    // with Ctrl: write the time being shown back to [time] hour
     int   dayNightKey = VK_END;     // with Ctrl: switch between [time] dayHour and nightHour
     int   chainWaitMs = 10000;      // how long to wait for an old comfygrass.dll to finish patching first
     int   minWorldDraws = 16;       // world draws needed before a switch to 2D counts as the end of the

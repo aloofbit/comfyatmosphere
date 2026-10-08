@@ -3102,7 +3102,7 @@ that is not carried over.
 The debug panel sets the time of day, and every action is in Key Bindings > ComfyAtmosphere.
 
 **The time channel.** The addon sets `comfyTimeSet` to `<number> <verb> [value]`: `set <hour>`, `step <steps>`
-(in `[time] step` hours), `daynight`, `save`. The number makes each command new, so the same command twice runs
+(in `[time] step` hours), `daynight`, `lock <0 or 1>`. The number makes each command new, so the same command twice runs
 twice. It starts from `GetTime()` in milliseconds, so a /reload does not send the last number again.
 `CVarsTime` reads the CVar every frame, not every 0.2 s as the controls are read: a held binding steps the time
 every 0.03 s. The first value read is left alone. It is what Config.wtf kept from the last session, and the
@@ -3122,3 +3122,20 @@ for any control.
 others, and the time channel for the four time actions. Time later and Time earlier use `runOnUp`, and the
 addon repeats the step while the key is held: one step at once, then after 0.35 s one every 0.03 s, as
 Ctrl+PageUp does. A release can be lost when a window covers the game, so the repeat also ends after 15 s.
+
+**Lock time (2026-10-07, the owner).** comfytime's Ctrl+Home wrote the hour shown into the ini, so the next start
+showed it. The owner wanted a toggle in its place. The debug panel's Lock time box writes `[time] enabled` into
+the ini, and when ticked also the hour shown, then reads the settings again. While the time is locked, an hour
+the player moves (the slider, the steps, Day/Night, the bindings and the keys) goes into `[time] hour` one
+second after the last move. The write keeps each line's comment, as `/atmos save` does (`TuneWriteIni`).
+`/atmos time.hour` is never written: a test's hour must not stay in the client's ini. Ctrl+Home and
+`[general] saveKey` are gone.
+
+## The probe to the clipboard (2026-10-07, the owner)
+
+A probe (F12, `/atmos probe`, the Probe button or binding) also copies its lines to the clipboard. The DLL notes
+the log's size when the probe starts, and copies what the log got after it. The lines come at different times:
+the frame on the next Present, the lamps over their window of frames, and the client report from its own thread
+when it has hashed the files. So the copy waits until the report's `=== end of client report` line is there and
+the lamps' window has closed, 15 s at most. A chat line says how many lines were copied. The test runner probes
+too, so a test run replaces what the clipboard holds.

@@ -93,8 +93,8 @@ Under the Debug view row:
 - **Time of day**: a slider from 0 to 24 hours, with the time as HH:MM beside it.
 - `<` and `>` buttons: one `step` earlier or later.
 - **Day/Night**: does what Ctrl+End does.
-- **Save hour**: does what Ctrl+Home does.
-- **Game time**: a check box. Off means the server's time shows, and the slider is grey (`time.enabled`).
+- **Lock time** (the owner, 2026-10-07, in place of Save hour and a Game time box): ticked, the hour stays where
+  it is put and is kept in the ini; unticked, the server's time shows. Ctrl+Home and `saveKey` are gone.
 
 ### How the slider talks to the DLL
 
