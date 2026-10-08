@@ -81,6 +81,7 @@
 #include "shadow.h"
 #include "sunshadows.h"
 #include "volume.h"
+#include "water.h"
 #include "shadercache.h"
 
 #include <algorithm>
@@ -1741,6 +1742,26 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // day, by [fog] brightness. The light's debug view shows the light alone.
     DWORD fogCol = 0x808080;
     const bool haveFogCol = WorldFogColor(fogCol);
+    // Lifted toward the sky's glow where the game's fog colour is dark (2026-10-07, the owner: no mist on the sea in
+    // Tirisfal Glades at 20:00). The game's fog there is 0x222226, near black, under a green-grey sky (346456 at 3.7
+    // degrees, 2C7C56 at 16.8): the mist was there, as dense as anywhere, and as dark as the sea under it. Below a
+    // luma of 0.25 the light moves toward the glow just over the horizon (1 to 6 degrees, read from the sky dome),
+    // fully at 0.10, when the glow is the brighter. Above it, as in most zones by day, it is the game's fog colour.
+    // The water's own fade to the fog colour is left as the game's, which the far land fades to as well.
+    float fogRgb[3] = { ((fogCol >> 16) & 0xFF) / 255.0f, ((fogCol >> 8) & 0xFF) / 255.0f, (fogCol & 0xFF) / 255.0f };
+    {
+        const auto luma = [](const float* c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; };
+        float glow[3];
+        const float lf = luma(fogRgb);
+        if (haveFogCol && SkyGlowColour(glow) && luma(glow) > lf)
+        {
+            const float t = (std::min)((std::max)((0.25f - lf) / 0.15f, 0.0f), 1.0f);
+            for (int i = 0; i < 3; ++i)
+                fogRgb[i] += (glow[i] - fogRgb[i]) * t;
+        }
+    }
+    const DWORD fogLit = (static_cast<DWORD>(fogRgb[0] * 255.0f + 0.5f) << 16) |
+                         (static_cast<DWORD>(fogRgb[1] * 255.0f + 0.5f) << 8) | static_cast<DWORD>(fogRgb[2] * 255.0f + 0.5f);
     const float amb = v.debug ? 0.0f : fs.brightness;
     if (v.debug >= 2)
     {
@@ -1760,9 +1781,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         kc[20] = static_cast<float>(src->w); kc[21] = static_cast<float>(src->h);
         kc[22] = 1.0f / src->w;              kc[23] = 1.0f / src->h;
         kc[24] = cc[0]; kc[25] = cc[1]; kc[26] = cc[2]; kc[27] = cc[3];
-        kc[28] = ((fogCol >> 16) & 0xFF) / 255.0f * amb;
-        kc[29] = ((fogCol >>  8) & 0xFF) / 255.0f * amb;
-        kc[30] = ((fogCol      ) & 0xFF) / 255.0f * amb;
+        kc[28] = fogRgb[0] * amb;
+        kc[29] = fogRgb[1] * amb;
+        kc[30] = fogRgb[2] * amb;
         kc[31] = static_cast<float>(fogDebug);
         // c8, c9: the sun (or the larger moon) and the other moon, for their discs through the fog.
         float disc[3];
@@ -1819,8 +1840,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         if (fogOn)
         {
             Log("fog: %.4f a yard at the ground, height %.0f yd, the ground at %.1f (%.1f yd under the camera, from "
-                "%s), reach %.0f yd, on the sky %.0f yd, sun %.2f, sky light 0x%06lX%s x %.2f, debug %d", fs.density, fs.height,
-                g_fogBase, -groundRel, g_fogBaseFrom, fs.reach, fs.skyDistance, fs.sunLight, fogCol & 0xFFFFFF,
+                "%s), reach %.0f yd, on the sky %.0f yd, sun %.2f, sky light 0x%06lX (the game's 0x%06lX)%s x %.2f, debug %d",
+                fs.density, fs.height, g_fogBase, -groundRel, g_fogBaseFrom, fs.reach, fs.skyDistance, fs.sunLight, fogLit,
+                fogCol & 0xFFFFFF,
                 haveFogCol ? "" : " (no game fog colour yet)", fs.brightness, fogDebug);
             Log("fog: patches %s: patchiness %.2f, %.0f yd across, %.2f as tall, wind %.1f yd/s toward %.0f deg; "
                 "the camera at (%.3f %.3f %.3f) in the noise", patches ? "on" : g_noiseFailed ? "off (no texture)" : "off",

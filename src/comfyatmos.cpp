@@ -1895,14 +1895,16 @@ namespace
     }
 
     // The sky the water reflects (2026-10-07): the dome's colour about 20 degrees up, and its glow just over the
-    // horizon, four times a second. The dome is the sky phase's untextured draw of format 0x42 (SkyColours): rings of
+    // horizon, four times a second. The glow lights the mist too, where the game's fog colour is dark (volume.cpp). The dome is the sky phase's untextured draw of format 0x42 (SkyColours): rings of
     // one colour each, at 16.8, 9.8, 3.7 and 1.8 degrees among others in the probe. The vertices between 12 and 30
     // degrees are averaged for the sky, and those between 1 and 6 for the glow (the orange band at dusk), so a dome
     // with its rings elsewhere still gives both.
     void NoteSkyDome(IDirect3DDevice9* dev, UINT first, UINT nv)
     {
         static double next = 0.0;
-        if (!g_skyPhase || g_inPass || nv <= 8 || nv > 2048 || !g_cfg.water.enabled || !g_cfg.water.skyFromGame)
+        // For the water's sky, and for the mist's light (volume.cpp, 2026-10-07).
+        const bool wanted = (g_cfg.water.enabled && g_cfg.water.skyFromGame) || g_cfg.fog.enabled;
+        if (!g_skyPhase || g_inPass || nv <= 8 || nv > 2048 || !wanted)
             return;
         const double now = Now();
         if (now < next)

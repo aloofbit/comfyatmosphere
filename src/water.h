@@ -51,6 +51,8 @@ float WaterBedFade();
 // The sky's colour about 20 degrees up, and its glow just over the horizon (1 to 6 degrees), read from the game's
 // sky dome (comfyatmos.cpp): the water reflects them, and the glow tints the sun's glint.
 void WaterSetSkyColour(const float high[3], const float glow[3]);
+// The sky's glow just over the horizon as last read (above), for the mist's light (volume.cpp). False: not read.
+bool SkyGlowColour(float rgb[3]);
 void WaterNoteRain(IDirect3DDevice9* dev, UINT prims);   // a DrawPrimitive: counted if it is the game's rain
 float WaterRainAmount();                                  // how hard it rains, 0..1, eased
 void WaterReset();      // before Reset, and for a new device

@@ -3941,6 +3941,14 @@ void WaterSetSkyColour(const float high[3], const float glow[3])
     g_haveGameSky = true;
 }
 
+bool SkyGlowColour(float rgb[3])
+{
+    if (!g_haveGameSky)
+        return false;
+    memcpy(rgb, g_gameGlow, sizeof(g_gameGlow));
+    return true;
+}
+
 bool WaterShipNear(const float p[3])
 {
     for (const auto& s : g_movingShips)
