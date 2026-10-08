@@ -177,6 +177,7 @@ void LoadSettings(const wchar_t* ini)
     s.fog.skyDistance  = Clamp(GetF(kFog, L"skyDistance",  s.fog.skyDistance,  ini), 0.0f, 5000.0f);
     s.fog.brightness   = Clamp(GetF(kFog, L"brightness",   s.fog.brightness,   ini), 0.0f, 4.0f);
     s.fog.sunLight     = Clamp(GetF(kFog, L"sunLight",     s.fog.sunLight,     ini), 0.0f, 50.0f);
+    s.fog.toward       = Clamp(GetF(kFog, L"toward",       s.fog.toward,       ini), 0.0f, 0.9f);
     s.fog.patchiness   = Clamp(GetF(kFog, L"patchiness",   s.fog.patchiness,   ini), 0.0f, 1.0f);
     s.fog.scale        = Clamp(GetF(kFog, L"scale",        s.fog.scale,        ini), 5.0f, 1000.0f);
     s.fog.flatten      = Clamp(GetF(kFog, L"flatten",      s.fog.flatten,      ini), 0.25f, 8.0f);

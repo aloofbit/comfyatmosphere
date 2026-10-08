@@ -132,6 +132,7 @@ sampler2D sGround : register(s4);   // the ground: surface (r), water (g), smoot
 float4 gGr   : register(c16);       // the ground texture: where the camera is in it (uv), 1 / its size in yards,
                                     // its reference height less the camera's (0 in .z: no texture, gF.z instead)
 float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
+float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun)
 
 // The patches at P (camera-relative): 1 on average; 0..2 at patchiness 1.
 float Patches(float3 P)
@@ -242,7 +243,8 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 
     float  stepLen = len * gL.y;
     float  T   = 1.0;      // how much of what lies behind gets through the fog so far
-    float  sun = 0.0;      // sunlight scattered toward the camera, before the phase
+    float  sun = 0.0;      // sunlight scattered toward the camera, before the phase: the light's
+    float  sunF = 0.0;     // the same, the fog's, with its own phase (Fog Toward the Sun)
     float  amb = 0.0;      // sky light scattered toward the camera
     float  acc = 0.0;
     [loop] for (int i = 0; i < gL.x; ++i)
@@ -275,7 +277,8 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
             sf *= Patches(dir * (f * len));
         float  tr  = exp(-sf * stepLen);
         float  w   = sf > 1e-6 ? (1.0 - tr) / sf : stepLen;
-        sun += lit * (gP.z * stepLen + sf * gG.x * w) * T;
+        sun  += lit * gP.z * stepLen * T;
+        sunF += lit * sf * gG.x * w * T;
         amb += sf * w * T;
         T   *= tr;
     }
@@ -292,7 +295,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
                                                         : (fa - fb) * (tEnd - len) / log(r);
         tau *= saturate((reachEnd - 0.5 * (len + tEnd)) * fadeK);
         float a   = 1.0 - exp(-max(tau, 0.0));
-        sun += gG.x * gG.y * a * T;
+        sunF += gG.x * gG.y * a * T;
         amb += a * T;
         T   *= 1.0 - a;
     }
@@ -307,9 +310,13 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float c     = dot(dir, gSun.xyz);
     float g     = gSun.w;
     float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5);
+    // The fog's own phase (2026-10-08, the owner: the fog toward a low sun should be brightest): mist sends most of
+    // the sunlight on forward. It took the light's (Light Toward the Sun, 0.07 there), next to even all round.
+    float gf    = gFg.x;
+    float phaseF = (1.0 - gf * gf) / pow(max(1.0 + gf * gf - 2.0 * gf * c, 1e-4), 1.5);
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
     // The same for the distance, which is capped where 16-bit floats still hold it.
-    float v     = sun * phase;
+    float v     = sun * phase + sunF * phaseF;
     v   = (v >= 0.0 && v < 16.0) ? v : 0.0;
     amb = (amb >= 0.0 && amb < 16.0) ? amb : 0.0;
     T   = (T >= 0.0 && T <= 1.0) ? T : 1.0;
@@ -1525,6 +1532,8 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 4, D3DSAMP_SRGBTEXTURE, 0);
     d->SetPixelShaderConstantF(dev, 0, pc, 14);
     d->SetPixelShaderConstantF(dev, 14, pn, 2);
+    const float fg[4] = { fs.toward, 0.0f, 0.0f, 0.0f };
+    d->SetPixelShaderConstantF(dev, 18, fg, 1);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
     for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
         d->SetSamplerState(dev, 3, static_cast<D3DSAMPLERSTATETYPE>(k), D3DTADDRESS_WRAP);

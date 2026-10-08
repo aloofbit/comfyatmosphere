@@ -20,6 +20,8 @@ struct FogSettings
     float skyDistance = 75.0f;     // yards: the same for a line of sight to the sky (0 = the sky gets none)
     float brightness  = 1.2f;      // the sky's light on the fog: the game's fog colour times this
     float sunLight    = 4.0f;      // the sun's light on the fog, against the air's ([volume] strength sets both)
+    float toward      = 0.5f;      // 0..0.9: how much the fog sends the sunlight on toward you when you look toward the
+                                   // sun, and less to the sides (Fog Toward the Sun); 0 = the same from every side
     // The patches (2026-09-30): tiling noise fixed in the world, carried by the wind.
     float patchiness  = 0.5f;      // 0 = even fog; 1 = thick patches with clear air between
     float scale       = 60.0f;     // yards: how big a patch is
