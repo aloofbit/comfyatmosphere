@@ -340,6 +340,14 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // and with the tight edge it showed as a dark strip under the sky. Near terrain keeps the 1.5 degree edge.
         float  farW = (sky || farLand) ? 1.0 : smoothstep(250.0, 500.0, dist);
         float  hzv = up > 0.0 ? saturate(1.0 - up / lerp(0.026, 0.12, farW)) : saturate(1.0 + up / 0.12);
+        // Over water and far things, not over land near by (2026-10-08, the owner: the line went through the beach and
+        // the cliffs). The ground texture marks the wet cells round the camera (.g); a point off it counts as far.
+        [branch] if (!sky && !farLand && gGr.z > 0.0 && farW < 1.0)
+        {
+            float2 gu  = P.xy * gGr.z + gGr.xy;
+            float  wet = (all(gu > 0.0) && all(gu < 1.0)) ? saturate(tex2Dlod(sGround, float4(gu, 0, 0)).g * 1.5) : 1.0;
+            hzv *= lerp(wet, 1.0, farW);
+        }
         // Three times its first strength (2026-10-08): at 200% it was a faint thin line.
         phaseF += gFg.y * low * low * hzv * hzv * (1.0 + 6.0 * pow(az, 6.0));
     }
