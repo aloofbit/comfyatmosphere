@@ -316,15 +316,16 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     float phaseF = (1.0 - gf * gf) / pow(max(1.0 + gf * gf - 2.0 * gf * c, 1e-4), 1.5);
     // The glow along the water's horizon with the sun low (2026-10-08, the owner's reference of a sunset at sea): the
     // fog lights up along the top of the water across the whole horizon, brightest under the sun. Added for a view
-    // within some 5 degrees of level, by its bearing to the sun (full toward it, a little to the sides and behind),
+    // within some 7 degrees of level, by its bearing to the sun (full toward it, a little to the sides and behind),
     // with the sun 14 degrees up or less (Fog Horizon Glow).
     {
         float2 hv  = dir.xy / max(length(dir.xy), 1e-4);
         float2 hs  = gSun.xy / max(length(gSun.xy), 1e-4);
         float  az  = saturate(dot(hv, hs) * 0.5 + 0.5);
         float  low = saturate(1.0 - gSun.z / 0.25);
-        float  hzv = saturate(1.0 - abs(dir.z) / 0.08);
-        phaseF += gFg.y * low * low * hzv * hzv * (0.3 + 2.0 * pow(az, 6.0));
+        float  hzv = saturate(1.0 - abs(dir.z) / 0.12);
+        // Three times its first strength, and 7 degrees tall, not 5 (2026-10-08): at 200% it was a faint thin line.
+        phaseF += gFg.y * low * low * hzv * hzv * (1.0 + 6.0 * pow(az, 6.0));
     }
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
     // The same for the distance, which is capped where 16-bit floats still hold it.
