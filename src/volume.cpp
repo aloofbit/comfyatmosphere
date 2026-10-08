@@ -132,7 +132,8 @@ sampler2D sGround : register(s4);   // the ground: surface (r), water (g), smoot
 float4 gGr   : register(c16);       // the ground texture: where the camera is in it (uv), 1 / its size in yards,
                                     // its reference height less the camera's (0 in .z: no texture, gF.z instead)
 float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
-float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun), its glow along the horizon
+float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun), its glow along the horizon, the
+                                    // water's horizon (the sine of its height from level, below negative)
 
 // The patches at P (camera-relative): 1 on average; 0..2 at patchiness 1.
 float Patches(float3 P)
@@ -321,15 +322,19 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     phaseF += 50.0 * gf * pow(saturate(c), 500.0);
     // The glow along the water's horizon with the sun low (2026-10-08, the owner's reference of a sunset at sea): the
     // fog lights up along the top of the water across the whole horizon, brightest under the sun. Added for a view
-    // within some 7 degrees of level, by its bearing to the sun (full toward it, a little to the sides and behind),
+    // near the water's horizon, by its bearing to the sun (full toward it, a little to the sides and behind),
     // with the sun 14 degrees up or less (Fog Horizon Glow).
     {
         float2 hv  = dir.xy / max(length(dir.xy), 1e-4);
         float2 hs  = gSun.xy / max(length(gSun.xy), 1e-4);
         float  az  = saturate(dot(hv, hs) * 0.5 + 0.5);
         float  low = saturate(1.0 - gSun.z / 0.25);
-        float  hzv = saturate(1.0 - abs(dir.z) / 0.12);
-        // Three times its first strength, and 7 degrees tall, not 5 (2026-10-08): at 200% it was a faint thin line.
+        // On the water's horizon, not on eye level (2026-10-08, the owner: the glow lay over a cliff above the sea's
+        // edge). It fades out within 1.5 degrees above that line and over 7 below it, so it hugs the top of the water.
+        // Until then it was 7 degrees each way round eye level, and its upper half lay on the sky and on the land.
+        float  up  = dir.z - gFg.z;
+        float  hzv = up > 0.0 ? saturate(1.0 - up / 0.026) : saturate(1.0 + up / 0.12);
+        // Three times its first strength (2026-10-08): at 200% it was a faint thin line.
         phaseF += gFg.y * low * low * hzv * hzv * (1.0 + 6.0 * pow(az, 6.0));
     }
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
@@ -1552,7 +1557,27 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 4, D3DSAMP_SRGBTEXTURE, 0);
     d->SetPixelShaderConstantF(dev, 0, pc, 14);
     d->SetPixelShaderConstantF(dev, 14, pn, 2);
-    const float fg[4] = { fs.toward, fs.horizonGlow, 0.0f, 0.0f };
+    // The water's horizon as the camera sees it: the water toward the sun, 150 yards out (or 300, or under the
+    // camera), seen at the game's fog end, where the drawn water ends. Level when no water is found.
+    float horizon = 0.0f;
+    if (camRead)
+    {
+        float sxy[2] = { sunDir[0], sunDir[1] };
+        const float sl = sqrtf(sxy[0] * sxy[0] + sxy[1] * sxy[1]);
+        if (sl > 1e-3f) { sxy[0] /= sl; sxy[1] /= sl; } else { sxy[0] = 1.0f; sxy[1] = 0.0f; }
+        float wz = 0.0f;
+        const bool wet = MapWaterHeight(cam[0] + sxy[0] * 150.0f, cam[1] + sxy[1] * 150.0f, wz) ||
+                         MapWaterHeight(cam[0] + sxy[0] * 300.0f, cam[1] + sxy[1] * 300.0f, wz) ||
+                         MapWaterHeight(cam[0], cam[1], wz);
+        const float reachTo = pc[43] > 100.0f ? pc[43] : 400.0f;
+        if (wet)
+        {
+            const float dz = wz - cam[2];
+            horizon = dz / sqrtf(dz * dz + reachTo * reachTo);
+            horizon = (std::min)((std::max)(horizon, -0.3f), 0.3f);
+        }
+    }
+    const float fg[4] = { fs.toward, fs.horizonGlow, horizon, 0.0f };
     d->SetPixelShaderConstantF(dev, 18, fg, 1);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
     for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
