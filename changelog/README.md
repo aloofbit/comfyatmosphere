@@ -5,6 +5,9 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
+- [The time of day, and key bindings](2026-10-07-time-of-day.md): comfytime is part of comfyatmos.dll, a time
+  slider and Lock time in the debug panel, every action in Key Bindings, the DLL's own keys off, and a probe
+  copies its lines to the clipboard.
 - [Test tools](2026-10-07-test-tools.md): a test can set the time of day (`hour`), Snapshot records it, and no
   failed shader compile at each start.
 - [Creatures under the sea](2026-10-07-creatures-under-water.md): creatures under the water keep their texture and
