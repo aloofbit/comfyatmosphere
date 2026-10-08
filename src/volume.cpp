@@ -335,7 +335,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
     // The same for the distance, which is capped where 16-bit floats still hold it.
     float v     = sun * phase + sunF * phaseF;
-    v   = (v >= 0.0 && v < 16.0) ? v : 0.0;
+    v   = (v >= 0.0) ? min(v, 15.9) : 0.0;   // capped, not zeroed: the glow round the sun can pass 16 (2026-10-08)
     amb = (amb >= 0.0 && amb < 16.0) ? amb : 0.0;
     T   = (T >= 0.0 && T <= 1.0) ? T : 1.0;
     dist = (dist >= 0.0 && dist < 30000.0) ? dist : 30000.0;
