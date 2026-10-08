@@ -419,6 +419,15 @@ foreach ($file in $files) {
     $results = @()
     $checks = @()   # for the page: each check, whether it passed, and the screenshot it read (0: the probe)
     $pass = $true
+    # A test that flies needs flight on (2026-10-07): far-terrain-cache ran on the ground for days and passed, with
+    # "error flight on" only a warning. Now it is a check of its own.
+    if ($cfg.flight) {
+        $flightError = @($warnings | Where-Object { $_ -match '^error flight on' }) | Select-Object -First 1
+        $ok = -not $flightError
+        $results += ('{0}  Flight on for the test{1}' -f $(if ($ok) { 'pass' } else { 'FAIL' }), $(if ($ok) { '' } else { ": $flightError" }))
+        $checks += [pscustomobject]@{ ok = $ok; about = 'Flight on for the test'; got = $(if ($ok) { 'flight on' } else { $flightError }); shot = 0 }
+        if (-not $ok) { $pass = $false }
+    }
     foreach ($e in $t.expect) {
         if ($null -ne $e.log) {
             # A number from the log (2026-10-06, the performance tests): the nth or the last match in this run.
