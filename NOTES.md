@@ -3161,3 +3161,38 @@ decide it: v0.11.3 with comfytime at 14:15 passed, and so did this build at 14:1
   the world for it, so each frame looks at a 30th of the cache, by buffer and first index, and no frame looks at
   all of it. The probe's "object table" line counts them ("since the start N cache entries filed under them or
   dropped as older poses"): 47 in the test's run.
+
+## The zone's sky and water colours (2026-10-07, a probe)
+
+To line our water and fog up with the zone's sky. The probe now logs both (`sky colours`, `water colours`).
+
+- **The sky** is the dome, the sky phase's untextured draw: format 0x42, 122 vertices in 7 rings, each ring one
+  colour, drawn additive. The rings sit at elevation 90 (the zenith), 16.8, 9.8, 3.7, 1.8, 0 and -90. The ring at 0
+  is the game's fog colour, in every probe.
+- **The game's water** is `v0 * stage 0 + stage 1`. Stage 0 is an 8 x 64 A8R8G8B8 texture in the managed pool,
+  readable: each row one colour, row 0 shallow and row 63 deep, in a straight line between them. The sea's ramp
+  runs alpha 0xBF to 0xFF, a river's or a lake's 0x7F to 0xFD, so these are the zone's ocean and river shallow and
+  deep colours (`LightIntBand`), blended for the hour. `v0` is the lit vertex colour: a white material, light 0 and
+  no ambient render state.
+
+Seven places, noon and 19:30 (`wow-test-tool` run 20261007221514). Sky columns are the rings by elevation:
+
+| Place | Hour | 90 | 16.8 | 9.8 | 3.7 | 1.8 | 0 (fog) | Water row 0 | Water row 63 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Stormwind harbour | 12:00 | 001F49 | 3AA2CE | 98DCF4 | AEDAE0 | B4B4B4 | 4D788F | BF114B59 | FF001A24 |
+| Stormwind harbour | 19:30 | 27313F | 62668C | 94867C | B4845C | C28A40 | 584656 | BF4D4849 | FF0F1D2D |
+| Westfall coast | 12:00 | 003C48 | 3C909E | 64AAB6 | A2C4CC | BAC6C8 | 368696 | BF447A62 | FF091F24 |
+| Westfall coast | 19:30 | 1C6682 | 8C5E60 | B2825A | D8A672 | F2C07C | 725458 | BF5C724E | FF0B1217 |
+| Redridge lake | 12:00 | 001F48 | 3AA0CE | 98DAF4 | AED8DE | B4B2B2 | 4D778E | 7F4E5C14 | FD325153 |
+| Redridge lake | 19:30 | 27313F | 62668C | 94867C | B4845C | C28A40 | 584656 | 7F2D4635 | FD263D3F |
+| Duskwood, Darkshire | 12:00 | 001620 | 00AED4 | 26E4FE | 00FAFE | 026080 | 00749C | 7F3A3832 | FD002633 |
+| Duskwood, Darkshire | 19:30 | 00080C | 006E8E | 188EA6 | 0098A8 | 02526C | 004862 | 7F283238 | FD001A22 |
+| Swamp of Sorrows, Stonard | 12:00 | 210D05 | 7A4A10 | A26A2A | CC9642 | 7E5622 | 78501A | 7F997A12 | FD514416 |
+| Swamp of Sorrows, Stonard | 19:30 | 0E0704 | 3E2E0E | 503A10 | 725218 | 4C360A | 49340B | 7F5A5209 | FD3E3E09 |
+| Darkshore, Auberdine | 12:00 | 000813 | 3E5A66 | 64767C | 788486 | 808080 | 404C52 | BF435356 | FF262D30 |
+| Darkshore, Auberdine | 19:30 | 0A0D10 | 343640 | 504C4A | 665A4E | 6C5C48 | 393438 | BF444343 | FF22252A |
+| Tel'Abim | 12:00 | 000C12 | 2E303A | 5A444C | 74545C | 8A6668 | 645456 | BF54A6A6 | FF448585 |
+| Tel'Abim | 19:30 | 1A1C22 | 262832 | 444456 | 966E7C | 9A6E70 | 645456 | BF489090 | FF376F6F |
+
+Our reflected sky (`[water] skyColor`, 0x5A9AD8) is near Stormwind's 16.8 ring at noon (3AA2CE) and far from every
+dusk and from Duskwood, the swamp, Darkshore and Tel'Abim. Duskwood's light 0 read all zero at both hours.

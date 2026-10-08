@@ -1548,6 +1548,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     // The probe.
     bool        g_probeOn = false;
     unsigned    g_pCount = 0, g_pFirst = 0, g_pLast = 0, g_pDetailed = 0, g_pOther = 0, g_pShore = 0;
+    unsigned    g_pColours = 0;                  // bit 0: the sea's colours logged this probe, bit 1: a building's
     std::map<UINT, unsigned>        g_pByVerts;
     std::map<void*, std::string>    g_pByTex;    // each texture on stage 0: the draws and the first one's place
     std::map<void*, unsigned>       g_pTexCount;
@@ -2334,6 +2335,80 @@ float4 main(float2 vpos : VPOS) : COLOR
             }
         }
         snprintf(out, cap, "%p type %d", t, static_cast<int>(t->lpVtbl->GetType(t)));
+    }
+
+    // The game's own water colour (2026-10-07), to line our water up with the zone's sky. The client's water shader
+    // (its dump below) is v0 * stage 0 + stage 1, and the specular times stage 1's alpha. v0 is the lit colour of a
+    // vertex without a colour of its own: the material and the lights. Stage 0 is an 8 x 64 texture, perhaps a ramp
+    // the client fills from the zone's shallow and deep water colours (LightIntBand). Both are logged, once a probe
+    // for the sea and once for a building's water.
+    void ProbeColours(IDirect3DDevice9* dev, bool city)
+    {
+        auto* d = dev->lpVtbl;
+        const char* what = city ? "a building's water" : "the sea";
+        D3DMATERIAL9 m = {};
+        d->GetMaterial(dev, &m);
+        DWORD amb = 0, cv = 0, dsrc = 0, asrc = 0;
+        d->GetRenderState(dev, D3DRS_AMBIENT, &amb);
+        d->GetRenderState(dev, D3DRS_COLORVERTEX, &cv);
+        d->GetRenderState(dev, D3DRS_DIFFUSEMATERIALSOURCE, &dsrc);
+        d->GetRenderState(dev, D3DRS_AMBIENTMATERIALSOURCE, &asrc);
+        Log("water colours, %s: material diffuse (%.3f %.3f %.3f %.3f) ambient (%.3f %.3f %.3f) emissive "
+            "(%.3f %.3f %.3f) specular (%.3f %.3f %.3f) power %.1f; ambient light 0x%08lX; colour vertex %lu, "
+            "diffuse from %lu, ambient from %lu", what, m.Diffuse.r, m.Diffuse.g, m.Diffuse.b, m.Diffuse.a,
+            m.Ambient.r, m.Ambient.g, m.Ambient.b, m.Emissive.r, m.Emissive.g, m.Emissive.b, m.Specular.r,
+            m.Specular.g, m.Specular.b, m.Power, amb, cv, dsrc, asrc);
+        for (DWORD i = 0; i < 8; ++i)
+        {
+            BOOL on = FALSE;
+            if (FAILED(d->GetLightEnable(dev, i, &on)) || !on)
+                continue;
+            D3DLIGHT9 l = {};
+            if (FAILED(d->GetLight(dev, i, &l)))
+                continue;
+            Log("    light %lu: type %d, diffuse (%.3f %.3f %.3f) ambient (%.3f %.3f %.3f) specular (%.3f %.3f %.3f), "
+                "direction (%.3f %.3f %.3f)", i, static_cast<int>(l.Type), l.Diffuse.r, l.Diffuse.g, l.Diffuse.b,
+                l.Ambient.r, l.Ambient.g, l.Ambient.b, l.Specular.r, l.Specular.g, l.Specular.b, l.Direction.x,
+                l.Direction.y, l.Direction.z);
+        }
+        IDirect3DBaseTexture9* t = nullptr;
+        d->GetTexture(dev, 0, &t);
+        if (!t)
+        {
+            Log("    stage 0: no texture");
+            return;
+        }
+        if (t->lpVtbl->GetType(t) != D3DRTYPE_TEXTURE)
+        {
+            Log("    stage 0: %p, not a plain texture", t);
+            t->lpVtbl->Release(t);
+            return;
+        }
+        auto* t2 = reinterpret_cast<IDirect3DTexture9*>(t);
+        D3DSURFACE_DESC td = {};
+        t2->lpVtbl->GetLevelDesc(t2, 0, &td);
+        D3DLOCKED_RECT lr = {};
+        const HRESULT hr = td.Format == D3DFMT_A8R8G8B8 && td.Width <= 64
+                         ? t2->lpVtbl->LockRect(t2, 0, &lr, nullptr, D3DLOCK_READONLY) : E_FAIL;
+        Log("    stage 0: %p %ux%u format %u, pool %u, usage 0x%lX%s", t, td.Width, td.Height,
+            static_cast<unsigned>(td.Format), static_cast<unsigned>(td.Pool), td.Usage,
+            SUCCEEDED(hr) ? "; its texels as 0xAARRGGBB, every 4th row:" : "; not read");
+        if (SUCCEEDED(hr) && lr.pBits)
+        {
+            for (UINT y = 0; y < td.Height; ++y)
+            {
+                if (y % 4 != 0 && y + 1 != td.Height)
+                    continue;
+                const auto* row = reinterpret_cast<const DWORD*>(static_cast<const uint8_t*>(lr.pBits) + y * lr.Pitch);
+                char line[640];
+                int at = snprintf(line, sizeof(line), "    row %2u:", y);
+                for (UINT x = 0; x < td.Width && at > 0 && at < static_cast<int>(sizeof(line)) - 12; ++x)
+                    at += snprintf(line + at, sizeof(line) - at, " %08lX", row[x]);
+                Log("%s", line);
+            }
+            t2->lpVtbl->UnlockRect(t2, 0);
+        }
+        t->lpVtbl->Release(t);
     }
 
     void ProbeDetail(IDirect3DDevice9* dev, const WaterChunk& c, unsigned index)
@@ -3542,6 +3617,12 @@ void WaterProbeDraw(IDirect3DDevice9* dev, const WaterChunk& c, unsigned index, 
         ++g_pDetailed;
         ProbeDetail(dev, c, index);
     }
+    const unsigned colourBit = c.city ? 2u : 1u;
+    if (!(g_pColours & colourBit))
+    {
+        g_pColours |= colourBit;
+        ProbeColours(dev, c.city);
+    }
     // Every shore chunk within 70 yards, in short; the first in full.
     if (g_pShore < 40 && !c.city && c.primCount < 128 &&
         std::hypot(c.world->m[3][0] - 16.7f, c.world->m[3][1] - 16.7f) < 70.0f)
@@ -4041,6 +4122,7 @@ void WaterProbe()
 {
     g_probeOn = true;
     g_pCount = g_pFirst = g_pLast = g_pDetailed = g_pOther = g_pShore = 0;
+    g_pColours = 0;
     g_pByVerts.clear();
     g_pByTex.clear();
     g_pTexCount.clear();

@@ -51,6 +51,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <functional>
 #include <unordered_set>
 #include <map>
 #include <set>
@@ -1597,6 +1598,57 @@ namespace
         if (ps) ps->lpVtbl->Release(ps);
     }
 
+    // The sky's colours (2026-10-07), to line the water and the fog up with the zone's sky. The dome is the sky
+    // phase's untextured draw (draw 1 by day): format 0x42, a position and a colour for each vertex, drawn additive
+    // (122 vertices in the probe of 2026-10-03). Its colours are logged by height: one line for each ring of
+    // vertices, highest first, with the colours' range where a ring is not one colour.
+    void SkyColours(IDirect3DDevice9* dev, UINT first, UINT nv)
+    {
+        DWORD fvf = 0;
+        dev->lpVtbl->GetFVF(dev, &fvf);
+        if (fvf != (D3DFVF_XYZ | D3DFVF_DIFFUSE) || nv < 8 || nv > 2048)
+            return;
+        IDirect3DVertexBuffer9* vb = nullptr;
+        UINT off = 0, stride = 0;
+        if (FAILED(dev->lpVtbl->GetStreamSource(dev, 0, &vb, &off, &stride)) || !vb || stride < 16)
+        {
+            if (vb) vb->lpVtbl->Release(vb);
+            return;
+        }
+        struct Ring { unsigned n = 0; DWORD lo = 0xFFFFFFFF, hi = 0; DWORD first = 0; };
+        std::map<int, Ring, std::greater<int>> rings;   // by elevation, in tenths of a degree
+        void* ptr = nullptr;
+        if (SUCCEEDED(vb->lpVtbl->Lock(vb, off + first * stride, nv * stride, &ptr, D3DLOCK_READONLY)) && ptr)
+        {
+            for (UINT i = 0; i < nv; ++i)
+            {
+                const uint8_t* v = static_cast<const uint8_t*>(ptr) + i * stride;
+                float p[3];
+                DWORD col = 0;
+                memcpy(p, v, sizeof(p));
+                memcpy(&col, v + 12, sizeof(col));
+                const float len = sqrtf(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+                if (len < 1e-4f)
+                    continue;
+                Ring& r = rings[static_cast<int>(lroundf(asinf(p[2] / len) * 572.9578f))];
+                if (r.n++ == 0)
+                    r.first = col;
+                // The range by brightness, so lo and hi are two real colours of the ring.
+                const auto lum = [](DWORD c) { return ((c >> 16) & 0xFF) + ((c >> 8) & 0xFF) + (c & 0xFF); };
+                if (r.n == 1 || lum(col) < lum(r.lo)) r.lo = col;
+                if (r.n == 1 || lum(col) > lum(r.hi)) r.hi = col;
+            }
+            vb->lpVtbl->Unlock(vb);
+        }
+        vb->lpVtbl->Release(vb);
+        Log("        sky colours (0xAARRGGBB), %u vertices in %zu rings by elevation:", nv, rings.size());
+        for (const auto& [el, r] : rings)
+            if (r.lo == r.hi)
+                Log("        el %6.1f: %3u x %08lX", el / 10.0f, r.n, r.first);
+            else
+                Log("        el %6.1f: %3u x %08lX to %08lX", el / 10.0f, r.n, r.lo, r.hi);
+    }
+
     void DetailDraw(IDirect3DDevice9* dev, const char* kind, D3DPRIMITIVETYPE prim, UINT pc,
                     bool indexed, UINT first, UINT nv, const void* upData)
     {
@@ -1667,6 +1719,8 @@ namespace
             rt, where);
         if (early && g_probe.draws < 32 && nv && nv <= 8)
             DumpSkyDraw(dev, first, nv, upData);
+        if (early && g_skyPhase && !tex && !upData && nv > 8)
+            SkyColours(dev, first, nv);
         // Each texture stage: size, format, and how it combines. For finding the terrain's baked shadow,
         // which is a small texture of its own (2026-09-29).
         {
