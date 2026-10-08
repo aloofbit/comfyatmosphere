@@ -345,7 +345,14 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         [branch] if (!sky && !farLand && gGr.z > 0.0 && farW < 1.0)
         {
             float2 gu  = P.xy * gGr.z + gGr.xy;
-            float  wet = (all(gu > 0.0) && all(gu < 1.0)) ? saturate(tex2Dlod(sGround, float4(gu, 0, 0)).g * 1.5) : 1.0;
+            float  wet = 1.0;
+            if (all(gu > 0.0) && all(gu < 1.0))
+            {
+                float4 gc = tex2Dlod(sGround, float4(gu, 0, 0));
+                // And not over what stands on the water (2026-10-08, the owner: boats): a point more than a yard over
+                // the surface (.r, the water's height in a wet cell) is a boat, a pier or a buoy, not the sea.
+                wet = saturate(gc.g * 1.5) * saturate(1.0 - (P.z - (gc.r + gGr.w) - 1.0) * 0.5);
+            }
             hzv *= lerp(wet, 1.0, farW);
         }
         // Three times its first strength (2026-10-08): at 200% it was a faint thin line.
