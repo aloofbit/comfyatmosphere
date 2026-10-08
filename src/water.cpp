@@ -2336,18 +2336,19 @@ float4 main(float2 vpos : VPOS) : COLOR
         float deep[3];
         for (int i = 0; i < 3; ++i)
             deep[i] = kPalette[lo][i] + (kPalette[lo + 1][i] - kPalette[lo][i]) * f;
-        // Zone Water (2026-10-07): toward the game's water colour for the zone and the hour, at this colour's
-        // brightness. The game's colours are dark (it adds its water texture over them) and dim at dusk, so only
-        // their hue is taken; the night dims ours (day). Its absorption below follows the hue.
+        // Zone Colour (2026-10-07, the owner): in place of Water Colour, the game's water colour for the zone and the
+        // hour. The game's colours are dark (it adds its water texture over them) and dim at dusk, so only their hue
+        // is taken, at 1.75 times its saturation, since they are dull. At the brightness of Water Colour 25, so Water
+        // Brightness means the same; the night dims it (day). It takes the hue of the sky's glow over the horizon too,
+        // near white at noon and orange with the sun low, so the water itself warms at dusk and not only its
+        // reflection. The absorption below follows the hue. Water Colour until the game's water is read.
         ZoneColours();
         const auto luma = [](const float* c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; };
-        const float zone = w.zone * 0.01f;
-        // Stronger (2026-10-07, the owner): the game's hue at 1.75 times its saturation, since the game's colours are
-        // dull under the texture it adds; and the hue of the sky's glow over the horizon, near white at noon and
-        // orange with the sun low, so the water itself warms at dusk and not only its reflection.
-        if (zone > 0.0f && g_easedWaterSet && luma(g_easedWater) > 0.005f)
+        if (w.zone && g_easedWaterSet && luma(g_easedWater) > 0.005f)
         {
-            const float L = luma(deep);
+            static const float kRef[3] = { (kPalette[0][0] + kPalette[1][0]) * 0.5f, (kPalette[0][1] + kPalette[1][1]) * 0.5f,
+                                           (kPalette[0][2] + kPalette[1][2]) * 0.5f };
+            const float L = luma(kRef);
             float target[3];
             const float scale = L / luma(g_easedWater);
             for (int i = 0; i < 3; ++i)
@@ -2362,7 +2363,7 @@ float4 main(float2 vpos : VPOS) : COLOR
                     target[i] *= lt > 1e-4f ? L / lt : 1.0f;
             }
             for (int i = 0; i < 3; ++i)
-                deep[i] += ((std::min)((std::max)(target[i], 0.0f), 1.0f) - deep[i]) * zone;
+                deep[i] = (std::min)((std::max)(target[i], 0.0f), 1.0f);
         }
         k[172] = deep[0] * day;
         k[173] = deep[1] * day;
@@ -2403,11 +2404,11 @@ float4 main(float2 vpos : VPOS) : COLOR
         if (g_probeOn && !(g_pColours & 4u))
         {
             g_pColours |= 4u;
-            Log("water: zone colours: the game's water (%s) %.3f %.3f %.3f eased %.3f %.3f %.3f, Zone Water %.0f, deep "
+            Log("water: zone colours: the game's water (%s) %.3f %.3f %.3f eased %.3f %.3f %.3f, Zone Colour %d, deep "
                 "water %.3f %.3f %.3f; the game's sky %s %.3f %.3f %.3f eased %.3f %.3f %.3f, reflected %.3f %.3f %.3f; "
                 "its glow %.3f %.3f %.3f",
                 !g_haveGameWater ? "not read" : g_gameWaterSea ? "the sea" : "a lake or a river", g_gameWater[0],
-                g_gameWater[1], g_gameWater[2], g_easedWater[0], g_easedWater[1], g_easedWater[2], w.zone, k[172], k[173],
+                g_gameWater[1], g_gameWater[2], g_easedWater[0], g_easedWater[1], g_easedWater[2], w.zone ? 1 : 0, k[172], k[173],
                 k[174], g_haveGameSky ? (w.skyFromGame ? "used" : "read, not used (skyFromGame 0)") : "not read",
                 g_gameSky[0], g_gameSky[1], g_gameSky[2], g_easedSky[0], g_easedSky[1], g_easedSky[2], k[180], k[181],
                 k[182], k[36], k[37], k[38]);

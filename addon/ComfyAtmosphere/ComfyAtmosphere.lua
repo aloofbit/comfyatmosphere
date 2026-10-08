@@ -55,7 +55,7 @@ COMFYATMOSPHERE_SUNLIGHT       = "Sunlight";
 COMFYATMOSPHERE_TREE_SHADE     = "Tree Shadow Strength";
 COMFYATMOSPHERE_WATER          = "Water Effects";
 COMFYATMOSPHERE_WATER_COLOUR   = "Water Colour";
-COMFYATMOSPHERE_WATER_ZONE     = "Zone Water";
+COMFYATMOSPHERE_WATER_ZONE     = "Zone Colour";
 COMFYATMOSPHERE_WATER_CLARITY  = "Water Clarity";
 COMFYATMOSPHERE_WATER_BRIGHT   = "Water Brightness";
 COMFYATMOSPHERE_WATER_REFLECT  = "Sky Reflection";
@@ -603,24 +603,20 @@ local ENTRIES = {
 		cvar = "comfyWater",
 	},
 	{
-		-- comfyatmos.dll takes it as [water] colour.
-		name = "COMFYATMOSPHERE_WATER_COLOUR",
-		desc = "The colour deep water turns. 0 is green, 50 is teal, 100 is blue.",
-		type = "slider",
-		cvar = "comfyWaterColour",
-		dependency = { "comfyWater", "1" },
-		minval = 0,
-		maxval = 100,
-		step = 5,
-		numberLabels = 1,
-	},
-	{
 		-- comfyatmos.dll takes it as [water] zone (2026-10-07).
 		name = "COMFYATMOSPHERE_WATER_ZONE",
-		desc = "How far the water's colour leans to the game's own water colour for the zone and the time of day. 0 is Water Colour alone.",
-		type = "slider",
+		desc = "The water takes the game's own water colour for the zone and the time of day, warmer with the sun low. Off, Water Colour sets it.",
+		type = "checkbutton",
 		cvar = "comfyWaterZone",
 		dependency = { "comfyWater", "1" },
+	},
+	{
+		-- comfyatmos.dll takes it as [water] colour.
+		name = "COMFYATMOSPHERE_WATER_COLOUR",
+		desc = "The colour deep water turns, with Zone Colour off. 0 is green, 50 is teal, 100 is blue.",
+		type = "slider",
+		cvar = "comfyWaterColour",
+		dependency = { "comfyWater", "1", "comfyWaterZone", "0" },
 		minval = 0,
 		maxval = 100,
 		step = 5,
@@ -1710,7 +1706,15 @@ local function WindowRefresh()
 	windowRefreshing = true;
 	for _, control in ipairs(windowControls) do
 		local option = control.option;
-		local enabled = not option.dependency or GetCVar(option.dependency[1]) == option.dependency[2];
+		-- A dependency is pairs of a CVar and the value it needs; every pair must hold.
+		local enabled = true;
+		if option.dependency then
+			for i = 1, table.getn(option.dependency), 2 do
+				if GetCVar(option.dependency[i]) ~= option.dependency[i + 1] then
+					enabled = false;
+				end
+			end
+		end
 		if option.type == "checkbutton" then
 			control.frame:SetChecked(GetCVar(option.cvar) == "1");
 			local text = getglobal(control.frame:GetName() .. "Text");

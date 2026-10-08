@@ -5,8 +5,8 @@ controls it adds. The reasoning and the measurements are in `NOTES.md`, one sect
 
 ## 2026-10-07
 
-- [The zone's sky and water colours](2026-10-07-zone-colours.md): the water reflects the game's own sky, and a
-  Zone Water slider leans its colour to the game's water colour for the zone and the hour.
+- [The zone's sky and water colours](2026-10-07-zone-colours.md): the water reflects the game's own sky and its
+  glow at dusk, and Zone Colour gives the water the game's own colour for the zone and the hour.
 - [A windmill's frozen copy from login](2026-10-07-windmill-at-login.md): draws made before a model was known no
   longer stay in the shadow cache; development-windmill no longer fails now and then.
 - [The time of day, and key bindings](2026-10-07-time-of-day.md): comfytime is part of comfyatmos.dll, a time
