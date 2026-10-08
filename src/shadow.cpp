@@ -700,6 +700,7 @@ namespace
     // one copy: a batch of N copies holds N groups of that many (2026-10-04).
     std::unordered_map<unsigned long long, int> g_bonesPerCopy;
     unsigned g_objDraws = 0, g_objFiled = 0;   // this frame: draws filed, and copies made of them
+    unsigned g_objFromCache = 0;               // since the start: cache entries filed under an object, or dropped
     constexpr float kObjBone  = 2.0f;    // yards from the place a bone must stand to file the draw under it
     constexpr float kObjReach = 40.0f;   // yards from the place an object's own bones lie (a windmill: about 25)
 
@@ -882,7 +883,14 @@ namespace
         return nullptr;
     }
 
-    bool FileUnderObjects(const Rec& r, const D3DMATRIX& absolute, const float pos[3], double now)
+    // fromCache (2026-10-07): r is an entry the cache holds, drawn at `now`, and c its constants. At login a
+    // windmill's model is not known for a few seconds, so its first draws went to the cache, and once known its
+    // draws went to its record: the cache's copy was never drawn again, and no rule took it out. A far batch of
+    // windmills stayed, frozen, and development-windmill failed now and then. Such an entry is filed as a draw
+    // would be, but it never replaces a newer part, nor parts from another buffer (then it is an older pose and
+    // only goes). True: the caller drops it from the cache.
+    bool FileUnderObjects(const Rec& r, const float* c, const D3DMATRIX& absolute, const float pos[3], double now,
+                          bool fromCache = false)
     {
         if (!r.vs || g_objects.empty() || g_objByX.size() != g_objects.size())
             return false;
@@ -899,7 +907,6 @@ namespace
         }
         if (!nearAny)
             return false;
-        const float* c = &g_constPool[r.consts];
         const UINT nregs = (std::min)(r.nregs, r.nregsOwn);
         float bw[64][3];
         int nb = 0;
@@ -1032,13 +1039,22 @@ namespace
                     Log("shadow: a batch of %u copies, %d bones, left out: its copies could not be told apart",
                         static_cast<unsigned>(roots.size()), nb);
                 }
-                ++g_objDraws;
+                if (!fromCache)
+                    ++g_objDraws;
                 return true;   // neither filed nor cached: it would cast its other copies frozen
             }
         }
         for (const Hit& h : hit)
         {
             ObjRec* o = h.o;
+            if (fromCache)
+            {
+                if (o->vb && o->vb != r.vb[0] && !o->parts.empty())
+                    continue;   // drawn from another buffer now: an older pose
+                const auto had = o->parts.find(r.startIndex);
+                if (had != o->parts.end() && had->second.lastSeen >= now)
+                    continue;   // a newer draw of the part
+            }
             if (o->vb != r.vb[0])
             {
                 static int told = 0;   // why a record's parts were replaced (2026-10-04): up to 60 a session
@@ -1091,9 +1107,13 @@ namespace
             part.unit = false;
             part.mobile = false;
             ++part.drawnFor;
-            ++g_objFiled;
+            if (!fromCache)
+                ++g_objFiled;
         }
-        ++g_objDraws;
+        if (fromCache)
+            ++g_objFromCache;
+        else
+            ++g_objDraws;
         return true;
     }
 
@@ -2169,7 +2189,7 @@ namespace
             bool underObjects = false;
             {
                 BenchProfScope prof(kProfFileObj);
-                underObjects = r.vs && FileUnderObjects(r, e.absolute, pos, now);
+                underObjects = r.vs && FileUnderObjects(r, &g_constPool[r.consts], e.absolute, pos, now);
             }
             if (underObjects)
             {
@@ -2536,6 +2556,15 @@ namespace
         // on an animated doodad that a newer entry has drawn since.
         const std::vector<AnimPlace> animPlaces = AnimPlaces();
         const auto olderPose = [&](const Entry& e) { return OlderAnimPose(e, animPlaces); };
+        // Entries at an object whose model became known after they were drawn (FileUnderObjects, fromCache). Each
+        // one's bones are turned to the world to find its objects, so each frame looks at a 30th of the entries, by
+        // its buffer and first index: an entry once in 30 frames, with no frame that looks at all of them.
+        constexpr unsigned kFromCacheSlices = 30;
+        const unsigned fromCacheSlice = g_frameId % kFromCacheSlices;
+        const auto fromCacheTurn = [&](const Entry& e) {
+            return !g_objects.empty() && ((reinterpret_cast<uintptr_t>(e.rec.vb[0]) >> 4) + e.rec.startIndex) %
+                                             kFromCacheSlices == fromCacheSlice;
+        };
         for (auto kv = g_cache.begin(); kv != g_cache.end(); )
         {
             std::vector<Entry>& list = kv->second;
@@ -2577,6 +2606,12 @@ namespace
                 {
                     gone = true; ++g_nEvictView;   // a finer or later version of the same chunk is held
                     why = "finer chunk";
+                }
+                else if (e.rec.vs && !e.unit && fromCacheTurn(e) && e.consts.size() >= static_cast<size_t>(e.rec.nregs) * 4 &&
+                         FileUnderObjects(e.rec, e.consts.data(), e.absolute, e.pos, e.lastSeen, true))
+                {
+                    gone = true; ++g_nEvictAge;
+                    why = "filed under its object";
                 }
                 else if (e.lastSeen < now && e.rec.vs && !e.unit && !animPlaces.empty() && [&] {
                              const HeldDoodads h = HeldAnim(e, animPlaces);
@@ -4482,8 +4517,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                 ++kinds[o.kind == 1 ? 1 : 2];
             }
             Log("shadow: object table: %u records (%u animated doodads from the files, %u game objects), %u parts; this "
-                "frame %u draws filed under them (%u copies)", static_cast<unsigned>(g_objects.size()), kinds[1], kinds[2],
-                parts, g_objDraws, g_objFiled);
+                "frame %u draws filed under them (%u copies); since the start %u cache entries filed under them or dropped "
+                "as older poses", static_cast<unsigned>(g_objects.size()), kinds[1], kinds[2], parts, g_objDraws, g_objFiled,
+                g_objFromCache);
             for (const ObjRec& o : g_objects)
             {
                 const float dx = o.place[0] - pl[0], dy = o.place[1] - pl[1];

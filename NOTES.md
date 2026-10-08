@@ -3139,3 +3139,25 @@ the frame on the next Present, the lamps over their window of frames, and the cl
 when it has hashed the files. So the copy waits until the report's `=== end of client report` line is there and
 the lamps' window has closed, 15 s at most. A chat line says how many lines were copied. The test runner probes
 too, so a test run replaces what the clipboard holds.
+
+## A far batch of windmills left in the cache at login (2026-10-07)
+
+`development-windmill` failed now and then since perf-1: "0 cache entries at animated doodads" read 1 or 2, and
+once the blades were not in the windmill's record at the start. It failed in 2 of 2 full runs on the 0.12.0 build
+and in 1 of 4 runs of the test alone, and once at 04:03 during the perf-1 work. The hour did not
+decide it: v0.11.3 with comfytime at 14:15 passed, and so did this build at 14:15 run alone.
+
+- **The entry.** A far batch of windmills (7,520 vertices) drawn 194 s before the probe, at login, filed at a
+  place the files hold no doodad at, its bones 300 yards about. "A newer pose of a doodad it holds: no."
+- **Why it stayed.** A draw goes to an object's record only when the object's model is known
+  (`FileUnderObjects`: "unknown yet: not filed, the cache takes it"). At login the windmill's model loads a few
+  seconds after its first draws, and those went to the cache. Once known, every draw of it went to its record,
+  so the cache's copy was never drawn again, and the older-pose rule (`AnimPlaces`) compares cache entries with
+  other cache entries only. How many draws come before the model is known depends on the load, so the test failed
+  now and then.
+- **The fix.** The eviction files such an entry as a draw would be (`FileUnderObjects`, `fromCache`): its pose
+  goes into the record, and the entry leaves the cache. It never replaces a part drawn later, nor the parts of a
+  record drawn from another buffer now; then it is an older pose and only goes. Each entry's bones are turned to
+  the world for it, so each frame looks at a 30th of the cache, by buffer and first index, and no frame looks at
+  all of it. The probe's "object table" line counts them ("since the start N cache entries filed under them or
+  dropped as older poses"): 47 in the test's run.
