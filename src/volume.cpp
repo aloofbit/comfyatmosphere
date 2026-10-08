@@ -132,7 +132,7 @@ sampler2D sGround : register(s4);   // the ground: surface (r), water (g), smoot
 float4 gGr   : register(c16);       // the ground texture: where the camera is in it (uv), 1 / its size in yards,
                                     // its reference height less the camera's (0 in .z: no texture, gF.z instead)
 float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
-float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun)
+float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun), its glow along the horizon
 
 // The patches at P (camera-relative): 1 on average; 0..2 at patchiness 1.
 float Patches(float3 P)
@@ -314,6 +314,18 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // the sunlight on forward. It took the light's (Light Toward the Sun, 0.07 there), next to even all round.
     float gf    = gFg.x;
     float phaseF = (1.0 - gf * gf) / pow(max(1.0 + gf * gf - 2.0 * gf * c, 1e-4), 1.5);
+    // The glow along the water's horizon with the sun low (2026-10-08, the owner's reference of a sunset at sea): the
+    // fog lights up along the top of the water across the whole horizon, brightest under the sun. Added for a view
+    // within some 5 degrees of level, by its bearing to the sun (full toward it, a little to the sides and behind),
+    // with the sun 14 degrees up or less (Fog Horizon Glow).
+    {
+        float2 hv  = dir.xy / max(length(dir.xy), 1e-4);
+        float2 hs  = gSun.xy / max(length(gSun.xy), 1e-4);
+        float  az  = saturate(dot(hv, hs) * 0.5 + 0.5);
+        float  low = saturate(1.0 - gSun.z / 0.25);
+        float  hzv = saturate(1.0 - abs(dir.z) / 0.08);
+        phaseF += gFg.y * low * low * hzv * hzv * (0.3 + 2.0 * pow(az, 6.0));
+    }
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
     // The same for the distance, which is capped where 16-bit floats still hold it.
     float v     = sun * phase + sunF * phaseF;
@@ -1534,7 +1546,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetSamplerState(dev, 4, D3DSAMP_SRGBTEXTURE, 0);
     d->SetPixelShaderConstantF(dev, 0, pc, 14);
     d->SetPixelShaderConstantF(dev, 14, pn, 2);
-    const float fg[4] = { fs.toward, 0.0f, 0.0f, 0.0f };
+    const float fg[4] = { fs.toward, fs.horizonGlow, 0.0f, 0.0f };
     d->SetPixelShaderConstantF(dev, 18, fg, 1);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
     for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
@@ -1740,12 +1752,25 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // --- composite onto the world -------------------------------------------------------------------
     // debug replaces the world with the glow alone, white, to see its shape.
     const DWORD col = g_cfg.volume.color;
+    // With the sun low the light takes the sun's colour as the sky shows it (2026-10-08): the hue of the glow just over
+    // the horizon (the sky dome, water.cpp), from the sun 14 degrees up to the horizon. Its brightest channel is 1, so
+    // the light's strength is as it was.
+    float lc[3] = { ((col >> 16) & 0xFF) / 255.0f, ((col >> 8) & 0xFF) / 255.0f, (col & 0xFF) / 255.0f };
+    {
+        float glow[3];
+        const float low = (std::min)((std::max)(1.0f - sunDir[2] / 0.25f, 0.0f), 1.0f);
+        if (low > 0.0f && SkyGlowColour(glow))
+        {
+            const float gm = (std::max)((std::max)(glow[0], glow[1]), (std::max)(glow[2], 1e-3f));
+            for (int i = 0; i < 3; ++i)
+                lc[i] += (glow[i] / gm - lc[i]) * low;
+        }
+    }
     // With the fog alone the light's dial is off the page, so the sun on the fog is what the light's
     // defaults give it (strength 25 x 3.0); Fog Sunlight sets it from there.
     const float gain = v.debug ? 1.0f : sunGain;   // the light's and the fog's parts weighted above (pc[38], pc[52])
-    const float cc[4] = { v.debug ? gain : ((col >> 16) & 0xFF) / 255.0f * gain,
-                          v.debug ? gain : ((col >>  8) & 0xFF) / 255.0f * gain,
-                          v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, cover ? 1.0f : 0.0f };
+    const float cc[4] = { v.debug ? gain : lc[0] * gain, v.debug ? gain : lc[1] * gain, v.debug ? gain : lc[2] * gain,
+                          cover ? 1.0f : 0.0f };
     d->SetRenderTarget(dev, 0, world);
     d->SetTexture(dev, 2, reinterpret_cast<IDirect3DBaseTexture9*>(cover));
     d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);

@@ -123,6 +123,7 @@ namespace
         { "fog.brightness",      "Fog Brightness" },
         { "fog.sunLight",        "Fog Sunlight" },
         { "fog.toward",          "Fog Toward the Sun" },
+        { "fog.horizonGlow",     "Fog Horizon Glow" },
         { "fog.reach",           "Fog Reach" },
         { "fog.skyDistance",     "Fog on Sky" },
         { "fog.patchiness",      "Fog Patchiness" },

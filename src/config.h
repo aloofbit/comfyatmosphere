@@ -22,6 +22,8 @@ struct FogSettings
     float sunLight    = 4.0f;      // the sun's light on the fog, against the air's ([volume] strength sets both)
     float toward      = 0.3f;      // 0..0.9: how much the fog sends the sunlight on toward you when you look toward the
                                    // sun, and less to the sides (Fog Toward the Sun); 0 = the same from every side
+    float horizonGlow = 1.0f;      // 0..2: the fog's glow along the horizon with the sun low, brightest under the sun
+                                   // (Fog Horizon Glow); 0 = none
     // The patches (2026-09-30): tiling noise fixed in the world, carried by the wind.
     float patchiness  = 0.5f;      // 0 = even fog; 1 = thick patches with clear air between
     float scale       = 60.0f;     // yards: how big a patch is

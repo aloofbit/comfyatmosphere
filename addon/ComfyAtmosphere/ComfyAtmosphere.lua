@@ -135,6 +135,7 @@ COMFYATMOSPHERE_MIST_HEIGHT    = "Fog Height";
 COMFYATMOSPHERE_MIST_BRIGHTNESS = "Fog Brightness";
 COMFYATMOSPHERE_MIST_SUN       = "Fog Sunlight";
 COMFYATMOSPHERE_MIST_TOWARD    = "Fog Toward the Sun";
+COMFYATMOSPHERE_MIST_HORIZON   = "Fog Horizon Glow";
 COMFYATMOSPHERE_MIST_REACH     = "Fog Reach";
 COMFYATMOSPHERE_MIST_SKY       = "Fog on Sky";
 COMFYATMOSPHERE_MIST_PATCHES   = "Fog Patchiness";
@@ -296,6 +297,18 @@ local ENTRIES = {
 		minval = 0,
 		maxval = 90,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyatmos.dll divides it by 100 for [fog] horizonGlow (2026-10-08).
+		name = "COMFYATMOSPHERE_MIST_HORIZON",
+		desc = "With the sun low, how brightly the fog glows along the horizon in the sun's colour, brightest under the sun. 0 is none.",
+		type = "slider",
+		cvar = "comfyMistHorizon",
+		dependency = { "comfyMist", "1" },
+		minval = 0,
+		maxval = 200,
+		step = 10,
 		numberLabels = 1,
 	},
 	{
@@ -1680,7 +1693,7 @@ local WINDOW_VALUE_TEXT = {
 local WINDOW_SECTIONS = {
 	{ "Light", { "comfyVolume", "comfyVolumeStrength", "comfyVolumeQuality", "comfyVolumeDensity",
 	             "comfyVolumeDistance", "comfyVolumeDirection" } },
-	{ "Fog", { "comfyMist", "comfyMistDensity", "comfyMistHeight", "comfyMistBrightness", "comfyMistSun", "comfyMistToward",
+	{ "Fog", { "comfyMist", "comfyMistDensity", "comfyMistHeight", "comfyMistBrightness", "comfyMistSun", "comfyMistToward", "comfyMistHorizon",
 	           "comfyMistReach", "comfyMistSky", "comfyMistPatches", "comfyMistLow", "comfyMistWater",
 	           "comfyMistMorning", "comfyMistLamps", "comfyMistWind", "comfyMistWindDir" } },
 	{ "Lamps", { "comfyLamps", "comfyLampGlow", "comfyLampDistance", "comfyLanternLight", "comfyTorchLight",
