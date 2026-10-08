@@ -1,6 +1,6 @@
 # The zone's sky and water colours
 
-Branch `zone-colours`, not released.
+In v0.12.0-alpha (branch `0.12.0`).
 
 ## What changed
 
@@ -15,6 +15,9 @@ Branch `zone-colours`, not released.
   at Tel'Abim, grey at Darkshore, brown in the swamp's lakes. The game's hue is taken at 1.75 times its
   saturation, and warmed by the sky's glow with the sun low. Water Brightness still sets how light it is. Water
   Colour is greyed out while it is on, and is used until the game's water is read.
+- **Sunset Water**, a slider on the Atmosphere page (`comfyWaterSunset`, `[water] sunset`, 0 to 300%, default 100%).
+  With the sun low, deep water turns toward the colour of the sky's glow over the horizon, by how red that glow is,
+  and the sky shows more in it. Higher values turn it red sooner, and past the glow's own colour, redder still.
 - The colours ease over about half a second, so they do not jump at a zone's edge.
 - The probe logs the sky dome's colours by elevation, the game's water ramp, and the colours in use
   (`water: zone colours`).

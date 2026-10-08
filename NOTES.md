@@ -3197,11 +3197,22 @@ Seven places, noon and 19:30 (`wow-test-tool` run 20261007221514). Sky columns a
 Our reflected sky (`[water] skyColor`, 0x5A9AD8) is near Stormwind's 16.8 ring at noon (3AA2CE) and far from every
 dusk and from Duskwood, the swamp, Darkshore and Tel'Abim. Duskwood's light 0 read all zero at both hours.
 
-**Used (2026-10-07).** The dome's vertices between 12 and 30 degrees up, averaged, are the sky the water reflects
-(`[water] skyFromGame`), without the night's dimming, since the game's sky already dims. The ramp's middle row
-(shallow and deep averaged) is read at the frame's first water chunk that is not a building's, four times a
-second, while the game's own state is bound. Its hue, at the luma of Water Colour's colour, is mixed in by Zone
-Water (`[water] zone`); the absorption follows the mixed colour. A frame with both the sea and a lake takes the
-first chunk's. Measured in the probe: Stormwind's sea read 0.033 0.198 0.245, and Zone Water 50 gave deep water
-0.077 0.310 0.302; the swamp's lake read 0.461 0.373 0.076. At Sky Reflection 0.15 the sky's change is small on
-screen at a Stormwind dusk.
+**Used (2026-10-07).** The dome is read four times a second: its vertices between 12 and 30 degrees up, averaged,
+are the sky the water reflects, and those between 1 and 6 degrees its glow (`[water] skyFromGame`). Neither is dimmed
+again by the night, since the game's sky already dims. The reflection runs from the fog colour at the horizon through
+the glow at 3 degrees to the sky at 17. The sun's glint takes the glow's hue.
+
+The ramp's middle row (shallow and deep averaged) is read at the frame's first water chunk that is not a building's,
+four times a second, while the game's own state is bound. A frame with both the sea and a lake takes the first
+chunk's. With Zone Colour (`[water] zone`, on by default) deep water is its hue at 1.75 times its saturation, at the
+luma of Water Colour 25, in place of Water Colour; Water Colour is used until the ramp is read.
+
+A first version mixed the game's hue into Water Colour by a slider (Zone Water, default 50). The owner found it too
+blue at a Booty Bay sunset, and a version that multiplied the colour by the glow's hue changed blue water little,
+since blue water has next to no red to multiply. So the sunset mixes deep water toward the glow's own colour, at its
+brightness and 1.3 times its saturation, by how warm the glow is: 1.5 x (red - blue) / red, 0 for a white or cool
+glow at noon, 1 at a Stormwind dusk (C28A40), times Sunset Water (`[water] sunset`, 0 to 3). Past 1 the rest of the
+slider turns it redder than the glow (more saturation, red up and blue down by up to 1.6 at 300%), since the owner
+found no change past about 150%. The reflection grows to 0.35 at full sunset.
+
+Measured in the probe: Stormwind's sea read 0.033 0.198 0.245; the swamp's lake read 0.461 0.373 0.076.
