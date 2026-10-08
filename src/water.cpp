@@ -1087,11 +1087,6 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // widens both: the powers fall with its square, so a size of 2 spreads the glint twice as wide.
     float  sd   = saturate(dot(R, gSun.xyz));
     float  sd2  = saturate(dot(R, gMoon2.xyz));
-    // The sun's halo in the reflected sky (2026-10-07, the owner: a hard cut where the sea met the sun). The game
-    // draws a halo sprite round the sun in the sky behind the sea; the water reflected none of it, so with the sun
-    // low the halo ended in a straight line at the horizon. Near the horizon the water shows mostly the sky (hz), so
-    // the reflected halo carries it down onto the sea. In the glint's colour and strength (the moon's by night).
-    sky += gSunC.rgb * gSun.w * (pow(sd, 60.0) * 0.7 + pow(sd, 400.0));
     float  gp1  = 700.0 * gGlint.x, gp2 = 60.0 * gGlint.x;
     float3 glint = gSunC.rgb * (gSun.w * (pow(sd, gp1) * 8.0 + pow(sd, gp2) * 0.25) +
                                 gMoon2.w * (pow(sd2, gp1) * 8.0 + pow(sd2, gp2) * 0.25));
