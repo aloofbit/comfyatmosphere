@@ -330,7 +330,11 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         float  low = saturate(1.0 - gSun.z / 0.25);
         float  hzv = saturate(1.0 - abs(dir.z) / 0.12);
         // Three times its first strength, and 7 degrees tall, not 5 (2026-10-08): at 200% it was a faint thin line.
-        phaseF += gFg.y * low * low * hzv * hzv * (1.0 + 6.0 * pow(az, 6.0));
+        // Only for a view that reaches far (2026-10-08, the owner: the line drew over a cliff). The glow comes from a
+        // long way through the low fog; the fog in front of a cliff near by is short and does not glow so. None
+        // closer than 80 yards, full from 250 (the far sea and the sky).
+        float  far = smoothstep(80.0, 250.0, dist);
+        phaseF += gFg.y * low * low * hzv * hzv * far * (1.0 + 6.0 * pow(az, 6.0));
     }
     // Whatever slipped through, nothing but a plain number in 0..16 leaves here: a NaN fails both tests.
     // The same for the distance, which is capped where 16-bit floats still hold it.
