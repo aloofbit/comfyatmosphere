@@ -1139,16 +1139,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // halo, and took the reflected halo with it, while the sky just above the horizon was bright. The sunlight the
     // haze scatters toward you is added by the view's angle to the sun, as the halo's, so the two meet at the line.
     float  sv   = saturate(dot(dir, gSun.xyz));
-    // With the sun low a wide band of it lies along the whole horizon, brightest under the sun and fading to the
-    // sides (2026-10-07, the owner's reference of a sunset at sea): by the view's angle to the sun across the
-    // ground, out to some 90 degrees each way, and none with the sun 18 degrees up or more. gSun.z is never below
-    // sin 1 degree (the glint's aim, FrameConstants).
-    float2 hv   = dir.xy / max(length(dir.xy), 1e-4);
-    float2 hs   = gSun.xy / max(length(gSun.xy), 1e-4);
-    float  az   = saturate(dot(hv, hs));
-    float  low  = saturate(1.0 - (gSun.z - 0.0175) / 0.3);
-    float  band = low * low * (pow(az, 3.0) * 0.35 + pow(az, 24.0) * 0.45);
-    float3 haze = gFogC.rgb + gSunC.rgb * gSun.w * (pow(sv, 30.0) * 0.6 + pow(sv, 300.0) * 0.6 + band);
+    float3 haze = gFogC.rgb + gSunC.rgb * gSun.w * (pow(sv, 30.0) * 0.6 + pow(sv, 300.0) * 0.6);
     water = lerp(water, haze, fogF);
     // And at the line itself it goes into the haze, as the far land does: no hard edge against the sky.
     water = lerp(water, haze, 0.5 * hz * hz);
