@@ -2374,15 +2374,26 @@ float4 main(float2 vpos : VPOS) : COLOR
         {
             const float* gc = g_easedGlow;
             const float warm = (std::min)((std::max)(1.5f * (gc[0] - gc[2]) / gc[0], 0.0f), 1.0f);
-            sunset = (std::min)(warm * w.sunset, 1.0f);
+            const float amount = warm * w.sunset;
+            sunset = (std::min)(amount, 1.0f);
+            // Past the glow's own colour (2026-10-07, the owner: no redder after about 150%): the rest of the slider
+            // turns it redder than the glow, with more saturation and the hue pushed from blue to red.
+            const float extra = (std::max)(amount - 1.0f, 0.0f);
             const float gl = luma(gc);
             if (sunset > 0.0f && gl > 0.02f)
             {
                 const float L = luma(deep);
+                const float sat = 1.3f + extra;
+                float g[3];
+                for (int i = 0; i < 3; ++i)
+                    g[i] = (std::max)(L + (gc[i] * L / gl - L) * sat, 0.0f);
+                g[0] *= 1.0f + 0.6f * extra;
+                g[2] /= 1.0f + 0.6f * extra;
+                const float lg = luma(g);
                 for (int i = 0; i < 3; ++i)
                 {
-                    const float g = L + (gc[i] * L / gl - L) * 1.3f;
-                    deep[i] += ((std::min)((std::max)(g, 0.0f), 1.0f) - deep[i]) * sunset;
+                    const float v = lg > 1e-4f ? g[i] * L / lg : g[i];
+                    deep[i] += ((std::min)(v, 1.0f) - deep[i]) * sunset;
                 }
             }
         }
