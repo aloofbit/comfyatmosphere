@@ -1134,15 +1134,9 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float2 sunXY = gSun.xy / max(length(gSun.xy), 0.2);
     // At most a fifth brighter (2026-10-02: at 0.3 the wake and the ripples glowed).
     water *= 1.0 + clamp(dot(ringSlope * gReach.y * 2.5 + wakeSlope, sunXY) * 2.5, -0.2, 0.18);
-    // The haze is brighter toward the sun (2026-10-07, the owner: a hard cut under the sun's halo in Tirisfal
-    // Glades). The game's fog colour is one colour all round, there 0x222226: the far sea went into it under the
-    // halo, and took the reflected halo with it, while the sky just above the horizon was bright. The sunlight the
-    // haze scatters toward you is added by the view's angle to the sun, as the halo's, so the two meet at the line.
-    float  sv   = saturate(dot(dir, gSun.xyz));
-    float3 haze = gFogC.rgb + gSunC.rgb * gSun.w * (pow(sv, 30.0) * 0.6 + pow(sv, 300.0) * 0.6);
-    water = lerp(water, haze, fogF);
+    water = lerp(water, gFogC.rgb, fogF);
     // And at the line itself it goes into the haze, as the far land does: no hard edge against the sky.
-    water = lerp(water, haze, 0.5 * hz * hz);
+    water = lerp(water, gFogC.rgb, 0.5 * hz * hz);
     // The glint after the fog and the haze, and through at most half of the fog (2026-10-03). A low moon's
     // glint lies hundreds of yards out, past the fog's end (417 yards at night in Westfall), and the fog took
     // it while the moon itself still showed through the sky: the glint went out before the moon had set.
