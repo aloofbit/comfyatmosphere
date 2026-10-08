@@ -2365,6 +2365,27 @@ float4 main(float2 vpos : VPOS) : COLOR
             for (int i = 0; i < 3; ++i)
                 deep[i] = (std::min)((std::max)(target[i], 0.0f), 1.0f);
         }
+        // The sunset (2026-10-07, the owner: still too blue at sunset). The glow's tint above multiplies the colour,
+        // and blue water has next to no red to multiply. So the water is also mixed toward the glow's own colour, at
+        // its brightness and 1.3 times its saturation, by how warm the glow is: red over blue, 0 for a white or a
+        // cool glow at noon, 1 at a Stormwind dusk (C28A40), times [water] sunset. The reflection grows with it.
+        float sunset = 0.0f;
+        if (w.skyFromGame && g_easedSkySet && g_easedGlow[0] > 0.02f)
+        {
+            const float* gc = g_easedGlow;
+            const float warm = (std::min)((std::max)(1.5f * (gc[0] - gc[2]) / gc[0], 0.0f), 1.0f);
+            sunset = (std::min)(warm * w.sunset, 1.0f);
+            const float gl = luma(gc);
+            if (sunset > 0.0f && gl > 0.02f)
+            {
+                const float L = luma(deep);
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float g = L + (gc[i] * L / gl - L) * 1.3f;
+                    deep[i] += ((std::min)((std::max)(g, 0.0f), 1.0f) - deep[i]) * sunset;
+                }
+            }
+        }
         k[172] = deep[0] * day;
         k[173] = deep[1] * day;
         k[174] = deep[2] * day;
@@ -2406,12 +2427,12 @@ float4 main(float2 vpos : VPOS) : COLOR
             g_pColours |= 4u;
             Log("water: zone colours: the game's water (%s) %.3f %.3f %.3f eased %.3f %.3f %.3f, Zone Colour %d, deep "
                 "water %.3f %.3f %.3f; the game's sky %s %.3f %.3f %.3f eased %.3f %.3f %.3f, reflected %.3f %.3f %.3f; "
-                "its glow %.3f %.3f %.3f",
+                "its glow %.3f %.3f %.3f, sunset %.2f",
                 !g_haveGameWater ? "not read" : g_gameWaterSea ? "the sea" : "a lake or a river", g_gameWater[0],
                 g_gameWater[1], g_gameWater[2], g_easedWater[0], g_easedWater[1], g_easedWater[2], w.zone ? 1 : 0, k[172], k[173],
                 k[174], g_haveGameSky ? (w.skyFromGame ? "used" : "read, not used (skyFromGame 0)") : "not read",
                 g_gameSky[0], g_gameSky[1], g_gameSky[2], g_easedSky[0], g_easedSky[1], g_easedSky[2], k[180], k[181],
-                k[182], k[36], k[37], k[38]);
+                k[182], k[36], k[37], k[38], sunset);
         }
         k[183] = w.waves;
         // The moon's colour is the Moonlight Colour's hue ([night] moonColor), at 0.75 in its brightest channel.
@@ -2431,7 +2452,8 @@ float4 main(float2 vpos : VPOS) : COLOR
             k[184 + i] = moonUp ? mrgb[i] / mmax * 0.75f : sunC[i];
         k[187] = w.whitecaps;
         k[188] = 1.0f / w.waveScale;
-        k[191] = w.reflection;
+        // At sunset the sky shows more in the water, up to 0.35 (the sunset above).
+        k[191] = w.reflection + (std::max)(0.35f - w.reflection, 0.0f) * sunset;
         k[190] = 0.0f;   // the screen copy: set when it is made (WaterBeforeDraw)
         k[192] = w.waveHeight * 0.25f;
         k[196] = g_foamTex ? 1.0f : 0.0f;

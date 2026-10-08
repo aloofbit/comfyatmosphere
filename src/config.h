@@ -476,6 +476,9 @@ struct WaterSettings
     // Zone Colour (2026-10-07): the colour deep water turns is the game's own water colour for the zone and the hour,
     // warmed by the sky's glow at dusk, at our brightness, in place of Water Colour.
     bool  zone      = true;
+    // 0..3: how far deep water turns to the sky's glow at sunset, by how red the glow is, and how much more of the
+    // sky it shows (2026-10-07). 0: none.
+    float sunset    = 1.0f;
     float reflection = 0.15f;    // 0..1: how much of the sky the water shows at a glancing look
     DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
     bool  skyFromGame = true;    // the sky the water reflects is the game's own sky for the zone and the hour, read
