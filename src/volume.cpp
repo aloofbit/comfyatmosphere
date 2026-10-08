@@ -321,7 +321,25 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // bright line under a sun on the sea's horizon). The game's own aura round the disc is about that size; on the
     // sky the fog is cleared over it (the composite), and under the horizon the fog over the water stayed an even
     // grey, so the aura ended in a flat bright edge. Now the fog under the sun glows as the aura does above it.
-    phaseF += 50.0 * gf * pow(saturate(c), 500.0);
+    // Where the sun glows (2026-10-08): over water, far things (the far land, the sky, past some 500 yards), and not over
+    // land or what stands near by. The fog in front of land 200 yards off lies past the shadow's reach, counts as lit,
+    // and showed the sun through an island that hid it (the owner). The ground texture marks the wet cells round the
+    // camera (.g, a point off it counts as far); a point more than a yard over the water's surface (.r) is a boat, a
+    // pier or a buoy, not the sea.
+    float  farW   = (sky || farLand) ? 1.0 : smoothstep(250.0, 500.0, dist);
+    float  glowOn = 1.0;
+    [branch] if (!sky && !farLand && gGr.z > 0.0 && farW < 1.0)
+    {
+        float2 gu  = P.xy * gGr.z + gGr.xy;
+        float  wet = 1.0;
+        if (all(gu > 0.0) && all(gu < 1.0))
+        {
+            float4 gc = tex2Dlod(sGround, float4(gu, 0, 0));
+            wet = saturate(gc.g * 1.5) * saturate(1.0 - (P.z - (gc.r + gGr.w) - 1.0) * 0.5);
+        }
+        glowOn = lerp(wet, 1.0, farW);
+    }
+    phaseF += 50.0 * gf * pow(saturate(c), 500.0) * glowOn;
     // The glow along the water's horizon with the sun low (2026-10-08, the owner's reference of a sunset at sea): the
     // fog lights up along the top of the water across the whole horizon, brightest under the sun. Added for a view
     // near the water's horizon, by its bearing to the sun (full toward it, a little to the sides and behind),
@@ -338,23 +356,10 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // Over far things (the far land, the sky, past some 500 yards) it reaches 7 degrees up, as it did round eye
         // level (2026-10-08): the game's far mesh, land across the sea 2000 yards off, stands over the water's horizon,
         // and with the tight edge it showed as a dark strip under the sky. Near terrain keeps the 1.5 degree edge.
-        float  farW = (sky || farLand) ? 1.0 : smoothstep(250.0, 500.0, dist);
         float  hzv = up > 0.0 ? saturate(1.0 - up / lerp(0.026, 0.12, farW)) : saturate(1.0 + up / 0.12);
-        // Over water and far things, not over land near by (2026-10-08, the owner: the line went through the beach and
-        // the cliffs). The ground texture marks the wet cells round the camera (.g); a point off it counts as far.
-        [branch] if (!sky && !farLand && gGr.z > 0.0 && farW < 1.0)
-        {
-            float2 gu  = P.xy * gGr.z + gGr.xy;
-            float  wet = 1.0;
-            if (all(gu > 0.0) && all(gu < 1.0))
-            {
-                float4 gc = tex2Dlod(sGround, float4(gu, 0, 0));
-                // And not over what stands on the water (2026-10-08, the owner: boats): a point more than a yard over
-                // the surface (.r, the water's height in a wet cell) is a boat, a pier or a buoy, not the sea.
-                wet = saturate(gc.g * 1.5) * saturate(1.0 - (P.z - (gc.r + gGr.w) - 1.0) * 0.5);
-            }
-            hzv *= lerp(wet, 1.0, farW);
-        }
+        // Over water and far things, not over land or boats near by (glowOn above; the owner: the line went through
+        // the beach, the cliffs and the boats).
+        hzv *= glowOn;
         // Three times its first strength (2026-10-08): at 200% it was a faint thin line.
         phaseF += gFg.y * low * low * hzv * hzv * (1.0 + 6.0 * pow(az, 6.0));
     }
