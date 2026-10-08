@@ -1459,6 +1459,21 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     memcpy(g_fogCam, cam, sizeof(g_fogCam));
     pc[48] = fogOn ? fs.density * morning : 0.0f; pc[49] = 1.0f / fs.height; pc[50] = groundRel; pc[51] = fs.skyDistance;
     pc[52] = fs.sunLight * 0.0795775f; pc[53] = 1.0f; pc[54] = fs.reach; pc[55] = terrMap ? 1.0f : 0.0f;
+    // The fog's sunlight and the light's own, each at its own gain (2026-10-08, the owner, looking into a low sun over
+    // the sea in Tirisfal Glades). The march adds the two (gP.z and gG.x) and the composite multiplies the sum by one
+    // gain. That gain was the light's: Light Strength (5 there), and faded out below a sun height of 0.1. So the fog
+    // toward a low sun, lit from behind, showed next to none of its light, where it should be brightest. The fog now
+    // takes kFogOnlyGain times Fog Sunlight whatever Light Strength is, faded only as the sun goes under (full at
+    // 1 degree up, none at 1 degree down). The light keeps its own strength and fade.
+    const float lightGain = fogOnly ? 0.0f : (v.strength * 0.01f) * v.maxIntensity * sunset;
+    const float fogSunGain = fogOn ? kFogOnlyGain * (std::min)((std::max)((sunDir[2] + 0.0175f) / 0.035f, 0.0f), 1.0f) *
+                                     NightScale() : 0.0f;
+    const float sunGain = (std::max)(lightGain, fogSunGain);
+    if (!v.debug)
+    {
+        pc[38] *= sunGain > 0.0f ? lightGain / sunGain : 0.0f;
+        pc[52] *= sunGain > 0.0f ? fogSunGain / sunGain : 0.0f;
+    }
     // The patches: the wind carries them; they rise slowly too, so they change shape as they go. Where the
     // camera is in the tiling noise is worked out here in doubles, so far from the world's origin the
     // shader still gets small numbers.
@@ -1716,7 +1731,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     const DWORD col = g_cfg.volume.color;
     // With the fog alone the light's dial is off the page, so the sun on the fog is what the light's
     // defaults give it (strength 25 x 3.0); Fog Sunlight sets it from there.
-    const float gain = v.debug ? 1.0f : (fogOnly ? kFogOnlyGain : (v.strength * 0.01f) * v.maxIntensity) * sunset;
+    const float gain = v.debug ? 1.0f : sunGain;   // the light's and the fog's parts weighted above (pc[38], pc[52])
     const float cc[4] = { v.debug ? gain : ((col >> 16) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col >>  8) & 0xFF) / 255.0f * gain,
                           v.debug ? gain : ((col      ) & 0xFF) / 255.0f * gain, cover ? 1.0f : 0.0f };
