@@ -133,7 +133,8 @@ float4 gGr   : register(c16);       // the ground texture: where the camera is i
                                     // its reference height less the camera's (0 in .z: no texture, gF.z instead)
 float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
 float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun), its glow along the horizon, the
-                                    // water's horizon (the sine of its height from level, below negative)
+                                    // water's horizon (the sine of its height from level, below negative), the sea's
+                                    // height from the camera
 
 // The patches at P (camera-relative): 1 on average; 0..2 at patchiness 1.
 float Patches(float3 P)
@@ -326,18 +327,23 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     // and showed the sun through an island that hid it (the owner). The ground texture marks the wet cells round the
     // camera (.g, a point off it counts as far); a point more than a yard over the water's surface (.r) is a boat, a
     // pier or a buoy, not the sea.
-    float  farW   = (sky || farLand) ? 1.0 : smoothstep(250.0, 500.0, dist);
+    // Only the far mesh and the sky count as far; until 2026-10-08 anything past 250 yards did, and the glow lay over
+    // Stormwind's lighthouse (the owner). Past the ground texture (some 150 yards) a point is the sea only within a
+    // yard or two of the sea's height (gFg.w, camera-relative; far under when no sea was found).
+    float  farW   = (sky || farLand) ? 1.0 : 0.0;
     float  glowOn = 1.0;
-    [branch] if (!sky && !farLand && gGr.z > 0.0 && farW < 1.0)
+    [branch] if (!sky && !farLand)
     {
         float2 gu  = P.xy * gGr.z + gGr.xy;
-        float  wet = 1.0;
-        if (all(gu > 0.0) && all(gu < 1.0))
+        float  wet;
+        if (gGr.z > 0.0 && all(gu > 0.0) && all(gu < 1.0))
         {
             float4 gc = tex2Dlod(sGround, float4(gu, 0, 0));
             wet = saturate(gc.g * 1.5) * saturate(1.0 - (P.z - (gc.r + gGr.w) - 1.0) * 0.5);
         }
-        glowOn = lerp(wet, 1.0, farW);
+        else
+            wet = saturate(1.0 - (P.z - gFg.w - 1.0) * 0.5);
+        glowOn = wet;
     }
     phaseF += 50.0 * gf * pow(saturate(c), 500.0) * glowOn;
     // The glow along the water's horizon with the sun low (2026-10-08, the owner's reference of a sunset at sea): the
@@ -1594,7 +1600,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // camera), seen 2000 yards off, where the game's far mesh meets the sky (it reaches 2112). Not at the game's fog
     // end, where our water ends (2026-10-08): the glow then sat on the near water, under a dark strip of far sea.
     // Level when no water is found.
-    float horizon = 0.0f;
+    float horizon = 0.0f, seaRel = -10000.0f;   // seaRel: the sea's height from the camera, for the shader's glow
     if (camRead)
     {
         float sxy[2] = { sunDir[0], sunDir[1] };
@@ -1608,11 +1614,12 @@ bool VolumeDraw(IDirect3DDevice9* dev)
         if (wet)
         {
             const float dz = wz - cam[2];
+            seaRel = dz;
             horizon = dz / sqrtf(dz * dz + reachTo * reachTo);
             horizon = (std::min)((std::max)(horizon, -0.3f), 0.3f);
         }
     }
-    const float fg[4] = { fs.toward, fs.horizonGlow, horizon, 0.0f };
+    const float fg[4] = { fs.toward, fs.horizonGlow, horizon, seaRel };
     d->SetPixelShaderConstantF(dev, 18, fg, 1);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
     for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
