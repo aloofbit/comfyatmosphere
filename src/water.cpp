@@ -1147,8 +1147,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     float2 hs   = gSun.xy / max(length(gSun.xy), 1e-4);
     float  az   = saturate(dot(hv, hs));
     float  low  = saturate(1.0 - (gSun.z - 0.0175) / 0.3);
-    float  sunBand = low * low * (pow(az, 3.0) * 0.35 + pow(az, 24.0) * 0.45);
-    float3 haze = gFogC.rgb + gSunC.rgb * gSun.w * (pow(sv, 30.0) * 0.6 + pow(sv, 300.0) * 0.6 + sunBand);
+    float  band = low * low * (pow(az, 3.0) * 0.35 + pow(az, 24.0) * 0.45);
+    float3 haze = gFogC.rgb + gSunC.rgb * gSun.w * (pow(sv, 30.0) * 0.6 + pow(sv, 300.0) * 0.6 + band);
     water = lerp(water, haze, fogF);
     // And at the line itself it goes into the haze, as the far land does: no hard edge against the sky.
     water = lerp(water, haze, 0.5 * hz * hz);
