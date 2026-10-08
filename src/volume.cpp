@@ -335,7 +335,11 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // edge). It fades out within 1.5 degrees above that line and over 7 below it, so it hugs the top of the water.
         // Until then it was 7 degrees each way round eye level, and its upper half lay on the sky and on the land.
         float  up  = dir.z - gFg.z;
-        float  hzv = up > 0.0 ? saturate(1.0 - up / 0.026) : saturate(1.0 + up / 0.12);
+        // Over far things (the far land, the sky, past some 500 yards) it reaches 7 degrees up, as it did round eye
+        // level (2026-10-08): the game's far mesh, land across the sea 2000 yards off, stands over the water's horizon,
+        // and with the tight edge it showed as a dark strip under the sky. Near terrain keeps the 1.5 degree edge.
+        float  farW = (sky || farLand) ? 1.0 : smoothstep(250.0, 500.0, dist);
+        float  hzv = up > 0.0 ? saturate(1.0 - up / lerp(0.026, 0.12, farW)) : saturate(1.0 + up / 0.12);
         // Three times its first strength (2026-10-08): at 200% it was a faint thin line.
         phaseF += gFg.y * low * low * hzv * hzv * (1.0 + 6.0 * pow(az, 6.0));
     }
