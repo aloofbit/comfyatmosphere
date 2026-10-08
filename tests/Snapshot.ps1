@@ -23,7 +23,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-$tool = (Resolve-Path (Join-Path $here '..\..\..\tools\wow-test-tool')).Path
+# wow-test-tool: comfy-wow's tools folder, the first one up from here (2026-10-08), as Run-Tests.ps1.
+$tool = $null
+for ($up = Split-Path $here; $up -and -not $tool; $up = Split-Path $up) {
+    if (Test-Path (Join-Path $up 'tools\wow-test-tool\Run-Test.ps1')) { $tool = Join-Path $up 'tools\wow-test-tool' }
+}
+if (-not $tool) { throw "No tools\wow-test-tool in any folder over $here." }
 if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client at the test client.' }
 # comfyatmos.log: in the client's Logs folder since 2026-10-06, in the client folder before. The newest is this run's.
 $log = @('Logs\comfyatmos.log', 'comfyatmos.log') | ForEach-Object { Join-Path $Client $_ } | Where-Object { Test-Path $_ } |

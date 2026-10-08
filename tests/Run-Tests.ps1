@@ -83,7 +83,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-$tool = (Resolve-Path (Join-Path $here '..\..\..\tools\wow-test-tool')).Path
+# wow-test-tool: comfy-wow's tools folder, the first one up from here (2026-10-08): three folders up from
+# mods\comfyatmosphere, more from a worktree under comfy-wow\.claude\worktrees.
+$tool = $null
+for ($up = Split-Path $here; $up -and -not $tool; $up = Split-Path $up) {
+    if (Test-Path (Join-Path $up 'tools\wow-test-tool\Run-Test.ps1')) { $tool = Join-Path $up 'tools\wow-test-tool' }
+}
+if (-not $tool) { throw "No tools\wow-test-tool in any folder over $here." }
 $resultsDir = Join-Path $here 'results'
 New-Item -ItemType Directory -Force $resultsDir | Out-Null
 if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client at the test client.' }
