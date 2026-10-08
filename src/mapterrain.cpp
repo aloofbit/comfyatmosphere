@@ -2177,9 +2177,14 @@ bool MapGroundBase(const float at[3], float radius, float& z)
         {
             if (i * i + j * j > 10)
                 continue;   // a disc, not the square
-            float h;
-            if (MapGroundHeight(at[0] + i * radius / 3.0f, at[1] + j * radius / 3.0f, h))
+            float h, w;
+            const float x = at[0] + i * radius / 3.0f, y = at[1] + j * radius / 3.0f;
+            if (MapGroundHeight(x, y, h))
             {
+                // Over water its surface, not the floor under it (2026-10-08): over Stormwind's harbour the fog's
+                // ground lay 86 yards under the sea, and the fog over the water was a tenth of its thickness on land.
+                if (MapWaterHeight(x, y, w) && w > h)
+                    h = w;
                 sum += h;
                 ++n;
             }

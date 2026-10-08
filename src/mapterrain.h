@@ -88,7 +88,8 @@ int MapLighthouses(const float at[3], float radius, float (*out)[3], int max, fl
 bool MapLighthouseOwn(const float world[3], float own[3], char* name, int size);
 // The probe: the nearest lighthouse's groups' boxes and its indoor groups' boxes, in its own space.
 void MapLighthouseGroupsLog(const float world[3]);
-// The average ground height over a disc of `radius` yards around `at` (37 points); false with too few.
+// The average ground height over a disc of `radius` yards around `at` (37 points), the water's surface where water
+// lies over the ground; false with too few.
 bool MapGroundBase(const float at[3], float radius, float& z);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
 struct BlpData;

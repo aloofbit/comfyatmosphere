@@ -1317,7 +1317,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             else
                 g_fogBase += (ground - g_fogBase) * static_cast<float>(1.0 - exp(-(now - last) / 3.0));
             g_fogHaveBase = true;
-            g_fogBaseFrom = "the map files";
+            g_fogBaseFrom = "the map files, the water's surface over water";
             last = now;
         }
         else if (!g_fogHaveBase || now - last > 2.0)
