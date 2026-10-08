@@ -463,6 +463,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 sampler2D sGlow  : register(s0);    // sun (r), sky (g), transmittance (b), distance (a); point sampled
 sampler2D sDepth : register(s1);    // the scene's depth (INTZ), full resolution
 sampler2D sCover : register(s2);    // 1x1: how much of the sun is in view on screen (cover.cpp)
+sampler2D sScene : register(s3);    // the screen before this pass, when gW.z is 1
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection)
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -474,6 +475,7 @@ float4 gA    : register(c7);        // the sky's colour on the fog; a = fog debu
 float4 gDisc0 : register(c8);       // the way to the sun (by night the larger moon), 1 when known
 float4 gDisc1 : register(c9);       // the way to the other moon, 1 by night when known
 float4 gH    : register(c10);       // the sky's colour just over the horizon, at full brightness; w 1 when known
+float4 gW    : register(c11);       // the water's height from the camera (yards), 1 when known, 1 when sScene is bound
 float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
 {
     float4 s  = tex2Dlod(sGlow, float4((base + o + 0.5) * gT.zw, 0, 0));
@@ -482,11 +484,20 @@ float3 Tap(float2 base, float2 o, float2 f, float dist, inout float wsum)
     wsum += w;
     return s.rgb * w;
 }
-float DistAt(float raw, float2 ndc)   // yards to the depth raw along the pixel's line of sight
+float3 PointAt(float raw, float2 ndc)   // the point at the depth raw along the pixel's line of sight, camera-relative
 {
     float  d  = min(saturate((raw - gZ.x) * gZ.y), 0.99999);
     float4 wp = ndc.x * gInv0 + ndc.y * gInv1 + d * gInv2 + gInv3;
-    return min(length(wp.xyz / max(wp.w, 1e-6)), 30000.0);
+    return wp.xyz / max(wp.w, 1e-6);
+}
+float DistAt(float raw, float2 ndc)    // yards to it
+{
+    return min(length(PointAt(raw, ndc)), 30000.0);
+}
+bool OnWater(float raw, float2 ndc)    // whether the point at raw lies on the water's surface
+{
+    float3 p = PointAt(raw, ndc);
+    return gW.y > 0.5 && abs(p.z - gW.x) < 2.0 + 0.01 * length(p);
 }
 float4 main(float2 uv : TEXCOORD0) : COLOR
 {
@@ -498,10 +509,16 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     // nearer within 2 pixels on both sides of it, above and below or left and right, takes the nearer depth of the
     // two sides (past the world's slice: the world's slice on both sides). And the fog covers it whole (crack, at the
     // end): its own colour is the sky's or the sea bed's, a light dot through the near fog too.
+    // Only in the water: the nearer side lies on the water's surface (gW). In a notch of a lighthouse's roof, the sky
+    // between two parts of it was covered the same way, the fog's light alone, darker than the lighthouse behind its
+    // fog: dark specks along its edges (the owner).
+    // With the screen's copy (gW.z) a crack takes the colour 2 pixels off on its farther side, through the fog as
+    // there: the fog's light alone was darker than lit water, a dark line where a lighthouse's rock met the sea.
     const float worldEnd = gZ.x + 1.0 / gZ.y + 1e-5;
     const float2 px = float2(abs(ddx(uv.x)), abs(ddy(uv.y)));
     const float2 ndc0 = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     const float rawIn = raw;
+    float2 fillAt = uv;   // where a crack takes its colour
     {
         float up = 1.0, dn = 1.0, lf = 1.0, rt = 1.0;
         for (int i = 1; i <= 2; ++i)
@@ -516,10 +533,16 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         [branch] if (sv < raw || sh < raw)
         {
             const float own = DistAt(raw, ndc0);
-            if (sv < raw && (raw > worldEnd ? sv < worldEnd : own > 1.25 * DistAt(sv, ndc0) + 1.0))
+            if (sv < raw && (raw > worldEnd ? sv < worldEnd : own > 1.25 * DistAt(sv, ndc0) + 1.0) && OnWater(sv, ndc0))
+            {
                 raw = sv;
-            else if (sh < raw && (raw > worldEnd ? sh < worldEnd : own > 1.25 * DistAt(sh, ndc0) + 1.0))
+                fillAt = uv + float2(0.0, (up >= dn ? -2.0 : 2.0) * px.y);
+            }
+            else if (sh < raw && (raw > worldEnd ? sh < worldEnd : own > 1.25 * DistAt(sh, ndc0) + 1.0) && OnWater(sh, ndc0))
+            {
                 raw = sh;
+                fillAt = uv + float2((lf >= rt ? -2.0 : 2.0) * px.x, 0.0);
+            }
         }
     }
     float  d    = min(saturate((raw - gZ.x) * gZ.y), 0.99999);
@@ -547,9 +570,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
                               smoothstep(0.99756, 0.99905, dot(vd, gDisc1.xyz)) * gDisc1.w);
         T = lerp(T, 1.0, k);
     }
-    if (gA.w > 1.5)
+    if (gA.w > 2.5 && raw < rawIn)
+        return float4(1.0, 0.0, 1.0, 0.0);                                 // fog debug 3: the cracks, magenta
+    if (gA.w > 1.5 && gA.w < 2.5)
         return float4(gA.rgb * m.g, 1.0);                                  // fog debug 2: the sky light alone
-    if (gA.w > 0.5)
+    if (gA.w > 0.5 && gA.w < 1.5)
         return float4(T, T, T, 1.0);                                       // fog debug 1: the transmittance
     // Blended as ONE, SRCALPHA: the world times the transmittance, plus the light.
     // Far off, the fog takes the sky's colour just over the horizon at full brightness, not Fog Brightness's
@@ -559,7 +584,10 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
     float  farV = raw > worldEnd ? 1.0 : smoothstep(300.0, 1000.0, dist);
     float3 skyA = lerp(gA.rgb, gH.rgb, farV * gH.w);
     float3 rgb  = gC.rgb * m.r * lerp(1.0, tex2Dlod(sCover, float4(0.5, 0.5, 0, 0)).r, gC.a) + skyA * m.g;
-    return float4(rgb, raw < rawIn ? 0.0 : T);   // a crack: the fog's light alone
+    // A crack: the colour beside it through the fog, or without the copy the fog's light alone.
+    [branch] if (raw < rawIn)
+        return float4(rgb + (gW.z > 0.5 ? T * tex2Dlod(sScene, float4(fillAt, 0, 0)).rgb : 0.0), 0.0);
+    return float4(rgb, T);
 }
 )HLSL";
 
@@ -583,6 +611,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
     Target g_a, g_b;                          // the march result and the blur ping-pong
     Target g_hist[2];                         // the temporal pass's result: last frame's and this frame's
+    Target g_scene;                           // the screen before the composite, for the cracks in the water
+    D3DFORMAT g_sceneFmt = D3DFMT_UNKNOWN;
+    bool   g_sceneFailed = false;             // the copy could not be made: not tried again until Reset
     int    g_histCur = 0;                     // which of the two holds the last result
     bool   g_histValid = false;
     unsigned  g_frameNo   = 0;                // counted at Present
@@ -984,12 +1015,40 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         return 1.0f + g_cfg.fog.morning * (bump(6.0f, 2.0f) + 0.5f * bump(20.0f, 1.5f));
     }
 
+    // The screen's copy for the composite (2026-10-08), made again when the screen's size or format changes.
+    bool EnsureScene(IDirect3DDevice9* dev, const D3DSURFACE_DESC& wd)
+    {
+        if (g_scene.tex && g_scene.w == wd.Width && g_scene.h == wd.Height && g_sceneFmt == wd.Format)
+            return true;
+        if (g_sceneFailed)
+            return false;
+        ReleaseTarget(g_scene);
+        HRESULT hr = dev->lpVtbl->CreateTexture(dev, wd.Width, wd.Height, 1, D3DUSAGE_RENDERTARGET, wd.Format,
+                                                D3DPOOL_DEFAULT, &g_scene.tex, nullptr);
+        if (SUCCEEDED(hr))
+            hr = g_scene.tex->lpVtbl->GetSurfaceLevel(g_scene.tex, 0, &g_scene.surf);
+        if (FAILED(hr))
+        {
+            Log("volume: no %ux%u screen copy (format %u, hr=0x%08X): a crack in the water shows the fog's light alone",
+                wd.Width, wd.Height, static_cast<unsigned>(wd.Format), hr);
+            ReleaseTarget(g_scene);
+            g_sceneFailed = true;
+            return false;
+        }
+        g_scene.w = wd.Width;
+        g_scene.h = wd.Height;
+        g_sceneFmt = wd.Format;
+        return true;
+    }
+
     void ReleaseDefaultPool()
     {
         ReleaseTarget(g_a);
         ReleaseTarget(g_b);
         ReleaseTarget(g_hist[0]);
         ReleaseTarget(g_hist[1]);
+        ReleaseTarget(g_scene);
+        g_sceneFailed = false;
         g_histValid = false;
         SafeRelease(g_sb);
     }
@@ -1900,7 +1959,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     // The world times the transmittance, plus the light (see kCompositeHlsl). With the fog off the
     // transmittance is 1, and this is the plain addition it was.
     const int fogDebug = fogOn && !v.debug ? fs.debug : 0;
-    if (!v.debug && !fogDebug)
+    if (!v.debug && (!fogDebug || fogDebug == 3))   // 3, the cracks marked, over the picture as drawn
     {
         d->SetRenderState(dev, D3DRS_ALPHABLENDENABLE, TRUE);
         d->SetRenderState(dev, D3DRS_SRCBLEND,         D3DBLEND_ONE);
@@ -1942,7 +2001,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     }
     else
     {
-        float kc[44] = {};
+        float kc[48] = {};
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c)
                 kc[r * 4 + c] = inv.m[r][c];
@@ -1983,8 +2042,22 @@ bool VolumeDraw(IDirect3DDevice9* dev)
                 kc[40 + i] = haveGlow ? (std::max)(glow[i], fogRgb[i]) : fogRgb[i];
             kc[43] = v.debug ? 0.0f : 1.0f;
         }
-        d->SetPixelShaderConstantF(dev, 0, kc, 11);
+        // c11: the water's height from the camera, for the cracks in it (2026-10-08), and whether the screen's copy is
+        // bound: a crack takes the colour beside it from there.
+        kc[44] = g_fogSeaRel; kc[45] = g_fogSeaRel > -9999.0f ? 1.0f : 0.0f;
+        const bool scene = (!fogDebug || fogDebug == 3) && kc[45] > 0.5f && EnsureScene(dev, wd) &&
+                           SUCCEEDED(d->StretchRect(dev, world, nullptr, g_scene.surf, nullptr, D3DTEXF_NONE));
+        kc[46] = scene ? 1.0f : 0.0f;
+        d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(scene ? g_scene.tex : nullptr));
+        d->SetSamplerState(dev, 3, D3DSAMP_ADDRESSU,  D3DTADDRESS_CLAMP);
+        d->SetSamplerState(dev, 3, D3DSAMP_ADDRESSV,  D3DTADDRESS_CLAMP);
+        d->SetSamplerState(dev, 3, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        d->SetSamplerState(dev, 3, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        d->SetSamplerState(dev, 3, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        d->SetSamplerState(dev, 3, D3DSAMP_SRGBTEXTURE, 0);
+        d->SetPixelShaderConstantF(dev, 0, kc, 12);
         ClipQuad(dev, wd.Width, wd.Height);
+        d->SetTexture(dev, 3, nullptr);
         d->SetTexture(dev, 1, nullptr);
         d->SetVertexShader(dev, nullptr);
     }

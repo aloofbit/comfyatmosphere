@@ -40,7 +40,8 @@ struct FogSettings
     float morning     = 1.0f;      // this much thicker at dawn (6:00), half of it at dusk (20:00)
     float lampMist    = 0.5f;      // a lamp's glow in the air this much brighter for each time the fog's ground
                                    // density around it (2026-09-30); the fog between you and it dims it either way
-    int   debug       = 0;         // 1 = the transmittance (white = clear), 2 = the sky's light on the fog alone
+    int   debug       = 0;         // 1 = the transmittance (white = clear), 2 = the sky's light on the fog alone;
+                                   // 3 = the cracks in the water it covers, magenta, over the picture as drawn
 };
 
 // Where the sun is, for the shadow map and the volumetric light (sun.cpp). By default it is the sun the
