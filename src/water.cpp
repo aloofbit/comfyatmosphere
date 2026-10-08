@@ -194,6 +194,7 @@ float4 gCol  : register(c124);     // the foam's colour, the distance it is gone
 float4 gFogC : register(c125);     // the game's fog colour, 1 / the distance it fades over
 float4 gFog  : register(c126);     // the game's fog start, 1 / (end - start), 1 when known; w 1 with the
                                    // foliage mask (sLeaves)
+float4 gGlow : register(c129);     // the sky's glow just over the horizon; w 1 when it was read
 float4 gCam  : register(c127);     // the camera in the world
 float4 gReach : register(c128);    // 1 / foamReach, ripples' strength, wet sand's darkness, rings in use
 float4 gRingD[16] : register(c146); // each ripple's way: the way its maker walked (x, y), 0 standing still;
@@ -1078,6 +1079,10 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     F = max(F, 0.7 * hz);
     float3 R    = reflect(dir, N);
     float3 sky  = lerp(gFogC.rgb, gSky.rgb, saturate(R.z * 2.5 + 0.35));
+    // With the game's sky read (2026-10-07): the fog colour at the horizon, the glow over it at 3 degrees, the sky at
+    // 17 degrees and above. At dusk the glow is the orange band, and the water shows it.
+    [branch] if (gGlow.w > 0.0)
+        sky = lerp(lerp(gFogC.rgb, gGlow.rgb, saturate(R.z / 0.05 + 0.35)), gSky.rgb, saturate((R.z - 0.05) / 0.24));
     // The glint of the sun, or by night of the larger moon, and of the other moon (2026-10-03). Glint Size
     // widens both: the powers fall with its square, so a size of 2 spreads the glint twice as wide.
     float  sd   = saturate(dot(R, gSun.xyz));
@@ -1527,9 +1532,9 @@ float4 main(float2 vpos : VPOS) : COLOR
     // The zone's colours (2026-10-07). The game's water colour: the middle of its shallow to deep ramp (ReadGameRamp),
     // the sea's or a lake's as last read. The sky: the dome's colour about 20 degrees up (WaterSetSkyColour). Each
     // is eased toward what was read, over about half a second (ZoneColours).
-    float  g_gameWater[3] = {}, g_gameSky[3] = {};
+    float  g_gameWater[3] = {}, g_gameSky[3] = {}, g_gameGlow[3] = {};
     bool   g_haveGameWater = false, g_haveGameSky = false, g_gameWaterSea = true;
-    float  g_easedWater[3] = {}, g_easedSky[3] = {};
+    float  g_easedWater[3] = {}, g_easedSky[3] = {}, g_easedGlow[3] = {};
     bool   g_easedWaterSet = false, g_easedSkySet = false;
     double g_rampRead = 0.0, g_zoneEased = 0.0;
 
@@ -1587,7 +1592,11 @@ float4 main(float2 vpos : VPOS) : COLOR
         if (g_haveGameWater)
             ease(g_easedWater, g_easedWaterSet, g_gameWater);
         if (g_haveGameSky)
+        {
+            bool glowSet = g_easedSkySet;
             ease(g_easedSky, g_easedSkySet, g_gameSky);
+            ease(g_easedGlow, glowSet, g_gameGlow);
+        }
     }
 
     // Last frame's units, to tell how fast each moves: a unit is the one nearest its place last frame.
@@ -2359,7 +2368,14 @@ float4 main(float2 vpos : VPOS) : COLOR
         k[179] = w.refraction;
         // The game's sky (2026-10-07): it follows the zone and the hour, dusk and night included, so the night does
         // not dim it again.
-        if (w.skyFromGame && g_easedSkySet)
+        // c129: the glow just over the horizon (2026-10-07, the owner: the water should be redder with the sun low). The
+        // reflection goes from the fog colour at the horizon through it to the sky higher up. w 0: not read, and the
+        // reflection is the fog colour to the sky, as before.
+        const bool gameSky = w.skyFromGame && g_easedSkySet;
+        for (int i = 0; i < 3; ++i)
+            k[36 + i] = gameSky ? g_easedGlow[i] : 0.0f;
+        k[39] = gameSky ? 1.0f : 0.0f;
+        if (gameSky)
             for (int i = 0; i < 3; ++i)
                 k[180 + i] = g_easedSky[i];
         else
@@ -2372,19 +2388,28 @@ float4 main(float2 vpos : VPOS) : COLOR
         {
             g_pColours |= 4u;
             Log("water: zone colours: the game's water (%s) %.3f %.3f %.3f eased %.3f %.3f %.3f, Zone Water %.0f, deep "
-                "water %.3f %.3f %.3f; the game's sky %s %.3f %.3f %.3f eased %.3f %.3f %.3f, reflected %.3f %.3f %.3f",
+                "water %.3f %.3f %.3f; the game's sky %s %.3f %.3f %.3f eased %.3f %.3f %.3f, reflected %.3f %.3f %.3f; "
+                "its glow %.3f %.3f %.3f",
                 !g_haveGameWater ? "not read" : g_gameWaterSea ? "the sea" : "a lake or a river", g_gameWater[0],
                 g_gameWater[1], g_gameWater[2], g_easedWater[0], g_easedWater[1], g_easedWater[2], w.zone, k[172], k[173],
                 k[174], g_haveGameSky ? (w.skyFromGame ? "used" : "read, not used (skyFromGame 0)") : "not read",
                 g_gameSky[0], g_gameSky[1], g_gameSky[2], g_easedSky[0], g_easedSky[1], g_easedSky[2], k[180], k[181],
-                k[182]);
+                k[182], k[36], k[37], k[38]);
         }
         k[183] = w.waves;
         // The moon's colour is the Moonlight Colour's hue ([night] moonColor), at 0.75 in its brightest channel.
         const DWORD mc = g_cfg.night.moonColor;
         const float mrgb[3] = { ((mc >> 16) & 0xFF) / 255.0f, ((mc >> 8) & 0xFF) / 255.0f, (mc & 0xFF) / 255.0f };
         const float mmax = (std::max)((std::max)(mrgb[0], mrgb[1]), (std::max)(mrgb[2], 1e-3f));
-        const float sunC[3] = { 1.0f, 0.92f, 0.78f };
+        // By day the glint takes the hue of the sky's glow over the horizon (2026-10-07): near white at noon, so it
+        // stays as it was, and orange with the sun low.
+        float sunC[3] = { 1.0f, 0.92f, 0.78f };
+        if (gameSky)
+        {
+            const float gmax = (std::max)((std::max)(g_easedGlow[0], g_easedGlow[1]), (std::max)(g_easedGlow[2], 1e-3f));
+            for (int i = 0; i < 3; ++i)
+                sunC[i] *= g_easedGlow[i] / gmax;
+        }
         for (int i = 0; i < 3; ++i)
             k[184 + i] = moonUp ? mrgb[i] / mmax * 0.75f : sunC[i];
         k[187] = w.whitecaps;
@@ -3859,9 +3884,10 @@ float WaterBedFade()
     return g_bedFade;
 }
 
-void WaterSetSkyColour(const float rgb[3])
+void WaterSetSkyColour(const float high[3], const float glow[3])
 {
-    memcpy(g_gameSky, rgb, sizeof(g_gameSky));
+    memcpy(g_gameSky, high, sizeof(g_gameSky));
+    memcpy(g_gameGlow, glow, sizeof(g_gameGlow));
     g_haveGameSky = true;
 }
 
