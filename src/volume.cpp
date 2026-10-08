@@ -176,7 +176,9 @@ float Collects(float3 P)
     float4 g = tex2Dlod(sGround, float4(P.xy * gGr.z + gGr.xy, 0, 0));
     return (gGr.z > 0.0) ? max(1.0 + gW.z * saturate((g.b - g.r) * gW.y), 1.0 + gW.w * g.g) : 1.0;
 }
-
+)HLSL"
+    // Split: MSVC takes no string literal longer than 16 KB (C2026).
+    R"HLSL(
 float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 {
     if (gP.x > 1.5 && gP.x < 2.5)
