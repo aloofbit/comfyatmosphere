@@ -2342,11 +2342,27 @@ float4 main(float2 vpos : VPOS) : COLOR
         ZoneColours();
         const auto luma = [](const float* c) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; };
         const float zone = w.zone * 0.01f;
+        // Stronger (2026-10-07, the owner): the game's hue at 1.75 times its saturation, since the game's colours are
+        // dull under the texture it adds; and the hue of the sky's glow over the horizon, near white at noon and
+        // orange with the sun low, so the water itself warms at dusk and not only its reflection.
         if (zone > 0.0f && g_easedWaterSet && luma(g_easedWater) > 0.005f)
         {
-            const float scale = luma(deep) / luma(g_easedWater);
+            const float L = luma(deep);
+            float target[3];
+            const float scale = L / luma(g_easedWater);
             for (int i = 0; i < 3; ++i)
-                deep[i] += ((std::min)(g_easedWater[i] * scale, 1.0f) - deep[i]) * zone;
+                target[i] = L + (g_easedWater[i] * scale - L) * 1.75f;
+            if (w.skyFromGame && g_easedSkySet && luma(g_easedGlow) > 0.02f)
+            {
+                const float gl = luma(g_easedGlow);
+                for (int i = 0; i < 3; ++i)
+                    target[i] *= 1.0f + (g_easedGlow[i] / gl - 1.0f) * 0.8f;
+                const float lt = luma(target);
+                for (int i = 0; i < 3; ++i)
+                    target[i] *= lt > 1e-4f ? L / lt : 1.0f;
+            }
+            for (int i = 0; i < 3; ++i)
+                deep[i] += ((std::min)((std::max)(target[i], 0.0f), 1.0f) - deep[i]) * zone;
         }
         k[172] = deep[0] * day;
         k[173] = deep[1] * day;
