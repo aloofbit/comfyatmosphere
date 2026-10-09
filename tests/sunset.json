@@ -157,9 +157,6 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         },
         {
@@ -185,9 +182,6 @@
         },
         {
             "probe": true
-        },
-        {
-            "wait": 2
         },
         {
             "screenshot": true

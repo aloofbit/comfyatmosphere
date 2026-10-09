@@ -108,17 +108,12 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         },
         {
             "cvar": "comfyDebugView 6"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },

@@ -467,6 +467,13 @@ svg.chart .ax { font-size: 12px; fill: var(--dim); }
 .legend .key i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
 .legend .key b { font-weight: 600; }
 details.allnum { margin-top: 18px; }
+details.fold { margin: 0; color: var(--ink); font-size: inherit; }
+details.fold > summary { cursor: pointer; list-style: none; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2 { display: inline; }
+details.fold > summary h2::before { content: "+ "; color: var(--dim); }
+details.fold[open] > summary h2::before { content: "- "; }
+details.fold[open] > summary { display: block; margin-bottom: 12px; }
 a.dlg { color: var(--ink); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
 dialog.ctl { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; width: min(640px, 92vw); max-height: 82vh; }
 dialog.ctl::backdrop { background: rgba(0, 0, 0, .55); }
@@ -481,6 +488,10 @@ dialog.ctl td.ik { font-family: ui-monospace, Consolas, monospace; font-size: 12
 dialog.ctl td.iv { font-family: ui-monospace, Consolas, monospace; font-size: 12px; font-weight: 600; width: 7em; overflow-wrap: anywhere; vertical-align: top; }
 dialog.ctl td.ic { color: var(--dim); font-size: 12px; vertical-align: top; }
 dialog.ctl p.lim { margin: 2px 0 6px; }
+dialog.shotview { background: none; border: 0; padding: 0; max-width: 98vw; max-height: 98vh; overflow: visible; cursor: zoom-out; }
+dialog.shotview::backdrop { background: rgba(0, 0, 0, .85); }
+dialog.shotview img { display: block; max-width: 96vw; max-height: 90vh; margin: 0 auto; border-radius: 6px; }
+dialog.shotview p { margin: 8px 0 0; text-align: center; color: #ecebe7; font-size: 14px; }
 details.allnum h4 { font-size: 14px; margin: 12px 0 8px; color: var(--ink); }
 .metric.rec .mval { color: var(--ink); }
 .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
@@ -502,6 +513,9 @@ svg.spark .dot.bad { fill: var(--fail); }
 <p class="sum">$passed of $($Records.Count) passed &middot; $(if ($Summary) { Html $Summary } else { "$($Started.ToString('yyyy-MM-dd HH:mm')) &middot; $minutes min" })</p>
 "@)
 [void]$sb.Append((PerfPanel))
+# The tests that measure come first (2026-10-08, the owner): the performance tests, then the ones that measure what a
+# control costs in frame time (volume-cost, volume-parts, water-cost), then the rest by name.
+$Records = @($Records | Sort-Object { if ($_.name -like '*-performance') { 0 } elseif ($_.name -match '-(cost|parts)$') { 1 } else { 2 } }, name)
 [void]$sb.Append("<nav>`n")
 foreach ($r in $Records) {
     $mark = if ($r.pass) { '&#10003;' } else { '&#10007;' }
@@ -516,7 +530,12 @@ foreach ($r in $Records) {
     if ($r.name -like '*-performance') { continue }
     $cls = if ($r.pass) { 'pass' } else { 'fail' }
     $runOf = if ($Summary -and $r.stamp) { " <span class=""when"">$(Html (Stamp $r.stamp))</span>" } else { '' }
-    [void]$sb.Append("<section id=""$(Html $r.name)""><h2>$(Html $r.name) <span class=""tag $cls"">$($cls.ToUpper())</span>$runOf</h2>`n")
+    # A test that measures a control's cost is folded (2026-10-08, the owner: its numbers are not for a person to
+    # read through); it opens when it failed, or from its link in the list.
+    $fold = $r.name -match '-(cost|parts)$'
+    $head = "<h2>$(Html $r.name) <span class=""tag $cls"">$($cls.ToUpper())</span>$runOf</h2>"
+    if ($fold) { $head = "<details class=""fold""$(if (-not $r.pass) { ' open' })><summary>$head</summary>" }
+    [void]$sb.Append("<section id=""$(Html $r.name)"">$head`n")
     [void]$sb.Append("<p class=""about"">$(Html $r.about)</p>`n")
     [void]$sb.Append((Checks @($r.checks | Where-Object { $_.shot -eq 0 })))
     for ($i = 0; $i -lt $r.shots.Count; $i++) {
@@ -564,17 +583,49 @@ foreach ($r in $Records) {
     if ($r.positions.Count) { $more += 'Where the character was:'; $more += @($r.positions | ForEach-Object { "  $_" }) }
     if ($r.warnings.Count) { $more += 'Errors from the game:'; $more += @($r.warnings | ForEach-Object { "  $_" }) }
     if ($more.Count) { [void]$sb.Append("<details><summary>Positions and messages</summary><pre>$(Html ($more -join "`n"))</pre></details>`n") }
-    [void]$sb.Append("</section>`n")
+    [void]$sb.Append("$(if ($fold) { '</details>' })</section>`n")
 }
 # The dialogs' links (2026-10-06): a click opens the dialog; a click on its backdrop closes it.
 [void]$sb.Append(@'
 <script>
+// A link to a folded test opens it.
+function openFold() { var s = location.hash && document.getElementById(location.hash.slice(1)); var f = s && s.querySelector('details.fold'); if (f) f.open = true; }
+window.addEventListener('hashchange', openFold); openFold();
 document.querySelectorAll('a.dlg').forEach(function (a) {
   a.addEventListener('click', function (e) { e.preventDefault(); var d = document.getElementById(a.dataset.dialog); if (d) d.showModal(); });
 });
 document.querySelectorAll('dialog').forEach(function (d) {
   d.addEventListener('click', function (e) { if (e.target === d) d.close(); });
 });
+// A shot opens large in a dialog (2026-10-08, the owner). The arrow keys go to the next or the last shot on the
+// page, so this run and the expected one can be flipped between; a click anywhere or Escape closes it. A click with
+// Ctrl or the middle button still opens the file.
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.pair figure a, details a'));
+  var d = document.createElement('dialog'); d.className = 'shotview';
+  d.innerHTML = '<img alt=""><p></p>';
+  document.body.appendChild(d);
+  var img = d.querySelector('img'), cap = d.querySelector('p'), at = 0;
+  function show(i) {
+    at = (i + links.length) % links.length;
+    var a = links[at], sec = a.closest('section'), shot = a.closest('.shot'), fig = a.closest('figure');
+    img.src = a.getAttribute('href');
+    cap.textContent = [sec && sec.querySelector('h2') ? sec.id : '', shot && shot.querySelector('h3') ? shot.querySelector('h3').textContent : '',
+      fig && fig.querySelector('figcaption') ? fig.querySelector('figcaption').textContent : ''].filter(Boolean).join('  ' + String.fromCharCode(183) + '  ') +
+      '   (' + (at + 1) + ' of ' + links.length + ')';
+  }
+  links.forEach(function (a, i) {
+    a.addEventListener('click', function (e) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+      e.preventDefault(); show(i); d.showModal();
+    });
+  });
+  d.addEventListener('click', function () { d.close(); });
+  d.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); show(at + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); show(at - 1); }
+  });
+})();
 </script>
 '@)
 [void]$sb.Append("</main></body></html>`n")

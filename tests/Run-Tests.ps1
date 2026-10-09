@@ -78,6 +78,7 @@ param(
     [switch]$NoLogin,
     [switch]$Accept,
     [switch]$NoOpen,
+    [switch]$Timing,   # each step's time, printed after each test (wow-test-tool's Run-Test.ps1 -Timing)
     [string]$Client = (Join-Path $env:USERPROFILE 'Desktop\wow-clients\octow - Copy')
 )
 
@@ -125,7 +126,6 @@ $summary = @()
 # test that wants another character. Flight is read before each test (2026-10-05, wow-test-tool's flight on and
 # flight off, from comfytest.dll): a toggle the runner kept track of lost step, and a test started with it off.
 $loggedAs = $null
-$land = $null   # the last test's flightFrom, where the run ends (below)
 $metrics = @()   # the performance tests' numbers this run (2026-10-06), for results\perf-history.json
 $runStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $runStarted = Get-Date
@@ -175,7 +175,10 @@ foreach ($file in $files) {
         $restarted = $true
     }
     elseif (-not $NoLogin -and $loggedAs -ne $slot) {
-        & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
+        # The run's first login keeps a client already in the world (2026-10-09): closing and starting it again cost
+        # 30 s. Another character's test restarts it.
+        if ($null -eq $loggedAs) { & (Join-Path $tool 'Login.ps1') -Character $slot -Client $Client }
+        else { & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client }
         $loggedAs = $slot
     }
 
@@ -187,6 +190,27 @@ foreach ($file in $files) {
     # character alone.
     $lines += 'chat .gm on'
     $lines += 'wait 0.5'
+    # comfyatmos's values: none left from before, then this test's. Before any move (2026-10-09, the owner): set
+    # at the start, the sun changed once at login and again there.
+    $lines += Say 'setting the snapshot: the sun and the controls'
+    $lines += 'atmos reset'
+    if ($cfg.sun) {
+        $lines += 'atmos sun.fixed 1'
+        $lines += "atmos sun.azimuth $($cfg.sun.azimuth)"
+        $lines += "atmos sun.elevation $($cfg.sun.elevation)"
+    }
+    if ($cfg.ini) {
+        foreach ($p in $cfg.ini.PSObject.Properties) { $lines += "atmos $($p.Name) $($p.Value)" }
+    }
+    # The hour: the test's, or 12:00 (2026-10-08). Without one the game lit the world by the clock, and a run at
+    # 22:26 came out at night beside expected shots taken by day; config.sun turns only the shadows' sun.
+    $hour = if ($null -ne $cfg.hour) { [double]$cfg.hour } else { 12.0 }
+    $lines += 'atmos time.enabled 1'
+    $lines += "atmos time.hour $($hour.ToString([Globalization.CultureInfo]::InvariantCulture))"
+    if ($cfg.cvars) {
+        foreach ($p in $cfg.cvars.PSObject.Properties) { $lines += "cvar $($p.Name) $($p.Value)" }
+    }
+    if ($null -ne $cfg.debugView) { $lines += "cvar comfyDebugView $($cfg.debugView)" }
     # Flight first, then the start: a start in the air holds only with flight on. The character must be on the
     # ground when flight goes on, or it can stick in the air (the owner, 2026-10-03): wow-test-tool's ground waits
     # until its height has stayed on the map files' ground for half a second. flight on and flight off read the
@@ -197,13 +221,11 @@ foreach ($file in $files) {
         # wait never ends. From a start in the air it falls to the ground under it; a GM takes no harm.
         # Or to flightFrom, on land, when the start is over deep water (2026-10-06).
         $f = if ($cfg.flightFrom) { $cfg.flightFrom } else { $cfg.start }
-        $land = if ($cfg.flightFrom) { @{ x = $f.x; y = $f.y; z = $f.z; map = $cfg.start.map } } else { $null }
         if ($f) { $lines += "chat .go xyz $($f.x) $($f.y) $($f.z) $($cfg.start.map)"; $lines += "arrive $($f.x) $($f.y) $($f.z)" }
-        $lines += 'hold W 0.5'   # a character left in the air with flight off falls only once it moves
+        $lines += 'hold W 0.15'   # a character left in the air with flight off falls only once it moves (0.5 s until 2026-10-09)
         $lines += 'ground 60 unlessflying'; $lines += 'flight on'
     }
     else {
-        $land = $null
         $lines += Say 'flight off'
         $lines += 'flight off'
     }
@@ -234,25 +256,6 @@ foreach ($file in $files) {
     # weather is the zone's, so it is cleared here, at the start.
     $lines += Say 'clearing the weather'
     $lines += 'chat .wchange 0 0'
-    # comfyatmos's values: none left from before, then this test's.
-    $lines += Say 'setting the snapshot: the sun and the controls'
-    $lines += 'atmos reset'
-    if ($cfg.sun) {
-        $lines += 'atmos sun.fixed 1'
-        $lines += "atmos sun.azimuth $($cfg.sun.azimuth)"
-        $lines += "atmos sun.elevation $($cfg.sun.elevation)"
-    }
-    if ($cfg.ini) {
-        foreach ($p in $cfg.ini.PSObject.Properties) { $lines += "atmos $($p.Name) $($p.Value)" }
-    }
-    if ($null -ne $cfg.hour) {
-        $lines += 'atmos time.enabled 1'
-        $lines += "atmos time.hour $(([double]$cfg.hour).ToString([Globalization.CultureInfo]::InvariantCulture))"
-    }
-    if ($cfg.cvars) {
-        foreach ($p in $cfg.cvars.PSObject.Properties) { $lines += "cvar $($p.Name) $($p.Value)" }
-    }
-    if ($null -ne $cfg.debugView) { $lines += "cvar comfyDebugView $($cfg.debugView)" }
     # The camera by a number (the owner, 2026-10-03): 0 first person, 1 to 9 that many notches of the mouse wheel
     # back out from it, 10 all the way out. "zoomed" is 0 and "far" is 10. By the wheel since 2026-10-04: zoom out
     # (CameraZoomOut) went all the way out whatever its number, so every test before then ran at 10. A notch: 1
@@ -316,7 +319,7 @@ foreach ($file in $files) {
                 if (-not $cfg.start) { throw "$($t.name): hop needs a start" }
                 $h = [double]$v.heading * [math]::PI / 180.0
                 $stepLen = if ($v.step) { [double]$v.step } else { 10.0 }
-                $pause = if ($null -ne $v.pause) { [double]$v.pause } else { 0.3 }
+                $pause = if ($null -ne $v.pause) { [double]$v.pause } else { 0.001 }   # 0.3 until 2026-10-09 (the owner: a move can take 1 ms)
                 $to = [double]$v.to
                 $dir = if ($to -ge $along) { 1.0 } else { -1.0 }
                 while ([math]::Abs($to - $along) -gt 0.01) {
@@ -326,7 +329,9 @@ foreach ($file in $files) {
                     $lines += ('chat .go xyz {0:0.0} {1:0.0} {2:0.0} {3}' -f $x, $y, [double]$cfg.start.z, $cfg.start.map)
                     $lines += "wait $pause"
                 }
-                $lines += 'wait 1.2'; $lines += "pos after hop to $to"
+                # 0.3 s for the last .go to land (2026-10-09): 1.2 s was for comfyStats' pos, up to a second old;
+                # wow-test-tool reads the place at once by comfytest.dll now.
+                $lines += 'wait 0.3'; $lines += "pos after hop to $to"
             }
             'flyFor'     { $lines += "hold W $v"; $lines += 'wait 1.2'; $lines += "pos after flying $v s" }   # seconds, not yards: two legs of the same time cover the same ground
             'back'       { $lines += ('hold S {0:0.##}' -f ([double]$v / ($speed * 0.64))); $lines += 'wait 1.2'; $lines += "pos after back $v" }   # backing up is 64% of the speed
@@ -340,7 +345,7 @@ foreach ($file in $files) {
                 if ($null -ne $cfg.cameraZoom -and -not $zoomAgain) { $zoomAgain = $true; $lines += "camzoom $($cfg.cameraZoom)" }
             }
             'probe'      { $lines += 'atmos probe' }
-            'screenshot' { $shotViews += $view; $lines += 'ui hide'; $lines += 'wait 0.2'; $lines += 'screenshot'; $lines += 'ui show' }   # without the UI, then the UI back (Alt+Z without comfytest.dll)
+            'screenshot' { $shotViews += $view; $lines += 'ui hide'; $lines += 'wait 0.05'; $lines += 'screenshot'; $lines += 'ui show' }   # without the UI, then the UI back (Alt+Z without comfytest.dll)
             'record'     {   # a video, without the UI as a screenshot: { seconds, label } or the seconds alone
                 $secs = if ($null -ne $v.seconds) { [double]$v.seconds } else { [double]$v }
                 $recLabels += $(if ($v.label) { $v.label } else { '' })
@@ -393,10 +398,31 @@ foreach ($file in $files) {
     $script = Join-Path $resultsDir "$stamp-$($t.name).script.txt"
     [IO.File]::WriteAllText($script, ($lines -join "`r`n") + "`r`n")
 
+    # The window at the size of this test's expected shots (2026-10-08): the game draws at its window's size,
+    # and a check reads a pixel row of the shot. config.window ("1152x864") wins; a test with no expected shot
+    # runs at 1280 x 800.
+    $size = @(1280, 800)
+    if ($cfg.window -match '^(\d+)x(\d+)$') { $size = @([int]$Matches[1], [int]$Matches[2]) }
+    else {
+        $first = Get-ChildItem $expectedDir -Filter "$($t.name)-1.*" -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(jpg|png)$' } | Select-Object -First 1
+        if ($first) {
+            Add-Type -AssemblyName System.Drawing
+            $img = [System.Drawing.Image]::FromFile($first.FullName); $size = @($img.Width, $img.Height); $img.Dispose()
+        }
+    }
+    Import-Module (Join-Path $tool 'Robot.psm1') -DisableNameChecking
+    $wowNow = Get-WowProcess -Client $Client
+    if ($wowNow) {
+        $got = Set-WowSize $wowNow $size[0] $size[1]
+        if ($got -ne "$($size[0])x$($size[1])") { Write-Host "  the window is $got, not $($size[0])x$($size[1])" -ForegroundColor Yellow }
+        Start-Sleep -Milliseconds 500
+    }
+
     $log = ClientLog
     $logStart = if ($restarted) { 0 } elseif (Test-Path $log) { @(Get-Content $log).Count } else { 0 }
     $started = Get-Date
-    $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-String
+    $runOut = & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client -Timing:$Timing 6>&1 | Out-String
+    if ($Timing) { $runOut -split "`r?`n" | Where-Object { $_ -like 'time *' } | ForEach-Object { Write-Host "  $_" } }
     $positions = @($runOut -split "`r?`n" | Where-Object { $_ -match '^(pos|arrive|face|heading|pitch) ' })
     $warnings = @($runOut -split "`r?`n" | Where-Object { $_ -match '^error ' })
 
@@ -600,13 +626,11 @@ foreach ($file in $files) {
                             (New-Object Text.UTF8Encoding $false))
 }
 
-# The character is left as a login leaves it: the camera behind it (face turns the camera alone), flight off.
-$end = @('say putting the camera back, flight off', 'camback', 'flight off', 'say done')
-# A last test that started over the sea (flightFrom) ends there: with flight off the character dropped into the
-# water, and the next run's login started it swimming (2026-10-07). Back to its land first.
-if ($land) {
-    $end = @("chat .go xyz $($land.x) $($land.y) $($land.z) $($land.map)", "arrive $($land.x) $($land.y) $($land.z)") + $end
-}
+# The end (2026-10-09, the owner): no move, only flight off where the character is, and the settings back as they
+# were. Each test's own script ends with cvarsback and atmos reset. Until then the end went back to the last test's
+# flightFrom, turned the camera back, and stepped forward to fall: 5 s. A test that starts finds its own way to the
+# start (flightFrom or the start first), so one left swimming starts as well.
+$end = @('say flight off', 'flight off still', 'cvarsback', 'atmos reset', 'say done')
 $script = Join-Path $resultsDir "$((Get-Date).ToString('yyyyMMdd-HHmmss'))-end.script.txt"
 [IO.File]::WriteAllText($script, ($end -join "`r`n") + "`r`n")
 & (Join-Path $tool 'Run-Test.ps1') $script -Client $Client 6>&1 | Out-Null

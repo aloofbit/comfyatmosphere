@@ -2222,6 +2222,12 @@ TuneSend = function(msg)
 	tuneFrame:Show();
 end;
 
+-- True while an /atmos command waits for its answer or others wait behind it (2026-10-09): the test tool's
+-- ComfyTest sends a run of them without a pause and waits on this before its next line.
+function ComfyAtmosphere_TuneBusy()
+	return tuneWaiting ~= nil or table.getn(tuneQueue) > 0;
+end
+
 SLASH_COMFYATMOS1 = "/atmos";
 -- /atmos stats: comfyatmos.dll's figures on screen, for finding faults. The DLL writes them into the CVar
 -- comfyStats once a second as name=value; pairs, padded with spaces, and this lays them out in sections.

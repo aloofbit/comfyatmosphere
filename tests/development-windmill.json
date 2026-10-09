@@ -106,9 +106,6 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "record": {
                 "seconds": 5,
                 "label": "beside it, before going out"
@@ -117,9 +114,7 @@
         {
             "cvar": "comfyDebugView 5"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "record": {
                 "seconds": 5,
@@ -196,9 +191,7 @@
         {
             "cvar": "comfyDebugView 5"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "record": {
                 "seconds": 5,
@@ -208,12 +201,7 @@
         {
             "cvar": "comfyDebugView 0"
         },
-        {
-            "chat": ".go xyz 4385.7 -301.9 314.4 451"
-        },
-        {
-            "wait": 4
-        },
+        { "go": { "x": 4385.7, "y": -301.9, "z": 314.4, "map": 451 } },
         {
             "face": {
                 "heading": 122.1,
@@ -227,17 +215,12 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         },
         {
             "cvar": "comfyDebugView 5"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },

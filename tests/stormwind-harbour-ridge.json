@@ -150,9 +150,7 @@
                   {
                       "cvar":  "comfyDebugView 28"
                   },
-                  {
-                      "wait":  1
-                  },
+                  { "wait": 0.3 },
                   {
                       "screenshot":  true
                   },

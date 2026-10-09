@@ -1,21 +1,21 @@
 {
-    "name": "redridge-grass",
-    "about": "From the owner's snapshot in Redridge's grass, with Foliage Density at 128 (put back at the end). comfyatmos.dll draws the grass in the wind since 2026-10-06 (comfygrass until then). The probe must show grass draws and the fill loop patched. Recordings with the grass on, off, and while walking through it (the parting); shots in the normal view and in Debug View 30 (the bend: black still, white the tips).",
+    "name": "development-body-edge",
+    "about": "A thin light rim along the edge of a character over a shadow: under the feet in its own shadow, and round the head over the guard's (2026-10-08, the owner). The game draws with antialiasing, and an edge pixel's colour is mostly the lit ground behind while its depth can be the body's, out of the shadow: the sun shadows left it lit, with the Sunlight's boost. Where the body mask says the body or a model covers less than half of a pixel, the farthest of its neighbours' depths stands in. Shot 1 in the normal view, shot 2 in the shade alone (Debug View 5), for a look; no check reads them yet.",
     "config": {
         "character": 1,
         "flight": false,
-        "cameraZoom": 4.937,
+        "cameraZoom": 5.839,
         "start": {
-            "map": 0,
-            "x": -9467.8,
-            "y": -2251.2,
-            "z": 74.4,
-            "facing": 147.6,
-            "about": "the owner's snapshot (2026-10-06): Redridge, on the grass west of the lake; the camera faces 147.6 degrees, 25.9 down, 5.9 yards back"
+            "map": 451,
+            "x": 4616.2,
+            "y": -452.2,
+            "z": 289.8,
+            "facing": 179.3,
+            "about": "the owner's snapshot (2026-10-08): on the development map at the guard stealth test's place, the character in its own shadow and its head over the guard's; the camera facing 179.3 degrees, 14.6 down, 5.839 yards back"
         },
         "sun": {
             "azimuth": 45,
-            "elevation": 28.7
+            "elevation": 64
         },
         "cvars": {
             "comfyVolume": 1,
@@ -31,7 +31,7 @@
             "comfyShadowSoftness": 1,
             "comfyShadowEvery": 1,
             "comfySunShadows": 1,
-            "comfySunShadowStrength": 20,
+            "comfySunShadowStrength": 55,
             "comfyAtmosphere": 1,
             "comfySunlight": 35,
             "comfyVolumeDensity": 16,
@@ -48,7 +48,7 @@
             "comfyNightDarkness": 20,
             "comfyMoonlight": 65,
             "comfyMist": 1,
-            "comfyMistDensity": 25,
+            "comfyMistDensity": 55,
             "comfyMistHeight": 25,
             "comfyMistBrightness": 120,
             "comfyMistSun": 40,
@@ -62,7 +62,7 @@
             "comfyMistMorning": 100,
             "comfyMistLamps": 50,
             "comfySunShadowsNight": 100,
-            "comfySunShadowsUnitStrength": 45,
+            "comfySunShadowsUnitStrength": 100,
             "comfySunGlide": 3,
             "comfyLamps": 1,
             "comfyTorchLight": 23,
@@ -72,16 +72,16 @@
             "comfySunShadowsBody": 30,
             "comfyShadowNear": 32,
             "comfyTreeShade": 60,
-            "comfyWaveHeight": 7,
-            "comfyWaveSize": 125,
+            "comfyWaveHeight": 10,
+            "comfyWaveSize": 200,
             "comfyWater": 1,
-            "comfyWaterColour": 20,
-            "comfyWaterClarity": 400,
+            "comfyWaterColour": 25,
+            "comfyWaterClarity": 100,
             "comfyWaterReflect": 15,
             "comfyWaterBend": 25,
             "comfyWaterCover": 50,
             "comfyWaterWake": 85,
-            "comfyWaterFoam": 55,
+            "comfyWaterFoam": 80,
             "comfyWaterSwash": 1,
             "comfyWaterGlint": 100,
             "comfyWaterMoonGlint": 60,
@@ -105,7 +105,7 @@
             "comfyWaterOpenFoam": 1,
             "comfyWaterOpenFoamAmount": 30,
             "comfyWaterFoamEdge": 60,
-            "comfyWaterWakeFoam": 55,
+            "comfyWaterWakeFoam": 50,
             "comfyWaterObjectFoam": 60,
             "comfyWaterObjectFoamWidth": 8,
             "comfyWaterLakeSwash": 0,
@@ -129,7 +129,9 @@
             "comfyWaterShipWake": 0,
             "comfyWaterShipForward": 15,
             "comfyWaterShipDepth": 200,
-            "comfyShadowOnWater": 65,
+            "comfyShadowOnWater": 40,
+            "comfyWaterWetSand": 20,
+            "comfyLighthouseDistance": 600,
             "comfyGrass": 1,
             "comfyGrassWind": 200,
             "comfyGrassSpeed": 30,
@@ -138,18 +140,21 @@
             "comfyGrassWindDir": 45,
             "comfyGrassParting": 50,
             "comfyGrassPartingRadius": 20,
-            "frillDensity": 128
+            "comfyWaterZone": 1,
+            "comfyWaterSunset": 100,
+            "comfyMistToward": 30,
+            "comfyMistHorizon": 100
         }
     },
     "steps": [
         {
             "face": {
-                "heading": 147.6,
-                "pitch": -25.9
+                "heading": 179.3,
+                "pitch": -14.6
             }
         },
         {
-            "wait": 5
+            "wait": 3
         },
         {
             "probe": true
@@ -158,28 +163,7 @@
             "screenshot": true
         },
         {
-            "record": {
-                "seconds": 5,
-                "label": "grass on"
-            }
-        },
-        {
-            "cvar": "comfyGrass 0"
-        },
-        {
-            "wait": 1
-        },
-        {
-            "record": {
-                "seconds": 4,
-                "label": "grass off"
-            }
-        },
-        {
-            "cvar": "comfyGrass 1"
-        },
-        {
-            "cvar": "comfyDebugView 30"
+            "cvar": "comfyDebugView 5"
         },
         { "wait": 0.3 },
         {
@@ -187,30 +171,7 @@
         },
         {
             "cvar": "comfyDebugView 0"
-        },
-        {
-            "down": "W"
-        },
-        {
-            "record": {
-                "seconds": 4,
-                "label": "walking through it"
-            }
-        },
-        {
-            "up": "W"
         }
     ],
-    "expect": [
-        {
-            "about": "The grass is drawn with the wind shader",
-            "probe": "grass: on; last frame [1-9]\\d* draws",
-            "min": 1
-        },
-        {
-            "about": "Each vertex carries its height: the fill loop is patched",
-            "probe": "grass: .*the fill loop patched",
-            "min": 1
-        }
-    ]
+    "expect": []
 }

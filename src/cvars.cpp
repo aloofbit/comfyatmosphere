@@ -792,7 +792,15 @@ bool CVarsPoll()
 
     const double now = Now();
     if (now < g_nextPoll)
-        return false;
+    {
+        // A new /atmos command is run at once (2026-10-09): one string read a frame. Waiting for the 0.2 s poll, a
+        // test's eight /atmos lines took 1.6 s, as the addon sends the next only after this one's answer.
+        char tune[256];
+        DWORD tstr = 0;
+        if (!g_tune || !SafeCopy(reinterpret_cast<uintptr_t>(g_tune) + 0x20, &tstr, 4) || !tstr ||
+            !SafeString(tstr, tune, sizeof(tune)) || strcmp(tune, g_tuneLast) == 0)
+            return false;
+    }
     g_nextPoll = now + 0.2;
 
     if (!g_ready)

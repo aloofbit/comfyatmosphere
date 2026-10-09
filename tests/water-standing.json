@@ -156,9 +156,7 @@
         {
             "cvar": "comfyDebugView 17"
         },
-        {
-            "wait": 1.5
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },
@@ -183,9 +181,7 @@
         {
             "cvar": "comfyDebugView 17"
         },
-        {
-            "wait": 1.5
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },

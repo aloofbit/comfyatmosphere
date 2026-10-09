@@ -106,9 +106,6 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         }
     ],

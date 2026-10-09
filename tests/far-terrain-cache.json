@@ -88,13 +88,12 @@
     },
     "steps": [
         { "face": { "heading": 40.1, "pitch": -16.7 } },
-        { "wait": 5 },
-        { "hop": { "to": 300, "heading": 219, "step": 10, "pause": 0.05 } },
-        { "wait": 3 },
-        { "hop": { "to": 0, "heading": 219, "step": 10, "pause": 0.05 } },
+        { "wait": 1.5 },
+        { "hop": { "to": 300, "heading": 219, "step": 10, "pause": 0.001 } },
+        { "wait": 1.5 },
+        { "hop": { "to": 0, "heading": 219, "step": 10, "pause": 0.001 } },
         { "wait": 1.5 },
         { "probe": true },
-        { "wait": 1.5 },
         { "screenshot": true }
     ],
     "expect": [

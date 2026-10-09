@@ -16,10 +16,10 @@
         { "probe": true },
         { "screenshot": true },
         { "cvar": "comfyDebugView 12" },
-        { "wait": 1 },
+        { "wait": 0.3 },
         { "screenshot": true },
         { "cvar": "comfyDebugView 14" },
-        { "wait": 1 },
+        { "wait": 0.3 },
         { "screenshot": true },
         { "cvar": "comfyDebugView 0" }
     ],

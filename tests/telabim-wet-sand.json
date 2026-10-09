@@ -160,17 +160,12 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         },
         {
             "cvar": "comfyDebugView 18"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },
@@ -268,17 +263,12 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         },
         {
             "cvar": "comfyDebugView 18"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },

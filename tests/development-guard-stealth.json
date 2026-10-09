@@ -137,9 +137,6 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "screenshot": true
         },
         {
@@ -173,12 +170,7 @@
         {
             "clearTarget": true
         },
-        {
-            "chat": ".go xyz 4613.9 -451.7 290.1 451"
-        },
-        {
-            "wait": 3
-        },
+        { "go": { "x": 4613.9, "y": -451.7, "z": 290.1, "map": 451 } },
         {
             "face": {
                 "heading": 167.4,
@@ -190,9 +182,6 @@
         },
         {
             "probe": true
-        },
-        {
-            "wait": 2
         },
         {
             "screenshot": true
@@ -246,14 +235,9 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "cvar": "comfyDebugView 5"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },
@@ -270,23 +254,16 @@
             "probe": true
         },
         {
-            "wait": 2
-        },
-        {
             "cvar": "comfyDebugView 5"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },
         {
             "cvar": "comfyDebugView 0"
         },
-        {
-            "wait": 1
-        },
+        { "wait": 0.3 },
         {
             "screenshot": true
         },
