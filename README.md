@@ -70,7 +70,7 @@ Download the zip from [Releases](https://github.com/aloofbit/comfyatmosphere/rel
 
 Use `/atmos options` in game to enable/disable and tune features of the mod.
 
-<img src="media/settings-example.png" width="200"/>
+<img src="media/options.png"/>
 
 
 ## Chat commands `/atmos`
