@@ -559,6 +559,34 @@ void TimeApply(const char* where)
     g_wrote    = true;
 }
 
+// The hot reload (2026-10-09). The hour the last copy showed, and whether its addresses passed the check, as text for
+// the next copy. Mid-session the three addresses hold a mix of the client's time and ours, which the check rejects
+// (see TimeReload), so addresses that passed in the last copy are not checked again.
+std::string TimeHandOver()
+{
+    char text[96];
+    snprintf(text, sizeof(text), "%.4f %d %lu %lu %lu", TimeCurrentHour(), g_checked && g_usable ? 1 : 0,
+             g_checkedAddr[0], g_checkedAddr[1], g_checkedAddr[2]);
+    return text;
+}
+
+// Not a move: the hour is not written into the ini.
+void TimeTakeOver(const std::string& text)
+{
+    float hour = -1.0f;
+    int ok = 0;
+    unsigned long a[3] = {};
+    if (sscanf_s(text.c_str(), "%f %d %lu %lu %lu", &hour, &ok, &a[0], &a[1], &a[2]) != 5)
+        return;
+    g_hour = fmodf(fmodf(hour, 24.0f) + 24.0f, 24.0f);
+    const TimeSettings& t = g_cfg.time;
+    if (ok && a[0] == t.addrMinutes && a[1] == t.addrFraction && a[2] == t.addrMinutesF)
+    {
+        g_checked = g_usable = true;
+        g_checkedAddr[0] = a[0]; g_checkedAddr[1] = a[1]; g_checkedAddr[2] = a[2];
+    }
+}
+
 void TimeProbe()
 {
     const TimeSettings& t = g_cfg.time;

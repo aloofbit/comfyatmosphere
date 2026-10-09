@@ -2,6 +2,8 @@
 // writing a chosen time into it.
 #pragma once
 
+#include <string>
+
 void TimeAttach();      // at attach: an old comfytime.dll still loaded keeps ours off
 
 void TimeScanStart();   // snapshot now; narrowing follows by itself over the next few minutes
@@ -24,3 +26,6 @@ void TimePersistTick();
 // 3 the addresses did not check out.
 int TimeState();
 void TimeProbe();                    // the probe (F12): the hour shown, and whether the addresses passed
+// The hot reload: the hour shown and the address check, handed from one copy to the next.
+std::string TimeHandOver();
+void TimeTakeOver(const std::string& text);

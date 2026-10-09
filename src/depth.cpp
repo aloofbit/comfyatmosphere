@@ -400,6 +400,20 @@ void DepthReset(IDirect3DDevice9* dev)
     g_refusedW = g_refusedH = 0;
 }
 
+// The hot reload (2026-10-09): the client may never bind its own surface again, so it is bound here before ours go.
+void DepthDetach(IDirect3DDevice9* dev)
+{
+    IDirect3DSurface9* cur = nullptr;
+    if (SUCCEEDED(dev->lpVtbl->GetDepthStencilSurface(dev, &cur)) && cur)
+    {
+        for (int i = 0; i < g_swapCount; ++i)
+            if (g_swaps[i].client && (g_swaps[i].Bound() == cur || g_swaps[i].scratch == cur))
+                dev->lpVtbl->SetDepthStencilSurface(dev, g_swaps[i].client);
+        cur->lpVtbl->Release(cur);
+    }
+    DepthReset(dev);
+}
+
 void DepthProbe()
 {
     g_logNext = true;

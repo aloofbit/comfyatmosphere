@@ -844,11 +844,15 @@ bool CVarsPoll()
     // Notices waiting for chat.
     if (!g_notices.empty())
     {
+        const auto lookup     = reinterpret_cast<LookupFn>(kLookup + Slide());
         const auto registerFn = reinterpret_cast<RegisterFn>(kRegister + Slide());
         char name[64];
         while (!g_notices.empty())
         {
-            snprintf(name, sizeof(name), "comfyNotice%lu", ++g_noticeSeq);
+            // Past the numbers already there: a copy loaded by the hot reload starts counting at 1 again.
+            do
+                snprintf(name, sizeof(name), "comfyNotice%lu", ++g_noticeSeq);
+            while (lookup(name));
             g_tuneText.push_back(name);
             const char* n = g_tuneText.back().c_str();
             g_tuneText.push_back(g_notices.front());

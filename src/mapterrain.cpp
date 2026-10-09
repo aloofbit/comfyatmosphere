@@ -57,6 +57,7 @@
 #include "client.h"
 #include "common.h"
 #include "mapterrain.h"
+#include "memtrace.h"
 #include "mapm2.h"
 #include "mapwmo.h"
 #include "mpq.h"
@@ -262,6 +263,12 @@ namespace
     std::unordered_map<std::string, std::shared_ptr<M2Model>> g_m2;   // loader thread only
     std::unordered_map<std::string, std::vector<WmoDoodad>> g_wmoDoodads;   // by building: loader thread only
     std::unordered_map<std::string, WmoLeaves> g_wmoLeaves;   // by building: loader thread only
+    // The creature and game object DBC tables, read once by the loader (kJobCreature, kJobObject). Loader thread only.
+    std::unordered_map<unsigned, unsigned>    g_displayModel;
+    std::unordered_map<unsigned, std::string> g_modelName;
+    bool                                      g_creatureDbcRead = false;
+    std::unordered_map<unsigned, std::string> g_objectDisplays;
+    bool                                      g_objectDbcRead = false;
     std::unordered_map<std::string, float> g_m2Reach;   // each model's reach from its origin, yards at scale 1
     // A tile read for its ground alone keeps the doodads that reach this far from where they stand (2026-10-03).
     // A giant tree on Teldrassil (KALIDARTREE08 at scale 0.17) stands 320 yards from a bridge in Darnassus
@@ -789,7 +796,8 @@ namespace
 
     // --- the loader thread ---------------------------------------------------------------------------
 
-    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject, kJobLooseTexture, kJobCreature, kJobModelViews };
+    enum JobKind { kJobTile, kJobBuilding, kJobTexture, kJobObject, kJobLooseTexture, kJobCreature, kJobModelViews,
+                   kJobQuit };   // the hot reload's detach: the loader frees what it holds and ends
     struct Job { JobKind kind; std::string name; int a, b; unsigned gen; bool groundOnly = false; };   // name: the map, the WMO, the BLP
                                                                                                     // a: a game object's display id
     struct Loaded { std::string name; unsigned gen; bool ok; WmoMesh mesh; double ms; };
@@ -872,6 +880,20 @@ namespace
                 job = g_jobs.front();
                 g_jobs.pop_front();
             }
+            if (job.kind == kJobQuit)
+            {
+                g_m2.clear();
+                g_m2Reach.clear();
+                g_wmoDoodads.clear();
+                g_wmoLeaves.clear();
+                std::unordered_map<unsigned, unsigned>().swap(g_displayModel);
+                std::unordered_map<unsigned, std::string>().swap(g_modelName);
+                std::unordered_map<unsigned, std::string>().swap(g_objectDisplays);
+                MpqClose();
+                file = std::vector<uint8_t>();
+                MemTraceReport("the terrain loader has ended");
+                return;
+            }
             if (!tried)
             {
                 open = MpqOpen();
@@ -893,9 +915,9 @@ namespace
             {
                 // CreatureDisplayInfo.dbc (the id, field 0; the model's row, field 1) and CreatureModelData.dbc
                 // (the id, field 0; the model's name, field 2, an offset into the strings), read once.
-                static std::unordered_map<unsigned, unsigned>    displayModel;
-                static std::unordered_map<unsigned, std::string> modelName;
-                static bool read = false;
+                auto& displayModel = g_displayModel;
+                auto& modelName = g_modelName;
+                bool& read = g_creatureDbcRead;
                 if (!read && open)
                 {
                     read = true;
@@ -959,8 +981,8 @@ namespace
             {
                 // GameObjectDisplayInfo.dbc, read once: the id is field 0 and the model's name field 1, an
                 // offset into the strings after the records.
-                static std::unordered_map<unsigned, std::string> displays;
-                static bool read = false;
+                auto& displays = g_objectDisplays;
+                bool& read = g_objectDbcRead;
                 if (!read && open)
                 {
                     read = true;
@@ -2717,6 +2739,23 @@ unsigned MapBuildingsDraw(IDirect3DDevice9* dev, const D3DMATRIX& m, const float
     g_wmoDrawnLast = drawn;
     g_wmoTrisLast  = tris;
     return drawn;
+}
+
+// The hot reload (2026-10-09): a detached copy keeps nothing. The loader frees its caches and the MPQ archives and
+// ends, after the job it is on.
+void MapTerrainDetach()
+{
+    DropAll();
+    if (g_started)
+    {
+        {
+            std::lock_guard<std::mutex> lock(g_mx);
+            g_jobs.push_back({ kJobQuit, std::string(), 0, 0, g_gen });
+        }
+        g_cv.notify_all();
+    }
+    g_map.clear();
+    g_dev = nullptr;
 }
 
 void MapTerrainRelease()

@@ -629,7 +629,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
 
     // The fog's patches: a tiling 3D noise, made once (the CPU copy is kept, so a new device gets the same).
     constexpr int kNoise = 64;
-    std::vector<uint32_t>     g_noiseData;
+    std::vector<uint32_t>     g_noiseData;      // kept through a Reset; freed at the hot reload's detach
     IDirect3DVolumeTexture9*  g_noise = nullptr;
     bool                      g_noiseFailed = false;
     // The ground under the fog: 128 x 128 cells of 8 yards around you (see the top of the file).
@@ -2172,6 +2172,12 @@ bool VolumeLightActive()
 bool VolumeActive()
 {
     return VolumeLightActive() || (!g_cfg.volume.enabled && g_on && !g_failed && FogOn());
+}
+
+void VolumeDetach()
+{
+    VolumeReset();
+    std::vector<uint32_t>().swap(g_noiseData);
 }
 
 void VolumeReset()

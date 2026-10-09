@@ -445,11 +445,8 @@ namespace
         }
     }
 
-    bool WriteJump(uintptr_t at, const void* to, DWORD len)
+    bool WriteCode(uintptr_t at, const uint8_t* code, DWORD len)
     {
-        uint8_t code[8] = { 0xE9, 0, 0, 0, 0, 0x90, 0x90, 0x90 };
-        const int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(to) - (at + 5));
-        memcpy(code + 1, &rel, sizeof(rel));
         DWORD prot = 0;
         if (!VirtualProtect(reinterpret_cast<void*>(at), len, PAGE_EXECUTE_READWRITE, &prot))
             return false;
@@ -457,6 +454,14 @@ namespace
         VirtualProtect(reinterpret_cast<void*>(at), len, prot, &prot);
         FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(at), len);
         return true;
+    }
+
+    bool WriteJump(uintptr_t at, const void* to, DWORD len)
+    {
+        uint8_t code[8] = { 0xE9, 0, 0, 0, 0, 0x90, 0x90, 0x90 };
+        const int32_t rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(to) - (at + 5));
+        memcpy(code + 1, &rel, sizeof(rel));
+        return WriteCode(at, code, len);
     }
 
     // At Present, on the render thread, so the fill loop cannot run while the bytes change.
@@ -852,6 +857,23 @@ void GrassReset()
     g_layouts.clear();
     g_vspan.clear();
     g_vsConstSeeded = false;   // a Reset puts the constants back to their defaults
+}
+
+// The hot reload (2026-10-09): the client's own bytes back, from the block checked before the patch. At Present, as
+// the patch was put in.
+void GrassDetach()
+{
+    if (!g_fillPatched)
+        return;
+    const uintptr_t site = g_instanceResume - kInstanceResume;
+    if (WriteCode(site, kFillBlock + kFillBlockBack, kInstanceLen) &&
+        WriteCode(site + kVertexAt, kFillBlock + kFillBlockBack + kVertexAt, kVertexLen))
+    {
+        g_fillPatched = false;
+        Log("grass: the fill loop's patch is taken out");
+    }
+    else
+        Log("grass: VirtualProtect failed (%lu), the fill loop's patch stays", GetLastError());
 }
 
 void GrassProbe()

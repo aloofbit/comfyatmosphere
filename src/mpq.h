@@ -15,3 +15,5 @@ bool MpqRead(const char* name, std::vector<uint8_t>& out);
 // Every archive holding the name, best first, as "a, b, c" (for the probe).
 std::string MpqHolders(const char* name);
 unsigned MpqArchiveCount();
+// Every archive closed and its tables freed (the hot reload, 2026-10-09). On the loader's thread, as it exits.
+void MpqClose();

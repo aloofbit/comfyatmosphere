@@ -7,6 +7,7 @@
 
 // Starts the worker, which compiles or loads every shader the passes list. dir: the folder for the cache.
 void ShaderCacheStart(const wchar_t* dir);
+void ShaderCacheDetach();   // the hot reload: the compiled shaders this copy holds are freed
 
 // D3DCompile through the cache: the same arguments and result. real is d3dcompiler's own.
 HRESULT ShaderCacheCompile(PFN_D3DCompile real, LPCVOID src, SIZE_T size, LPCSTR name, const void* defines,

@@ -142,6 +142,18 @@ bool ResolveIniPath(HMODULE self, wchar_t* out, size_t count)
     // still have only the old ini: it is read, so its values are kept.
     if (GetFileAttributesW(out) != INVALID_FILE_ATTRIBUTES)
         return false;
+    // A copy loaded by comfyhot.dll (the hot reload, 2026-10-09) is in comfyhot\<n>\: the ini is beside WoW.exe.
+    if (GetModuleHandleA("comfyhot.dll"))
+    {
+        GetModuleFileNameW(nullptr, out, static_cast<DWORD>(count));
+        if (wchar_t* exeSlash = wcsrchr(out, L'\\'))
+        {
+            slash = exeSlash;
+            wcscpy_s(slash + 1, count - (slash + 1 - out), L"comfyatmos.ini");
+            if (GetFileAttributesW(out) != INVALID_FILE_ATTRIBUTES)
+                return false;
+        }
+    }
     std::wstring old(out, slash + 1 - out);
     old += L"comfyfog.ini";
     if (GetFileAttributesW(old.c_str()) == INVALID_FILE_ATTRIBUTES)

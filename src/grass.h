@@ -32,4 +32,5 @@ bool GrassDraw(IDirect3DDevice9* dev, const GrassDrawArgs& d, HRESULT& hr);
 void GrassConstants(UINT reg, const float* data, UINT count);   // the client's vertex shader constants
 void GrassFrameEnd();          // at Present: the fill loop's patch, and next frame's wind and player
 void GrassReset();             // a Reset or a new device: the wind shader and the caches go
+void GrassDetach();            // the hot reload: the fill loop's patch taken out (at Present)
 void GrassProbe();             // the probe (F12): what the grass did last frame

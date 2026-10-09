@@ -13,4 +13,5 @@ IDirect3DTexture9* DepthWorldTexture();                                   // the
 bool               DepthScratchBegin(IDirect3DDevice9* dev, bool copy);
 void               DepthScratchEnd(IDirect3DDevice9* dev);                // the world's depth bound again
 void               DepthReset(IDirect3DDevice9* dev);                     // before Reset
+void               DepthDetach(IDirect3DDevice9* dev);                    // the hot reload: the client's own bound again
 void               DepthProbe();                                          // log the next frame's state

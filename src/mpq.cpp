@@ -558,3 +558,9 @@ std::string MpqHolders(const char* name)
 }
 
 unsigned MpqArchiveCount() { return g_count; }
+
+void MpqClose()
+{
+    std::vector<std::unique_ptr<Archive>>().swap(g_archives);
+    g_count = 0;
+}

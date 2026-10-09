@@ -41,6 +41,7 @@ add_library(comfyatmos SHARED
     src/timeofday.cpp
     src/beacon.cpp
     src/shadercache.cpp
+    src/memtrace.cpp
 )
 
 # version.h: comfyatmos's version from git, for the client report (cmake/version.cmake).
@@ -61,4 +62,14 @@ set_target_properties(comfyatmos PROPERTIES
 
 if(MSVC)
     target_compile_options(comfyatmos PRIVATE /W3 /permissive- /GS-)
+endif()
+
+# A measurement build (2026-10-09): every heap block counted by the code that allocated it, for the hot reload's
+# memory (src/memtrace.cpp). cmake -B build-trace -A Win32 -DCOMFY_MEMTRACE=ON; the DLL stays in build-trace.
+option(COMFY_MEMTRACE "count heap blocks by caller" OFF)
+if(COMFY_MEMTRACE)
+    target_compile_definitions(comfyatmos PRIVATE COMFY_MEMTRACE)
+    target_compile_options(comfyatmos PRIVATE /Zi /Oy-)
+    target_link_options(comfyatmos PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+    set_target_properties(comfyatmos PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}$<0:>")
 endif()

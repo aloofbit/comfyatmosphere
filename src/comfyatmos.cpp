@@ -43,6 +43,7 @@
 #include "terrainshade.h"
 #include "timeofday.h"
 #include "mapterrain.h"
+#include "memtrace.h"
 #include "volume.h"
 #include "water.h"
 
@@ -213,12 +214,36 @@ namespace
     inline DWORD F2D(float f) { DWORD d; memcpy(&d, &f, 4); return d; }
     inline float Clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
+    // Each slot patched, for the hot reload's detach (ComfyHotDetach): the slot, our hook, and where its original is.
+    struct Patched
+    {
+        void** slot;
+        void*  hook;
+        void** orig;
+    };
+    std::vector<Patched> g_patched;
+
+    // comfyhot.dll's calls, when it loaded this copy (the hot reload, see HotDetach).
+    using HotHookFn   = BOOL (*)(void** slot, void* hook, void** origOut);
+    using HotUnhookFn = BOOL (*)(void* hook);
+    using HotPutFn    = void (*)(const char* key, const char* value);
+    using HotGetFn    = DWORD (*)(const char* key, char* out, DWORD cap);
+
+    template <class Fn> Fn HotCall(const char* name)
+    {
+        HMODULE hot = GetModuleHandleA("comfyhot.dll");
+        return hot ? reinterpret_cast<Fn>(GetProcAddress(hot, name)) : nullptr;
+    }
+
     // Same as comfygrass's, except the write is a compare-exchange: two mods patch these slots, and a
     // plain read-then-write racing another installer can silently drop one of the two hooks.
     bool HookSlot(void** slot, void* hook, void** origOut)
     {
         if (*slot == hook)
             return true;
+        g_patched.push_back({ slot, hook, origOut });
+        if (const auto hot = HotCall<HotHookFn>("ComfyHotHookSlot"))
+            return hot(slot, hook, origOut) != FALSE;
 
         DWORD prot = 0;
         if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &prot))
@@ -1081,9 +1106,108 @@ namespace
         return g_oSetDS(dev, g_inPass ? s : DepthSubstitute(dev, s));
     }
 
+    // The hot reload (2026-10-09). comfyhot.dll (tools\wow-test-tool, test clients only) loads a copy of this DLL,
+    // and when a new build lands it asks the old copy to let go (ComfyHotDetach) before it loads the new one. The
+    // detach runs at Present, on the render thread, so none of our hooks is running: each slot gets back what it
+    // held before us, the grass patch comes out of the client's code, the client gets its own depth surface back,
+    // and everything made on the device is released. The image stays loaded: the client keeps pointers to the CVar
+    // names and values given to it (cvars.cpp).
+    volatile LONG g_hotState  = 0;         // 1: a detach is asked for; 2: done
+    HANDLE        g_hotDone   = nullptr;   // set when the detach is done
+    volatile LONG g_attaching = 0;         // the attach thread is still patching
+
+    int RestoreSlots()
+    {
+        int held = 0;
+        const auto hot = HotCall<HotUnhookFn>("ComfyHotUnhook");
+        for (auto it = g_patched.rbegin(); it != g_patched.rend(); ++it)
+        {
+            if (hot)
+            {
+                held += hot(it->hook) ? 0 : 1;
+                continue;
+            }
+            DWORD prot = 0;
+            if (!VirtualProtect(it->slot, sizeof(void*), PAGE_READWRITE, &prot))
+            {
+                ++held;
+                continue;
+            }
+            if (InterlockedCompareExchangePointer(it->slot, *it->orig, it->hook) != it->hook)
+                ++held;   // another hook sits on ours: it stays, and calls into this image, which stays loaded
+            VirtualProtect(it->slot, sizeof(void*), prot, &prot);
+        }
+        const int n = static_cast<int>(g_patched.size());
+        g_patched.clear();
+        return n - held;
+    }
+
+    // The next copy keeps what /atmos set and the hour shown: a test's settings stay through a reload.
+    void HotHandOver()
+    {
+        const auto put = HotCall<HotPutFn>("ComfyHotPut");
+        if (!put)
+            return;
+        std::string over;
+        for (const auto& kv : ConfigOverrides())
+            over += kv.first + "=" + kv.second + "\n";
+        put("comfyatmos.overrides", over.c_str());
+        put("comfyatmos.time", TimeHandOver().c_str());
+    }
+
+    std::string HotTake(const char* key)
+    {
+        const auto get = HotCall<HotGetFn>("ComfyHotGet");
+        const DWORD need = get ? get(key, nullptr, 0) : 0;
+        if (!need)
+            return std::string();
+        std::string v(need, ' ');
+        get(key, &v[0], need);
+        v.resize(need - 1);
+        return v;
+    }
+
+    void HotDetach(IDirect3DDevice9* dev)
+    {
+        MemTraceReport("at detach, before the clean-up");
+        HotHandOver();
+        const size_t slots = g_patched.size();
+        const int restored = RestoreSlots();
+        GrassDetach();
+        DepthDetach(dev);   // after the slots: its SetDepthStencilSurface goes straight to the device
+        ShadowReset();
+        VolumeReset();
+        RaysReset();
+        CoverReset();
+        BenchReset();
+        LampsReset();
+        LampGlowReset();
+        SunShadowsReset();
+        BodyMaskReset();
+        TerrainShadeReset();
+        WaterReset();
+        GradeReset();
+        BeaconReset();
+        GrassReset();
+        MapTerrainDetach();
+        VolumeDetach();
+        ShaderCacheDetach();
+        MemTraceReport("after the clean-up");
+        Log("hot reload: detached, %d of %u slots given back; this copy does nothing from now on", restored,
+            static_cast<unsigned>(slots));
+    }
+
     HRESULT STDMETHODCALLTYPE hkPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst,
                                         HWND wnd, const RGNDATA* dirty)
     {
+        if (g_hotState == 1)
+        {
+            const PresentFn present = g_oPresent;
+            HotDetach(dev);
+            InterlockedExchange(&g_hotState, 2);
+            SetEvent(g_hotDone);
+            return present(dev, src, dst, wnd, dirty);
+        }
         TimeScanTick();
         TimeApply("Present");
         CheckDevice(dev);
@@ -2639,6 +2763,7 @@ namespace
     {
         const double t0 = Now();
         const bool ok = AttachToDxvk();
+        InterlockedExchange(&g_attaching, 0);
         Log("attach %s in %.0f ms", ok ? "succeeded" : "FAILED", 1000.0 * (Now() - t0));
         if (!ok)
             return 0;
@@ -2711,6 +2836,40 @@ bool WorldFog(float& start, float& end)
     return true;
 }
 
+// The hot reload's detach, called by comfyhot.dll on its own thread (see HotDetach). 1 when this copy has let go,
+// 0 when the game drew no frame within timeoutMs: then it has not, and the old copy keeps running.
+extern "C" __declspec(dllexport) int ComfyHotDetach(DWORD timeoutMs)
+{
+    const double t0 = Now();
+    while (g_attaching && (Now() - t0) * 1000.0 < timeoutMs)
+        Sleep(10);
+    if (g_attaching)
+        return 0;
+    if (g_patched.empty())
+    {
+        Log("hot reload: detached (nothing was patched)");
+        return 1;
+    }
+    if (!g_oPresent)
+    {
+        // Present was never hooked, so no frame comes through here: the slots are given back from this thread.
+        const int restored = RestoreSlots();
+        Log("hot reload: detached without a frame, %d slots given back", restored);
+        return 1;
+    }
+    InterlockedExchange(&g_hotState, 1);
+    const DWORD left = static_cast<DWORD>((std::max)(0.0, timeoutMs - (Now() - t0) * 1000.0));
+    if (WaitForSingleObject(g_hotDone, left) == WAIT_OBJECT_0)
+        return 1;
+    if (InterlockedCompareExchange(&g_hotState, 0, 1) == 1)
+    {
+        Log("hot reload: no frame within %lu ms, so this copy stays", timeoutMs);
+        return 0;
+    }
+    WaitForSingleObject(g_hotDone, INFINITE);   // the frame took it just now
+    return 1;
+}
+
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH)
@@ -2737,21 +2896,46 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         else
             wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"comfyatmos.log");
         DeleteFileW(g_logPath);
+        // A copy loaded by the hot reload: what /atmos set in the last copy, laid over the ini as it was there.
+        const std::string handed = HotTake("comfyatmos.overrides");
+        for (size_t at = 0; at < handed.size();)
+        {
+            size_t end = handed.find('\n', at);
+            if (end == std::string::npos)
+                end = handed.size();
+            const std::string line = handed.substr(at, end - at);
+            const size_t eq = line.find('=');
+            if (eq != std::string::npos)
+                ConfigOverrides()[line.substr(0, eq)] = line.substr(eq + 1);
+            at = end + 1;
+        }
         LoadSettings(g_iniPath);
         CVarsAfterLoad();
         TimeReload();
+        const std::string time = HotTake("comfyatmos.time");
+        if (!time.empty())
+        {
+            TimeTakeOver(time);
+            Log("hot reload: %u /atmos values and the time (%s) from the last copy",
+                static_cast<unsigned>(ConfigOverrides().size()), time.c_str());
+        }
         Log("comfyatmos loaded (module=%p, effects %s)", self, g_cfg.master ? "on" : "off");
         if (oldIni)
             Log("comfyatmos.ini is not there, so comfyfog.ini is read (the old name, until v0.10.0-alpha). Rename it "
                 "comfyatmos.ini.");
 
+        g_hotDone = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         if (g_cfg.hook)
         {
+            g_attaching = 1;
             HANDLE t = CreateThread(nullptr, 0, AttachThread, nullptr, 0, nullptr);
             if (t)
                 CloseHandle(t);
             else
+            {
+                g_attaching = 0;
                 Log("FATAL: could not start the attach thread");
+            }
         }
         else
         {

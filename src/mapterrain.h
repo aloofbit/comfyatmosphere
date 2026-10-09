@@ -92,6 +92,7 @@ void MapLighthouseGroupsLog(const float world[3]);
 // lies over the ground; false with too few.
 bool MapGroundBase(const float at[3], float radius, float& z);
 void MapTerrainRelease();   // a new device: the GPU copies go, the meshes stay
+void MapTerrainDetach();    // the hot reload: the GPU copies and the meshes go
 struct BlpData;
 // A texture by name, read on the loader thread: 0 while it loads (or the loader has not started), 1 with the
 // texture in out (once), -1 if it could not be read.

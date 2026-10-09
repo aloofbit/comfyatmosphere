@@ -218,6 +218,13 @@ namespace
     }
 }
 
+void ShaderCacheDetach()
+{
+    std::lock_guard<std::mutex> lock(g_m);
+    std::unordered_map<uint64_t, Entry>().swap(g_entries);
+    std::vector<Job>().swap(g_jobs);
+}
+
 void ShaderPrecompile(const char* name, const char* src, const char* profile, const char* const* defines)
 {
     Job j;

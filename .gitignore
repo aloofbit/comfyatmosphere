@@ -1,4 +1,5 @@
 build/
+build-*/
 comfyatmos.dll
 tests/results/
 todo.txt
