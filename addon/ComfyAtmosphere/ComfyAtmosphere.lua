@@ -629,7 +629,7 @@ local ENTRIES = {
 	{
 		-- Tenths of a yard: comfyatmos.dll divides it by 10 for [sunshadows] foliageRadius (2026-10-08).
 		name = "COMFYATMOSPHERE_FOLIAGE_SIZE",
-		desc = "Ferns, bushes and leaves take the shade of the ground round them, this many tenths of a yard across, so a plant is dark under cover and lit in the open, with no dapples on it. 0 lets the shade fall on them as it falls.",
+		desc = "The ground's grass and ferns take the shade of the ground round them, this many tenths of a yard across, so a plant is dark under cover and lit in the open, with no dapples on it. 0 lets the shade fall on them as it falls.",
 		type = "slider",
 		cvar = "comfyFoliageShadeSize",
 		dependency = { "comfyVolume", "1" },
@@ -653,7 +653,7 @@ local ENTRIES = {
 	{
 		-- Tenths of a yard: comfyatmos.dll divides it by 10 for [sunshadows] foliageSlack (2026-10-08).
 		name = "COMFYATMOSPHERE_FOLIAGE_SELF",
-		desc = "Ferns, bushes and leaves take no shade from leaves nearer than this many tenths of a yard: their own and their neighbours'. Higher stops a tall bush shading itself; a tree's crown higher up still shades it.",
+		desc = "The ground's grass and ferns take no shade from leaves nearer than this many tenths of a yard: their own and their neighbours'. Higher stops a tall fern shading itself; a tree's crown higher up still shades it.",
 		type = "slider",
 		cvar = "comfyFoliageSelfShade",
 		dependency = { "comfyVolume", "1" },
