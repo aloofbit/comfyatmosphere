@@ -79,6 +79,11 @@ param(
     [switch]$Accept,
     [switch]$NoOpen,
     [switch]$Timing,   # each step's time, printed after each test (wow-test-tool's Run-Test.ps1 -Timing)
+    [switch]$NoPerformance,   # every test but the frame-time ones: *-performance, *-cost, *-parts (2026-10-09)
+    # The game's resolution for testing (2026-10-09). Login.ps1 restarts a client at another size with it in
+    # Config.wtf. Never changed between tests: resized while it ran, the game kept its old shape, stretched.
+    [int]$Width = 1152,
+    [int]$Height = 864,
     [string]$Client = (Join-Path $env:USERPROFILE 'Desktop\wow-clients\octow - Copy')
 )
 
@@ -96,6 +101,7 @@ New-Item -ItemType Directory -Force $resultsDir | Out-Null
 if ($Client -match '\\octow$') { throw 'That is the live client. Point -Client at the test client.' }
 
 $files = if ($Name) { $Name | ForEach-Object { Join-Path $here "$_.json" } } else { Get-ChildItem $here -Filter *.json | ForEach-Object { $_.FullName } }
+if ($NoPerformance) { $files = @($files | Where-Object { [IO.Path]::GetFileNameWithoutExtension($_) -notmatch '-(performance|cost|parts)$' }) }
 # A test that brings the game to the front (front, back: the frame-rate test) takes the focus from the window in
 # front while it measures (2026-10-06, the owner: say so whenever it runs). Typing elsewhere then goes into the game.
 $takesFocus = @($files | Where-Object { (Test-Path $_) -and ((Get-Content $_ -Raw) -match '"gameFront"\s*:') } | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) })
@@ -161,7 +167,7 @@ foreach ($file in $files) {
         # first (2026-10-06): it signed in where the last test had left the character, and the test's own move to the
         # start then loaded a second world inside the 90 s measured (a frame of 3.6 s).
         if ($cfg.start -and -not $NoLogin -and $null -eq $loggedAs) {
-            & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
+            & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client -Width $Width -Height $Height
             $loggedAs = $slot
         }
         if ($cfg.start) {
@@ -170,15 +176,15 @@ foreach ($file in $files) {
                 "arrive $($cfg.start.x) $($cfg.start.y) $($cfg.start.z)", 'wait 2') -join "`r`n") + "`r`n")
             & (Join-Path $tool 'Run-Test.ps1') $go -Client $Client 6>&1 | Out-Null
         }
-        & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client
+        & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client -Width $Width -Height $Height
         $loggedAs = $slot
         $restarted = $true
     }
     elseif (-not $NoLogin -and $loggedAs -ne $slot) {
         # The run's first login keeps a client already in the world (2026-10-09): closing and starting it again cost
         # 30 s. Another character's test restarts it.
-        if ($null -eq $loggedAs) { & (Join-Path $tool 'Login.ps1') -Character $slot -Client $Client }
-        else { & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client }
+        if ($null -eq $loggedAs) { & (Join-Path $tool 'Login.ps1') -Character $slot -Client $Client -Width $Width -Height $Height }
+        else { & (Join-Path $tool 'Login.ps1') -Restart -Character $slot -Client $Client -Width $Width -Height $Height }
         $loggedAs = $slot
     }
 
@@ -268,12 +274,12 @@ foreach ($file in $files) {
     # puts the camera there, or nearer where the ground is in the way. After a test 11 yards out, a slope behind
     # the camera held it at 3.8 yards whatever camzoom wrote, and the next test's first person never came. Zoomed
     # in, the game's distance is 0, and the one written holds wherever nothing pulls the camera in.
-    if ($null -ne $cfg.cameraZoom) { $lines += 'zoom -30'; $lines += 'wait 1'; $lines += "camzoom $($cfg.cameraZoom)" }
+    if ($null -ne $cfg.cameraZoom) { $lines += 'zoom -30'; $lines += 'zoomed'; $lines += "camzoom $($cfg.cameraZoom)" }
     elseif ($null -ne $cfg.cameraDistance) { $lines += "camdist $($cfg.cameraDistance)" }
     elseif ($null -ne $cfg.camera) {
         $cam = if ($cfg.camera -eq 'zoomed') { 0 } elseif ($cfg.camera -eq 'far') { 10 } else { [int]$cfg.camera }
         $lines += 'zoom -30'
-        if ($cam -ge 10) { $lines += 'zoom 30' } elseif ($cam -gt 0) { $lines += 'wait 1'; $lines += "wheel $cam" }
+        if ($cam -ge 10) { $lines += 'zoom 30' } elseif ($cam -gt 0) { $lines += 'zoomed'; $lines += "wheel $cam" }
     }
     # hop: .go xyz along a line from the start at the start's height, in steps (2026-10-03). Exact where turning
     # and flight speed were not. $along is how far along the line the last hop left the character.
@@ -372,10 +378,10 @@ foreach ($file in $files) {
             'clearTarget' { $lines += 'cleartarget' }
             'camera'     {   # the camera's distance partway through, as config.camera: 0 first person, 1 to 9 notches out, 10 all the way
                 $lines += 'zoom -30'
-                if ([int]$v -ge 10) { $lines += 'zoom 30' } elseif ([int]$v -gt 0) { $lines += 'wait 1'; $lines += "wheel $([int]$v)" }
+                if ([int]$v -ge 10) { $lines += 'zoom 30' } elseif ([int]$v -gt 0) { $lines += 'zoomed'; $lines += "wheel $([int]$v)" }
             }   # typed into the chat box as a player types: a slash command (/target Pinto)
             'cameraZoom' {   # the camera's own distance partway through, as config.cameraZoom (2026-10-08)
-                $lines += 'zoom -30'; $lines += 'wait 1'; $lines += "camzoom $v"
+                $lines += 'zoom -30'; $lines += 'zoomed'; $lines += "camzoom $v"
             }
             default      { throw "$($t.name): unknown step '$($p.Name)'" }
         }
@@ -398,25 +404,6 @@ foreach ($file in $files) {
     $script = Join-Path $resultsDir "$stamp-$($t.name).script.txt"
     [IO.File]::WriteAllText($script, ($lines -join "`r`n") + "`r`n")
 
-    # The window at the size of this test's expected shots (2026-10-08): the game draws at its window's size,
-    # and a check reads a pixel row of the shot. config.window ("1152x864") wins; a test with no expected shot
-    # runs at 1280 x 800.
-    $size = @(1280, 800)
-    if ($cfg.window -match '^(\d+)x(\d+)$') { $size = @([int]$Matches[1], [int]$Matches[2]) }
-    else {
-        $first = Get-ChildItem $expectedDir -Filter "$($t.name)-1.*" -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(jpg|png)$' } | Select-Object -First 1
-        if ($first) {
-            Add-Type -AssemblyName System.Drawing
-            $img = [System.Drawing.Image]::FromFile($first.FullName); $size = @($img.Width, $img.Height); $img.Dispose()
-        }
-    }
-    Import-Module (Join-Path $tool 'Robot.psm1') -DisableNameChecking
-    $wowNow = Get-WowProcess -Client $Client
-    if ($wowNow) {
-        $got = Set-WowSize $wowNow $size[0] $size[1]
-        if ($got -ne "$($size[0])x$($size[1])") { Write-Host "  the window is $got, not $($size[0])x$($size[1])" -ForegroundColor Yellow }
-        Start-Sleep -Milliseconds 500
-    }
 
     $log = ClientLog
     $logStart = if ($restarted) { 0 } elseif (Test-Path $log) { @(Get-Content $log).Count } else { 0 }

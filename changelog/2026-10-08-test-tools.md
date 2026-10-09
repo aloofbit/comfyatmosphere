@@ -15,9 +15,9 @@ The game draws at its window's size, not at `gxResolution`. With 1152x864 in `Co
 1280 x 720, and `darkshore-water-split` and `telabim-wet-sand` failed: their checks read pixel rows of shots taken
 at 1152 x 864.
 
-- `Login.ps1` sets the client area to 1280 x 800 when it starts the client (`-Width`, `-Height`).
-- `Run-Tests.ps1` sets it before each test to the size of the test's first expected shot, or to `config.window`
-  (`"1152x864"`). A test with no expected shot runs at 1280 x 800.
+- Since 2026-10-09 the tests run at 1152x864, the game's own resolution. `Login.ps1` restarts a client at
+  another size with `gxResolution` set in `Config.wtf`, and nothing resizes the window between tests.
+  Resized from outside, the game kept its old shape and drew it stretched.
 - wow-test-tool finds the test client by the process at the server end of comfytest.dll's pipe, or by the id
   `Login.ps1` writes into `Imports\comfytest-pid.txt` when it starts the client. It took the newest WoW.exe
   before. With the live client started after the test client, `Login.ps1 -Restart` would have closed the live one.
