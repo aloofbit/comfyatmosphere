@@ -3,6 +3,20 @@
 One file for each big change, named `date-short-description.md`. A file says what changed, why, and which
 controls it adds. The reasoning and the measurements are in `NOTES.md`, one section for each problem.
 
+## 2026-10-08
+
+- [Your own stealth shadow, and the shade on grass and ferns](2026-10-08-stealth-and-foliage-shade.md): your own
+  character in stealth casts no shadow, and the ground's grass and ferns are dark under cover or lit as a whole,
+  with four sliders on the Shadows page.
+- [Wet sand along a river](2026-10-08-wet-sand-rivers.md): the wet sand follows a river's waterline, no hard dark
+  line far off, and Wet Sand defaults to 20.
+- [No pale dashes or white dots on the sea](2026-10-08-sea-specks.md): no gaps along the horizon, and no white dots
+  on the water as the camera moves.
+- [The fog at sunset](2026-10-08-fog-at-sunset.md): Fog Toward the Sun, Fog Horizon Glow, a glow round the sun, and
+  the fog over water as thick as over land.
+- [Test tools](2026-10-08-test-tools.md): a cameraZoom step, Before-After.ps1 for the release notes, and the tests
+  `sunset` and `redridge-grass-shadow`.
+
 ## 2026-10-07
 
 - [The zone's sky and water colours](2026-10-07-zone-colours.md): the water reflects the game's own sky and its

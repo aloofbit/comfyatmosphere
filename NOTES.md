@@ -1297,7 +1297,8 @@ sunlit part of the fog. Built in steps on the branch `volumetric-fog`, each test
 - **Patches.** A tiling 3D noise, 64 texels a side, made once on the CPU (about 150 ms), fixed in the world
   and carried by the wind. At patchiness 1 the patches hold twice the fog and the gaps none.
 - **Ground.** A 128 x 128 texture of 8-yard cells around you: the ground and water from the map files (MCLQ:
-  the range's top is the surface; dry cells' vertex heights are FLT_MAX) and the ground smoothed over 100
+  the range's top is the surface; dry cells' vertex heights are FLT_MAX; since 2026-10-08 a cell takes the mean
+  of its four points' heights, so a river is not held at its chunk's highest level) and the ground smoothed over 100
   yards. The fog lies between the two (`follow`), more in hollows and over water; `morning` thickens it at
   dawn and dusk.
 - **Lamps** are dimmed by the fog between you and them and glow more in thick mist (`lampMist`).
@@ -2078,7 +2079,8 @@ flickered on the horse. With `[depth] seeThrough 0` alone (the owner, in the gam
 - **The rule now asks the unit.** The server marks stealth with `UNIT_BYTE1_FLAGS_CREEP` (0x02) in byte 3 of
   `UNIT_FIELD_BYTES_1` (0x8A), read with the units (`ClientUnitList`). `ShadowIsStealthedUnitDraw`: the
   draw's buffer holds a view of the model a stealthed unit within reach wears, and the unit is not the
-  player. The 4-yard rule for the player's own models is gone.
+  player. The 4-yard rule for the player's own models is gone. Since 2026-10-08 the player counts too: a rogue
+  in stealth cast a shadow of their own (a player's report), and a fade without the flag is not taken.
 - A unit invisible by another aura (`SPELL_AURA_MOD_INVISIBILITY`) does not set the flag and is not taken.
 
 The probe lists each unit within 40 yards with its displays, `UNIT_FIELD_BYTES_1` and whether it is stealthed.
