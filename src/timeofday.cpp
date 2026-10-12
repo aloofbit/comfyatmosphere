@@ -362,6 +362,18 @@ namespace
         return text;
     }
 
+    float LocalHour()
+    {
+        SYSTEMTIME time = {};
+        GetLocalTime(&time);
+        // Sample Windows' wall clock each time: no cached UTC offset or elapsed
+        // timer, so timezone/DST changes and resume from sleep follow the clock.
+        const float hour = static_cast<float>(time.wHour + time.wMinute / 60.0 +
+            time.wSecond / 3600.0 + time.wMilliseconds / 3600000.0);
+        // Float rounding just before midnight must not produce day fraction 1.
+        return hour < 24.0f ? hour : std::nextafter(24.0f, 0.0f);
+    }
+
     bool Writable(uintptr_t a)
     {
         MEMORY_BASIC_INFORMATION mbi = {};
@@ -423,7 +435,8 @@ void TimeReload()
 void TimeAfterTune()
 {
     const TimeSettings& t = g_cfg.time;
-    if (t.enabled != g_loaded.enabled || t.hour != g_loaded.hour || t.step != g_loaded.step ||
+    if (t.enabled != g_loaded.enabled || t.localTime != g_loaded.localTime ||
+        t.hour != g_loaded.hour || t.step != g_loaded.step ||
         t.dayHour != g_loaded.dayHour || t.nightHour != g_loaded.nightHour || t.addrMinutes != g_loaded.addrMinutes ||
         t.addrFraction != g_loaded.addrFraction || t.addrMinutesF != g_loaded.addrMinutesF)
         TimeReload();
@@ -431,7 +444,7 @@ void TimeAfterTune()
 
 void TimeStep(float hours)
 {
-    if (!g_cfg.time.enabled || g_otherDll)
+    if (!g_cfg.time.enabled || g_cfg.time.localTime || g_otherDll)
         return;
     if (g_hour < 0.0f)
         g_hour = g_cfg.time.hour;
@@ -444,7 +457,7 @@ void TimeStep(float hours)
 // So a press always goes to the other one, also from a time that Ctrl+PageUp / PageDown moved.
 void TimeToggleDayNight()
 {
-    if (!g_cfg.time.enabled || g_otherDll)
+    if (!g_cfg.time.enabled || g_cfg.time.localTime || g_otherDll)
         return;
     const float now = TimeCurrentHour();
     auto apart = [now](float h) { const float d = fabsf(fmodf(now - h + 48.0f, 24.0f)); return d < 12.0f ? d : 24.0f - d; };
@@ -457,12 +470,14 @@ void TimeToggleDayNight()
 
 float TimeCurrentHour()
 {
+    if (g_cfg.time.enabled && g_cfg.time.localTime && !g_otherDll)
+        return LocalHour();
     return g_hour < 0.0f ? g_cfg.time.hour : g_hour;
 }
 
 void TimeSet(float hour)
 {
-    if (!g_cfg.time.enabled || g_otherDll)
+    if (!g_cfg.time.enabled || g_cfg.time.localTime || g_otherDll)
         return;
     g_hour = fmodf(fmodf(hour, 24.0f) + 24.0f, 24.0f);
     Moved();
@@ -472,7 +487,8 @@ bool TimeLockWrite(bool on)
 {
     if (g_otherDll)
         return false;
-    std::map<std::string, std::string> values = { { "time.enabled", on ? "1" : "0" } };
+    std::map<std::string, std::string> values = {
+        { "time.enabled", on ? "1" : "0" }, { "time.localTime", "0" } };
     if (on)
         values["time.hour"] = HourText(TimeCurrentHour());
     std::string error;
@@ -483,14 +499,35 @@ bool TimeLockWrite(bool on)
     }
     Log("--- time %s (written into comfyatmos.ini)%s ---", on ? "locked" : "unlocked: the server's time",
         on ? (", hour " + values["time.hour"]).c_str() : "");
-    if (ConfigOverrides().count("time.enabled"))
-        Log("time: /atmos time.enabled is set and wins over the ini until /atmos reset");
+    if (ConfigOverrides().count("time.enabled") || ConfigOverrides().count("time.localTime"))
+        Log("time: a /atmos time.enabled or time.localTime override wins over the ini until /atmos reset");
+    return true;
+}
+
+bool TimeLocalWrite(bool on)
+{
+    if (g_otherDll)
+        return false;
+    // Save only the mode. A ticking clock must never rewrite the ini each frame
+    // or replace the player's saved fixed hour.
+    const std::map<std::string, std::string> values = {
+        { "time.enabled", on ? "1" : "0" }, { "time.localTime", on ? "1" : "0" } };
+    std::string error;
+    if (!TuneWriteIni(values, error))
+    {
+        Log("time: Follow computer time not written: %s", error.c_str());
+        return false;
+    }
+    Log("--- time: %s (written into comfyatmos.ini) ---",
+        on ? "following the computer's local clock" : "the server's time");
+    if (ConfigOverrides().count("time.enabled") || ConfigOverrides().count("time.localTime"))
+        Log("time: a /atmos time.enabled or time.localTime override wins over the ini until /atmos reset");
     return true;
 }
 
 void TimePersistTick()
 {
-    if (!g_moved || !g_cfg.time.enabled || g_otherDll || Now() - g_movedAt < 1.0)
+    if (!g_moved || !g_cfg.time.enabled || g_cfg.time.localTime || g_otherDll || Now() - g_movedAt < 1.0)
         return;
     g_moved = false;
     const std::string hour = HourText(TimeCurrentHour());
@@ -507,7 +544,7 @@ int TimeState()
         return 2;
     if (!g_cfg.time.enabled)
         return 0;
-    return g_checked && !g_usable ? 3 : 1;
+    return g_checked && !g_usable ? 3 : g_cfg.time.localTime ? 4 : 1;
 }
 
 void TimeApply(const char* where)
@@ -515,7 +552,9 @@ void TimeApply(const char* where)
     const TimeSettings& t = g_cfg.time;
     if (!t.enabled || g_otherDll)
         return;
-    if (g_hour < 0.0f)
+    if (t.localTime)
+        g_hour = LocalHour();
+    else if (g_hour < 0.0f)
         g_hour = fmodf(t.hour + 24.0f, 24.0f);
     if (!g_checked)
     {
@@ -593,6 +632,6 @@ void TimeProbe()
     const float h = TimeCurrentHour();
     Log("time: %s, showing %02d:%02d ([time] hour %.2f)", g_otherDll ? "off, comfytime.dll sets it" :
         !t.enabled ? "off ([time] enabled 0), the server's time" : !g_checked ? "on, not written yet" :
-        g_usable ? "on" : "off, the addresses did not check out", static_cast<int>(h),
+        !g_usable ? "off, the addresses did not check out" : t.localTime ? "following the computer's local clock" : "on", static_cast<int>(h),
         static_cast<int>(fmodf(h * 60.0f, 60.0f)), t.hour);
 }

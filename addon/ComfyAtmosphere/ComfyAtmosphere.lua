@@ -2697,11 +2697,11 @@ end
 
 -- ---- the time of day (2026-10-07, from comfytime) --------------------------------------------------
 --
--- The addon sends "<number> <verb> [value]" in comfyTimeSet: set <hour>, step <steps>, daynight, lock <0 or 1>. A new
+-- The addon sends "<number> <verb> [value]" in comfyTimeSet: set <hour>, step <steps>, daynight, lock/local <0 or 1>. A new
 -- number each time, so the same command twice runs twice; it starts from the clock, so a /reload does not repeat
 -- the last number. comfyatmos.dll reads it every frame. It writes "<hour> <state>" into comfyTimeShown in place,
 -- which needs the CVar to hold 16 characters, as comfyStats does. State: 0 the server's time ([time] enabled 0),
--- 1 ours, 2 an old comfytime.dll sets it, 3 the addresses did not check out.
+-- 1 locked, 2 an old comfytime.dll sets it, 3 the addresses did not check out, 4 the computer's local clock.
 
 local TIME_LEN = 16;
 local timeNumber = math.floor(GetTime() * 1000);
@@ -2733,8 +2733,8 @@ local function TimeShown()
 	return tonumber(hour), tonumber(state);
 end
 
-local function TimeText(hour)
-	local minutes = math.floor(hour * 60 + 0.5);
+local function TimeText(hour, live)
+	local minutes = math.floor(hour * 60 + (live and 0 or 0.5));
 	return string.format("%02d:%02d", math.mod(math.floor(minutes / 60), 24), math.mod(minutes, 60));
 end
 
@@ -2818,6 +2818,8 @@ local function DebugRefresh()
 		debugFrame.timeText:SetText("Time of day: waiting for comfyatmos.dll");
 	elseif state == 1 then
 		debugFrame.timeText:SetText("Time of day: " .. TimeText(hour));
+	elseif state == 4 then
+		debugFrame.timeText:SetText("Computer time: " .. TimeText(hour, true));
 	elseif state == 0 then
 		debugFrame.timeText:SetText("Time of day: the server's. Tick Lock time to set it");
 	elseif state == 2 then
@@ -2834,7 +2836,12 @@ local function DebugRefresh()
 	local ours = state == 1;
 	slider:EnableMouse(ours);
 	slider:SetAlpha(ours and 1 or 0.4);
-	ComfyAtmosphereDebugTimeOn:SetChecked(state ~= 0);
+	ComfyAtmosphereDebugTimeOn:SetChecked(state == 1);
+	ComfyAtmosphereDebugTimeLocal:SetChecked(state == 4);
+	for _, name in ipairs({ "Earlier", "Later", "DayNight" }) do
+		local button = getglobal("ComfyAtmosphereDebug" .. name);
+		if ours then button:Enable(); else button:Disable(); end
+	end
 	if HasCVar("comfyHotkeys") then
 		ComfyAtmosphereDebugHotkeys:SetChecked(GetCVar("comfyHotkeys") == "1");
 	end
@@ -2904,11 +2911,19 @@ local function DebugBuild()
 	timeOn:SetScript("OnClick", function()
 		TimeSend("lock", this:GetChecked() and "1" or "0");
 	end);
+	local timeLocal = CreateFrame("CheckButton", "ComfyAtmosphereDebugTimeLocal", f, "UICheckButtonTemplate");
+	timeLocal:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -230);
+	timeLocal:SetWidth(24);
+	timeLocal:SetHeight(24);
+	ComfyAtmosphereDebugTimeLocalText:SetText("Follow computer time");
+	timeLocal:SetScript("OnClick", function()
+		TimeSend("local", this:GetChecked() and "1" or "0");
+	end);
 
 	-- comfyatmos.dll's own keys, read past the game's key bindings ([general] hotkeys). A control CVar, so the
 	-- game keeps it in Config.wtf.
 	local hotkeys = CreateFrame("CheckButton", "ComfyAtmosphereDebugHotkeys", f, "UICheckButtonTemplate");
-	hotkeys:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -230);
+	hotkeys:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -254);
 	hotkeys:SetWidth(24);
 	hotkeys:SetHeight(24);
 	ComfyAtmosphereDebugHotkeysText:SetText("Developer keys (F11, F12, Ctrl+PageUp)");
@@ -2919,7 +2934,7 @@ local function DebugBuild()
 		end
 		SetCVar("comfyHotkeys", this:GetChecked() and "1" or "0");
 	end);
-	f:SetHeight(266);
+	f:SetHeight(290);
 
 	local wait = 0;
 	f:SetScript("OnUpdate", function()

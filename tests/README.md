@@ -1,5 +1,22 @@
 # Tests
 
+## Offline time-of-day checks
+
+These exercise the time controller and INI parsing without starting WoW or creating a graphics device:
+
+```
+cmake -B build -A Win32 -DCOMFY_BUILD_UNIT_TESTS=ON
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The test clock covers server/fixed/local modes, midnight, Madrid's daylight-saving transitions,
+clock changes, persistence, hot reload and the existing address/other-DLL guards. It does not change
+the computer's clock or timezone. If Lua is on PATH, CTest also exercises the addon's time controls
+with a mock UI (mode commands, enabled states and clock display). The in-game visual tests below are separate.
+
+## In-game tests
+
 Each test runs in the WoW test client with no one at the keyboard and says PASS or FAIL. It uses
 wow-test-tool (`comfy-wow\tools\wow-test-tool`): its `Login.ps1` logs in, and its `Run-Test.ps1` runs the
 steps in the game.

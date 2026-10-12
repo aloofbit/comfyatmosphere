@@ -669,6 +669,7 @@ struct GrassSettings
 struct TimeSettings
 {
     bool  enabled      = true;        // 0: the game's own time
+    bool  localTime    = false;       // 1: follow the computer's local clock instead of holding hour
     float hour         = 13.0f;       // 0..24, fractions allowed (13.5 = 13:30)
     float step         = 0.0167f;     // hours per Ctrl+PageUp / PageDown, 0.0167 is about a minute
     float dayHour      = 13.0f;       // Ctrl+End switches between these two

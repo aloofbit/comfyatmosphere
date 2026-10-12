@@ -100,7 +100,16 @@ Atmosphere page sets is refused: use the control.
 
 The **Debug** button in the settings window, or `/atmos debug`, opens the debug panel. It also sets the time of
 day: a slider, a step either way, Day/Night, and **Lock time**. Ticked, the hour stays where you put it, also
-after a restart. Unticked, the server's time shows. The panel also has the Developer keys box:
+after a restart. **Follow computer time** instead follows your Windows local clock, including timezone
+and daylight-saving changes. With both unticked, the server's time shows. These modes affect only your
+client's lighting, not server events or timers; they do not calculate your location's seasonal sunrise
+and sunset.
+
+For local time without the addon, set `[time] enabled = 1` and `localTime = 1` in `comfyatmos.ini`.
+The fixed-hour slider and time-step keys apply only in **Lock time** mode. Local time does not overwrite
+the saved `hour`. It is off by default, so existing configurations keep their behavior.
+
+The panel also has the Developer keys box:
 
 ![debug menu](media/debug-menu.png)
 

@@ -546,6 +546,7 @@ void LoadSettings(const wchar_t* ini)
 
     TimeSettings& tm = s.time;
     tm.enabled      = GetB(kTime, L"enabled", tm.enabled, ini);
+    tm.localTime    = GetB(kTime, L"localTime", tm.localTime, ini);
     tm.hour         = Clamp(GetF(kTime, L"hour", tm.hour, ini), 0.0f, 24.0f);
     tm.step         = Clamp(GetF(kTime, L"step", tm.step, ini), 0.001f, 6.0f);
     tm.dayHour      = Clamp(GetF(kTime, L"dayHour", tm.dayHour, ini), 0.0f, 24.0f);

@@ -67,6 +67,20 @@ if(MSVC)
     target_compile_options(comfyatmos PRIVATE /W3 /permissive- /GS-)
 endif()
 
+# CPU-only checks for time modes; no client, renderer or graphics device needed.
+option(COMFY_BUILD_UNIT_TESTS "Build offline time-of-day tests" OFF)
+if(COMFY_BUILD_UNIT_TESTS)
+    enable_testing()
+    add_executable(comfy_time_test tests/timeofday_test.cpp src/config.cpp)
+    add_test(NAME timeofday COMMAND comfy_time_test)
+    find_program(COMFY_LUA NAMES lua lua5.4 lua5.1)
+    if(COMFY_LUA)
+        add_test(NAME timeofday_ui COMMAND ${COMFY_LUA}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/timeofday_ui_test.lua
+            ${CMAKE_CURRENT_SOURCE_DIR}/addon/ComfyAtmosphere/ComfyAtmosphere.lua)
+    endif()
+endif()
+
 # A measurement build (2026-10-09): every heap block counted by the code that allocated it, for the hot reload's
 # memory (src/memtrace.cpp). cmake -B build-trace -A Win32 -DCOMFY_MEMTRACE=ON; the DLL stays in build-trace.
 option(COMFY_MEMTRACE "count heap blocks by caller" OFF)

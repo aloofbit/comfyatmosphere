@@ -19,11 +19,14 @@ void TimeSet(float hour);            // show this hour (the debug panel's slider
 // Lock time (the debug panel): write [time] enabled into the ini, and with it on the hour being shown. The caller
 // reads the settings again.
 bool TimeLockWrite(bool on);
+// Follow the computer's local clock, including its timezone and daylight saving.
+// Turning this off returns to server time. The caller reads the settings again.
+bool TimeLocalWrite(bool on);
 // Once a frame: while the time is ours, an hour the player moved goes into [time] hour a second after the last move,
 // so the next start shows it. /atmos time.hour (a test's hour) is never written.
 void TimePersistTick();
 // What the time does now: 0 the game's own time ([time] enabled 0), 1 ours, 2 an old comfytime.dll sets it,
-// 3 the addresses did not check out.
+// 3 the addresses did not check out, 4 following the computer's local clock.
 int TimeState();
 void TimeProbe();                    // the probe (F12): the hour shown, and whether the addresses passed
 // The hot reload: the hour shown and the address check, handed from one copy to the next.
