@@ -1,0 +1,52 @@
+# DXVK 2.7.1 against 3.1.1, the plain client: frame times at the three places of frame-rate-performance.
+# Each place: the arrival after a teleport (load hitches), 10 s standing, 6 s turning on the spot.
+chat .gm on
+flight off
+chat .wchange 0 0
+front
+chat .go xyz -5037.5 -816.6 495.1 0
+arrive -5037.5 -816.6 495.1
+wait 3
+
+chat .go xyz -8625 1328.9 5.6 0
+frames 8 harbour-arrive
+arrive -8625 1328.9 5.6
+wait 8
+heading 36.9
+pitch -12.4
+wait 3
+frames 10 harbour-still
+wait 11
+frames 6 harbour-turn
+turnby 170
+turnby 170
+wait 7
+
+chat .go xyz -9416.7 -2248 67.8 0
+frames 8 elwynn-arrive
+arrive -9416.7 -2248 67.8
+wait 8
+heading 53
+pitch 11.7
+wait 3
+frames 10 elwynn-still
+wait 11
+frames 6 elwynn-turn
+turnby 170
+turnby 170
+wait 7
+
+chat .go xyz -5037.5 -816.6 495.1 0
+frames 8 ironforge-arrive
+arrive -5037.5 -816.6 495.1
+wait 8
+heading -51.5
+pitch -12
+wait 3
+frames 10 ironforge-still
+wait 11
+frames 6 ironforge-turn
+turnby 170
+turnby 170
+wait 7
+back
