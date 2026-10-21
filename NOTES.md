@@ -35,6 +35,7 @@ measurement showed.
 | Lamps: the fog glows around lamps and torches, and lampposts light the surfaces near them | `lamps.cpp` (tracker), `lampglow.cpp` | none; `[lamps]` in the ini |
 | Sun shadows on the world, from the light's shadow map and its near map | `sunshadows.cpp` (+ `shadow.cpp`) | none; `[sunshadows]` in the ini |
 | Benchmark: each feature in turn, frame rate and our own GPU and CPU time | `bench.cpp` | Alt+F12 |
+| The command stream: the game's D3D9 calls replayed on a thread of our own (off; see the section of 2026-10-21) | `stream.cpp` | none; `[stream]` in the ini |
 
 ## What was found (measured in this `WoW.exe`)
 
@@ -4222,3 +4223,95 @@ to Booty Bay. Three causes, found in this order.
 
 Tried on the way and left out: Leaves off, Shadow Softness 2 and `modelGap` 0.6 changed nothing. Not measured yet: the
 frame time while a ship sails near, and whether the hull, now a model while it moves, takes the foam round objects.
+
+## Performance: the command stream, the game thread and the GPU at 1920 x 1080 (2026-10-21, the perf branch)
+
+The owner: the effects take the frame rate from 200 down to about 60. An overnight run on the `perf` branch, with
+the test client's vertical sync off (`gxVSync 0`: the client drops the line, and the display's 120 Hz then caps every
+measurement; the baseline's first run was capped at 120 without it).
+
+**comfyprof.** `tools/prof`: a DLL for test clients that samples the game's thread and DXVK's CS thread about
+1,000 times a second and logs where each sample is (module, a wait in a system call), which functions are on the stack
+(`comfyatmos` by its pdb and the EBP chain; the perf branch builds with `/Zi /Oy-`), and every thread's CPU.
+`/atmos prof <seconds> <label>` starts it; the report goes to `Logs\comfyprof.log`. The WoW names are from wow_turbo's
+`symbols.toml` (github.com/athei/wow-mods). A profile taken behind other windows shows UnitXP_SP3 waiting about a
+quarter of the time: its frame cap in the background.
+
+**Where the game's thread goes, 1152 x 864.** About 96% busy at every test place, effects on or off. Effects on:
+WoW about 41%, comfyatmos 24 to 31%, DXVK's D3D9 front end 15 to 25%, UnitXP_SP3 3.5%, nampower 2 to 3.5%.
+Effects off: WoW 53 to 69%, DXVK 10 to 14%, comfyatmos 5%. In our share at Elwynn: the shadow pipeline at the
+world's end 22% (the cache's merge 10%, the pose search 6%), the hooks on the client's draws 16%.
+
+**At 1920 x 1080 every place is bound by the GPU with the effects on**, and by the CPU with them off:
+
+| Place | Off | On | GPU frame, on |
+| --- | --- | --- | --- |
+| harbour | 295 fps | 78 | 11.7 ms |
+| Elwynn | 147 | 82 | 11.1 ms |
+| Goldshire | 167 | 61 | 15.3 ms |
+| Auberdine beach | 334 | 77 | 11.9 ms |
+
+Our GPU at the harbour: the light and fog 3.1 ms, the sun shadows 1.8, the shadow maps 1.1, the rays 1.0, and the
+water (from its first chunk to the world's end) 3.8. At Goldshire the shadow maps were 7.5 ms, 6 of it the leaves
+maps.
+
+**The command stream** (`src/stream.cpp`, `[stream] enabled`, off by default). As Northlight's CommandStream: the
+game's thread records every D3D9 call into a queue and our replay thread runs it on DXVK. Ours patches DXVK's
+vtables in place, innermost, so comfyatmos's hooks still run on the game's thread and their calls are recorded with
+the game's. Get calls are answered from a mirror of the device's state. Locks return memory of ours and the unlock
+records an upload; a texture level locked twice is read back once into a shadow. Releases are recorded and run on
+the replay thread after every command that used the object. State blocks are ours: comfyatmos's of type ALL copy
+the mirror, and the game's (recorded with BeginStateBlock before the stream starts) keep their Set commands. Faults
+found on the way:
+- A buffer's size kept for its address: DXVK gives a freed buffer's address to a new one, and an upload of 0.8 MB
+  went into a smaller block (a crash in mapterrain's Upload). The description is read at every lock.
+- The game's state blocks: 6 a frame applied, each a wait for the queue and a full read of the device's state.
+- 64-bit atomics on x86 are locked instructions: `Commit` took 6% of the game's thread. The counters are 32-bit.
+- **GetFVF.** DXVK 2.7 gives the FVF a bound declaration matches; the mirror gave 0, and comfyatmos found no water
+  draw (it looks for FVF 0x212). Every measurement with water in view looked faster with the stream: the water was
+  the game's own. The mirror now asks DXVK once for each declaration.
+
+- DXVK's own state blocks that comfyatmos made before the stream started: applied twice a frame, each a wait. Their
+  type is kept at creation, and one of type ALL gets a copy of the mirror at each Capture.
+- Release took an AddRef to return the count; it now records one release and returns 1 (Microsoft gives the value
+  for tests only; `[stream] exactRelease` 1 for the old way).
+
+Measured with the pictures matching (`tools/perf/Diff-Shots.ps1`: under 3% of pixels differ, as between two runs of
+one build), two alternating rounds at 1152 x 864, after the release change: harbour +8.5%, Elwynn 0, Goldshire
+-3.5%. The game's thread loses DXVK's 15 to 20% and pays about as much for the recording and the mirror: about
+23,000 Get calls a frame at Goldshire (13 a draw, comfyatmos's hooks), and 6,000 releases. On this laptop a busy
+second core also lowers the clock the game's thread gets. At 1920 x 1080 the GPU sets the frame rate and the stream
+cannot help. It stays off. Open: with the stream on, the shadow cache copies about 7 pieces of the client's
+streamed geometry a frame at the harbour (at sea level; none with it off), each two read-only locks, and each such
+lock waits for the queue.
+
+**The leaves maps at Goldshire.** keepStill (2026-10-07) keeps the leaves maps while nothing in them changes. At
+Goldshire one animated model in each (an M2 of 6,786 vertices in the near leaves) changed its pose every frame, and
+the near leaves were drawn in 474 of 487 frames. `[shadow] keepPoseEvery` (3): a change of poses alone is drawn on
+every third chance. The leaves maps went from about 1.7 ms each to 0.5; Goldshire from 95 to 114 fps at
+1920 x 1080 in one frame log, and from 88 to 113-117 at 1152 x 864. Shots in the normal view and in Debug View 5
+differ from the old build's as two runs of the old build differ (the grass's sway). Such a model's shade moves at a
+third of the frame rate. The keep test also takes each entry's counts, not its buffers.
+
+**The light's steps.** 64 to 32 (`[volume] steps`; medium and low 24): the light and fog 3.1 ms to 2.1 at
+1920 x 1080, +10% at the harbour and +8% at Elwynn. The noise turns each frame and 85% of the last frame is kept;
+shots at the harbour and Elwynn matched. Not looked at in motion.
+
+**The wet sand.** One full-screen draw where there were two (the sand multiplied, then the lip laid over it, now
+ONE + screen x SRCALPHA), and a pixel far above or below the water leaves after one read of a texture of each
+point's 3 x 3 highest and lowest level. clip() would not do: DXVK makes it a demote, and the shader's foam reads
+kept the compiler from branching until their dead code went.
+
+**The water at 1920 x 1080.** It costs 4.1 to 4.6 ms at the harbour and 5.9 at Auberdine. Its water part is 3 to 4 ms
+of that; through a one-colour shader the draws alone are still 1.1 to 1.4 ms. By control, at Auberdine: the drawn
+foam 1.8 ms (the foam round objects 0.85 of it), the glint, the reflection, the ripples, the wake, the swash and the
+edge line about nothing each. The shader is 3,940 instruction slots, 178 of them texture reads (fxc).
+
+**DXVK 3.** 3.1.1 ran the test 4 to 6% faster at 1152 x 864, but with the effects gone (90% of the harbour shot's
+pixels differ). Two causes:
+- DXVK 3 answers GetFVF with 0 while a declaration is bound, as Windows' D3D9 does, so the water, the rain mist and
+  the particles were not found. `DrawFvf` gives the declaration's FVF when GetFVF gives 0, at every place that finds
+  a draw by its FVF.
+- Still open: with anti-aliasing on, DXVK 3 refuses the multisampled INTZ stand-in for the client's depth
+  (`depth: could not create an INTZ ... stand-in (multisample 2, hr=0x8876086A)`), so the depth stays unreadable and
+  every effect that needs it is off. That is likely the "3.0 does not work with the mod" the owner heard.

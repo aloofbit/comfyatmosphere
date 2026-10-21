@@ -15,6 +15,7 @@ param(
     [int]$Width = 1152,
     [int]$Height = 864,
     [string]$D3d9 = '',
+    [string]$StreamExtra = '',   # more lines for the [stream] section, as 'getsBy = 1'
     [string]$Client = (Join-Path $env:USERPROFILE 'Desktop\wow-clients\octow - Copy')
 )
 $ErrorActionPreference = 'Stop'
@@ -26,6 +27,7 @@ else { & (Join-Path $PSScriptRoot 'Fresh-Client.ps1') -Install:(-not $NoInstall)
 $ini = Join-Path $Client 'comfyatmos.ini'
 $text = [IO.File]::ReadAllText($ini)
 $block = "[stream]`r`nenabled = $Stream`r`nstats = $Stats`r`nframesAhead = $Ahead`r`n"
+if ($StreamExtra) { $block += ($StreamExtra -replace ';', "`r`n") + "`r`n" }
 if ($text -match '(?ms)^\[stream\]\r?\n.*?(?=^\[|\z)') { $text = [regex]::Replace($text, '(?ms)^\[stream\]\r?\n.*?(?=^\[|\z)', $block) }
 else { $text = $text.TrimEnd() + "`r`n`r`n" + $block }
 [IO.File]::WriteAllText($ini, $text)
