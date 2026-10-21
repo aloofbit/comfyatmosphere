@@ -49,6 +49,7 @@ add_library(comfyatmos SHARED
     src/clouds.cpp
     src/cloudshapes.cpp
     src/weather.cpp
+    src/stream.cpp
 )
 
 # version.h: comfyatmos's version from git, for the client report (cmake/version.cmake).
@@ -69,6 +70,10 @@ set_target_properties(comfyatmos PROPERTIES
 
 if(MSVC)
     target_compile_options(comfyatmos PRIVATE /W3 /permissive- /GS-)
+    # A .pdb beside the build, for comfyprof's function names (2026-10-20). The code is the same.
+    # /Oy-: frame pointers, so comfyprof's EBP chain walks our frames.
+    target_compile_options(comfyatmos PRIVATE $<$<CONFIG:Release>:/Zi /Oy->)
+    target_link_options(comfyatmos PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
 endif()
 
 # CPU-only checks for time modes; no client, renderer or graphics device needed.

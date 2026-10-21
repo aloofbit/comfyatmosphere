@@ -1344,6 +1344,10 @@ namespace
                         const float t0 = (std::min)((std::max)(o.ms, lo), hi);
                         const float e0 = ObsError(*m, obs, o.seq, t0);
                         consider(o.seq, t0, e0);
+                        // A clock this close needs no walk (perf, 2026-10-21): within a twentieth of the largest error a
+                        // match may have, about a degree, the walk moved it a step or two at most. It cost two to
+                        // eight more errors a frame for each object, 5.7% of the game's thread in Elwynn.
+                        if (e0 > kSyncErr * 0.05f)
                         for (float dir = -2.0f; dir <= 2.0f; dir += 4.0f)
                         {
                             float last = e0;
@@ -2155,13 +2159,16 @@ namespace
         // within kMatchRadius. Only then are they matched, and the moving rule may not take an instance
         // another draw this frame has claimed. In one pass, a copy of a tree that came into view before the
         // tree already stored was matched took that tree's entry as "moved" (2026-09-29).
-        struct Placed { bool ok; D3DMATRIX absolute; float pos[3]; };
+        // list: the cache's entries for the draw's key, found once in the claims (perf, 2026-10-21); a pointer to a
+        // mapped value stays good while the map grows.
+        struct Placed { bool ok; D3DMATRIX absolute; float pos[3]; std::vector<Entry>* list; };
         std::vector<Placed> placed(g_frame.size());
         const unsigned long long profPlace = BenchProfBegin();
         for (size_t fi = 0; fi < g_frame.size(); ++fi)
         {
             Rec& r = g_frame[fi];
             placed[fi].ok = false;
+            placed[fi].list = nullptr;
             // The client draws the sky and the far horizon with cameras and depth slices of their own.
             // Taken out of the camera with the WORLD camera, such a draw lands in the wrong place at the
             // wrong scale: in the shadow map, a huge caster near the sun that covered a third of the map
@@ -2301,6 +2308,7 @@ namespace
             const Rec& r = g_frame[fi];
             const Key k = { r.vb[0], r.ib, r.vs, r.baseVertex, r.minIndex, r.numVertices, r.startIndex, r.primCount };
             auto it = g_cache.find(k);
+            placed[fi].list = it == g_cache.end() ? nullptr : &it->second;
             if (it == g_cache.end())
                 continue;
             Entry* nearest = nullptr;
@@ -2329,8 +2337,10 @@ namespace
             e.absolute = placed[fi].absolute;
             float pos[3] = { placed[fi].pos[0], placed[fi].pos[1], placed[fi].pos[2] };
 
-            const Key k = { r.vb[0], r.ib, r.vs, r.baseVertex, r.minIndex, r.numVertices, r.startIndex, r.primCount };
-            std::vector<Entry>& list = g_cache[k];
+            std::vector<Entry>* known = placed[fi].list;
+            std::vector<Entry>& list = known ? *known
+                                             : g_cache[Key{ r.vb[0], r.ib, r.vs, r.baseVertex, r.minIndex, r.numVertices,
+                                                            r.startIndex, r.primCount }];
             Entry* best = nullptr;
             float  bestD2 = kMatchRadius * kMatchRadius;
             for (Entry& cand : list)

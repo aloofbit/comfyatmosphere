@@ -40,6 +40,7 @@
 #include "lamps.h"
 #include "rays.h"
 #include "shadercache.h"
+#include "stream.h"
 #include "shadow.h"
 #include "sun.h"
 #include "sundot.h"
@@ -3395,6 +3396,8 @@ namespace
 
         // The vtable is static data inside the pinned d3d9.dll, so it outlives the device.
         auto* v = const_cast<IDirect3DDevice9Vtbl*>(probe->lpVtbl);
+        // The command stream (perf, 2026-10-21) goes innermost: before every hook of ours on the same slots.
+        StreamInstall(probe);
         PatchBufferVtables(probe);
 
         probe->lpVtbl->Release(probe);

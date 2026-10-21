@@ -1497,6 +1497,7 @@ float4 main(float3 pos : POSITION) : POSITION
     const char* kWetPsHlsl = R"HLSL(
 sampler2D sUnder : register(s15);  // the depth under the water (INTZ)
 sampler2D sLevel : register(s13);  // the water level of each map cell round you (R32F; -10000 where dry)
+sampler2D sRange : register(s11);  // the highest and lowest level of the 3 x 3 points round each point (perf, 2026-10-21)
 float4 gI0  : register(c200);      // rows of inverse(view x projection): clip -> camera-relative world
 float4 gI1  : register(c201);
 float4 gI2  : register(c202);
@@ -1543,6 +1544,9 @@ float4 main(float2 vpos : VPOS) : COLOR
     float4 wp  = ndc.x * gI0 + ndc.y * gI1 + d * gI2 + gI3;
     float3 P   = wp.xyz / wp.w;
     float3 A   = P + gCam.xyz;
+    // The ground's gradients, taken before the early leave below: a gradient after a branch makes the compiler
+    // flatten it (2026-10-21).
+    const float3 dPx = ddx(P), dPy = ddy(P);
     // The level here: the water's points round it, each by how near it is (2026-10-11). A point is a corner of the
     // map's cells, at the height the client draws the water at; the nine nearest are read. The cells round it, each
     // its four corners' mean, came first (2026-10-08; the highest of nine before that): a river runs downhill, and
@@ -1554,6 +1558,19 @@ float4 main(float2 vpos : VPOS) : COLOR
     // Nothing past the texture (2026-10-11): it clamps, and a mound 190 yards off took the level of a point at its edge,
     // two yards over the water there, and the band lay well up its side (Ashenvale, the owner).
     const float  inTex = all(cell >= 1.0) && all(cell <= 1.0 / gLv.w - 2.0) ? 1.0 : 0.0;
+#ifndef WET_PROBE
+    // Most of the screen is far above or below the water round it (2026-10-21, the frame rate): one read of the
+    // 3 x 3 points' highest and lowest level, which bound the level the nine reads below make, and the pixel leaves.
+    // Nothing shows past 1.2 yards over the water (the lip's widest reach over its highest run-up) or 0.8 under it.
+    // A return, not clip(): DXVK makes clip() a demote, and a demoted pixel runs the rest of the shader.
+    // (0, 0, 0, 1) leaves the screen as it is under the pass's blend.
+    [branch] if (gScr.z < 0.5)
+    {
+        const float2 rg = tex2Dlod(sRange, float4((cell + 0.5) * gLv.w, 0, 0)).rg;
+        [branch] if (inTex < 0.5 || rg.x < -1000.0 || A.z - rg.x > 1.2 || A.z - rg.y < -0.8)
+            return float4(0.0, 0.0, 0.0, 1.0);
+    }
+#endif
     [unroll] for (int y = -1; y <= 1; ++y)
     [unroll] for (int x = -1; x <= 1; ++x)
     {
@@ -1568,7 +1585,7 @@ float4 main(float2 vpos : VPOS) : COLOR
     return float4(A, raw > gZ.x + 1.0 / gZ.y - 1e-5 ? -20000.0 : lv);
 #endif
     float  h    = A.z - lv;                                          // yards above the water
-    float3 n    = cross(ddx(P), ddy(P));
+    float3 n    = cross(dPx, dPy);
     // Not a body, a wall or a post: full up to a slope of 60 degrees, none past 72. Until 2026-10-07 none past 32
     // degrees: on a steep bank (Tel'Abim) the wet sand came and went with each of the ground's triangles, in
     // pieces with straight edges.
@@ -1583,12 +1600,12 @@ float4 main(float2 vpos : VPOS) : COLOR
     // 300 yards off): far off a pixel stands taller than the wet band, and took it whole from its middle. The band
     // darkens only its share of the pixel's height; on a pixel across an edge, the rock's and the water's, the
     // heights in it jump, and it fades too.
-    wet *= saturate(top * 0.75 / max(max(abs(ddx(P).z), abs(ddy(P).z)), 1e-4));
+    wet *= saturate(top * 0.75 / max(max(abs(dPx.z), abs(dPy.z)), 1e-4));
     // Less with the distance (2026-10-13, the owner: less noticeable far off): full to half of Wet Sand Distance,
     // none at it. Until then it ran to the edge of the level texture, some 266 yards out, and stopped there.
     wet *= 1.0 - smoothstep(0.5 * gSwashW.w, gSwashW.w, length(P));
     if (gScr.z > 2.5 && gScr.z < 3.5)
-        return float4(wet.xxx, 1.0);                                 // debug 3: the wet sand alone
+        return float4(wet.xxx, 0.0);                                 // debug 3: the wet sand alone
     float wa = wet * gZ.z;
 
     // The swash (2026-10-02): a thin film of water runs up the beach and slides back, the sand under it
@@ -1618,62 +1635,16 @@ float4 main(float2 vpos : VPOS) : COLOR
     // It stops at the waterline (2026-10-03; 0.05 below it until then). The water takes what lies under it from
     // the screen after this pass, so the film below the waterline showed through the first 0.05 yards of water,
     // tinted twice: a bright line fixed at the flat waterline, which never moved with the swash.
-    float  film  = (1.0 - smoothstep(up - 0.015, up, h)) * smoothstep(-0.01, 0.0, h) * flat;
-    film *= lv > -1000.0 ? 1.0 : 0.0;
-    // The lip: the edge line, riding the film's edge. At rest it lies at the waterline, where the water pass's
-    // own edge line used to be; that one is off while the swash is on, so there is one shoreline, not two.
-    float  ft    = gFilm2.y > 0.5 ? tex2D(sFoamW, A.xy * gFilm2.x + float2(gZ.w * 0.01, 0.0)).a : 0.6;
-    // A solid white line on the moving edge (2026-10-03: broken by the foam texture and at half the Edge Line
-    // until then), about 0.12 yards wide along the ground whatever the slope.
+    // The lip: a solid white line on the moving edge, about 0.12 yards wide along the ground whatever the slope.
+    // At rest it lies at the waterline. The film's colour and its foam left this pass on 2026-10-03, when the water
+    // pass took the swash over; their dead code went on 2026-10-21 (perf), as its foam reads kept the compiler from
+    // branching.
     float  lipE  = exp(-pow((h - up) / (0.12 * slopeW + 0.003), 2.0)) * gFilm2.z * flat;
     lipE *= lv > -1000.0 ? 1.0 : 0.0;
-    // The game's foam on the film: the water pass's shore foam, measured from the moving edge in the same way and
-    // with the same texture at the same place and time, so one foam runs from the water up the sand and back.
-    // Until 2026-10-03 this was a foam of its own just behind the edge, and the water's band stayed put at the
-    // waterline: the foam looked fixed to the flat water while the edge moved.
-    float  below = max(up - h, 0.0);                                 // yards of height under the moving edge
-    float  reachW = below / slopeW;
-    float  shoreW = saturate(1.0 - max(below * gFoamW.x * (1.0 + slopeW * 4.0), reachW * gFoamW.y));
-    float  tW    = gZ.w * gFoamW.z;
-    float  bandW = sin(reachW * 4.0 + tW * 1.6) * 0.5 + 0.5;
-    float  fshW  = shoreW * (0.55 + 0.45 * bandW);
-    float2 fpW   = A.xy * gFilm2.x;
-    float  ft2   = gFilm2.y > 0.5 ? 0.6 * tex2D(sFoamW, fpW + float2(tW * 0.010, tW * 0.006)).a +
-                                    0.4 * tex2D(sFoamW, fpW * 0.71 + float2(0.37 - tW * 0.007, 0.21 + tW * 0.011)).a
-                                  : 0.5;
-    float  fcut  = 1.0 - 0.7 * fshW;
-    float  sfoam = smoothstep(fcut, fcut + 0.3, ft2) * saturate(fshW * 2.0) * gFilm3.x * film;
-    // The foam on the swash is the water pass's own since it draws the swash (2026-10-03); this one would show
-    // twice, through that water and on it.
-    lipE = max(lipE, sfoam * 0.0);
-    // Two draws (2026-10-02). The first multiplies the sand: wet, and under the film the water's hue, as the
-    // sand seen through thin water is in the water pass. Laid on as a colour, the film was darker than the clear
-    // water beside it, a dark band inside the foam line. The second lays the foam on.
-    if (gFilm3.y < 0.5)
-        return float4((1.0 - wa).xxx, 1.0);                          // the wet sand, multiplied
-    // The film: the sand's brightness in the water's hue, as the thin water gets in the water pass, so the
-    // water's colour runs right up to the foam with no step. Multiplied, it could only darken orange sand to
-    // olive (2026-10-02). Then the foam over it.
-    float  fA = 0.0;
-    float3 fC = 0.0;
-    if (gFilm3.z > 0.5)
-    {
-        float3 hue = gFilm.rgb / max(dot(gFilm.rgb, float3(0.299, 0.587, 0.114)), 1e-3);
-        // The dry sand's brightness, as the water pass sees the bed beside it: taken after the wet sand's
-        // darkening, the film was darker than the water next to it.
-        float3 sand = tex2Dlod(sSceneW, float4(uv, 0, 0)).rgb;
-        float  lum = dot(sand, float3(0.299, 0.587, 0.114));
-        // The water pass's thinnest water (2026-10-03): the bed, 0.7 of it in the water's hue at its own
-        // brightness. It was lum x hue x 1.4, measured on the Westfall beach; on a steep bank in Redridge, once
-        // the film ran up it, that glowed far brighter than the water beside it. At Swash 55 the film is whole.
-        // No film colour since the water pass draws the swash itself (2026-10-03): two of them met at the flat
-        // waterline as a second shoreline. Kept for a look back: fC is the water's colour at no depth.
-        fA = 0.0;
-        fC = lerp(sand, lum * hue, 0.7);
-    }
-    float  a2 = 1.0 - (1.0 - fA) * (1.0 - lipE);
-    float3 c2 = a2 > 1e-4 ? (fC * fA * (1.0 - lipE) + float3(0.92, 0.95, 0.96) * lipE) / a2 : 0.0;
-    return float4(c2, a2);
+    // One draw since 2026-10-21 (perf): the colour is the lip's white times its share, the alpha what the screen
+    // keeps, (1 - wet) x (1 - lip), blended as ONE + screen x SRCALPHA. Until then two draws: the first multiplied
+    // the sand, the second laid the lip on.
+    return float4(float3(0.92, 0.95, 0.96) * lipE, (1.0 - wa) * (1.0 - lipE));
 }
 )HLSL";
 
@@ -1708,6 +1679,8 @@ float4 main(float2 vpos : VPOS) : COLOR
     IDirect3DVertexShader9* g_wetVs = nullptr;
     IDirect3DPixelShader9*  g_wetPs = nullptr;
     IDirect3DTexture9*      g_level = nullptr;     // the water level of each map cell round you
+    IDirect3DTexture9*      g_levelRange = nullptr;   // the highest and lowest of the 3 x 3 levels round each (perf)
+    constexpr DWORD         kRangeSampler = 11;
     IDirect3DStateBlock9*   g_wetSb = nullptr;
     IDirect3DIndexBuffer9*  g_gridIb = nullptr;   // all 8 x 8 cells of a water chunk (FullGridDraw)
     bool                    g_gridFailed = false;
@@ -3140,9 +3113,12 @@ namespace
             if (FAILED(dev->lpVtbl->CreateTexture(dev, kLevelCells, kLevelCells, 1, 0, D3DFMT_G32R32F, D3DPOOL_MANAGED,
                                                   &g_level, nullptr)))
                 g_level = nullptr;
+            if (FAILED(dev->lpVtbl->CreateTexture(dev, kLevelCells, kLevelCells, 1, 0, D3DFMT_G32R32F, D3DPOOL_MANAGED,
+                                                  &g_levelRange, nullptr)))
+                g_levelRange = nullptr;
             if (FAILED(dev->lpVtbl->CreateStateBlock(dev, D3DSBT_ALL, &g_wetSb)))
                 g_wetSb = nullptr;
-            if (!g_wetVs || !g_wetPs || !g_level || !g_wetSb)
+            if (!g_wetVs || !g_wetPs || !g_level || !g_levelRange || !g_wetSb)
             {
                 Log("water: the wet sand pass could not be made (shaders %s, level texture %s, state block %s)",
                     g_wetVs && g_wetPs ? "ok" : "failed", g_level ? "ok" : "failed", g_wetSb ? "ok" : "failed");
@@ -3171,7 +3147,40 @@ namespace
         // The water's height at each corner of the cells, as the client draws it (2026-10-11): the cells' means stood
         // up to half a yard over a river running downhill beside its bank (Ashenvale, the owner).
         MapWaterLevelGrid(cx, cy, kLevelCells, static_cast<unsigned char*>(r.pBits), r.Pitch);
+        // The 3 x 3 range of each point's neighbours (2026-10-21): the pass's early skip.
+        static float lv[kLevelCells][kLevelCells];
+        for (int y = 0; y < kLevelCells; ++y)
+        {
+            const float* row = reinterpret_cast<const float*>(static_cast<const unsigned char*>(r.pBits) + y * r.Pitch);
+            for (int x = 0; x < kLevelCells; ++x)
+                lv[y][x] = row[x * 2];
+        }
         g_level->lpVtbl->UnlockRect(g_level, 0);
+        D3DLOCKED_RECT rr = {};
+        if (SUCCEEDED(g_levelRange->lpVtbl->LockRect(g_levelRange, 0, &rr, nullptr, 0)))
+        {
+            for (int y = 0; y < kLevelCells; ++y)
+            {
+                float* out = reinterpret_cast<float*>(static_cast<unsigned char*>(rr.pBits) + y * rr.Pitch);
+                for (int x = 0; x < kLevelCells; ++x)
+                {
+                    float hi = -10000.0f, lo = 10000.0f;
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx)
+                        {
+                            const int yy = y + dy, xx = x + dx;
+                            if (yy < 0 || xx < 0 || yy >= kLevelCells || xx >= kLevelCells)
+                                continue;
+                            const float v = lv[yy][xx];
+                            if (v > -1000.0f)
+                                { if (v > hi) hi = v; if (v < lo) lo = v; }
+                        }
+                    out[x * 2]     = hi;
+                    out[x * 2 + 1] = lo;
+                }
+            }
+            g_levelRange->lpVtbl->UnlockRect(g_levelRange, 0);
+        }
     }
 
     // The wet sand, once a frame, before the first water draw: every state goes back as it was (a state block),
@@ -3332,7 +3341,8 @@ namespace
         d->SetFVF(dev, D3DFVF_XYZ);
         d->SetTexture(dev, kUnderSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_under));
         d->SetTexture(dev, kLevelSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_level));
-        for (DWORD sm : { kUnderSampler, kLevelSampler })
+        d->SetTexture(dev, kRangeSampler, reinterpret_cast<IDirect3DBaseTexture9*>(g_levelRange));
+        for (DWORD sm : { kUnderSampler, kLevelSampler, kRangeSampler })
         {
             d->SetSamplerState(dev, sm, D3DSAMP_MINFILTER, D3DTEXF_POINT);
             d->SetSamplerState(dev, sm, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
@@ -3364,14 +3374,12 @@ namespace
         else
             d->SetRenderState(dev, D3DRS_STENCILENABLE, FALSE);
         const float quad[4][3] = { { -1.0f, -1.0f, 0.0f }, { -1.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } };
-        // First the sand, multiplied (scene x out); then the foam, blended over it.
-        d->SetRenderState(dev, D3DRS_SRCBLEND, D3DBLEND_ZERO);
-        d->SetRenderState(dev, D3DRS_DESTBLEND, D3DBLEND_SRCCOLOR);
-        d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, quad, sizeof(quad[0]));
+        // One draw (2026-10-21, perf): the sand multiplied and the lip laid over it, as ONE + screen x SRCALPHA.
+        // Two full-screen draws until then, the first multiplying the sand, the second laying the lip on.
         const float second[4] = { k[40], 1.0f, g_psc[190], 0.0f };
         d->SetPixelShaderConstantF(dev, 210, second, 1);
-        d->SetRenderState(dev, D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-        d->SetRenderState(dev, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        d->SetRenderState(dev, D3DRS_SRCBLEND, D3DBLEND_ONE);
+        d->SetRenderState(dev, D3DRS_DESTBLEND, D3DBLEND_SRCALPHA);
         d->DrawPrimitiveUP(dev, D3DPT_TRIANGLESTRIP, 2, quad, sizeof(quad[0]));
         if (g_probeOn)
             WetProbe(dev, quad);
@@ -5276,6 +5284,7 @@ void WaterReset()
     SafeRelease(g_wetVs);
     SafeRelease(g_wetPs);
     SafeRelease(g_level);
+    SafeRelease(g_levelRange);
     g_levelX = g_levelY = 0x7FFFFFFF;
     SafeRelease(g_splashPs);
     g_splashFailed = false;

@@ -520,6 +520,26 @@ std::vector<std::string> TuneRun(const std::string& command, bool& reloaded)
         FrameLogStart(seconds > 0.5 && seconds <= 120.0 ? seconds : 10.0);
         out.push_back("Every frame is timed now. The slowest go to Logs\\comfyatmos.log when it ends.");
     }
+    else if (w.size() >= 1 && Same(w[0], "prof"))
+    {
+        // comfyprof.dll, a sampling profiler for test clients (tools/prof, 2026-10-20): /atmos prof [seconds] [label].
+        using StartFn = int(__cdecl*)(double, const char*);
+        HMODULE pm = GetModuleHandleA("comfyprof.dll");
+        auto start = pm ? reinterpret_cast<StartFn>(GetProcAddress(pm, "ComfyProfStart")) : nullptr;
+        const double seconds = w.size() >= 2 ? atof(w[1].c_str()) : 10.0;
+        std::string label;
+        for (size_t i = 2; i < w.size(); ++i)
+            label += (i > 2 ? " " : "") + w[i];
+        if (!start)
+            out.push_back("comfyprof.dll is not loaded.");
+        else if (start(seconds, label.c_str()))
+        {
+            Log("prof: started, %.1f s, \"%s\"", seconds, label.c_str());
+            out.push_back("Profiling. The report goes to Logs\\comfyprof.log.");
+        }
+        else
+            out.push_back("comfyprof is busy.");
+    }
     else if (w.size() == 1 && Same(w[0], "reset"))
     {
         const size_t n = over.size();
