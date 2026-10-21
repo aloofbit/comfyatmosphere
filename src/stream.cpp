@@ -52,6 +52,7 @@ namespace
     // ------------------------------------------------------------------------------------------------ settings, ids
 
     bool  g_installed = false;
+    bool  g_exactRelease = false;   // [stream] exactRelease: Release returns the true count (an AddRef each)
     bool  g_stats     = false;
     int   g_ahead     = 1;          // frames the game may run ahead of the replay
 
@@ -508,9 +509,18 @@ namespace
             Gate g;
             return real.Release(o);
         }
-        const ULONG n = real.AddRef(o);
-        RecordRelease(reinterpret_cast<IUnknown*>(o), 2);
-        return n - 2;
+        // One release recorded, and 1 returned (2026-10-21): the count is not known here. Microsoft's documentation
+        // gives Release's value for tests only, and neither the game nor comfyatmos reads it. An AddRef to learn the
+        // count was one more atomic step on a count the replay thread also changes, for each of some 6,000 releases a
+        // frame.
+        if (g_exactRelease)
+        {
+            const ULONG n = real.AddRef(o);
+            RecordRelease(reinterpret_cast<IUnknown*>(o), 2);
+            return n - 2;
+        }
+        RecordRelease(reinterpret_cast<IUnknown*>(o), 1);
+        return 1;
     }
 
     ULONG STDMETHODCALLTYPE W_VbRelease(IDirect3DVertexBuffer9* o)  { return ReleaseVia(o, g_vb); }
@@ -2510,6 +2520,7 @@ void StreamInstall(IDirect3DDevice9* probe)
     if (!ini || !GetPrivateProfileIntW(L"stream", L"enabled", 0, ini))
         return;
     g_stats = GetPrivateProfileIntW(L"stream", L"stats", 0, ini) != 0;
+    g_exactRelease = GetPrivateProfileIntW(L"stream", L"exactRelease", 0, ini) != 0;
     g_ahead = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"stream", L"framesAhead", 1, ini)), 1, 3);
     for (auto& h : g_free)
         InitializeSListHead(&h);

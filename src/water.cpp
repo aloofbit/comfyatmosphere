@@ -4432,7 +4432,7 @@ void WaterProbeDraw(IDirect3DDevice9* dev, const WaterChunk& c, unsigned index, 
         IDirect3DPixelShader9* ps = nullptr;
         dev->lpVtbl->GetPixelShader(dev, &ps);
         DWORD fvf = 0;
-        dev->lpVtbl->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         if (++g_pOther <= 12)
         {
             char t[160];
@@ -5354,7 +5354,7 @@ void WaterProbeTexture(IDirect3DDevice9* dev, const char* call, UINT nv, UINT pc
             d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &bl);
             d->GetRenderState(dev, D3DRS_SRCBLEND, &src);
             d->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
-            d->GetFVF(dev, &fvf);
+            DrawFvf(dev, &fvf);
             IDirect3DVertexShader9* vs = nullptr;
             IDirect3DPixelShader9* ps = nullptr;
             d->GetVertexShader(dev, &vs);

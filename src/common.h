@@ -26,3 +26,9 @@ using PFN_D3DCompile     = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const void*
 using PFN_D3DDisassemble = HRESULT(WINAPI*)(LPCVOID, SIZE_T, UINT, LPCSTR, OgBlob**);
 
 FARPROC CompilerProc(const char* name);
+
+// The FVF of the vertices bound for a draw (2026-10-21): GetFVF, or with a vertex declaration bound, the FVF it is
+// the same as. DXVK 2.7 answered GetFVF so for a declaration; DXVK 3 and Windows' own D3D9 answer 0, and the water,
+// the rain mist and the particles were not found by their FVF (on DXVK 3 the game's own water showed, not ours).
+struct IDirect3DDevice9;
+void DrawFvf(IDirect3DDevice9* dev, unsigned long* out);

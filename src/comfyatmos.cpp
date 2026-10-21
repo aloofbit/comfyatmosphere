@@ -100,6 +100,50 @@ void Log(const char* fmt, ...)
     fclose(f);
 }
 
+void DrawFvf(IDirect3DDevice9* dev, unsigned long* out)
+{
+    DWORD fvf = 0;
+    dev->lpVtbl->GetFVF(dev, &fvf);
+    *out = fvf;
+    if (fvf)
+        return;
+    IDirect3DVertexDeclaration9* decl = nullptr;
+    dev->lpVtbl->GetVertexDeclaration(dev, &decl);
+    if (!decl)
+        return;
+    D3DVERTEXELEMENT9 el[MAXD3DDECLLENGTH + 1];
+    UINT n = MAXD3DDECLLENGTH + 1;
+    const bool got = SUCCEEDED(decl->lpVtbl->GetDeclaration(decl, el, &n));
+    decl->lpVtbl->Release(decl);
+    if (!got)
+        return;
+    DWORD f = 0, texCount = 0;
+    for (UINT i = 0; i < n && el[i].Stream != 0xFF; ++i)
+    {
+        const D3DVERTEXELEMENT9& e = el[i];
+        if (e.Stream != 0)
+            return;   // more than one stream: no FVF says that
+        switch (e.Usage)
+        {
+        case D3DDECLUSAGE_POSITION:  f |= e.Type == D3DDECLTYPE_FLOAT4 ? D3DFVF_XYZW : D3DFVF_XYZ; break;
+        case D3DDECLUSAGE_POSITIONT: f |= D3DFVF_XYZRHW; break;
+        case D3DDECLUSAGE_NORMAL:    f |= D3DFVF_NORMAL; break;
+        case D3DDECLUSAGE_PSIZE:     f |= D3DFVF_PSIZE; break;
+        case D3DDECLUSAGE_COLOR:     f |= e.UsageIndex == 0 ? D3DFVF_DIFFUSE : D3DFVF_SPECULAR; break;
+        case D3DDECLUSAGE_TEXCOORD:
+            if (e.UsageIndex + 1u > texCount)
+                texCount = e.UsageIndex + 1u;
+            if (e.Type == D3DDECLTYPE_FLOAT1) f |= D3DFVF_TEXCOORDSIZE1(e.UsageIndex);
+            else if (e.Type == D3DDECLTYPE_FLOAT3) f |= D3DFVF_TEXCOORDSIZE3(e.UsageIndex);
+            else if (e.Type == D3DDECLTYPE_FLOAT4) f |= D3DFVF_TEXCOORDSIZE4(e.UsageIndex);
+            break;
+        default:
+            return;   // blend weights and the rest: not one of the FVFs looked for
+        }
+    }
+    *out = f | (texCount << D3DFVF_TEXCOUNT_SHIFT);
+}
+
 double Now()
 {
     static double inv = [] {
@@ -677,7 +721,7 @@ namespace
             dev->lpVtbl->GetRenderState(dev, D3DRS_SRCBLEND, &src);
             dev->lpVtbl->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
             dev->lpVtbl->GetRenderState(dev, D3DRS_FOGENABLE, &fog);
-            dev->lpVtbl->GetFVF(dev, &fvf);
+            DrawFvf(dev, &fvf);
             IDirect3DBaseTexture9* tex = nullptr;
             dev->lpVtbl->GetTexture(dev, 0, &tex);
             IDirect3DPixelShader9* ps = nullptr;
@@ -1860,7 +1904,7 @@ namespace
         d->GetRenderState(dev, D3DRS_SRCBLEND, &src);
         d->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
         d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
-        d->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         char key[160];
         snprintf(key, sizeof(key), "%-15s tex0=%p ps=%p vs=%p blend=%lu src=%lu dst=%lu zw=%lu fvf=0x%lX", kind, tex, ps,
                  g_vshader, blend, src, dst, zw, fvf);
@@ -1886,7 +1930,7 @@ namespace
     void SkyColours(IDirect3DDevice9* dev, UINT first, UINT nv)
     {
         DWORD fvf = 0;
-        dev->lpVtbl->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         if (fvf != (D3DFVF_XYZ | D3DFVF_DIFFUSE) || nv < 8 || nv > 2048)
             return;
         IDirect3DVertexBuffer9* vb = nullptr;
@@ -1969,7 +2013,7 @@ namespace
                         w = td.Width, h = td.Height;
                 }
                 DWORD fvf = 0;
-                dev->lpVtbl->GetFVF(dev, &fvf);
+                DrawFvf(dev, &fvf);
                 Log("  [draw %4u] LATE %-15s prims=%u verts=%u tex0=%p %ux%u ps=%p vs=%p blend=%u cw=0x%X fvf=0x%X rt=%p",
                     g_probe.draws, kind, pc, nv, ltex, w, h, lps, g_vshader, lblend, lcw, fvf, lrt);
             }
@@ -2008,7 +2052,7 @@ namespace
             char stages[512] = "";
             size_t at = 0;
             DWORD fvf = 0;
-            d->GetFVF(dev, &fvf);
+            DrawFvf(dev, &fvf);
             for (DWORD st = 0; st < 4; ++st)
             {
                 IDirect3DBaseTexture9* t = nullptr;
@@ -2207,7 +2251,7 @@ namespace
             d->GetRenderState(dev, D3DRS_ALPHAREF, &aref);
             d->GetRenderState(dev, D3DRS_CULLMODE, &cull);
             d->GetRenderState(dev, D3DRS_FOGENABLE, &fog);
-            d->GetFVF(dev, &fvf);
+            DrawFvf(dev, &fvf);
             IDirect3DPixelShader9* ps = nullptr;
             d->GetPixelShader(dev, &ps);
             DWORD cop = 0, ca1 = 0, ca2 = 0, aop = 0, tci = 0;
@@ -2425,7 +2469,7 @@ namespace
         d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
         if (src != D3DBLEND_DESTCOLOR || dst != D3DBLEND_SRCCOLOR || zw)
             return false;
-        d->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         IDirect3DBaseTexture9* tex = nullptr;
         d->GetTexture(dev, 0, &tex);
         if (!tex)
@@ -2588,7 +2632,7 @@ namespace
     {
         auto* d = dev->lpVtbl;
         DWORD fvf = 0, blend = 0, zw = 1;
-        d->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         if (fvf != 0x142)
             return false;
         d->GetRenderState(dev, D3DRS_ALPHABLENDENABLE, &blend);
@@ -2607,7 +2651,7 @@ namespace
             return false;
         auto* d = dev->lpVtbl;
         DWORD fvf = 0;
-        d->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         if (fvf != 0x142)
             return false;
         IDirect3DBaseTexture9* tex = nullptr;
@@ -2676,7 +2720,7 @@ namespace
         d->GetRenderState(dev, D3DRS_SRCBLEND, &src);
         d->GetRenderState(dev, D3DRS_DESTBLEND, &dst);
         d->GetRenderState(dev, D3DRS_ZWRITEENABLE, &zw);
-        d->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         if (src != D3DBLEND_SRCALPHA || dst != D3DBLEND_INVSRCALPHA || zw || fvf != 0x142)
             return false;
         IDirect3DBaseTexture9* tex = nullptr;
@@ -2842,7 +2886,7 @@ namespace
             return kNotLiquid;
         ps->lpVtbl->Release(ps);
         DWORD fvf = 0;
-        dev->lpVtbl->GetFVF(dev, &fvf);
+        DrawFvf(dev, &fvf);
         if (fvf == 0x212 && nv == 81)
         {
             if (g_waterPs.size() < 16 && g_waterPs.insert(ps).second)
@@ -2995,7 +3039,7 @@ namespace
         else if (!g_inPass && !g_vshader && g_mistState > 0 && g_cfg.master && g_cfg.sky.hideRainMist)
         {
             DWORD fvf = 0;
-            dev->lpVtbl->GetFVF(dev, &fvf);
+            DrawFvf(dev, &fvf);
             if (fvf == 0x142 && IsRainMistDraw(dev))
             {
                 if (g_probe.active)

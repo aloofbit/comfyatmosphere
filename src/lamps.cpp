@@ -463,7 +463,7 @@ namespace
         if (!decl)
         {
             DWORD fvf = 0;
-            dev->lpVtbl->GetFVF(dev, &fvf);
+            DrawFvf(dev, &fvf);
             static DeclInfo fvfInfo;
             fvfInfo = DeclInfo();
             const DWORD p = fvf & D3DFVF_POSITION_MASK;
