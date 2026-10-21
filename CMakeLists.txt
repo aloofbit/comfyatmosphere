@@ -73,7 +73,7 @@ if(MSVC)
     # A .pdb beside the build, for comfyprof's function names (2026-10-20). The code is the same.
     # /Oy-: frame pointers, so comfyprof's EBP chain walks our frames.
     target_compile_options(comfyatmos PRIVATE $<$<CONFIG:Release>:/Zi /Oy->)
-    target_link_options(comfyatmos PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
+    target_link_options(comfyatmos PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF /MAP>)
 endif()
 
 # CPU-only checks for time modes; no client, renderer or graphics device needed.

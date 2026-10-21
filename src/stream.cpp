@@ -47,11 +47,15 @@
 #include "config.h"
 #include "stream.h"
 
+extern "C" IMAGE_DOS_HEADER __ImageBase;
+
 namespace
 {
     // ------------------------------------------------------------------------------------------------ settings, ids
 
     bool  g_installed = false;
+    void* g_lockCaller = nullptr;   // the code that called a texture or surface lock, for the log of direct locks
+    std::unordered_map<void*, unsigned> g_directBy;   // direct texture locks by caller, for the stats
     bool  g_exactRelease = false;   // [stream] exactRelease: Release returns the true count (an AddRef each)
     bool  g_stats     = false;
     int   g_ahead     = 1;          // frames the game may run ahead of the replay
@@ -240,7 +244,7 @@ namespace
     // Statistics (game's thread).
     uint64_t g_opCount[kOpCount] = {};
     uint64_t g_frames = 0, g_lockCalls = 0, g_lockBytes = 0, g_lockCopied = 0, g_readbacks = 0, g_drains = 0,
-             g_gated = 0, g_dynLocks = 0, g_texLocks = 0, g_relock = 0, g_sbApplies = 0, g_dynWhole = 0;
+             g_gated = 0, g_dynLocks = 0, g_texLocks = 0, g_relock = 0, g_sbApplies = 0, g_dynWhole = 0, g_gets = 0;
     double   g_waitSec = 0.0, g_drainSec = 0.0, g_statsT0 = 0.0;
     std::atomic<uint64_t> g_replayTicks{0};
 
@@ -835,6 +839,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetRenderState(d, s, v); } return g_dx.GetRenderState(d, s, v); }
+        ++g_gets;
         if (!v || static_cast<DWORD>(s) >= 256) return D3DERR_INVALIDCALL;
         *v = g_m->rs[s];
         return D3D_OK;
@@ -854,6 +859,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetSamplerState(d, s, t, v); } return g_dx.GetSamplerState(d, s, t, v); }
+        ++g_gets;
         const int i = SamplerIndex(s);
         if (i < 0 || !v || static_cast<DWORD>(t) >= 14) return D3DERR_INVALIDCALL;
         *v = g_m->ss[i][t];
@@ -873,6 +879,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetTextureStageState(d, st, t, v); } return g_dx.GetTextureStageState(d, st, t, v); }
+        ++g_gets;
         if (st >= 8 || !v || static_cast<DWORD>(t) >= 33) return D3DERR_INVALIDCALL;
         *v = g_m->tss[st][t];
         return D3D_OK;
@@ -892,6 +899,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetTexture(d, s, t); } return g_dx.GetTexture(d, s, t); }
+        ++g_gets;
         const int i = SamplerIndex(s);
         if (i < 0 || !t) return D3DERR_INVALIDCALL;
         *t = g_m->tex[i];
@@ -914,6 +922,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetTransform(d, s, x); } return g_dx.GetTransform(d, s, x); }
+        ++g_gets;
         if (!x || static_cast<DWORD>(s) >= 512) return D3DERR_INVALIDCALL;
         *x = g_m->xf[s];
         return D3D_OK;
@@ -945,6 +954,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetViewport(d, v); } return g_dx.GetViewport(d, v); }
+        ++g_gets;
         if (!v) return D3DERR_INVALIDCALL;
         *v = g_m->vp;
         return D3D_OK;
@@ -964,6 +974,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetScissorRect(d, r); } return g_dx.GetScissorRect(d, r); }
+        ++g_gets;
         if (!r) return D3DERR_INVALIDCALL;
         *r = g_m->scissor;
         return D3D_OK;
@@ -983,6 +994,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetMaterial(d, x); } return g_dx.GetMaterial(d, x); }
+        ++g_gets;
         if (!x) return D3DERR_INVALIDCALL;
         *x = g_m->mat;
         return D3D_OK;
@@ -1004,6 +1016,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord || i >= 32) { if (m == kRecord) Drain(); if (m != kDirect) { Gate g; return g_dx.GetLight(d, i, l); } return g_dx.GetLight(d, i, l); }
+        ++g_gets;
         if (!l || !g_m->lights[i].set) return D3DERR_INVALIDCALL;
         *l = g_m->lights[i].l;
         return D3D_OK;
@@ -1029,6 +1042,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord || i >= 32) { if (m == kRecord) Drain(); if (m != kDirect) { Gate g; return g_dx.GetLightEnable(d, i, on); } return g_dx.GetLightEnable(d, i, on); }
+        ++g_gets;
         if (!on || !g_m->lights[i].set) return D3DERR_INVALIDCALL;
         *on = g_m->lights[i].on ? 128 : 0;   // DXVK and D3D9 return 128 for an enabled light
         return D3D_OK;
@@ -1049,6 +1063,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetClipPlane(d, i, p); } return g_dx.GetClipPlane(d, i, p); }
+        ++g_gets;
         if (!p || i >= 6) return D3DERR_INVALIDCALL;
         memcpy(p, g_m->clip[i], 16);
         return D3D_OK;
@@ -1098,6 +1113,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetStreamSource(d, i, vb, off, stride); } return g_dx.GetStreamSource(d, i, vb, off, stride); }
+        ++g_gets;
         if (i >= 16 || !vb || !off || !stride) return D3DERR_INVALIDCALL;
         *vb = g_m->st[i].vb;
         if (*vb) (*vb)->lpVtbl->AddRef(*vb);
@@ -1118,6 +1134,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetStreamSourceFreq(d, i, f); } return g_dx.GetStreamSourceFreq(d, i, f); }
+        ++g_gets;
         if (i >= 16 || !f) return D3DERR_INVALIDCALL;
         *f = g_m->st[i].freq;
         return D3D_OK;
@@ -1135,6 +1152,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetIndices(d, ib); } return g_dx.GetIndices(d, ib); }
+        ++g_gets;
         if (!ib) return D3DERR_INVALIDCALL;
         *ib = g_m->ib;
         if (*ib) (*ib)->lpVtbl->AddRef(*ib);
@@ -1180,6 +1198,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetVertexDeclaration(d, v); } return g_dx.GetVertexDeclaration(d, v); }
+        ++g_gets;
         if (!v) return D3DERR_INVALIDCALL;
         *v = g_m->decl;
         if (*v) (*v)->lpVtbl->AddRef(*v);
@@ -1198,6 +1217,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetFVF(d, f); } return g_dx.GetFVF(d, f); }
+        ++g_gets;
         if (!f) return D3DERR_INVALIDCALL;
         *f = g_m->fvf;
         return D3D_OK;
@@ -1215,6 +1235,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetVertexShader(d, s); } return g_dx.GetVertexShader(d, s); }
+        ++g_gets;
         if (!s) return D3DERR_INVALIDCALL;
         *s = g_m->vs;
         if (*s) (*s)->lpVtbl->AddRef(*s);
@@ -1232,6 +1253,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetPixelShader(d, s); } return g_dx.GetPixelShader(d, s); }
+        ++g_gets;
         if (!s) return D3DERR_INVALIDCALL;
         *s = g_m->ps;
         if (*s) (*s)->lpVtbl->AddRef(*s);
@@ -1259,6 +1281,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetRenderTarget(d, i, s); } return g_dx.GetRenderTarget(d, i, s); }
+        ++g_gets;
         if (i >= 4 || !s) return D3DERR_INVALIDCALL;
         *s = g_m->rt[i];
         if (!*s) return D3DERR_NOTFOUND;
@@ -1277,6 +1300,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetDepthStencilSurface(d, s); } return g_dx.GetDepthStencilSurface(d, s); }
+        ++g_gets;
         if (!s) return D3DERR_INVALIDCALL;
         *s = g_m->ds;
         if (!*s) return D3DERR_NOTFOUND;
@@ -1296,6 +1320,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetNPatchMode(d); } return g_dx.GetNPatchMode(d); }
+        ++g_gets;
         return g_m->npatch;
     }
     HRESULT STD W_SetSoftwareVertexProcessing(DEV, BOOL b)
@@ -1310,6 +1335,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetSoftwareVertexProcessing(d); } return g_dx.GetSoftwareVertexProcessing(d); }
+        ++g_gets;
         return g_m->swvp;
     }
     HRESULT STD W_SetCurrentTexturePalette(DEV, UINT p)
@@ -1324,6 +1350,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetCurrentTexturePalette(d, p); } return g_dx.GetCurrentTexturePalette(d, p); }
+        ++g_gets;
         if (!p) return D3DERR_INVALIDCALL;
         *p = g_m->palette;
         return D3D_OK;
@@ -1511,6 +1538,7 @@ namespace
     {
         const Mode m = ModeFor(d);
         if (m != kRecord) { if (m != kDirect) { Gate g; return g_dx.GetRenderTargetData(d, rt, sys); } return g_dx.GetRenderTargetData(d, rt, sys); }
+        ++g_gets;
         Rec(kGetRenderTargetData, P(rt), P(sys));
         return D3D_OK;
     }
@@ -1620,15 +1648,20 @@ namespace
             CaptureList(s->list);
         return D3D_OK;
     }
+    void ApplyMirror(const Mirror& a, IDirect3DDevice9* d);
+
     HRESULT STD V_Apply(VSB* s)
     {
-        IDirect3DDevice9* d = s->dev;
         if (!s->m)
-        {
-            ApplyList(s->list, d);
-            return D3D_OK;
-        }
-        const Mirror& a = *s->m;
+            ApplyList(s->list, s->dev);
+        else
+            ApplyMirror(*s->m, s->dev);
+        return D3D_OK;
+    }
+
+    // The states a copy of the mirror holds that differ from the mirror now, recorded through our wrappers.
+    void ApplyMirror(const Mirror& a, IDirect3DDevice9* d)
+    {
         Mirror& m = *g_m;
         for (DWORD i = 0; i < 256; ++i)
             if (a.rs[i] != m.rs[i]) W_SetRenderState(d, static_cast<D3DRENDERSTATETYPE>(i), a.rs[i]);
@@ -1689,13 +1722,29 @@ namespace
         if (a.vs != m.vs) W_SetVertexShader(d, a.vs);
         if (a.ps != m.ps) W_SetPixelShader(d, a.ps);
         if (a.npatch != m.npatch) W_SetNPatchMode(d, a.npatch);
-        return D3D_OK;
     }
     const VSBVtbl g_vsbVtbl = { V_QueryInterface, V_AddRef, V_Release, V_GetDevice, V_Capture, V_Apply };
+
+    // DXVK's own state blocks: their types, and for one of type ALL captured since the stream started, a copy of the
+    // mirror (2026-10-21: comfyatmos made one before the stream started and applied it twice a frame, each time a
+    // wait for the queue and a full read of the device's state).
+    std::unordered_map<void*, D3DSTATEBLOCKTYPE> g_sbTypes;
+    std::unordered_map<void*, Mirror*> g_sbSnap;
 
     HRESULT STD W_CreateStateBlock(DEV, D3DSTATEBLOCKTYPE t, IDirect3DStateBlock9** out)
     {
         const Mode m = ModeFor(d);
+        if (m == kDirect && out)
+        {
+            const HRESULT hr = g_dx.CreateStateBlock(d, t, out);
+            if (SUCCEEDED(hr) && *out)
+            {
+                g_sbTypes[*out] = t;
+                auto it = g_sbSnap.find(*out);
+                if (it != g_sbSnap.end()) { delete it->second; g_sbSnap.erase(it); }
+            }
+            return hr;
+        }
         if (m == kRecord && t == D3DSBT_ALL && out)
         {
             VSB* s = new VSB{ &g_vsbVtbl, 1, d, new Mirror(*g_m), {} };
@@ -1771,8 +1820,25 @@ namespace
                 ApplyList(it->second, g_dev);
                 return D3D_OK;
             }
+            auto sn = g_sbSnap.find(s);
+            if (sn != g_sbSnap.end())
+            {
+                ApplyMirror(*sn->second, g_dev);
+                return D3D_OK;
+            }
             Drain();
             ++g_sbApplies;
+            static int logged = 0;
+            if (++logged <= 10)
+            {
+                HMODULE mod = nullptr;
+                char name[MAX_PATH] = "?";
+                if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       static_cast<LPCSTR>(_ReturnAddress()), &mod))
+                    GetModuleFileNameA(mod, name, MAX_PATH);
+                const char* base = strrchr(name, 92);
+                Log("stream: DXVK's own state block %p applied from %p (%s)", s, _ReturnAddress(), base ? base + 1 : name);
+            }
         }
         Gate g;
         const HRESULT hr = g_sbReal.Apply(s);
@@ -1789,6 +1855,15 @@ namespace
             if (it != g_sbLists.end())
             {
                 CaptureList(it->second);
+                return D3D_OK;
+            }
+            auto ty = g_sbTypes.find(s);
+            if (ty != g_sbTypes.end() && ty->second == D3DSBT_ALL)
+            {
+                Mirror*& snap = g_sbSnap[s];
+                if (!snap)
+                    snap = new Mirror;
+                *snap = *g_m;
                 return D3D_OK;
             }
             Drain();
@@ -1873,12 +1948,25 @@ namespace
         {
             static int logged = 0;
             if (++logged <= 20)
-                Log("stream: a read-only lock of buffer %p, %u bytes, usage 0x%X", b, i.size, static_cast<unsigned>(i.usage));
+            {
+                HMODULE mod = nullptr;
+                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   static_cast<LPCSTR>(g_lockCaller), &mod);
+                char name[MAX_PATH] = "?";
+                if (mod)
+                    GetModuleFileNameA(mod, name, MAX_PATH);
+                Log("stream: a read-only lock of buffer %p, %u bytes, usage 0x%X, from %s+0x%X", b, i.size,
+                    static_cast<unsigned>(i.usage), strrchr(name, 92) ? strrchr(name, 92) + 1 : name,
+                    static_cast<unsigned>(reinterpret_cast<uintptr_t>(g_lockCaller) - reinterpret_cast<uintptr_t>(mod)));
+            }
             Drain();
             ++g_readbacks;
             HRESULT hr;
             { Gate g; hr = real.Lock(b, off, size, out, flags); }
             if (SUCCEEDED(hr)) i.locks.push_back({ off, size, flags, nullptr, true });
+            static int hrLogged = 0;
+            if (++hrLogged <= 6)
+                Log("stream: that read-only lock gave 0x%08X, %p", static_cast<unsigned>(hr), out ? *out : nullptr);
             return hr;
         }
         if (off > i.size) return D3DERR_INVALIDCALL;
@@ -1942,11 +2030,22 @@ namespace
         return D3D_OK;
     }
 
+    // The code that called a buffer's lock: past comfyatmos's own hook on the same slot (hkLockVB), by its frame
+    // pointer (the perf branch builds with /Oy-), to the code that called that.
+    __declspec(noinline) void NoteBufferCaller(void* ra, void** frame)
+    {
+        HMODULE mod = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCSTR>(ra), &mod);
+        g_lockCaller = ra;
+        if (mod == reinterpret_cast<HMODULE>(&__ImageBase) && frame && *frame)
+            g_lockCaller = static_cast<void**>(*frame)[1];
+    }
     HRESULT STD W_VbLock(IDirect3DVertexBuffer9* b, UINT off, UINT size, void** out, DWORD flags)
-    { return LockBuffer<IDirect3DVertexBuffer9, IDirect3DVertexBuffer9Vtbl, D3DVERTEXBUFFER_DESC>(b, g_vb, off, size, out, flags); }
+    { if (flags & D3DLOCK_READONLY) NoteBufferCaller(_ReturnAddress(), static_cast<void**>(_AddressOfReturnAddress()) - 1); return LockBuffer<IDirect3DVertexBuffer9, IDirect3DVertexBuffer9Vtbl, D3DVERTEXBUFFER_DESC>(b, g_vb, off, size, out, flags); }
     HRESULT STD W_VbUnlock(IDirect3DVertexBuffer9* b) { return UnlockBuffer(b, g_vb, false); }
     HRESULT STD W_IbLock(IDirect3DIndexBuffer9* b, UINT off, UINT size, void** out, DWORD flags)
-    { return LockBuffer<IDirect3DIndexBuffer9, IDirect3DIndexBuffer9Vtbl, D3DINDEXBUFFER_DESC>(b, g_ib, off, size, out, flags); }
+    { if (flags & D3DLOCK_READONLY) NoteBufferCaller(_ReturnAddress(), static_cast<void**>(_AddressOfReturnAddress()) - 1); return LockBuffer<IDirect3DIndexBuffer9, IDirect3DIndexBuffer9Vtbl, D3DINDEXBUFFER_DESC>(b, g_ib, off, size, out, flags); }
     HRESULT STD W_IbUnlock(IDirect3DIndexBuffer9* b) { return UnlockBuffer(b, g_ib, true); }
 
     // ---- textures and surfaces
@@ -2056,11 +2155,20 @@ namespace
         const bool staged = li.pool == D3DPOOL_MANAGED || (li.pool == D3DPOOL_DEFAULT && (li.usage & D3DUSAGE_DYNAMIC));
         if ((flags & D3DLOCK_READONLY) || !li.rowBytes || !staged)
         {
+            ++g_directBy[g_lockCaller];
             static int logged = 0;
             if (++logged <= 40)
-                Log("stream: a direct lock of %s %p level %u: %ux%u format %d pool %d usage 0x%X flags 0x%X", k == kTex2D ? "texture" :
+            {
+                HMODULE mod = nullptr;
+                char name[MAX_PATH] = "?";
+                if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       static_cast<LPCSTR>(g_lockCaller), &mod))
+                    GetModuleFileNameA(mod, name, MAX_PATH);
+                Log("stream: a direct lock of %s %p level %u: %ux%u format %d pool %d usage 0x%X flags 0x%X, from %p (%s)", k == kTex2D ? "texture" :
                     k == kSurface ? "surface" : "cube face", o, sub & 0xFFFF, li.width, li.height, static_cast<int>(li.format),
-                    static_cast<int>(li.pool), static_cast<unsigned>(li.usage), static_cast<unsigned>(flags));
+                    static_cast<int>(li.pool), static_cast<unsigned>(li.usage), static_cast<unsigned>(flags), g_lockCaller,
+                    strrchr(name, 92) ? strrchr(name, 92) + 1 : name);
+            }
             Drain();
             ++g_readbacks;
             HRESULT hr;
@@ -2156,9 +2264,9 @@ namespace
         return D3D_OK;
     }
 
-    HRESULT STD W_TexLockRect(IDirect3DTexture9* t, UINT l, D3DLOCKED_RECT* lr, const RECT* r, DWORD f) { return LockLevel(kTex2D, t, l, lr, r, f); }
+    HRESULT STD W_TexLockRect(IDirect3DTexture9* t, UINT l, D3DLOCKED_RECT* lr, const RECT* r, DWORD f) { g_lockCaller = _ReturnAddress(); return LockLevel(kTex2D, t, l, lr, r, f); }
     HRESULT STD W_TexUnlockRect(IDirect3DTexture9* t, UINT l) { return UnlockLevel(kTex2D, t, l); }
-    HRESULT STD W_SurfLockRect(IDirect3DSurface9* s, D3DLOCKED_RECT* lr, const RECT* r, DWORD f) { return LockLevel(kSurface, s, 0, lr, r, f); }
+    HRESULT STD W_SurfLockRect(IDirect3DSurface9* s, D3DLOCKED_RECT* lr, const RECT* r, DWORD f) { g_lockCaller = _ReturnAddress(); return LockLevel(kSurface, s, 0, lr, r, f); }
     HRESULT STD W_SurfUnlockRect(IDirect3DSurface9* s) { return UnlockLevel(kSurface, s, 0); }
     HRESULT STD W_CubeLockRect(IDirect3DCubeTexture9* t, D3DCUBEMAP_FACES face, UINT l, D3DLOCKED_RECT* lr, const RECT* r, DWORD f)
     { return LockLevel(kCubeFace, t, (static_cast<uint32_t>(face) << 16) | l, lr, r, f); }
@@ -2707,9 +2815,22 @@ void StreamFrameStats()
     const double replayMs = static_cast<double>(g_replayTicks.exchange(0)) / tscHz * 1000.0 / f;
     Log("stream: %.0f frames in %.1f s (%.1f fps); replay %.2f ms a frame; the game waited %.2f ms a frame (drains "
         "%.2f ms, %.1f a frame); gated calls %.1f, locks %.1f (%.1f dynamic, %.1f texture, %.0f KB, %.0f KB copied), "
-        "read backs %.2f, relocked levels %.2f, real state block applies %.2f, whole dynamic locks %.2f a frame", f, secs, f / secs, replayMs, 1000.0 * g_waitSec / f,
+        "read backs %.2f, relocked levels %.2f, real state block applies %.2f, whole dynamic locks %.2f, Get calls %.0f a frame", f, secs, f / secs, replayMs, 1000.0 * g_waitSec / f,
         1000.0 * g_drainSec / f, g_drains / f, g_gated / f, g_lockCalls / f, g_dynLocks / f, g_texLocks / f,
-        g_lockBytes / f / 1024.0, g_lockCopied / f / 1024.0, g_readbacks / f, g_relock / f, g_sbApplies / f, g_dynWhole / f);
+        g_lockBytes / f / 1024.0, g_lockCopied / f / 1024.0, g_readbacks / f, g_relock / f, g_sbApplies / f, g_dynWhole / f, g_gets / f);
+    {
+        std::vector<std::pair<unsigned, void*>> by;
+        for (auto& kv : g_directBy)
+            by.emplace_back(kv.second, kv.first);
+        std::sort(by.rbegin(), by.rend());
+        char line[256];
+        size_t at = snprintf(line, sizeof(line), "stream: direct texture locks a frame by caller:");
+        for (size_t k = 0; k < by.size() && k < 4; ++k)
+            at += snprintf(line + at, sizeof(line) - at, " %p %.2f", by[k].second, by[k].first / f);
+        if (!by.empty())
+            Log("%s", line);
+        g_directBy.clear();
+    }
     std::vector<std::pair<uint64_t, int>> ops;
     for (int i = 2; i < kOpCount; ++i)
         if (g_opCount[i])
@@ -2725,7 +2846,7 @@ void StreamFrameStats()
         at += snprintf(line + at, sizeof(line) - at, " %s %.0f", kOpNames[ops[k].second], ops[k].first / f);
     Log("%s", line);
     memset(g_opCount, 0, sizeof(g_opCount));
-    g_frames = g_lockCalls = g_lockBytes = g_lockCopied = g_readbacks = g_drains = g_gated = g_dynLocks = g_texLocks = g_relock = g_sbApplies = g_dynWhole = 0;
+    g_frames = g_lockCalls = g_lockBytes = g_lockCopied = g_readbacks = g_drains = g_gated = g_dynLocks = g_texLocks = g_relock = g_sbApplies = g_dynWhole = g_gets = 0;
     g_waitSec = g_drainSec = 0.0;
     g_statsT0 = now;
 }

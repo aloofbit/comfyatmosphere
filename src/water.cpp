@@ -1134,8 +1134,12 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         // character's legs in Debug View 32): the depth copy gave the legs' depth there, as shallow as a beach.
         // And none within 1.5 pixels of a body's outline, any way (the owner: red specks round the arms and legs): there
         // the depth copy holds the body a pixel further than the mask.
-        const float2 under = gFog.w > 0.5 && !onBody ? tex2Dlod(sLeaves, float4(uv, 0, 0)).rb : float2(1.0, 0.0);
-        drawnS *= under.x > 0.5 && under.y < 0.25 ? 1.0 : 0.0;
+        // The mask only where there is foam to take away (perf, 2026-10-21): a read for every pixel within 100 yards.
+        [branch] if (drawnS > 0.0)
+        {
+            const float2 under = gFog.w > 0.5 && !onBody ? tex2Dlod(sLeaves, float4(uv, 0, 0)).rb : float2(1.0, 0.0);
+            drawnS *= under.x > 0.5 && under.y < 0.25 ? 1.0 : 0.0;
+        }
         [branch] if (drawnS > 0.0 && gFog.w > 0.5)
         {
             const float2 o = 1.5 * gScr.xy;

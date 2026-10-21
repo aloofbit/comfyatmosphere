@@ -3565,6 +3565,32 @@ void RecordDraw(IDirect3DDevice9* dev, bool indexed, D3DPRIMITIVETYPE prim, INT 
                 {
                     it = g_copies.emplace(key, copy).first;
                     ++g_copiesTaken;
+                    // The probe of the copies' churn (perf, 2026-10-21): about 7 a frame were taken at every test
+                    // place while the store's size stayed the same.
+                    static unsigned churnLogged = 0;
+                    static double churnAt = 0.0;
+                    if (g_copyNow - churnAt > 5.0)
+                    {
+                        churnAt = g_copyNow;
+                        churnLogged = 0;
+                    }
+                    if (++churnLogged <= 6 && BenchTiming())
+                    {
+                        unsigned same = 0;
+                        long long best = -1;
+                        for (const auto& c : g_copies)
+                            if (c.first.verts == key.verts && c.first.prims == key.prims && !(c.first == key))
+                            {
+                                ++same;
+                                const long long dx = c.first.x - key.x, dy = c.first.y - key.y, dz = c.first.z - key.z;
+                                const long long d2 = dx * dx + dy * dy + dz * dz;
+                                if (best < 0 || d2 < best) best = d2;
+                            }
+                        Log("shadow: a copy taken: %uv %up at (%.1f %.1f %.1f), stride %u, %s; %u in the store with the same counts, "
+                            "the nearest %.1f yards off; %u in the store", r.numVertices, r.primCount, key.x * 0.1f, key.y * 0.1f,
+                            key.z * 0.1f, r.vbStride[0], r.vs ? "M2" : "ff", same, best < 0 ? -1.0f : sqrtf(static_cast<float>(best)) * 0.1f,
+                            static_cast<unsigned>(g_copies.size()));
+                    }
                 }
             }
             if (it != g_copies.end())
