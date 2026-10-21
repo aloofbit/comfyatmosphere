@@ -142,6 +142,8 @@ struct ShadowSettings
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
     bool  keepStill = true;    // 1 = the leaves' maps and the hills' map are not drawn again while nothing in them
                                // changes (2026-10-07, perf-1)
+    int   keepPoseEvery = 3;  // the leaves' and hills' maps: a change of models' poses alone is drawn on every Nth
+                              // chance (2026-10-21); 1 = on each
     int   midEvery  = 2;       // of the rebuilds, redraw the middle map on every Nth, on those the far map skips
                                // (2026-10-07, perf-1), 1..8
     float midRange  = 100.0f;  // the middle map, for the sun shadows past the near one: yards either side
@@ -210,10 +212,12 @@ struct VolumeSettings
     float maxIntensity = 3.0f;      // gain at 100
     float density      = 0.012f;     // how much the air scatters, per yard (Light Density, in thousandths)
     float maxDistance  = 190.0f;     // yards along each line of sight (the shadow map's reach)
-    int   steps        = 64;        // samples along each line of sight: more holds up over a long
+    int   steps        = 32;        // samples along each line of sight: more holds up over a long
                                     // maxDistance, where a thin canopy can fall between two samples.
                                     // 96 until 2026-09-24; with the noise turned each frame and the
-                                    // last frame kept, 64 looked the same in game
+                                    // last frame kept, 64 looked the same in game. 32 since 2026-10-21
+                                    // (perf): the light and fog took 2.1 ms of GPU at 1920 x 1080 against
+                                    // 3.1, and shots at the harbour and Elwynn matched
     float smooth       = 0.85f;     // 0..0.95: how much of the last frame's glow is kept. The march is
                                     // noisy and the map changes under it, and the light jittered as you
                                     // walked. The last frame is moved with the camera before it is

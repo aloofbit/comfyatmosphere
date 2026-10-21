@@ -2852,7 +2852,7 @@ namespace
     IDirect3DSurface9*    g_depthSurf = nullptr;
     IDirect3DSurface9*    g_colour    = nullptr;   // a render target has to be bound; nothing is written to it
     // A map kept from its last drawing ([shadow] keepStill): what it was drawn from, and when.
-    struct KeptMap { bool ok = false; unsigned long long hash = 0; D3DMATRIX m = {}; double at = 0.0; };
+    struct KeptMap { bool ok = false; unsigned long long hash = 0, pose = 0; int poseHeld = 0; D3DMATRIX m = {}; double at = 0.0; };
     KeptMap               g_kept[7];
     unsigned              g_keptPasses = 0;        // passes kept, for the probe
     UINT                  g_size      = 0;
@@ -4353,50 +4353,58 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (s.keepStill && (leafPass || terrPass))
     {
         // Eight bytes a step: a model's bones are up to 4 KB, and a byte a step cost 0.15 ms a frame in Elwynn.
-        unsigned long long h = 1469598103934665603ull;
-        const auto mix = [&h](const void* data, size_t bytes) {
+        // Two hashes (perf, 2026-10-21): what is drawn and where (h), and the models' poses (hp).
+        unsigned long long h = 1469598103934665603ull, hp = h;
+        const auto mixInto = [](unsigned long long& acc, const void* data, size_t bytes) {
             const unsigned char* b = static_cast<const unsigned char*>(data);
             size_t i = 0;
             for (; i + 8 <= bytes; i += 8)
             {
                 unsigned long long w;
                 memcpy(&w, b + i, 8);
-                h = (h ^ w) * 1099511628211ull;
-                h ^= h >> 29;
+                acc = (acc ^ w) * 1099511628211ull;
+                acc ^= acc >> 29;
             }
             for (; i < bytes; ++i)
-                h = (h ^ b[i]) * 1099511628211ull;
+                acc = (acc ^ b[i]) * 1099511628211ull;
         };
         const unsigned files = MapFilesVersion();
-        mix(&files, sizeof(files));
-        mix(&s.leafAlpha, sizeof(s.leafAlpha));
+        mixInto(h, &files, sizeof(files));
+        mixInto(h, &s.leafAlpha, sizeof(s.leafAlpha));
         for (const ReplayItem& item : replayList)
         {
             if (!wants(item, false))
                 continue;
             const Entry& e = *item.e;
             const Rec& r = e.rec;
-            const void* ids[] = { item.e, r.vb[0], r.vb[1], r.ib, r.vs, r.decl, r.tex0 };
-            mix(ids, sizeof(ids));
-            const UINT nums[] = { r.vbOffset[0], r.startIndex, r.primCount, static_cast<UINT>(r.baseVertex), r.fvf,
+            // The geometry by its counts, not by the buffers it is in: the client draws an object from other buffers
+            // now and then, and the counts are what the map's drawing depends on.
+            const void* ids[] = { item.e, r.vs, r.decl, r.tex0 };
+            mixInto(h, ids, sizeof(ids));
+            const UINT nums[] = { r.numVertices, r.vbStride[0], r.primCount, static_cast<UINT>(r.prim), r.fvf,
                                   r.alphaTest, r.alphaRef, r.alphaFunc };
-            mix(nums, sizeof(nums));
-            mix(&e.absolute, sizeof(e.absolute));
+            mixInto(h, nums, sizeof(nums));
+            mixInto(h, &e.absolute, sizeof(e.absolute));
             if (r.vs && !e.consts.empty())
-                mix(e.consts.data(), (std::min)(e.consts.size() / 4, static_cast<size_t>((std::max)(r.nregsOwn, 34u))) * 16);
+                mixInto(hp, e.consts.data(), (std::min)(e.consts.size() / 4, static_cast<size_t>((std::max)(r.nregsOwn, 34u))) * 16);
         }
         KeptMap& k = g_kept[pass];
         bool same = k.ok && k.hash == h && now - k.at < 1.0;
         for (int i = 0; i < 4 && same; ++i)
             for (int j = 0; j < 4 && same; ++j)
                 same = fabsf(k.m.m[i][j] - passAbsToSun.m[i][j]) <= (i == 3 ? 1e-4f : 1e-6f);
-        if (same)
+        // A change of poses alone is drawn on every keepPoseEvery-th chance (perf, 2026-10-21): at Goldshire one animated
+        // model in each leaves map (an M2 of 6786 vertices in the near leaves) had them drawn again in 474 of 487 frames,
+        // 3.4 ms of the GPU's frame at 1920 x 1080 for the near leaves, and the far leaves on every far redraw.
+        if (same && (k.pose == hp || ++k.poseHeld < (std::max)(1, s.keepPoseEvery)))
         {
             ++g_keptPasses;
             continue;
         }
         k.ok = true;
         k.hash = h;
+        k.pose = hp;
+        k.poseHeld = 0;
         k.m = passAbsToSun;
         k.at = now;
     }

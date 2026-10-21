@@ -166,7 +166,7 @@ bool ResolveIniPath(HMODULE self, wchar_t* out, size_t count)
 void ApplyVolumeQuality(Settings& s)
 {
     //                           low  medium
-    static const int steps[2]    = {   32,   48 };
+    static const int steps[2]    = {   24,   24 };   // 32 and 48 until 2026-10-21, when high went to 32
     static const int down[2]     = {    3,    2 };
     if (s.volume.quality >= 3)
         return;
@@ -324,6 +324,7 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.nearRange  = Clamp(GetF(kShadow, L"nearRange", s.shadow.nearRange, ini), 0.0f, 200.0f);
     s.shadow.midRange   = Clamp(GetF(kShadow, L"midRange", s.shadow.midRange, ini), 0.0f, 250.0f);
     s.shadow.keepStill  = GetI(kShadow, L"keepStill", s.shadow.keepStill ? 1 : 0, ini) != 0;
+    s.shadow.keepPoseEvery = (std::max)(1, (std::min)(8, GetI(kShadow, L"keepPoseEvery", s.shadow.keepPoseEvery, ini)));
     s.shadow.midEvery   = static_cast<int>(Clamp(static_cast<float>(GetI(kShadow, L"midEvery", s.shadow.midEvery, ini)), 1.0f, 8.0f));
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
     s.shadow.horizonDepth = Clamp(GetF(kShadow, L"horizonDepth", s.shadow.horizonDepth, ini), 0.0f, 5000.0f);
