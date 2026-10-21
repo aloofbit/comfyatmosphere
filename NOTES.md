@@ -4255,6 +4255,21 @@ Our GPU at the harbour: the light and fog 3.1 ms, the sun shadows 1.8, the shado
 water (from its first chunk to the world's end) 3.8. At Goldshire the shadow maps were 7.5 ms, 6 of it the leaves
 maps.
 
+**The night's result**, 0.17.0's DLL against the perf branch's in two alternating rounds at 1920 x 1080
+(`tools/perf/AB-Build.ps1`; the perf build with its new default of 32 steps), effects on, frames a second:
+
+| Place | 0.17.0 | perf |
+| --- | --- | --- |
+| harbour | 79, 76 | 89, 86 |
+| Elwynn | 78, 63 | 79, 81 |
+| Goldshire | 68, 69 | 96, 99 |
+| Auberdine beach | 77, 77 | 90, 93 |
+
+With the effects off, the two builds are the same within the runs' spread. A frame log taken alone at the end of
+the night gave 125 at the harbour: every pass, also the ones not changed, was a third faster than at its start. The
+laptop's GPU drifts that much; only alternating rounds tell builds apart. The suite (`Run-Tests.ps1
+-NoPerformance`) passed every test on the perf build.
+
 **The command stream** (`src/stream.cpp`, `[stream] enabled`, off by default). As Northlight's CommandStream: the
 game's thread records every D3D9 call into a queue and our replay thread runs it on DXVK. Ours patches DXVK's
 vtables in place, innermost, so comfyatmos's hooks still run on the game's thread and their calls are recorded with
