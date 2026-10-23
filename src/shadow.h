@@ -19,14 +19,23 @@ bool ShadowMatrix(D3DMATRIX& camRelToShadowClip);                       // camer
 bool ShadowNear(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
 // The middle map ([shadow] midRange either side), solid only; false if there is none.
 bool ShadowMid(IDirect3DTexture9*& tex, D3DMATRIX& camRelToShadowClip, float& range);
-IDirect3DTexture9* ShadowNearLeaves();   // the near map's leaves (alpha-tested draws), same camera; or null
-IDirect3DTexture9* ShadowFarLeaves();    // the far map's leaves, same camera as the far map; or null
-// The leaves' maps may have a camera of their own ([shadow] leafHold, leafHoldFar, leafSize): a solid map's clip x and
-// y go to its leaves' map's as x * out[0] + out[1] and y * out[0] + out[2]; out[3] is one of its texels (uv), 0 before
-// it is made. False (and 1, 0, 0) when the two share a camera.
-bool ShadowLeafShift(bool nearMap, float out[4]);
-IDirect3DTexture9* ShadowFarTerrain();   // hills and mountains alone, same camera as the far map; or null
+IDirect3DTexture9* ShadowNearLeaves();   // the near map's leaves (alpha-tested draws); or null
+IDirect3DTexture9* ShadowFarLeaves();    // the far map's leaves; or null
+IDirect3DTexture9* ShadowFarTerrain();   // hills and mountains alone; or null
 IDirect3DTexture9* ShadowNearUnits();    // players and creatures alone, the near map's camera and size; or null
+// The baked maps (2026-10-23) hold still in the world and their textures wrap. ShadowMatrix and ShadowNear give clip
+// over each map's window, for its edges; a reader adds these to clip x and y before it takes the uv, and reads them
+// with D3DTADDRESS_WRAP. The units' map and the middle map are not wrapped.
+void ShadowWrap(float farOff[2], float nearOff[2]);
+// The leaves' maps' and the hills' map's own matrices, camera-relative world -> clip, with the wrap in. Their cameras
+// are the far and near maps' except while one of them is drawn anew after a step of the sun. False with no such map.
+bool ShadowNearLeavesMatrix(D3DMATRIX& camRelToClip);
+bool ShadowFarLeavesMatrix(D3DMATRIX& camRelToClip);
+bool ShadowFarTerrainMatrix(D3DMATRIX& camRelToClip);
+// The hills' map's depth less the far map's (out[0]) and less the far leaves' (out[1]) at the same point: 0, but while
+// one of them is drawn anew with the depth's plane moved.
+void ShadowTerrainDepthShift(float out[2]);
+float ShadowMapSpan();   // yards from depth 0 to depth 1, the same in every map
 int ShadowNearSize();                    // texels per side of the near map, its leaves and the units' map
 // Where the shader draw about to be made stands in the world (its first bone), as the cache places it; false
 // before the cache has a camera.
@@ -63,7 +72,7 @@ double ShadowReplaySeconds(unsigned& drawn, unsigned& skipped);   // what this f
 void ShadowTiming(bool on);
 // ...and within the cache upkeep: Merge's share, and how many entries were seen again and how many of
 // those had not moved, since the last take.
-void ShadowKeepText(std::string& out);   // why the kept maps were drawn again since the last call (2026-10-23)
+void ShadowBakeText(std::string& out);   // what each baked map drew since the last call (2026-10-23)
 void ShadowTakeCacheSplit(double& merge, unsigned& still, unsigned& refreshed);
 void ShadowTakeTimes(double& record, double& cache, double& replay, unsigned& drawn, unsigned& entries,
                      unsigned& frames, unsigned& replays);

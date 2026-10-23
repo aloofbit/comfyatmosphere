@@ -140,20 +140,11 @@ struct ShadowSettings
     float range   = 250.0f;    // yards covered either side of the player
     float nearRange = 32.0f;   // the near map, for the sun shadows: yards either side (0 = none). The far
                                // map's texel, a quarter of a yard, was too coarse for a trunk or a post
-    bool  keepStill = true;    // 1 = the leaves' maps and the hills' map are not drawn again while nothing in them
-                               // changes (2026-10-07, perf-1)
-    int   keepPoseEvery = 3;  // the leaves' and hills' maps: a change of models' poses alone is drawn on every Nth
-                              // chance (2026-10-21); 1 = on each
-    float farUnitReach = 30.0f; // players and creatures go into the far maps only within this many yards of you,
-                               // across the ground (2026-10-23); 0 = all
-    float midUnitReach = 0.0f; // and into the middle map only within this many yards (2026-10-23); 0 = all
-    float leafHold    = 0.0f;  // the near leaves' map stays in place until you are this many yards from where it was
-                               // drawn round, and covers that much more (2026-10-23); 0 = it follows you
-    float leafHoldFar = 0.0f;  // the same for the far leaves' map
-    int   farLeafSize = 0;     // the far leaves' map at most this many texels per side (2026-10-23); 0 = the far
-                               // map's size. The near leaves keep theirs: at 2048 their shade on the ground went soft
-    int   unitMinTriangles = 50; // a unit's parts with fewer triangles stay out of the far and middle maps (2026-10-23):
-                               // a buckle, a belt, a hand. 0 = all in
+    // Players and creatures go into the middle map only within this many yards (2026-10-23); 0 = all. They are in the
+    // units' map and the middle map alone: the far maps are baked (shadow.cpp).
+    float midUnitReach = 0.0f;
+    int   unitMinTriangles = 50; // a unit's parts with fewer triangles stay out of the middle map (2026-10-23): a
+                               // buckle, a belt, a hand. 0 = all in
     int   midEvery  = 2;       // of the rebuilds, redraw the middle map on every Nth, on those the far map skips
                                // (2026-10-07, perf-1), 1..8
     float midRange  = 100.0f;  // the middle map, for the sun shadows past the near one: yards either side
@@ -181,21 +172,12 @@ struct ShadowSettings
                                   // doodads fading in or out at the edge of the view (probe, 2026-09-30)
     bool  leaves        = true;   // the leaves (alpha-tested draws) in maps of their own, so they can let
                                   // part of the sun through ([sunshadows] leafShade; see shadow.cpp)
-    int   minTriangles  = 200;    // models with fewer triangles stay out of the far map past 60 yards.
-                                  // At 100, 1,400 of 4,457 far-map draws went, and neither 100 nor
-                                  // 200 could be told apart in game (2026-09-29)
-    int   farEvery      = 2;      // of those rebuilds, the far map is redrawn on every Nth; the near map
-                                  // on each. The far map's shade barely changes, and it was half the cost
     int   mapEvery      = 1;      // rebuild the map every N frames, 1..8 (the Shadow Redraw control). The map is anchored in the world and
                                   // the light is smoothed over time, so 3 takes two thirds off the cost
                                   // of the replay for very little: the shade it holds is two frames old.
     bool  horizon       = true;   // keep the far-horizon draws: distant terrain can shade you too. They
                                   // are drawn with a camera of their own, which only matters for the
                                   // shader models, so those are still left out.
-    bool  snap          = true;   // hold the far map on whole texels of its own grid, so shadow edges do
-                                  // not crawl as you walk. On since 2026-10-02, with the held sun (sunStep)
-    bool  nearSnap      = true;   // hold the near map on whole texels of its own grid, so shadow edges
-                                  // near you do not hop as you walk (2026-10-02)
     float sunStep       = 0.05f;  // degrees: the maps' sun is held, and moved on in steps of this, so the
                                   // grids stand still between steps (2026-10-02). 0 = every frame
     float keepMargin    = 100.0f; // yards past range a caster out of view is kept, across the ground from

@@ -107,9 +107,9 @@ O main(float3 pos : POSITION, float2 uv : TEXCOORD0)
 
     const char* kMarchPsHlsl = R"HLSL(
 sampler2D sDepth  : register(s0);   // the scene's depth (INTZ)
-sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the solid things
-sampler2D sLeaf   : register(s2);   // the leaves' map, the same camera
-sampler2D sTerr   : register(s5);   // hills and mountains alone, the same camera (when gG.w is 1)
+sampler2D sShadow : register(s1);   // the sun's depth (INTZ): the solid things, wrapped (gWr)
+sampler2D sLeaf   : register(s2);   // the leaves' map (gLm)
+sampler2D sTerr   : register(s5);   // hills and mountains alone (gTm, when gG.w is 1)
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
 float4 gInv2 : register(c2);
@@ -132,8 +132,17 @@ sampler2D sGround : register(s4);   // the ground: surface (r), water (g), smoot
 float4 gGr   : register(c16);       // the ground texture: where the camera is in it (uv), 1 / its size in yards,
                                     // its reference height less the camera's (0 in .z: no texture, gF.z instead)
 float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
-float4 gLf   : register(c19);       // the far leaves' map held in place (2026-10-23): from the shadow map's clip, x and y
-                                    // times .x, plus .y and .z (ShadowLeafShift); 1, 0, 0 when it is not
+// The baked maps (2026-10-23) hold still in the world and wrap: gSh gives clip over the far map's window, for its edge,
+// and gWr what to add for the texel's uv. The leaves' and the hills' maps have their own matrices with the wrap in.
+float4 gWr   : register(c19);       // the far map's clip offset (xy)
+float4 gLm0  : register(c20);       // rows of the far leaves' map's matrix: camera-relative world -> clip, wrapped
+float4 gLm1  : register(c21);
+float4 gLm2  : register(c22);
+float4 gLm3  : register(c23);
+float4 gTm0  : register(c24);       // the hills' map's
+float4 gTm1  : register(c25);
+float4 gTm2  : register(c26);
+float4 gTm3  : register(c27);
 float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun), its glow along the horizon, the
                                     // water's horizon (the sine of its height from level, below negative), the sea's
                                     // height from the camera
@@ -224,6 +233,9 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
 
     float3 s0 = gSh3.xyz;                                                 // the camera, at the origin
     float3 s1 = e.x * gSh0.xyz + e.y * gSh1.xyz + e.z * gSh2.xyz + gSh3.xyz;
+    // The same line in the leaves' and the hills' maps: each is affine, so a step's point is the same share along it.
+    float3 l0 = gLm3.xyz, l1 = e.x * gLm0.xyz + e.y * gLm1.xyz + e.z * gLm2.xyz + gLm3.xyz;
+    float3 t0 = gTm3.xyz, t1 = e.x * gTm0.xyz + e.y * gTm1.xyz + e.z * gTm2.xyz + gTm3.xyz;
     // Interleaved-gradient noise, turned by a golden-ratio step each frame (gL.z), so the frames the
     // temporal pass keeps each sample the ray at other places.
     float  jit = frac(52.9829189 * frac(dot(vpos, float2(0.06711056, 0.00583715))) + gL.z);
@@ -257,7 +269,7 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
     {
         float  f   = (i + jit) * gL.y;
         float3 s   = lerp(s0, s1, f);
-        float2 suv = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
+        float2 suv = float2((s.x + gWr.x) * 0.5 + 0.5, 0.5 - (s.y + gWr.y) * 0.5);
         float  hit = (s.z <= tex2Dlod(sShadow, float4(suv, 0, 0)).r + bias) ? 1.0 : 0.0;
         // Leaves stop [volume] leafShade of the sun: all of it by default (2026-09-30), so the shafts under a
         // canopy come through its gaps. At the ground's 0.6, 40% came through every leaf and the air under the
@@ -265,13 +277,16 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // Not where the solid map shades the step already (2026-10-07, perf-1): the leaves and hills only scale hit.
         [branch] if (gL.w > 0.0 && hit > 0.0)
         {
-            float2 sl = s.xy * gLf.x + gLf.yz;
-            hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(sl.x * 0.5 + 0.5, 0.5 - sl.y * 0.5, 0, 0)).r + bias) ? 0.0 : 1.0);
+            float3 sl = lerp(l0, l1, f);
+            hit *= 1.0 - gL.w * ((sl.z <= tex2Dlod(sLeaf, float4(sl.x * 0.5 + 0.5, 0.5 - sl.y * 0.5, 0, 0)).r + bias) ? 0.0 : 1.0);
         }
         // Hills and mountains, in a map of their own since 2026-10-02; until then in the leaves' map. The same
         // share, so the light is as it was.
         [branch] if (gG.w > 0.5 && hit > 0.0)
-            hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sTerr, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
+        {
+            float3 st = lerp(t0, t1, f);
+            hit *= 1.0 - gL.w * ((st.z <= tex2Dlod(sTerr, float4(st.x * 0.5 + 0.5, 0.5 - st.y * 0.5, 0, 0)).r + bias) ? 0.0 : 1.0);
+        }
         // The map ends at a hard line, and a caster crossing it used to gain or lose its shade in one
         // frame: flashes in the distance as you walked. Shadowing fades out over the last tenth of the
         // map instead, so a caster dissolves in and out.
@@ -1557,19 +1572,16 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     }
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    // Off the shadow map reads as far: lit, with no known occluder.
-    d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
-    d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
-    d->SetSamplerState(dev, 1, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
-    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
-    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
-    d->SetSamplerState(dev, 2, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
+    // The baked maps wrap (2026-10-23); off the far map's window the march takes the point as lit (inMap).
+    d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+    d->SetSamplerState(dev, 1, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+    d->SetSamplerState(dev, 2, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
     const bool noMaps = fogOnly || (g_cfg.shadow.debugSkip & 2);
     IDirect3DTexture9* leaves = noMaps ? nullptr : ShadowFarLeaves();
     IDirect3DTexture9* terrMap = (fogOnly || !leaves) ? nullptr : ShadowFarTerrain();
-    d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
-    d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
-    d->SetSamplerState(dev, 5, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
+    d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+    d->SetSamplerState(dev, 5, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
     d->SetSamplerState(dev, 5, D3DSAMP_MINFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, 5, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
     d->SetSamplerState(dev, 5, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
@@ -1585,7 +1597,7 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     d->SetPixelShader(dev, g_psMarch);
     const float half[4] = { -1.0f / g_a.w, 1.0f / g_a.h, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);
-    const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
+    const float span = ShadowMapSpan();                       // the shadow maps' z range, yards
     float pc[56];
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
@@ -1727,9 +1739,22 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     g_fogSeaRel = seaRel; g_fogHorizon = horizon;
     const float fg[4] = { fs.toward, fs.horizonGlow, horizon, seaRel };
     d->SetPixelShaderConstantF(dev, 18, fg, 1);
-    float lf[4] = { 1.0f, 0.0f, 0.0f, 0.0f };   // the far leaves' map held in place (c19)
-    ShadowLeafShift(false, lf);
-    d->SetPixelShaderConstantF(dev, 19, lf, 1);
+    // The baked maps (c19 to c27): the far map's wrap, and the leaves' and the hills' maps' own matrices.
+    {
+        float pw[36] = {};
+        float nearOff[2];
+        ShadowWrap(pw, nearOff);
+        D3DMATRIX own = {};
+        if (leaves && ShadowFarLeavesMatrix(own))
+            for (int r = 0; r < 4; ++r)
+                for (int c = 0; c < 4; ++c)
+                    pw[4 + r * 4 + c] = own.m[r][c];
+        if (terrMap && ShadowFarTerrainMatrix(own))
+            for (int r = 0; r < 4; ++r)
+                for (int c = 0; c < 4; ++c)
+                    pw[20 + r * 4 + c] = own.m[r][c];
+        d->SetPixelShaderConstantF(dev, 19, pw, 9);
+    }
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
     for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
         d->SetSamplerState(dev, 3, static_cast<D3DSAMPLERSTATETYPE>(k), D3DTADDRESS_WRAP);

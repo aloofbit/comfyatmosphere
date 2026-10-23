@@ -1229,6 +1229,38 @@ namespace
     double                        g_loadMs = 0.0, g_wmoMs = 0.0;
     char                          g_info[1400] = {};   // 1000 until 2026-10-06: the triangle counts made it longer
 
+    // What the files' draws hold, as last reported (2026-10-23, MapTakeChanges): each tile's ground and doodads on the
+    // GPU and which of its leaf batches have their texture, and each building drawn with its groups. NoteChanges
+    // compares them with the tiles and buildings now and lists the boxes of what differs.
+    struct TileSeen
+    {
+        bool ground = false, doodads = false, seen = false;
+        std::vector<bool> batchReady;
+        float lo[3] = {}, hi[3] = {}, dlo[3] = {}, dhi[3] = {};   // its ground's box and its doodads', as reported
+    };
+    struct InstSeen { float lo[3], hi[3]; size_t groups; bool seen; };
+    std::unordered_map<int, TileSeen>      g_tilesSeen;
+    std::unordered_map<uint32_t, InstSeen> g_instsSeen;
+    std::vector<MapChange>                 g_changes;
+    bool                                   g_changedAll = true;
+
+    void PushChange(const float lo[3], const float hi[3], unsigned kinds)
+    {
+        if (g_changedAll || lo[0] > hi[0] || lo[1] > hi[1])
+            return;
+        if (g_changes.size() >= 4096)
+        {
+            g_changedAll = true;
+            g_changes.clear();
+            return;
+        }
+        MapChange c;
+        memcpy(c.lo, lo, 12);
+        memcpy(c.hi, hi, 12);
+        c.kinds = kinds;
+        g_changes.push_back(c);
+    }
+
     int Key(int a, int b) { return (a << 8) | (b & 0xFF); }
     long long CellKey(long long cx, long long cy) { return (cx << 32) ^ (cy & 0xFFFFFFFFll); }
 
@@ -1274,6 +1306,7 @@ namespace
         g_coverGrid.clear();
         g_doodadGrid.clear();
         g_instDirty = true;
+        g_changedAll = true;
         // A display id still asked for loses its job here: forget it, so the next walk asks again.
         for (auto it = g_objectLights.begin(); it != g_objectLights.end();)
             it = it->second.done ? std::next(it) : g_objectLights.erase(it);
@@ -1563,6 +1596,133 @@ namespace
                 g_coverGrid[CellKey(static_cast<long long>(floorf(i.p->pos[0] * 0.25f)),
                                     static_cast<long long>(floorf(i.p->pos[1] * 0.25f)))].push_back(i.p);
     }
+
+    // The tiles and buildings now against the record (g_tilesSeen, g_instsSeen): the boxes of what differs go to
+    // g_changes. A tile's doodads by their blocks, so a leaf texture that comes in marks only the blocks that use it.
+    void NoteChanges()
+    {
+        for (auto& kv : g_tilesSeen)
+            kv.second.seen = false;
+        for (const auto& kv : g_tiles)
+        {
+            const Tile& t = kv.second;
+            const Mesh& me = t.mesh;
+            TileSeen& s = g_tilesSeen[kv.first];
+            s.seen = true;
+            const float x1 = CornerX(me.b), y1 = CornerY(me.a);
+            const bool ground = t.vb && t.ib;
+            if (ground != s.ground)
+            {
+                const float lo[3] = { x1 - kTile, y1 - kTile, me.minZ }, hi[3] = { x1, y1, me.maxZ };
+                PushChange(lo, hi, kChangeGround);
+                s.ground = ground;
+                memcpy(s.lo, lo, 12);
+                memcpy(s.hi, hi, 12);
+            }
+            const bool doodads = t.dOnGpu && me.dSolidFirst.size() == kBlockAll + 1 &&
+                                 me.dSolidBox.size() == kBlockAll * 6 && me.dLeafBox.size() == kBlockAll * 6;
+            std::vector<bool> ready(doodads ? me.dBatches.size() : 0, false);
+            for (size_t b = 0; b < ready.size(); ++b)
+            {
+                const std::string& tex = me.dBatches[b].tex;
+                if (tex.empty())
+                    ready[b] = true;
+                else
+                {
+                    auto it = g_texs.find(tex);
+                    ready[b] = it != g_texs.end() && it->second.tex;
+                }
+            }
+            if (doodads != s.doodads)
+            {
+                for (int k = 0; k < kBlockAll; ++k)
+                {
+                    PushChange(&me.dSolidBox[k * 6], &me.dSolidBox[k * 6 + 3], kChangeDoodads);
+                    PushChange(&me.dLeafBox[k * 6], &me.dLeafBox[k * 6 + 3], kChangeDoodads);
+                }
+                s.doodads = doodads;
+                const float lo[3] = { (std::min)(x1 - kTile - 60.0f, me.dLo[0]), (std::min)(y1 - kTile - 60.0f, me.dLo[1]),
+                                      me.dMinZ },
+                            hi[3] = { (std::max)(x1 + 60.0f, me.dHi[0]), (std::max)(y1 + 60.0f, me.dHi[1]), me.dMaxZ };
+                memcpy(s.dlo, lo, 12);
+                memcpy(s.dhi, hi, 12);
+            }
+            else if (doodads && ready != s.batchReady)
+            {
+                bool block[kBlockAll] = {};
+                for (size_t b = 0; b < ready.size(); ++b)
+                    if (b >= s.batchReady.size() || ready[b] != s.batchReady[b])
+                        for (const Mesh::Run& r : me.dBatches[b].runs)
+                            block[r.block] = true;
+                for (int k = 0; k < kBlockAll; ++k)
+                    if (block[k])
+                        PushChange(&me.dLeafBox[k * 6], &me.dLeafBox[k * 6 + 3], kChangeDoodads);
+            }
+            s.batchReady = std::move(ready);
+        }
+        for (auto it = g_tilesSeen.begin(); it != g_tilesSeen.end();)
+        {
+            if (it->second.seen)
+            {
+                ++it;
+                continue;
+            }
+            if (it->second.ground)
+                PushChange(it->second.lo, it->second.hi, kChangeGround);
+            if (it->second.doodads)
+                PushChange(it->second.dlo, it->second.dhi, kChangeDoodads);
+            it = g_tilesSeen.erase(it);
+        }
+        // The buildings drawn, with the groups they draw (Buried takes the ones under the ground out).
+        for (auto& kv : g_instsSeen)
+            kv.second.seen = false;
+        for (const Inst& i : g_insts)
+        {
+            if (i.m->state != Model::kReady || !i.m->vb)
+                continue;
+            auto it = g_instsSeen.find(i.p->uid);
+            if (it == g_instsSeen.end())
+            {
+                PushChange(i.lo, i.hi, kChangeBuildings);
+                InstSeen n;
+                memcpy(n.lo, i.lo, 12);
+                memcpy(n.hi, i.hi, 12);
+                n.groups = i.draw.size();
+                n.seen = true;
+                g_instsSeen.emplace(i.p->uid, n);
+                continue;
+            }
+            InstSeen& n = it->second;
+            n.seen = true;
+            if (n.groups != i.draw.size() || memcmp(n.lo, i.lo, 12) != 0 || memcmp(n.hi, i.hi, 12) != 0)
+            {
+                PushChange(n.lo, n.hi, kChangeBuildings);
+                PushChange(i.lo, i.hi, kChangeBuildings);
+                memcpy(n.lo, i.lo, 12);
+                memcpy(n.hi, i.hi, 12);
+                n.groups = i.draw.size();
+            }
+        }
+        for (auto it = g_instsSeen.begin(); it != g_instsSeen.end();)
+        {
+            if (it->second.seen)
+                ++it;
+            else
+            {
+                PushChange(it->second.lo, it->second.hi, kChangeBuildings);
+                it = g_instsSeen.erase(it);
+            }
+        }
+    }
+}
+
+void MapTakeChanges(std::vector<MapChange>& out, bool& all)
+{
+    NoteChanges();
+    all = g_changedAll;
+    out.swap(g_changes);
+    g_changes.clear();
+    g_changedAll = false;
 }
 
 namespace { unsigned g_mapUpdates = 0; }
@@ -1588,6 +1748,7 @@ void MapTerrainUpdate(IDirect3DDevice9* dev, const float player[3], float reach,
             DropGpu(kv.second);
         g_dev = dev;
         g_instDirty = true;
+        g_changedAll = true;
     }
     char map[64] = {};
     if (!ClientMapName(map, sizeof(map)))

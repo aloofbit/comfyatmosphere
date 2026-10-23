@@ -54,6 +54,12 @@ const struct M2Anim* MapModelAnim(const std::string& name);
 // A game object's model file, by its display (GameObjectDisplayInfo.dbc), once the loader has read it; else null.
 const std::string* MapGameObjectModel(unsigned display);   // an animated doodad the files place there, left out
 unsigned MapFilesVersion();   // changes whenever what the files cover changes
+// What the files' draws changed since the last call (2026-10-23, the baked shadow maps): boxes in the world, with what
+// changed in each (kChangeGround, kChangeBuildings, kChangeDoodads). all: everything may have changed (a new map, a new
+// device, the first call), and the boxes are not listed.
+constexpr unsigned kChangeGround = 1, kChangeBuildings = 2, kChangeDoodads = 4;
+struct MapChange { float lo[3], hi[3]; unsigned kinds; };
+void MapTakeChanges(std::vector<MapChange>& out, bool& all);
 bool MapDoodadNearest(const float from[3], float pos[3]);   // for the probe
 // The probe: the doodads from the files within radius yards, with their model, and whether the client drew them.
 void MapLogDoodadsNear(const float from[3], float radius);

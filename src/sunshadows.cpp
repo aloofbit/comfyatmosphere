@@ -76,14 +76,14 @@ O main(float3 pos : POSITION, float2 uv : TEXCOORD0)
     // Blended as scene x this. In two literals: MSVC takes at most 16 KB in one.
     const char* kPsHlsl = R"HLSL(
 sampler2D sDepth  : register(s0);   // the scene's depth (INTZ)
-sampler2D sShadow : register(s1);   // the sun's depth (INTZ), border = far: the far map
+sampler2D sShadow : register(s1);   // the sun's depth (INTZ): the far map, wrapped (ShadowWrap)
 sampler2D sNear   : register(s2);   // the near map, the same way
 sampler2D sNearL  : register(s3);   // the near map's leaves
 sampler2D sFarL   : register(s4);   // the far map's leaves
 sampler2D sUnit   : register(s5);   // the units alone, the near map's camera and size
 sampler2D sBody   : register(s6);   // the screen: 1 where a player or a creature shows (bodymask.cpp)
 sampler2D sMid    : register(s7);   // the middle map, solid only ([shadow] midRange)
-sampler2D sTerr   : register(s8);   // hills and mountains alone, the far map's camera
+sampler2D sTerr   : register(s8);   // hills and mountains alone
 sampler2D sUnder  : register(s9);   // the depth under the water (water.cpp), copied before the water drew
 float4 gInv0 : register(c0);        // rows of inverse(camera view-projection): clip -> camera-relative world
 float4 gInv1 : register(c1);
@@ -125,10 +125,23 @@ float4 gFol  : register(c35);       // foliage: the disc's radius (yards, 0 = of
                                    // the share of creatures' shadows it takes; w grazeBand
 float4 gWt   : register(c34);       // the water: 1 if the depth under it is there, light absorbed a yard;
                                     // z grazeShade; w Shadow on Water (0..1)
-float4 gLN   : register(c36);       // the near leaves' map's own camera (2026-10-23): from the near map's clip, x and y
-                                    // times .x, plus .y and .z (ShadowLeafShift); 1, 0, 0 when it has none; .w its texel
-float4 gLF   : register(c37);       // the same for the far leaves' map, from the far map's clip
-                                    // (map units)
+// The baked maps (2026-10-23) hold still in the world and wrap. gSh and gN give clip over the far and near maps' windows,
+// for their edges; gWrap is what to add to it for the texel's uv. The leaves' and the hills' maps have their own matrices
+// with the wrap in: their cameras are the far and near maps' but while one is drawn anew after a step of the sun.
+float4 gWrap : register(c36);       // the far map's clip offset (xy), the near map's (zw)
+float4 gZo   : register(c37);       // the hills' map's depth less the far map's (x) and the far leaves' (y), same point
+float4 gNL0  : register(c38);       // rows of the near leaves' map's matrix, camera-relative world -> clip, wrapped
+float4 gNL1  : register(c39);
+float4 gNL2  : register(c40);
+float4 gNL3  : register(c41);
+float4 gFL0  : register(c42);       // the far leaves' map's
+float4 gFL1  : register(c43);
+float4 gFL2  : register(c44);
+float4 gFL3  : register(c45);
+float4 gTM0  : register(c46);       // the hills' map's
+float4 gTM1  : register(c47);
+float4 gTM2  : register(c48);
+float4 gTM3  : register(c49);
 // The surface's slope in a map: how its depth changes per unit of map uv. Two directions along the
 // surface are carried into the map, and the plane through them solved for depth against u and v.
 float2 Slope(float3 N, float4 m0, float4 m1, float4 m2, float most)
@@ -156,9 +169,13 @@ float  R1(sampler2D m, float2 uv) { return Quad(m, uv).x; }
 #else
 float  R1(sampler2D m, float2 uv) { return tex2Dlod(m, float4(uv, 0, 0)).r; }
 #endif
-// A solid map's clip to its leaves' map's (gLN, gLF).
-float4 ToLeafN(float4 s) { return float4(s.xy * gLN.x + gLN.yz, s.zw); }
-float4 ToLeafF(float4 s) { return float4(s.xy * gLF.x + gLF.yz, s.zw); }
+// A point to the leaves' and the hills' maps' clip; the far and near maps' clip to the texel's.
+float4 ToNL(float3 Q) { return Q.x * gNL0 + Q.y * gNL1 + Q.z * gNL2 + gNL3; }
+float4 ToFL(float3 Q) { return Q.x * gFL0 + Q.y * gFL1 + Q.z * gFL2 + gFL3; }
+float4 ToTM(float3 Q) { return Q.x * gTM0 + Q.y * gTM1 + Q.z * gTM2 + gTM3; }
+float4 WrapF(float4 s) { return float4(s.xy + gWrap.xy, s.zw); }
+float4 WrapN(float4 s) { return float4(s.xy + gWrap.zw, s.zw); }
+float2 UvOf(float4 s) { return float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5); }
 float Test(sampler2D m, float2 uv, float z, float bias)
 {
     return (z <= R1(m, uv) + bias) ? 1.0 : 0.0;
@@ -344,8 +361,8 @@ float SurfaceShade(float3 Q)
         wn = saturate((0.9 - max(en.x, en.y)) * 10.0);
         [branch] if (wn > 0.0)
         {
-            float leaf = gCh.y > 0.5 ? 1.0 - Lit5S(sNearL, ToLeafN(sn), 0.0, gNB.x, gLN.w * 3.0) : 0.0;
-            sh = 1.0 - LitS(sNear, sn, 0.0, gNB.x, gNB.z * 3.0) * (1.0 - gCh.x * leaf);
+            float leaf = gCh.y > 0.5 ? 1.0 - Lit5S(sNearL, ToNL(Q), 0.0, gNB.x, gNB.z * 3.0) : 0.0;
+            sh = 1.0 - LitS(sNear, WrapN(sn), 0.0, gNB.x, gNB.z * 3.0) * (1.0 - gCh.x * leaf);
         }
     }
     [branch] if (wn < 1.0 && gCh.w > 0.5)
@@ -353,8 +370,8 @@ float SurfaceShade(float3 Q)
         float4 sf   = Q.x * gSh0 + Q.y * gSh1 + Q.z * gSh2 + gSh3;
         float2 ef   = abs(sf.xy);
         float  fade = saturate((1.0 - max(ef.x, ef.y)) * 10.0);
-        float  leaf = gCh.z > 0.5 ? 1.0 - Lit5S(sFarL, ToLeafF(sf), 0.0, gB.x, gLF.w * 3.0) : 0.0;
-        float  shF  = (1.0 - LitS(sShadow, sf, 0.0, gB.x, gB.z * 3.0) * (1.0 - gCh.x * leaf)) * fade;
+        float  leaf = gCh.z > 0.5 ? 1.0 - Lit5S(sFarL, ToFL(Q), 0.0, gB.x, gB.z * 3.0) : 0.0;
+        float  shF  = (1.0 - LitS(sShadow, WrapF(sf), 0.0, gB.x, gB.z * 3.0) * (1.0 - gCh.x * leaf)) * fade;
         sh = lerp(shF, sh, wn);
     }
     return sh;
@@ -487,9 +504,9 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         {
             float2 gs = Slope(N, gN0, gN1, gN2, gG.y);
             float2 g = gs * gT.x;
-            litN = Lit(sNear, sn + float4(0.0, 0.0, awayM * 2.0 * gNB.x, 0.0), gs * max(gT.x, awayM), gNB.x + mg, gNB.z);
+            litN = Lit(sNear, WrapN(sn) + float4(0.0, 0.0, awayM * 2.0 * gNB.x, 0.0), gs * max(gT.x, awayM), gNB.x + mg, gNB.z);
             [branch] if (gCh.y > 0.5)
-                leafN = Lit5(sNearL, ToLeafN(sn), g / gLN.x, gNB.x + mg + fol * gBody.w, gLN.w);
+                leafN = Lit5(sNearL, ToNL(Qn), g, gNB.x + mg + fol * gBody.w, gNB.z);
         }
     }
     // The middle map ([shadow] midRange, 2026-10-02) where the near map does not cover all of the shade,
@@ -529,11 +546,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // than the terrain in the map.
         float  bF = gB.x + gLod.x * max(length(P) - gLod.y, 0.0);
         [branch] if (wn < 1.0 && wm < 1.0)
-            litF = lerp(1.0, Lit(sShadow, sf + float4(0.0, 0.0, awayM * 2.0 * bF, 0.0), gs * max(gT.x, awayM), bF + mg, gB.z), fade);
+            litF = lerp(1.0, Lit(sShadow, WrapF(sf) + float4(0.0, 0.0, awayM * 2.0 * bF, 0.0), gs * max(gT.x, awayM), bF + mg, gB.z), fade);
         [branch] if (wn < 1.0 && gCh.z > 0.5)
-            leafF = lerp(1.0, Lit5(sFarL, ToLeafF(sf), g / gLF.x, bF + mg + fol * gBody.w, gLF.w), fade);
+            leafF = lerp(1.0, Lit5(sFarL, ToFL(Qf), g, bF + mg + fol * gBody.w, gB.z), fade);
         [branch] if (gTr.y > 0.5)
-            terr = 1.0 - lerp(1.0, Lit5(sTerr, sf, g, max(bF, gTr.z), gB.z), fade);
+            terr = 1.0 - lerp(1.0, Lit5(sTerr, ToTM(Qf), g, max(bF, gTr.z), gB.z), fade);
         // A tree's shade through a hill (2026-10-03): with the sun low behind a ridge, the trees on its crest
         // printed their shapes on the shaded face, through the ground. Along the sun's line the order is
         // the tree, then the hill, then the point: the hill's shade alone. A tree in a valley under a far
@@ -558,28 +575,31 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
         // wall's shade was taken off, and a lit strip, flickering with the maps, ran along the wall's foot.
         [branch] if (gTr.y > 0.5 && max(terr, away) > 0.0)
         {
+            // Each map read at its own texel, and the depths compared in the hills' map's terms (gZo).
             float3 Qt  = P + gSun.xyz * gT.y;
-            float4 st  = Qt.x * gSh0 + Qt.y * gSh1 + Qt.z * gSh2 + gSh3;
-            float2 uvf = float2(st.x * 0.5 + 0.5, 0.5 - st.y * 0.5);
+            float4 st  = ToTM(Qt);
+            float2 uvT = UvOf(st);
+            float2 uvS = UvOf(WrapF(Qt.x * gSh0 + Qt.y * gSh1 + Qt.z * gSh2 + gSh3));
             float  o   = gB.z * max(gB.w, 0.5) * 2.0;
-            float  dT  = R1(sTerr, uvf);
+            float  dT  = R1(sTerr, uvT);
             float  m   = 1.0 / (gTr.z * 0.1);
-            float  gate = max(terr, away) * saturate((st.z - dT) * m - 1.0);
+            float  gate = max(terr, away) * saturate((st.z - dT) * m - 1.0) * fade;
             gateV = gate;
             [branch] if (gCh.z > 0.5)
             {
-                float dL = min(min(R1(sFarL, uvf),
-                                   min(R1(sFarL, uvf + float2(-o, -o)),
-                                       R1(sFarL, uvf + float2( o, -o)))),
-                               min(R1(sFarL, uvf + float2(-o,  o)),
-                                   R1(sFarL, uvf + float2( o,  o))));
+                float2 uvL = UvOf(ToFL(Qt));
+                float dL = min(min(R1(sFarL, uvL),
+                                   min(R1(sFarL, uvL + float2(-o, -o)),
+                                       R1(sFarL, uvL + float2( o, -o)))),
+                               min(R1(sFarL, uvL + float2(-o,  o)),
+                                   R1(sFarL, uvL + float2( o,  o)))) + gZo.y;
                 through = max(saturate((dT - dL) * m - 1.0), saturate((st.z - dL) / gTr.w - 1.0)) * gate;
             }
-            float dS = min(min(R1(sShadow, uvf),
-                               min(R1(sShadow, uvf + float2(-o, -o)),
-                                   R1(sShadow, uvf + float2( o, -o)))),
-                           min(R1(sShadow, uvf + float2(-o,  o)),
-                               R1(sShadow, uvf + float2( o,  o))));
+            float dS = min(min(R1(sShadow, uvS),
+                               min(R1(sShadow, uvS + float2(-o, -o)),
+                                   R1(sShadow, uvS + float2( o, -o)))),
+                           min(R1(sShadow, uvS + float2(-o,  o)),
+                               R1(sShadow, uvS + float2( o,  o)))) + gZo.x;
             throughS = max(saturate((dT - dS) * m - 1.0), saturate((st.z - dS) / gTr.w - 1.0)) * gate;
             // In units of the margin (0.1 of terrainBias): 100 of them full.
             depthsV = float3(saturate((dT - dS) * m * 0.01), saturate((dS - dT) * m * 0.01), saturate((st.z - dT) * m * 0.01));
@@ -601,17 +621,15 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             const float  rr  = k < 6 ? gFol.x : gFol.x * 0.4;
             const float3 Q   = Qb + float3(cos(ang) * rr, sin(ang) * rr, 0.0);
             const float4 s   = Q.x * gN0 + Q.y * gN1 + Q.z * gN2 + gN3;
-            const float2 us  = float2(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
-            sN  += step(s.z, R1(sNear, us) + gNB.x);
-            const float4 sl  = ToLeafN(s);
-            sNL += gCh.y > 0.5 ? step(s.z, R1(sNearL, float2(sl.x * 0.5 + 0.5, 0.5 - sl.y * 0.5)) + gNB.x + gBody.w) : 1.0;
+            sN  += step(s.z, R1(sNear, UvOf(WrapN(s))) + gNB.x);
+            const float4 sl  = ToNL(Q);
+            sNL += gCh.y > 0.5 ? step(sl.z, R1(sNearL, UvOf(sl)) + gNB.x + gBody.w) : 1.0;
             const float4 m4  = Q.x * gM0 + Q.y * gM1 + Q.z * gM2 + gM3;
             sM  += step(m4.z, R1(sMid, float2(m4.x * 0.5 + 0.5, 0.5 - m4.y * 0.5)) + gMB.x);
             const float4 f4  = Q.x * gSh0 + Q.y * gSh1 + Q.z * gSh2 + gSh3;
-            const float2 uf  = float2(f4.x * 0.5 + 0.5, 0.5 - f4.y * 0.5);
-            sF  += step(f4.z, R1(sShadow, uf) + gB.x);
-            const float4 fl  = ToLeafF(f4);
-            sFL += gCh.z > 0.5 ? step(f4.z, R1(sFarL, float2(fl.x * 0.5 + 0.5, 0.5 - fl.y * 0.5)) + gB.x + gBody.w) : 1.0;
+            sF  += step(f4.z, R1(sShadow, UvOf(WrapF(f4))) + gB.x);
+            const float4 fl  = ToFL(Q);
+            sFL += gCh.z > 0.5 ? step(fl.z, R1(sFarL, UvOf(fl)) + gB.x + gBody.w) : 1.0;
         }
         const float lo = 0.5 - gFol.y, hi = 0.5 + gFol.y;
         if (wn > 0.0)
@@ -623,8 +641,11 @@ float4 main(float2 uv : TEXCOORD0) : COLOR
             litM = smoothstep(lo, hi, sM / 8.0);
         if (gCh.w > 0.5 && wn < 1.0)
         {
-            litF  = smoothstep(lo, hi, sF / 8.0);
-            leafF = smoothstep(lo, hi, sFL / 8.0);
+            // Faded out over the far map's last tenth, as above: past its window the wrapped texture holds other ground.
+            const float4 fc = Qb.x * gSh0 + Qb.y * gSh1 + Qb.z * gSh2 + gSh3;
+            const float  ff = saturate((1.0 - max(abs(fc.x), abs(fc.y))) * 10.0);
+            litF  = lerp(1.0, smoothstep(lo, hi, sF / 8.0), ff);
+            leafF = lerp(1.0, smoothstep(lo, hi, sFL / 8.0), ff);
         }
     }
     // Solid things stop the sun; leaves stop leafShade of it, and hills terrainShade. They multiply
@@ -1227,13 +1248,15 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     }
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     d->SetSamplerState(dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    // Off a map reads as far: lit.
+    // The baked maps wrap (2026-10-23): the far map, the near one, their leaves and the hills. Off the units' map and the
+    // middle map reads as far: lit.
     for (DWORD st = 1; st < 9; ++st)
     {
         if (st == 6)
             continue;   // the body mask, clamped above
-        d->SetSamplerState(dev, st, D3DSAMP_ADDRESSU, D3DTADDRESS_BORDER);
-        d->SetSamplerState(dev, st, D3DSAMP_ADDRESSV, D3DTADDRESS_BORDER);
+        const bool wrap = st != 5 && st != 7;
+        d->SetSamplerState(dev, st, D3DSAMP_ADDRESSU, wrap ? D3DTADDRESS_WRAP : D3DTADDRESS_BORDER);
+        d->SetSamplerState(dev, st, D3DSAMP_ADDRESSV, wrap ? D3DTADDRESS_WRAP : D3DTADDRESS_BORDER);
         d->SetSamplerState(dev, st, D3DSAMP_BORDERCOLOR, 0xFFFFFFFF);
     }
     if (f4)
@@ -1242,10 +1265,10 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     d->SetVertexShader(dev, g_vs);
     d->SetPixelShader(dev, f4 ? psF4 : g_ps);
 
-    const float span = 2.0f * ShadowMapDepth() - 1.0f;       // the shadow map's z range, yards
+    const float span = ShadowMapSpan();                       // the shadow maps' z range, yards
     float minZ = 0.0f, maxZ = 1.0f;
     ShadowWorldDepthRange(minZ, maxZ);
-    float pc[152] = {};
+    float pc[200] = {};
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
         {
@@ -1352,12 +1375,24 @@ bool SunShadowsDraw(IDirect3DDevice9* dev)
     pc[136] = under ? 1.0f : 0.0f;
     pc[137] = WaterBedFade() > 0.0f ? WaterBedFade() : 0.25f / g_cfg.water.clarity;
     pc[139] = ss.water;                                              // Shadow on Water
-    // The leaves' maps' own cameras and texels (c36, c37); a map not made yet reads with its solid map's texel.
-    ShadowLeafShift(true, &pc[144]);
-    ShadowLeafShift(false, &pc[148]);
-    if (pc[147] <= 0.0f) pc[147] = pc[66];
-    if (pc[151] <= 0.0f) pc[151] = pc[42];
-    d->SetPixelShaderConstantF(dev, 0, pc, 38);
+    // The baked maps (c36 to c49): the wrap of the far and near maps, the hills' depth against the far maps', and the
+    // leaves' and hills' maps' own matrices.
+    ShadowWrap(&pc[144], &pc[146]);
+    ShadowTerrainDepthShift(&pc[148]);
+    D3DMATRIX own = {};
+    if (nearLeaf && ShadowNearLeavesMatrix(own))
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                pc[152 + r * 4 + c] = own.m[r][c];
+    if (farLeaf && ShadowFarLeavesMatrix(own))
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                pc[168 + r * 4 + c] = own.m[r][c];
+    if (terrMap && ShadowFarTerrainMatrix(own))
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                pc[184 + r * 4 + c] = own.m[r][c];
+    d->SetPixelShaderConstantF(dev, 0, pc, 50);
 
     const float half[4] = { -1.0f / td.Width, 1.0f / td.Height, 0.0f, 0.0f };
     d->SetVertexShaderConstantF(dev, 0, half, 1);

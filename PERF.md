@@ -4,7 +4,33 @@ The current state of comfyatmos's frame rate, and the plan. The measurements and
 in `NOTES.md`, in the sections named at the end. Update this file when a finding changes; put the long form in
 `NOTES.md`.
 
-Last updated 2026-10-23, after the second night on `perf-2`, measured in motion.
+Last updated 2026-10-23: the plan for baked static shadows, step 1 and part of step 5 built, then stopped.
+
+## Where it stopped (2026-10-23, afternoon)
+
+Built, not measured:
+
+- **Step 1.** The far map, its leaves, the hills, the near map and its leaves are baked (shadow.cpp, "the baked maps").
+  Each map's grid is fixed in the world and its texture wraps. Only scrolled strips, changed rectangles (the files'
+  changes come from `MapTakeChanges`, the cache's from a diff of the entries by content) and, after a sun step, a band
+  a frame into a spare map are drawn. The middle map and the units' map are still drawn each time. The shaders read
+  each baked map through its own matrix with `D3DTADDRESS_WRAP`.
+- **Part of step 5.** The cache takes only units' and ships' draws (`CacheTakes`). A unit's entry stays out of view
+  while its unit stands there, and goes when it is in view and not drawn.
+- The settings this made meaningless are gone: keepStill, keepPoseEvery, farUnitReach, leafHold, leafHoldFar,
+  farLeafSize, farEvery, minTriangles, snap, nearSnap.
+
+Found:
+
+- Five shadow tests (Ashenvale edge strips, Elwynn trough and stump, far terrain cache, Stormwind wall foot) gave the
+  same shade as the morning's build: the shots differ only in clouds, grass, water and one camera place.
+- While turning, the old cache added and dropped hundreds of entries a second (`tests/perf-spin.json`, the
+  "shadow: churn" log lines): at Goldshire about 320 units' parts a second, dropped as "brief" each time they left the
+  view; at Stormwind's harbour and wall 50 to 100 a second of the client's other draws.
+
+**The owner, in play: overall worse.** No measurement was taken of this build. The test client went back to 0.17.0.
+Not filled (step 4): the shade of what the files do not draw, now that the cache does not take it (buildings' cut-out
+parts, furniture inside buildings, models the files do not place).
 
 ## The owner's findings (2026-10-21, in play)
 
@@ -99,17 +125,63 @@ still loading). Effects off: Goldshire 88 fps, Darkshire 120, Elwynn 145, Auberd
 and 58; perf-2 now 47.5, 62, 88 and 62 (+18%, +14%, +17%, +6%). At Goldshire our CPU is about 10 ms a frame and the GPU's frame 19 ms (4 ms with the effects
 off): both sides must come down for a large gain.
 
-## Next
+## The plan: static shadows baked, dynamic shadows for what moves (2026-10-23, the owner)
 
-1. **Towns, CPU: the units' draws.** About 1,000 unit parts held at Goldshire, drawn into the units' map, the near and
-   middle maps. Ideas: one draw per unit per map where its parts share a buffer (merge index ranges), or the parts'
-   bones uploaded once per unit.
-2. **Towns and forests, GPU: the near leaves' map** (2 ms at Goldshire). Held in place it is kept on most frames in
-   the open, not in towns: the client's batched doodads and objects drawn from changing buffers come and go. Their
-   shade could come from the files (the objects' models are known), or they could go to a small map of their own.
-   A held map at the same texel size would need a 4096 map over a wider box: check the VRAM first.
-3. **The water** (7.8 ms at Auberdine while moving): the baked-texture rewrite below.
-4. **The light's march** at a fixed cost (1.2 to 3 ms).
+The shadow system was built before the map files were read. It still draws every caster again each frame, from
+what the client draws. The files now give the place and the model of everything that stands still, so its shade
+can be drawn once and kept. Only players, creatures and moving objects need a shadow drawn each frame.
+
+What supports it:
+
+- The terrain, the buildings and the outdoor doodads already come from the files. The files' own draws cost 0.33 ms
+  of CPU a frame at Goldshire. The cost is the client's draws that are matched and drawn again each frame (units,
+  batched doodads, object parts) and the leaves drawn again at full size.
+- The sun's azimuth is 45 degrees all day. Only its height changes, about 10 degrees an hour of game time: one
+  degree in about 6 minutes.
+
+GPU time a frame at Goldshire, moving, 1920 x 1080 (perf-2, 2026-10-23): shadow maps 7.2 ms (near leaves 2.5, far
+leaves 2.1), sun shadows 2.1, light and fog 1.7, lamp fog 0.9; the GPU's whole frame 18.9 ms, 4.1 with the effects
+off.
+
+### Steps, in this order
+
+1. **Static maps, drawn once and kept.**
+   - The world from the files goes into maps fixed in the world, at the near, middle and far levels.
+   - One texture a level holds the solid, leaf and terrain depths in its channels. A level is drawn rarely, so the
+     cost of blending does not matter, and the shaders read the three depths in one fetch.
+   - A level scrolls as you walk: only the strip that comes into range is drawn. Running moves about 4 texels a
+     frame on the near level.
+   - **The sun: background rebakes (the owner's choice).** On a sun step the levels are drawn again in the
+     background, a part each frame, and swapped when done, with a short crossfade. Steps of about 0.25 degrees,
+     one every 90 seconds or so. A jump of the clock (login, a teleport, a change of time) rebuilds at once.
+2. **One dynamic map, drawn each frame:** players, creatures and moving objects (ships, doors that open,
+   elevators), near you only. A ship may also need the far level.
+3. **The shaders.** The sun shadows read the static level and the dynamic map. The light's march reads only the
+   static far level: a unit's shadow in the fog does not show.
+4. **Fill the gaps in the files**, so the bake can replace the cache:
+   - **Server objects that stand still are baked (the owner's choice):** mailboxes, signs, closed doors, housing
+     furniture. Their place comes from the object table, their model from the files. An object that moves goes to
+     the dynamic map.
+   - Animated doodads (mill wheels, flags): baked in their rest pose, or dynamic.
+   - Furniture inside buildings, which comes from the client's draws now.
+5. **Remove the cache's work for static casters:** matching client draws to the files, the keep test, eviction.
+   The cache keeps units and moving objects only.
+
+Not in this plan: the full-screen passes (sun shadows and light and fog, about 2 ms each, per pixel) get cheaper only
+through fewer reads. The water (8.3 ms at Auberdine) is a separate job.
+
+Later, decided by look after step 1: bake the volumetric light into a 3D grid of where the sun reaches, built from
+the static maps and scrolled the same way. The risk is leaf shafts finer than the grid.
+
+**Measuring:** build first, check the look with screenshots while building, and measure in motion once when a step
+works. Ask the owner before any run longer than a few minutes.
+
+### Left from the night of 2026-10-23
+
+- **The units' draws** (CPU, towns): about 1,000 unit parts at Goldshire. With one dynamic map they are drawn once,
+  not into three maps. One draw per unit where its parts share a buffer, or the bones uploaded once per unit, may
+  still help.
+- **The water** (7.8 ms at Auberdine while moving): the baked-texture rewrite below.
 
 ## Ideas for the rewrite
 
@@ -122,8 +194,7 @@ The aim of each is a cost that stays the same when the camera moves.
   64 slices deep) instead of once a pixel, then read the grid for each pixel. The cost depends on the grid, not on
   the screen size or on what is in view. Or march at half or quarter resolution and widen with a depth-aware
   upsample.
-- **Fewer shadow maps in towns.** Find which of the seven maps the light's march needs, and what a town's buildings
-  add to each. A town's buildings do not move: their depth can be drawn once per area, not once per rebuild.
+- **Fewer shadow maps in towns.** Taken up by the plan above: what stands still is drawn once.
 - **Water from baked data.** The shore distance, the foam field and the bed's slope do not change while the player
   stays in an area. Bake them into textures once per area, and keep the per-pixel shader to a few reads.
 - **GPU work across frames.** D3D9 gives one graphics queue, so the GPU cannot run two passes at once. What can
