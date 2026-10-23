@@ -4330,3 +4330,70 @@ pixels differ). Two causes:
 - Still open: with anti-aliasing on, DXVK 3 refuses the multisampled INTZ stand-in for the client's depth
   (`depth: could not create an INTZ ... stand-in (multisample 2, hr=0x8876086A)`), so the depth stays unreadable and
   every effect that needs it is off. That is likely the "3.0 does not work with the mod" the owner heard.
+
+## Performance in motion: units, the pose search and the leaves' maps (2026-10-23, perf-2)
+
+The owner (2026-10-21): the perf build was faster standing and slower moving than 0.17.0. This night measured in
+motion only.
+
+**The test.** `tests/perf-move-only.json`: at Goldshire, Darkshire, Elwynn's ridge and the beach at Auberdine, an 8 s
+frame log while the character runs in a circle (W and A held through comfytest.dll: 7 yards a second, the camera
+turning 180 degrees a second). `tests/perf-move.json` adds a standing log at each place; `perf-move-off.json` is the
+same with the effects off. `tools/perf/AB-Move.ps1` runs variants (a DLL and ini values written over the client's
+own, put back at the end) in alternating rounds at 1920 x 1080, a client restart each, and keeps each log in
+`%TEMP%\comfy-perf-logs`. The perf tests press Ctrl+R first (the owner: the frame counter on during tests).
+
+**Where the time goes, moving, 1920 x 1080, effects on.** With the effects off the same runs give Goldshire 88 fps,
+Darkshire 120, Elwynn 145, Auberdine 177. At Goldshire, at 45 fps, our CPU is about 10 ms a frame and the GPU's frame
+19 ms (4 ms with the effects off); the two are near each other, so a cut on one side alone moves the frame rate little.
+
+- **The cache in a town is units.** The probe's census (new): at Goldshire 203 units and players were known, and the
+  cache held 1,000 to 1,150 draws of 85 to 105 unit models; the buildings, terrain and doodads come from the files
+  already. Each unit is drawn in parts (a fifth of them under 50 triangles), into the far map, the middle map and the
+  units' map: 1,400 to 1,600 draws on a far redraw. The seven passes took 5.6 ms of CPU.
+- **Darkshire's slow frames** (20 to 31 ms of the cache) were AnimateObjects: objects whose pose no search matched
+  searched every sequence every half second, all on the same frames.
+- **The leaves' maps** were the largest GPU part in towns and forests: at Goldshire 3.9 ms (far leaves 1.8, near
+  leaves 2.05). keepStill keeps them while you stand; moving, the map follows you and is drawn again every frame.
+- **The water** at Auberdine: 7.8 ms from its first chunk to the world's end, of a 14.8 ms GPU frame. Not changed.
+- **Body mask and depth** read 0.1 to 5.8 ms at one place from run to run. The span holds an EndScene and a resolve;
+  the timestamps likely take in the tail of the world's draws. Not trusted.
+
+**What changed** (each measured in alternating rounds, moving):
+
+- `[shadow] farUnitReach` 30 (new, default): players and creatures past 30 yards stay out of the far maps. 100 gave
+  +6% at Goldshire and +7% on Elwynn's ridge; 30 with unitMinTriangles another +5% at Goldshire. The far maps hold
+  the light's shade and the sun shadows past the middle map: a unit past 100 yards loses its shade (a few pixels).
+- `[shadow] unitMinTriangles` 50 (new, default): a unit's parts under 50 triangles stay out of the far and middle maps.
+- `[shadow] midUnitReach` (new, 0): 60 gave 1 to 2%, and units 60 to 100 yards off then cast no shade. Left off.
+- AnimateObjects: one full search a frame, and an object no search matches waits twice as long each time, up to 8 s.
+  Darkshire +9%.
+- The replay's list is sorted by shader, buffers and place, and a draw whose constants are already on the device does
+  not upload them again: about a fifth of the model draws. Bone sets differ between a unit's parts.
+- Evict and the replay's preparation ask a settled entry's unit questions on every fourth frame, and g_leafParts is
+  looked up only when an entry changes: eviction 1.06 to 0.57 ms, preparation 0.84 to 0.65. The object search skips
+  models known as a unit's.
+
+**The leaves' maps, tried.** Their own camera (ShadowLeafShift: the same sun, so a reader goes from the solid map's
+clip to the leaves' by a scale and a shift; c36 and c37 in the sun shadows, c19 in the light's march).
+- Held in place (`leafHold`, `leafHoldFar`): no gain. The new frame log line on the kept maps shows why: the
+  entries in them and their places changed on nearly every frame while turning. The census found 800 of the
+  client's tree draws (346 vertices, 416 triangles) 100 to 400 yards off at Goldshire while turning, none with a
+  doodad of the files within 180 yards; standing two seconds later, one. Not explained yet. Off by default.
+- Smaller (`farLeafSize`): at 2048 the far leaves' GPU time about halves; the frame rate did not move, as the CPU then
+  sets it. Shots match. Off by default. The near leaves at 2048 were tried: their shade on the cobbles at Goldshire
+  went soft at the edges, so the near leaves keep their size.
+
+**The night's result**, 0.17.0's DLL against perf-2's at the end of the night (c4da49c), moving, frames a second, three
+alternating rounds at 1920 x 1080. In the third both builds slowed together (0.17.0 at Darkshire from 54 to 41), so
+the table holds the first two:
+
+| Place | 0.17.0 | perf-2 | |
+| --- | --- | --- | --- |
+| Goldshire | 36.8, 38.7 | 44.0, 45.6 | +19% |
+| Darkshire | 51.7, 54.0 | 60.7, 60.8 | +15% |
+| Elwynn's ridge | 76.1, 76.7 | 88.3, 86.2 | +14% |
+| Auberdine beach | 58.9, 58.1 | 61.9, 62.0 | +6% |
+
+At the start of the night perf-2 measured as 0.17.0 does in motion (Goldshire 38.9 against 38.4, Elwynn 77.4 against
+75.1): the owner's finding of 2026-10-21 that it was slower moving did not repeat in this test.

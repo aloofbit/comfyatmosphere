@@ -4,7 +4,7 @@ The current state of comfyatmos's frame rate, and the plan. The measurements and
 in `NOTES.md`, in the sections named at the end. Update this file when a finding changes; put the long form in
 `NOTES.md`.
 
-Last updated 2026-10-21, after the overnight run on the `perf` branch.
+Last updated 2026-10-23, after the second night on `perf-2`, measured in motion.
 
 ## The owner's findings (2026-10-21, in play)
 
@@ -79,14 +79,44 @@ DXVK's D3D9 front end 15 to 25%, UnitXP_SP3 3.5%, nampower 2 to 3.5%.
 | DXVK 2.7.1 gplasync, `enableAsync` | Not measured | In the test client |
 | `DrawFvf` (DXVK 3 gives FVF 0 for a declaration) | Fixes the missing water on DXVK 3 | In the perf build; keep |
 
+## What was tried on 2026-10-23 (in motion)
+
+Measured with `tests/perf-move-only.json` (running in a circle) and `tools/perf/AB-Move.ps1`, 1920 x 1080, MSAA 2,
+alternating rounds. NOTES.md, "Performance in motion: units, the pose search and the leaves' maps", has the detail.
+
+| Change | Result, moving | State |
+| --- | --- | --- |
+| Units past 30 yards out of the far maps (`farUnitReach`), unit parts under 50 triangles out of the far and middle maps (`unitMinTriangles`) | Goldshire +11%, Elwynn +9% | Default |
+| Units past 60 yards out of the middle map (`midUnitReach`) | +1 to 2%; units 60 to 100 yards off lose their shade | Off |
+| One full pose search a frame (AnimateObjects) | Darkshire +9%; its 20 to 31 ms frames gone | Always |
+| Replay sorted, constants not uploaded twice, unit questions every fourth frame | Eviction 1.06 to 0.57 ms, preparation 0.84 to 0.65 ms of CPU | Always |
+| Leaves' maps held in place (`leafHold`, `leafHoldFar`) | No gain: the client's leafy draws change them every frame while turning | Off |
+| Far leaves' map at 2048 (`farLeafSize`) | Its GPU time halves; no frame-rate change while the CPU sets it | Off |
+| Near leaves' map at 2048 | Leaf shade on the ground goes soft | Not kept |
+
+**Where it stands, moving.** Effects off: Goldshire 88 fps, Darkshire 120, Elwynn 145, Auberdine 177. Effects on:
+0.17.0 38, 53, 76 and 58; perf-2 now 45, 61, 87 and 62 (+19%, +15%, +14%, +6%). At Goldshire our CPU is about 10 ms a frame and the GPU's frame 19 ms (4 ms with the effects
+off): both sides must come down for a large gain.
+
+## Next
+
+1. **Towns, CPU: the units' draws.** About 1,000 unit parts held at Goldshire, drawn into the units' map, the near and
+   middle maps. Ideas: one draw per unit per map where its parts share a buffer (merge index ranges), or the parts'
+   bones uploaded once per unit.
+2. **Towns and forests, GPU: the near leaves' map** (2 ms at Goldshire). Held maps did not keep, because the client's
+   own leafy draws change every frame while turning (800 tree draws 100 to 400 yards off at Goldshire, no doodad of
+   the files near them). Find what those draws are; if the files place them, the held map keeps, and the near leaves
+   cost almost nothing in motion.
+3. **The water** (7.8 ms at Auberdine while moving): the baked-texture rewrite below.
+4. **The light's march** at a fixed cost (1.2 to 3 ms).
+
 ## Ideas for the rewrite
 
 The aim of each is a cost that stays the same when the camera moves.
 
-- **Shadow casters from the map files, first.** The buildings, doodads and trees near you come from the map files
-  and stay fixed while the camera turns. Only players and creatures come from the client's draws. Turning then
-  adds and drops nothing, and no pose search runs for objects that do not move. This is the rewrite with the
-  largest gain in towns (see Darkshire above).
+- **Shadow casters from the map files.** Done before this plan: terrain, buildings, their outdoor doodads and the
+  tiles' doodads come from the files (mapterrain.cpp), and the client's draws of them are refused. The census of
+  2026-10-23 found the town cache to be units, not buildings.
 - **Volumetric light at a fixed cost.** March into a low-resolution grid (for example 160 x 90 cells across the screen,
   64 slices deep) instead of once a pixel, then read the grid for each pixel. The cost depends on the grid, not on
   the screen size or on what is in view. Or march at half or quarter resolution and widen with a depth-aware
@@ -108,7 +138,8 @@ The aim of each is a cost that stays the same when the camera moves.
 - "Performance: the volumetric light (2026-10-07, perf-1)"
 - "Performance: the water at 2560x1440 (2026-10-11)"
 - "Performance: the command stream, the game thread and the GPU at 1920 x 1080 (2026-10-21, the perf branch)"
+- "Performance in motion: units, the pose search and the leaves' maps (2026-10-23, perf-2)"
 
 Also `changelog/2026-10-06-performance-tests.md` (the performance tests and their page). Tools: `tools/prof`
-(comfyprof, `/atmos prof`), `tools/perf` (Fresh-Client, Run-Perf, AB-Build, AB-Dxvk, AB-Stream, Diff-Shots,
+(comfyprof, `/atmos prof`), `tools/perf` (Fresh-Client, Run-Perf, AB-Build, AB-Move, AB-Dxvk, AB-Stream, Diff-Shots,
 shader.py), `/atmos framelog`.

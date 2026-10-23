@@ -68,7 +68,16 @@ try {
                 if ($s -match '^\s*([^.]+)\.([^=]+)=(.*)$') { $text = Set-IniValue $text $Matches[1].Trim() $Matches[2].Trim() $Matches[3].Trim() }
             }
             [IO.File]::WriteAllText($ini, $text)
-            $login = & (Join-Path $tool 'Login.ps1') -Client $Client -Width $Width -Height $Height *>&1 | ForEach-Object { "$_" }
+            # Two tries: a login right after a close can fail while the server still holds the session, and Login.ps1
+            # throws then (2026-10-23, it ended a night's run).
+            $login = @()
+            for ($try = 1; $try -le 2; $try++) {
+                try { $login = & (Join-Path $tool 'Login.ps1') -Client $Client -Width $Width -Height $Height *>&1 | ForEach-Object { "$_" } }
+                catch { $login = @("$_") }
+                if ($login -match 'In the world') { break }
+                & (Join-Path $PSScriptRoot 'Fresh-Client.ps1') -NoLogin -Client $Client *>&1 | Out-Null
+                Start-Sleep -Seconds 20
+            }
             if (-not ($login -match 'In the world')) { "round $r $($v.Label): login failed: $($login | Select-Object -Last 3)" | Add-Content $Out; continue }
             Push-Location (Join-Path $repo 'tests')
             try { $lines = & .\Run-Tests.ps1 $Test -NoLogin -NoOpen *>&1 | ForEach-Object { "$_" } } finally { Pop-Location }
