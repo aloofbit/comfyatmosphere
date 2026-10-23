@@ -4374,26 +4374,40 @@ Darkshire 120, Elwynn 145, Auberdine 177. At Goldshire, at 45 fps, our CPU is ab
   looked up only when an entry changes: eviction 1.06 to 0.57 ms, preparation 0.84 to 0.65. The object search skips
   models known as a unit's.
 
+**Wait after a teleport.** The tests first measured 8 s after each teleport. At Goldshire the census then found 800 of
+the client's tree draws in the cache, 100 to 400 yards off with no doodad of the files near them; standing at 15 s,
+one. Their tiles' doodads were still loading, so the files' check let the client's draws in, and they left as the
+tiles came. The tests wait 30 s now (`perf-move-only`, `perf-move-off`): with the tiles loaded the census found 3 at
+Goldshire. The numbers in the table below are from the 30 s runs.
+
+**The keep test** ([shadow] keepStill) takes each entry by what it draws and where, its place to a sixteenth of a yard
+and its turn to a 1/1024th, and sums the entries, so their order and addresses do not count. An object's part goes
+by its object's place: the object table copies each draw's matrix and bones as they come, and those carry the
+camera's error of a frame's walk (0.1 to 0.3 yards a frame while running, the same for every part). An entry seen on
+fewer than kSettled redraws is left out unless it moves: an object's parts the client drew from another buffer, a
+batch drawn once. Its shade waits for the next drawing, a second at most. The frame log's line on the kept maps
+counts why each was drawn again.
+
 **The leaves' maps, tried.** Their own camera (ShadowLeafShift: the same sun, so a reader goes from the solid map's
 clip to the leaves' by a scale and a shift; c36 and c37 in the sun shadows, c19 in the light's march).
-- Held in place (`leafHold`, `leafHoldFar`): no gain. The new frame log line on the kept maps shows why: the
-  entries in them and their places changed on nearly every frame while turning. The census found 800 of the
-  client's tree draws (346 vertices, 416 triangles) 100 to 400 yards off at Goldshire while turning, none with a
-  doodad of the files within 180 yards; standing two seconds later, one. Not explained yet. Off by default.
+- Held in place (`leafHold` 6, `leafHoldFar` 40): with the keep test above, the near leaves were kept on 409 of 696
+  frames on Elwynn's ridge and 381 of 480 at Auberdine while running; +2 to 3% there, nothing in the towns, where the
+  client's batched doodads still come and go. A held map covers 6 (40) yards more, so its texels are 19% (16%)
+  larger, and the leaf shade on the cobbles at Goldshire is a little softer at the tips. Off by default.
 - Smaller (`farLeafSize`): at 2048 the far leaves' GPU time about halves; the frame rate did not move, as the CPU then
   sets it. Shots match. Off by default. The near leaves at 2048 were tried: their shade on the cobbles at Goldshire
   went soft at the edges, so the near leaves keep their size.
 
-**The night's result**, 0.17.0's DLL against perf-2's at the end of the night (c4da49c), moving, frames a second, three
-alternating rounds at 1920 x 1080. In the third both builds slowed together (0.17.0 at Darkshire from 54 to 41), so
-the table holds the first two:
+**The night's result**, 0.17.0's DLL against perf-2's at the end of the night, moving, frames a second, two
+alternating rounds at 1920 x 1080, each place 30 s after the arrival:
 
-| Place | 0.17.0 | perf-2 | |
-| --- | --- | --- | --- |
-| Goldshire | 36.8, 38.7 | 44.0, 45.6 | +19% |
-| Darkshire | 51.7, 54.0 | 60.7, 60.8 | +15% |
-| Elwynn's ridge | 76.1, 76.7 | 88.3, 86.2 | +14% |
-| Auberdine beach | 58.9, 58.1 | 61.9, 62.0 | +6% |
+| Place | 0.17.0 | perf-2 | | perf-2, leaves held |
+| --- | --- | --- | --- | --- |
+| Goldshire | 40.3, 39.9 | 47.7, 47.3 | +18% | 48.5, 47.2 |
+| Darkshire | 55.6, 53.6 | 62.4, 62.3 | +14% | 60.0, 61.6 |
+| Elwynn's ridge | 75.4, 75.7 | 87.8, 88.5 | +17% | 90.7, 89.7 |
+| Auberdine beach | 58.2, 58.5 | 61.4, 61.9 | +6% | 63.1, 63.4 |
 
 At the start of the night perf-2 measured as 0.17.0 does in motion (Goldshire 38.9 against 38.4, Elwynn 77.4 against
-75.1): the owner's finding of 2026-10-21 that it was slower moving did not repeat in this test.
+75.1, 8 s after the teleports): the owner's finding of 2026-10-21 that it was slower moving did not repeat in this
+test.

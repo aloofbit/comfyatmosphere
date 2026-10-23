@@ -90,12 +90,13 @@ alternating rounds. NOTES.md, "Performance in motion: units, the pose search and
 | Units past 60 yards out of the middle map (`midUnitReach`) | +1 to 2%; units 60 to 100 yards off lose their shade | Off |
 | One full pose search a frame (AnimateObjects) | Darkshire +9%; its 20 to 31 ms frames gone | Always |
 | Replay sorted, constants not uploaded twice, unit questions every fourth frame | Eviction 1.06 to 0.57 ms, preparation 0.84 to 0.65 ms of CPU | Always |
-| Leaves' maps held in place (`leafHold`, `leafHoldFar`) | No gain: the client's leafy draws change them every frame while turning | Off |
+| Leaves' maps held in place (`leafHold` 6, `leafHoldFar` 40), with the keep test by content | +2 to 3% on Elwynn's ridge and at Auberdine, 0 in towns; leaf shade a little softer | Off |
 | Far leaves' map at 2048 (`farLeafSize`) | Its GPU time halves; no frame-rate change while the CPU sets it | Off |
 | Near leaves' map at 2048 | Leaf shade on the ground goes soft | Not kept |
 
-**Where it stands, moving.** Effects off: Goldshire 88 fps, Darkshire 120, Elwynn 145, Auberdine 177. Effects on:
-0.17.0 38, 53, 76 and 58; perf-2 now 45, 61, 87 and 62 (+19%, +15%, +14%, +6%). At Goldshire our CPU is about 10 ms a frame and the GPU's frame 19 ms (4 ms with the effects
+**Where it stands, moving** (each place 30 s after the arrival: earlier runs measured while the files' doodads were
+still loading). Effects off: Goldshire 88 fps, Darkshire 120, Elwynn 145, Auberdine 177. Effects on: 0.17.0 40, 55, 76
+and 58; perf-2 now 47.5, 62, 88 and 62 (+18%, +14%, +17%, +6%). At Goldshire our CPU is about 10 ms a frame and the GPU's frame 19 ms (4 ms with the effects
 off): both sides must come down for a large gain.
 
 ## Next
@@ -103,10 +104,10 @@ off): both sides must come down for a large gain.
 1. **Towns, CPU: the units' draws.** About 1,000 unit parts held at Goldshire, drawn into the units' map, the near and
    middle maps. Ideas: one draw per unit per map where its parts share a buffer (merge index ranges), or the parts'
    bones uploaded once per unit.
-2. **Towns and forests, GPU: the near leaves' map** (2 ms at Goldshire). Held maps did not keep, because the client's
-   own leafy draws change every frame while turning (800 tree draws 100 to 400 yards off at Goldshire, no doodad of
-   the files near them). Find what those draws are; if the files place them, the held map keeps, and the near leaves
-   cost almost nothing in motion.
+2. **Towns and forests, GPU: the near leaves' map** (2 ms at Goldshire). Held in place it is kept on most frames in
+   the open, not in towns: the client's batched doodads and objects drawn from changing buffers come and go. Their
+   shade could come from the files (the objects' models are known), or they could go to a small map of their own.
+   A held map at the same texel size would need a 4096 map over a wider box: check the VRAM first.
 3. **The water** (7.8 ms at Auberdine while moving): the baked-texture rewrite below.
 4. **The light's march** at a fixed cost (1.2 to 3 ms).
 

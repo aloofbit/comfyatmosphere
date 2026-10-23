@@ -144,7 +144,7 @@
             "chat": ".tele goldshire"
         },
         {
-            "wait": 8
+            "wait": 30
         },
         {
             "down": "W"

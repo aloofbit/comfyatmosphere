@@ -1,6 +1,6 @@
 {
     "name": "perf-move-only",
-    "about": "perf-move without the standing logs (2026-10-23), for AB-Move.ps1: an 8 s frame log while running in a circle at Goldshire, Darkshire, Elwynn's ridges and the beach at Auberdine.",
+    "about": "perf-move without the standing logs (2026-10-23), for AB-Move.ps1: an 8 s frame log while running in a circle at Goldshire, Darkshire, Elwynn's ridges and the beach at Auberdine. Each place waits 30 s after the arrival first: 8 s after a teleport the files' doodads were still loading, and the client's draws of them filled the shadow cache (2026-10-23).",
     "config": {
         "character": 1,
         "flight": false,
@@ -144,7 +144,7 @@
             "chat": ".tele goldshire"
         },
         {
-            "wait": 8
+            "wait": 30
         },
         {
             "down": "W"
@@ -180,7 +180,7 @@
             "chat": ".tele darkshire"
         },
         {
-            "wait": 8
+            "wait": 30
         },
         {
             "down": "W"
@@ -227,7 +227,7 @@
             }
         },
         {
-            "wait": 8
+            "wait": 30
         },
         {
             "down": "W"
@@ -275,7 +275,7 @@
             }
         },
         {
-            "wait": 8
+            "wait": 30
         },
         {
             "down": "W"

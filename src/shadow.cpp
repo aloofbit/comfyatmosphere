@@ -4449,15 +4449,19 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     // The cache's entries and the object table's parts (2026-10-04), listed once for the seven passes, with
     // whether each goes to the leaves (2026-10-06): the list was built again for each pass, and isLeaf asked
     // for each entry in each.
-    struct ReplayItem { const Entry* e; bool leaf; };
+    // obj: a part of the object table's; objMoves: its model animates (2026-10-23, for the keep test).
+    struct ReplayItem { const Entry* e; bool leaf; bool obj; bool objMoves; };
     static std::vector<ReplayItem> replayList;
     replayList.clear();
     for (const auto& kv : g_cache)
         for (const Entry& e : kv.second)
-            replayList.push_back({ &e, doLeaves && isLeaf(e) });
+            replayList.push_back({ &e, doLeaves && isLeaf(e), false, false });
     for (const ObjRec& o : g_objects)
+    {
+        const M2Anim* anim = o.parts.empty() ? nullptr : ObjAnim(o);
         for (const auto& kv : o.parts)
-            replayList.push_back({ &kv.second, doLeaves && isLeaf(kv.second) });
+            replayList.push_back({ &kv.second, doLeaves && isLeaf(kv.second), true, anim && anim->moves });
+    }
     // By shader, buffers and texture, then by place (2026-10-23): a unit's parts follow each other, so the draws
     // that share its bones upload them once, and each pass binds less. The maps hold depth alone; the order does
     // not change them.
@@ -4597,26 +4601,59 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         mixInto(h, &files, sizeof(files));
         mixInto(h, &s.leafAlpha, sizeof(s.leafAlpha));
         mixInto(hFiles, &files, sizeof(files));
+        // Each entry by what it draws and where, not by its address, and the entries summed, not chained (2026-10-23):
+        // the client draws some models from another place in its buffers each frame, the cache files that under
+        // another key, and each time the entry was a new one at the same place. Its place rounded to a sixteenth of a
+        // yard, its turn to a 1/1024th: the still rule keeps a model's matrix, and what moves past that has moved.
+        unsigned long long sumSet = 0, sumPlace = 0, sumPose = 0;
         for (const ReplayItem& item : replayList)
         {
             if (!wants(item, false))
                 continue;
             const Entry& e = *item.e;
             const Rec& r = e.rec;
+            // Not an entry seen on fewer than kSettled redraws, unless it moves (2026-10-23): an object's parts drawn
+            // from another buffer, a batch drawn once or twice. Each came and went, and the map was drawn again for
+            // it. Its shade waits for the next drawing, a second at most.
+            if (e.drawnFor < kSettled && !e.mobile && !e.drifts)
+                continue;
             // The geometry by its counts, not by the buffers it is in: the client draws an object from other buffers
             // now and then, and the counts are what the map's drawing depends on.
-            const void* ids[] = { item.e, r.vs, r.decl, r.tex0 };
-            mixInto(h, ids, sizeof(ids));
+            const void* ids[] = { r.vs, r.decl, r.tex0 };
             const UINT nums[] = { r.numVertices, r.vbStride[0], r.primCount, static_cast<UINT>(r.prim), r.fvf,
                                   r.alphaTest, r.alphaRef, r.alphaFunc };
-            mixInto(h, nums, sizeof(nums));
-            mixInto(h, &e.absolute, sizeof(e.absolute));
-            mixInto(hSet, ids, sizeof(ids));
-            mixInto(hSet, nums, sizeof(nums));
-            mixInto(hPlace, &e.absolute, sizeof(e.absolute));
-            if (r.vs && !e.consts.empty())
-                mixInto(hp, e.consts.data(), (std::min)(e.consts.size() / 4, static_cast<size_t>((std::max)(r.nregsOwn, 34u))) * 16);
+            // An object's part by its object's place: the object table copies each draw's matrix and bones as they
+            // come, and those carry the camera's error, a frame's walk (0.1 to 0.3 yards a frame while running).
+            int q[12] = {};
+            if (item.obj)
+                for (int j = 0; j < 3; ++j)
+                    q[9 + j] = static_cast<int>(floorf(e.pos[j] * 16.0f + 0.5f));
+            else
+            {
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j)
+                        q[i * 3 + j] = static_cast<int>(floorf(e.absolute.m[i][j] * 1024.0f + 0.5f));
+                for (int j = 0; j < 3; ++j)
+                    q[9 + j] = static_cast<int>(floorf(e.absolute.m[3][j] * 16.0f + 0.5f));
+            }
+            unsigned long long gs = 1469598103934665603ull, gp = gs, gq = gs;
+            mixInto(gs, ids, sizeof(ids));
+            mixInto(gs, nums, sizeof(nums));
+            gp = gs;
+            mixInto(gp, q, sizeof(q));
+            sumSet += gs * 0x9E3779B97F4A7C15ull + (gs >> 31);
+            sumPlace += gp * 0xC2B2AE3D27D4EB4Full + (gp >> 29);
+            if (r.vs && !e.consts.empty() && (!item.obj || item.objMoves))
+            {
+                mixInto(gq, q, sizeof(q));
+                mixInto(gq, e.consts.data(), (std::min)(e.consts.size() / 4, static_cast<size_t>((std::max)(r.nregsOwn, 34u))) * 16);
+                sumPose += gq * 0x165667B19E3779F9ull + (gq >> 33);
+            }
         }
+        mixInto(hSet, &sumSet, sizeof(sumSet));
+        mixInto(hPlace, &sumPlace, sizeof(sumPlace));
+        mixInto(h, &sumPlace, sizeof(sumPlace));
+        mixInto(hp, &sumPose, sizeof(sumPose));
         KeptMap& k = g_kept[pass];
         bool same = k.ok && k.hash == h && now - k.at < 1.0;
         for (int i = 0; i < 4 && same; ++i)
@@ -5327,9 +5364,34 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                     {
                         ++leafLogs;
                         const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                        const float o[3] = { e.absolute.m[3][0], e.absolute.m[3][1], e.absolute.m[3][2] };
+                        float od = 1e9f, op[3];
+                        if (MapDoodadNearest(o, op))
+                            od = sqrtf((op[0] - o[0]) * (op[0] - o[0]) + (op[1] - o[1]) * (op[1] - o[1]));
+                        const float sx = sqrtf(e.absolute.m[0][0] * e.absolute.m[0][0] + e.absolute.m[0][1] * e.absolute.m[0][1] +
+                                               e.absolute.m[0][2] * e.absolute.m[0][2]);
                         Log("shadow: census:   leaf entry %uv %up at %.0f yd, spread %.1f, drawn on %u, %s%s, nearest doodad "
-                            "%.1f yd", e.rec.numVertices, e.rec.primCount, sqrtf(dx * dx + dy * dy), e.spread,
-                            e.drawnFor, e.drifts ? "drifts" : "still", e.mobile ? " moving" : "", dd);
+                            "%.1f yd; first bone (%.1f %.1f %.1f), origin (%.1f %.1f %.1f) %.0f yd off, scale %.3f, its "
+                            "nearest doodad %.1f yd, the tile %s; slice %.4f..%.4f, alpha %u, regs %u", e.rec.numVertices,
+                            e.rec.primCount, sqrtf(dx * dx + dy * dy), e.spread, e.drawnFor, e.drifts ? "drifts" : "still",
+                            e.mobile ? " moving" : "", dd, e.pos[0], e.pos[1], e.pos[2], o[0], o[1], o[2],
+                            sqrtf((o[0] - pl[0]) * (o[0] - pl[0]) + (o[1] - pl[1]) * (o[1] - pl[1])), sx, od,
+                            MapTileHeld(e.pos[0], e.pos[1]) ? "held" : "not held", e.rec.minZ, e.rec.maxZ,
+                            e.rec.alphaTest, e.rec.nregsOwn);
+                        if (leafLogs <= 2 && e.consts.size() >= 34 * 4)
+                        {
+                            const float* c = e.consts.data();
+                            Log("shadow: census:     vb %p vs %p ib %p base %d start %u; c2..c5 (%.3f %.3f %.3f %.3f) (%.3f %.3f "
+                                "%.3f %.3f) (%.3f %.3f %.3f %.3f) (%.3f %.3f %.3f %.3f); bone 0 rows (%.3f %.3f %.3f %.1f) (%.3f "
+                                "%.3f %.3f %.1f) (%.3f %.3f %.3f %.1f); view rows (%.3f %.3f %.3f) (%.3f %.3f %.3f) (%.3f %.3f "
+                                "%.3f); the player's model %s", e.rec.vb[0], e.rec.vs, e.rec.ib, e.rec.baseVertex,
+                                e.rec.startIndex, c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18],
+                                c[19], c[20], c[21], c[22], c[23], c[124], c[125], c[126], c[127], c[128], c[129], c[130],
+                                c[131], c[132], c[133], c[134], c[135], g_worldView.m[0][0], g_worldView.m[0][1],
+                                g_worldView.m[0][2], g_worldView.m[1][0], g_worldView.m[1][1], g_worldView.m[1][2],
+                                g_worldView.m[2][0], g_worldView.m[2][1], g_worldView.m[2][2],
+                                g_unitModels.count(ModelKey(e.rec.vb[0], e.rec.vs)) ? "shares its buffer" : "no");
+                        }
                     }
                 }
             Log("shadow: census: %u of the client's draws in the leaves' maps: %u drift, %u moving, %u batches, %u new; "
