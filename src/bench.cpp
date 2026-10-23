@@ -683,6 +683,10 @@ namespace
                 split += part;
             }
             Log("framelog: shadow CPU split, ms a frame: %s", split.c_str());
+            std::string keep;
+            ShadowKeepText(keep);
+            if (!keep.empty())
+                Log("framelog: the kept maps: %s", keep.c_str());
             Log("framelog: the water's CPU a frame: %.2f ms reading the wet cells, %.2f ms issuing our draws over the "
                 "chunks, %.2f ms the rest", g_flParts[kCpuWaterCells] * k, g_flParts[kCpuWaterDraws] * k,
                 (std::max)(0.0, static_cast<double>(g_flParts[kCpuWater]) - g_flParts[kCpuWaterCells] -
@@ -754,6 +758,10 @@ void FrameLogStart(double seconds)
     double r, c, p;
     unsigned d, e, f, rp, failed;
     ShadowTakeTimes(r, c, p, d, e, f, rp);   // start from nothing
+    {
+        std::string keep;
+        ShadowKeepText(keep);
+    }
     g_flCopies = ShadowCopies(failed);
     Log("framelog: started, %.1f s", seconds);
 }

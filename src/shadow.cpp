@@ -439,6 +439,9 @@ namespace
         float              posEnd[3];      // trace only: pos with camAddr as read at the end of the world
         float              spread = 0.0f;  // yards from pos to its farthest bone: a batch of models (see Spread)
         mutable bool       inFar = false;  // the probe: drawn into the far map on its last redraw (2026-10-04)
+        // What g_leafParts last took from it (2026-10-23): an entry is looked up there again only when they change.
+        mutable UINT       notedPrims = 0;
+        mutable DWORD      notedAlpha = 0xFFFFFFFFu;
     };
 
     // Each key holds the instances of that model, wherever they stand.
@@ -693,6 +696,7 @@ namespace
         unsigned rng = 0x9E3779B9u;
         std::vector<Obs> prevObs;        // the last drawn frame's, to tell a slow turn from a fast one
         double   prevAt = -1.0, searchedAt = -1.0;
+        double   searchEvery = 0.5;      // seconds between full searches: doubled after each that finds no match
         float    syncErr = -1.0f;        // the probe: the last match's error, matches, full searches
         unsigned syncs = 0, searches = 0;
     };
@@ -1259,6 +1263,9 @@ namespace
 
     void AnimateObjects(double now)
     {
+        // One full search a frame (2026-10-23). Objects whose pose no search matches searched together every half
+        // second, and at Darkshire such a frame took 20 to 31 ms of the cache's CPU: the frame-rate drops of a turn.
+        int fullSearches = 0;
         for (ObjRec& o : g_objects)
         {
             if (o.parts.empty())
@@ -1365,8 +1372,9 @@ namespace
                                 consider(o.seq, t, ObsError(*m, obs, o.seq, t));
                     }
                 }
-                if (bestErr > kSyncErr && now - o.searchedAt > 0.5)   // everywhere, at most twice a second
+                if (bestErr > kSyncErr && now - o.searchedAt > o.searchEvery && fullSearches < 1)   // everywhere
                 {
+                    ++fullSearches;
                     o.searchedAt = now;
                     ++o.searches;
                     const bool prev = !o.prevObs.empty() && now - o.prevAt < 0.5;
@@ -1393,6 +1401,8 @@ namespace
                     }
                 }
                 o.syncErr = bestErr;
+                if (o.searchedAt == now)   // a full search: half a second again after a match, else up to 8 s
+                    o.searchEvery = bestSeq >= 0 && bestErr <= kSyncErr ? 0.5 : (std::min)(8.0, o.searchEvery * 2.0);
                 if (bestSeq >= 0 && bestErr <= kSyncErr)
                 {
                     o.timed = true;
@@ -1639,6 +1649,7 @@ namespace
     unsigned g_tEntries     = 0;             // entries in the cache
     unsigned g_tFrames      = 0;             // frames the cache was kept
     unsigned g_tReplays     = 0;             // frames the map was drawn ([shadow] mapEvery)
+    unsigned g_constKept    = 0;             // model draws that found their constants uploaded (2026-10-23)
 
     // The absolute transform derived for the frame's first M2 record, against the camera's own rotation:
     // if an entry's frame of reference is the camera, keeping it across frames cannot work.
@@ -2255,11 +2266,14 @@ namespace
                 e.absolute.m[3][2] += cam[2];
                 pos[0] = e.absolute.m[3][0]; pos[1] = e.absolute.m[3][1]; pos[2] = e.absolute.m[3][2];
             }
-            // An object's draw goes to its record (the object table), not to the cache.
+            // An object's draw goes to its record (the object table), not to the cache. Not asked for a model the cache
+            // holds at a unit (2026-10-23): at Goldshire a thousand of a frame's draws were bodies, each with up to 64
+            // bones taken to the world and looked for among the objects.
             bool underObjects = false;
             {
                 BenchProfScope prof(kProfFileObj);
-                underObjects = r.vs && FileUnderObjects(r, &g_constPool[r.consts], e.absolute, pos, now);
+                underObjects = r.vs && !g_unitModels.count(ModelKey(r.vb[0], r.vs)) &&
+                               FileUnderObjects(r, &g_constPool[r.consts], e.absolute, pos, now);
             }
             if (underObjects)
             {
@@ -2763,9 +2777,13 @@ namespace
                         // A unit's model is gone when no unit near it wears that model (2026-10-04), not when
                         // its first bone is off the half yard: a Warhorse's lies yards from its feet, and its
                         // entry went each time the client did not draw it.
+                        // Asked of each unit's entry on every fourth frame (2026-10-23): at Goldshire about a thousand
+                        // of them stood out of view while you ran, and the three questions took most of the eviction.
+                        const bool unitTurn = e.unit && ((reinterpret_cast<uintptr_t>(e.rec.vb[0]) >> 4) + e.rec.startIndex +
+                                                         g_frameId) % 4 == 0;
                         bool known = true;
-                        const bool unitGone = e.unit && !UnitAt(e.pos) && !UnitModelNear(e.rec, e.pos, known) && known;
-                        const bool unitStealthed = e.unit && e.rec.vs && UnitStealthedNear(e.rec, e.pos);
+                        const bool unitGone = unitTurn && !UnitAt(e.pos) && !UnitModelNear(e.rec, e.pos, known) && known;
+                        const bool unitStealthed = unitTurn && e.rec.vs && UnitStealthedNear(e.rec, e.pos);
                         if (e.mobile || e.drifts || unitGone || unitStealthed || brief ||
                             ((dx * dx + dy * dy > (reach + e.spread) * (reach + e.spread) ||
                               (s.cacheTime > 0.0f && now - e.lastSeen > s.cacheTime) ||
@@ -2852,8 +2870,11 @@ namespace
     IDirect3DSurface9*    g_depthSurf = nullptr;
     IDirect3DSurface9*    g_colour    = nullptr;   // a render target has to be bound; nothing is written to it
     // A map kept from its last drawing ([shadow] keepStill): what it was drawn from, and when.
-    struct KeptMap { bool ok = false; unsigned long long hash = 0, pose = 0; int poseHeld = 0; D3DMATRIX m = {}; double at = 0.0; };
+    struct KeptMap { bool ok = false; unsigned long long hash = 0, pose = 0, files = 0, set = 0, place = 0; int poseHeld = 0; D3DMATRIX m = {}; double at = 0.0; };
     KeptMap               g_kept[7];
+    // Why each kept map was drawn again (2026-10-23), for the frame log: kept, then drawn for the files, the entries,
+    // their places, the matrix, the second's limit, the poses. By pass.
+    unsigned              g_keepWhy[7][7] = {};
     unsigned              g_keptPasses = 0;        // passes kept, for the probe
     UINT                  g_size      = 0;
     UINT                  g_nearSize  = 0;         // the near map's, its leaves' and the units' map's (nearMinSize)
@@ -2882,6 +2903,20 @@ namespace
     IDirect3DTexture9*    g_farLeafTex   = nullptr;   // the far map's leaves
     IDirect3DSurface9*    g_farLeafSurf  = nullptr;
     bool                  g_nearLeafValid = false, g_farLeafValid = false;
+    // The leaves' maps held in place (2026-10-23, [shadow] leafHold and leafHoldFar). The leaves stand still, and a map
+    // that followed the player was drawn again on every step: at Goldshire, running, the near leaves took 2.2 ms of the
+    // GPU's frame and the far leaves 2 ms. A held map stays round where it was drawn, wider by the hold, until the
+    // player is that far from its centre or the sun moves on; keepStill then keeps it while nothing in it changes.
+    // Same sun camera as the solid maps, so a reader goes from a solid map's clip to its leaves' by a scale and a
+    // shift (ShadowLeafShift).
+    struct LeafHold { bool ok = false; double c[3] = {}; float sun[3] = {}; float range = 0.0f; int size = 0; };
+    LeafHold              g_nearLeafHold, g_farLeafHold;
+    D3DMATRIX             g_nearLeafAbsToSun = {}, g_farLeafAbsToSun = {};   // as the leaves' maps were last drawn
+    bool                  g_nearLeafHeld = false, g_farLeafHeld = false;     // a camera of their own: held, or resized
+    // The leaves' maps' sizes ([shadow] farLeafSize, 2026-10-23), and their colour target when it is none of the others'.
+    UINT                  g_nearLeafSize = 0, g_farLeafSize = 0, g_leafSizeMade = 0;
+    IDirect3DSurface9*    g_leafColour = nullptr;
+    float                 g_readCam[3] = {};                                  // this frame's camera, for the readers
     // The units' map (2026-09-30): players and creatures alone, under the near map's camera, so the sun
     // shadows can darken their shade more than the world's. Half the near map's size until 2026-10-01, with a
     // colour target of its own; now its size, sharing the maps' colour target (g_unitColour holds a reference
@@ -3041,7 +3076,9 @@ namespace
         SafeRelease(g_depthTex);
         SafeRelease(g_colour);
         SafeRelease(g_nearColour);
+        SafeRelease(g_leafColour);
         g_nearSize = 0;
+        g_nearLeafSize = g_farLeafSize = g_leafSizeMade = 0;
         for (KeptMap& k : g_kept)
             k.ok = false;
         SafeRelease(g_sb);
@@ -3055,7 +3092,9 @@ namespace
         const bool wantLeaves = g_cfg.shadow.leaves;
         const bool wantMid = g_cfg.shadow.midRange > 0.0f;
         const bool wantTerr = wantLeaves && g_cfg.shadow.terrainLeaves;
-        if (g_size == size && g_nearSize == nearSize && g_depthSurf && g_colour && g_sb && wantNear == (g_nearSurf != nullptr) &&
+        const UINT leafSize = g_cfg.shadow.farLeafSize > 0 ? static_cast<UINT>(g_cfg.shadow.farLeafSize) : 0;
+        if (g_size == size && g_nearSize == nearSize && g_leafSizeMade == leafSize && g_depthSurf && g_colour && g_sb &&
+            wantNear == (g_nearSurf != nullptr) &&
             wantLeaves == (g_farLeafSurf != nullptr) && (wantLeaves && wantNear) == (g_nearLeafSurf != nullptr) &&
             wantNear == (g_unitSurf != nullptr) && wantMid == (g_midSurf != nullptr) &&
             wantTerr == (g_terrSurf != nullptr))
@@ -3074,7 +3113,8 @@ namespace
                 hr = g_nearTex->lpVtbl->GetSurfaceLevel(g_nearTex, 0, &g_nearSurf);
             if (SUCCEEDED(hr) && wantLeaves)
             {
-                hr = d->CreateTexture(dev, nearSize, nearSize, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_nearLeafTex, nullptr);
+                g_nearLeafSize = nearSize;
+                hr = d->CreateTexture(dev, g_nearLeafSize, g_nearLeafSize, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_nearLeafTex, nullptr);
                 if (SUCCEEDED(hr))
                     hr = g_nearLeafTex->lpVtbl->GetSurfaceLevel(g_nearLeafTex, 0, &g_nearLeafSurf);
             }
@@ -3102,7 +3142,8 @@ namespace
         }
         if (SUCCEEDED(hr) && wantLeaves)
         {
-            hr = d->CreateTexture(dev, size, size, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_farLeafTex, nullptr);
+            g_farLeafSize = leafSize && leafSize < size ? leafSize : size;
+            hr = d->CreateTexture(dev, g_farLeafSize, g_farLeafSize, 1, D3DUSAGE_DEPTHSTENCIL, kINTZ, D3DPOOL_DEFAULT, &g_farLeafTex, nullptr);
             if (SUCCEEDED(hr))
                 hr = g_farLeafTex->lpVtbl->GetSurfaceLevel(g_farLeafTex, 0, &g_farLeafSurf);
         }
@@ -3134,6 +3175,18 @@ namespace
             ReleaseResources();
             return false;
         }
+        // The leaves' maps' own colour target when they are smaller than both (farLeafSize).
+        const UINT ls = g_farLeafSize && g_farLeafSize != size ? g_farLeafSize
+                      : g_nearLeafSize && g_nearLeafSize != nearSize && g_nearLeafSize != size ? g_nearLeafSize : 0;
+        if (ls &&
+            FAILED(d->CreateRenderTarget(dev, ls, ls, kNULL, D3DMULTISAMPLE_NONE, 0, FALSE, &g_leafColour, nullptr)) &&
+            FAILED(d->CreateRenderTarget(dev, ls, ls, D3DFMT_R5G6B5, D3DMULTISAMPLE_NONE, 0, FALSE, &g_leafColour, nullptr)))
+        {
+            Log("shadow: could not create a %ux%u colour target for the leaves' maps", ls, ls);
+            ReleaseResources();
+            return false;
+        }
+        g_leafSizeMade = leafSize;
         if (FAILED(d->CreateStateBlock(dev, D3DSBT_ALL, &g_sb)) || !g_sb)
         {
             Log("shadow: could not create a state block");
@@ -3711,6 +3764,24 @@ void ShadowTiming(bool on)
     g_tStill = g_tRefreshed = 0;
 }
 
+void ShadowKeepText(std::string& out)
+{
+    static const char* kPass[7] = { "far", "far leaves", "near", "near leaves", "middle", "units", "terrain" };
+    out.clear();
+    for (int p = 0; p < 7; ++p)
+    {
+        const unsigned* w = g_keepWhy[p];
+        if (!(w[0] + w[1] + w[2] + w[3] + w[4] + w[5] + w[6]))
+            continue;
+        char line[200];
+        _snprintf_s(line, sizeof(line), _TRUNCATE, "%s%s kept %u, drawn for the files %u, the entries %u, their places %u, "
+                    "the matrix %u, the second %u, the poses %u", out.empty() ? "" : "; ", kPass[p], w[0], w[1], w[2],
+                    w[3], w[4], w[5], w[6]);
+        out += line;
+    }
+    memset(g_keepWhy, 0, sizeof(g_keepWhy));
+}
+
 void ShadowTakeCacheSplit(double& merge, unsigned& still, unsigned& refreshed)
 {
     merge = g_tMerge; still = g_tStill; refreshed = g_tRefreshed;
@@ -3804,6 +3875,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     }
     const bool havePlayer = ClientPlayer(pl);
     if (!havePlayer) { pl[0] = cam[0]; pl[1] = cam[1]; pl[2] = cam[2]; }
+    memcpy(g_readCam, cam, sizeof(g_readCam));
 
     D3DMATRIX camVP, camVPInv;
     Mul(view, proj, camVP);
@@ -4062,6 +4134,98 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         Mul(toAbs, g_midAbsToSun, g_midVP);
     }
 
+    // The leaves' maps (see LeafHold): by default the solid maps' own matrices.
+    D3DMATRIX nearLeafProj = {}, nearLeafAbsToSun = {}, nearLeafCut = {};
+    if (doNear)
+    {
+        nearLeafProj = nearProj; nearLeafAbsToSun = nearAbsToSun; nearLeafCut = nearCutAbsToSun;
+    }
+    D3DMATRIX farLeafProj = sunProj, farLeafAbsToSun = fromAbsToSun, farLeafCut = cutAbsToSun;
+    float nearLeafRange = s.nearRange, farLeafRange = s.range;
+    float nearLeafAt[3] = { pl[0], pl[1], pl[2] }, farLeafAt[3] = { pl[0], pl[1], pl[2] };
+    bool nearLeafHeld = false, farLeafHeld = false;
+    // Round a held centre, on whole texels of its own grid as narrowMap does: the grid stays put in the world.
+    auto heldMap = [&](float range, int mapSize, const double c[3], D3DMATRIX& proj, D3DMATRIX& absToSun, D3DMATRIX& cutToSun)
+    {
+        OrthoLH(range * 2.0f, range * 2.0f, 1.0f, mapDepth * 2.0f, proj);
+        D3DMATRIX p, vp, v;
+        OrthoLH(range * 2.0f, range * 2.0f, cutNear, cutFar, p);
+        const double texelClip = 2.0 / (mapSize > 0 ? mapSize : 1);
+        for (int a = 0; a < 2; ++a)
+        {
+            const double vc = (c[0] - cam[0]) * sunView.m[0][a] + (c[1] - cam[1]) * sunView.m[1][a] +
+                              (c[2] - cam[2]) * sunView.m[2][a] + sunView.m[3][a];
+            double off = -vc * proj.m[a][a];
+            const double viewAt = -(static_cast<double>(cam[0]) * sunView.m[0][a] +
+                                    static_cast<double>(cam[1]) * sunView.m[1][a] +
+                                    static_cast<double>(cam[2]) * sunView.m[2][a]) + sunView.m[3][a];
+            const double clipAt = viewAt * proj.m[a][a] + off;
+            off += floor(clipAt / texelClip + 0.5) * texelClip - clipAt;
+            proj.m[3][a] = static_cast<float>(off);
+            p.m[3][a]    = static_cast<float>(off);
+        }
+        Mul(sunView, proj, vp);
+        Mul(fromAbs, vp, absToSun);
+        Mul(sunView, p, v);
+        Mul(fromAbs, v, cutToSun);
+    };
+    // A new centre when there is none, the sun or the map changed, or the player is `reach` yards from it.
+    auto hold = [&](LeafHold& h, float reach, float range, int size)
+    {
+        const float dx = static_cast<float>(pl[0] - h.c[0]), dy = static_cast<float>(pl[1] - h.c[1]);
+        const bool sameSun = fabsf(h.sun[0] - sunDir[0]) < 1e-6f && fabsf(h.sun[1] - sunDir[1]) < 1e-6f &&
+                             fabsf(h.sun[2] - sunDir[2]) < 1e-6f;
+        if (!h.ok || !sameSun || h.range != range || h.size != size || dx * dx + dy * dy > reach * reach)
+        {
+            h.ok = true;
+            for (int i = 0; i < 3; ++i) { h.c[i] = pl[i]; h.sun[i] = sunDir[i]; }
+            h.range = range;
+            h.size = size;
+        }
+    };
+    // A leaves' map of another size than its solid map's (farLeafSize) is held on whole texels of its own grid: it gets a
+    // camera of its own round the player, as a held one does round its centre.
+    const double plD[3] = { pl[0], pl[1], pl[2] };
+    const int nearSizeNow = ShadowNearSize();
+    const bool nearResized = g_nearLeafSize && static_cast<int>(g_nearLeafSize) != nearSizeNow;
+    const bool farResized  = g_farLeafSize && static_cast<int>(g_farLeafSize) != s.size;
+    if (doNear && (s.leafHold > 0.0f || nearResized))
+    {
+        const double* c = plD;
+        if (s.leafHold > 0.0f)
+        {
+            hold(g_nearLeafHold, s.leafHold, s.nearRange, nearSizeNow);
+            nearLeafRange = s.nearRange + s.leafHold;
+            c = g_nearLeafHold.c;
+        }
+        else
+            g_nearLeafHold.ok = false;
+        heldMap(nearLeafRange, static_cast<int>(g_nearLeafSize ? g_nearLeafSize : nearSizeNow), c, nearLeafProj,
+                nearLeafAbsToSun, nearLeafCut);
+        for (int i = 0; i < 3; ++i) nearLeafAt[i] = static_cast<float>(c[i]);
+        nearLeafHeld = true;
+    }
+    else
+        g_nearLeafHold.ok = false;
+    if (s.leafHoldFar > 0.0f || farResized)
+    {
+        const double* c = plD;
+        if (s.leafHoldFar > 0.0f)
+        {
+            hold(g_farLeafHold, s.leafHoldFar, s.range, s.size);
+            farLeafRange = s.range + s.leafHoldFar;
+            c = g_farLeafHold.c;
+        }
+        else
+            g_farLeafHold.ok = false;
+        heldMap(farLeafRange, static_cast<int>(g_farLeafSize ? g_farLeafSize : s.size), c, farLeafProj, farLeafAbsToSun,
+                farLeafCut);
+        for (int i = 0; i < 3; ++i) farLeafAt[i] = static_cast<float>(c[i]);
+        farLeafHeld = true;
+    }
+    else
+        g_farLeafHold.ok = false;
+
     auto* d = dev->lpVtbl;
 
     // --- save ---------------------------------------------------------------------------------------
@@ -4173,8 +4337,10 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         for (const Entry* ep : leafSeen)
             {
                 const Entry& e = *ep;
-                if (!e.rec.vs)
+                if (!e.rec.vs || (e.notedPrims == e.rec.primCount && e.notedAlpha == e.rec.alphaTest))
                     continue;
+                e.notedPrims = e.rec.primCount;
+                e.notedAlpha = e.rec.alphaTest;
                 const unsigned long long key = ModelKey(e.rec.vb[0], e.rec.vs);
                 LeafPart& part = g_leafParts[key][e.rec.startIndex];
                 part.prims = (std::max)(part.prims, e.rec.primCount);
@@ -4235,10 +4401,14 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             }
         return false;
     };
+    // A settled entry is asked on every fourth frame (2026-10-23): with the doodads drawn far off in Elwynn, about a
+    // thousand entries a frame.
     if (doLeaves)
         for (auto& kv : g_cache)
             for (Entry& e : kv.second)
-                if (e.rec.vs && !e.unit && atUnit(e))
+                if (e.rec.vs && !e.unit &&
+                    (e.drawnFor < 20 || ((reinterpret_cast<uintptr_t>(e.rec.vb[0]) >> 4) + e.rec.startIndex + g_frameId) % 4 == 0) &&
+                    atUnit(e))
                     e.unit = true;
     // A unit's parts share its vertex buffer and shader, so one part at a unit makes them all units
     // (2026-10-01). A player's legs, 631 vertices, had their first bone 0.54 yards across the ground from the
@@ -4288,6 +4458,22 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     for (const ObjRec& o : g_objects)
         for (const auto& kv : o.parts)
             replayList.push_back({ &kv.second, doLeaves && isLeaf(kv.second) });
+    // By shader, buffers and texture, then by place (2026-10-23): a unit's parts follow each other, so the draws
+    // that share its bones upload them once, and each pass binds less. The maps hold depth alone; the order does
+    // not change them.
+    std::sort(replayList.begin(), replayList.end(), [](const ReplayItem& a, const ReplayItem& b) {
+        const Rec& ra = a.e->rec;
+        const Rec& rb = b.e->rec;
+        if (ra.vs != rb.vs) return ra.vs < rb.vs;
+        if (ra.vb[0] != rb.vb[0]) return ra.vb[0] < rb.vb[0];
+        if (ra.ib != rb.ib) return ra.ib < rb.ib;
+        const float ax = floorf(a.e->pos[0]), bx = floorf(b.e->pos[0]);
+        if (ax != bx) return ax < bx;
+        const float ay = floorf(a.e->pos[1]), by = floorf(b.e->pos[1]);
+        if (ay != by) return ay < by;
+        if (ra.tex0 != rb.tex0) return ra.tex0 < rb.tex0;
+        return a.e < b.e;
+    });
     BenchProfEnd(kProfPrep, profPrep);
     const unsigned long long profPasses = BenchProfBegin();
     for (int pass = 0; pass < 7; ++pass)
@@ -4302,9 +4488,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     if (((pass < 2 || terrPass) && !drawFar) || (nearPass && !doNear) || (midPass && !doMid) ||
         (leafPass && !doLeaves) || (unitPass && !doUnits) || (terrPass && !doTerr))
         continue;
-    const float mapRange = nearPass ? s.nearRange : midPass ? s.midRange : s.range;
-    const D3DMATRIX& passAbsToSun = nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
-    const D3DMATRIX& passCut      = nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
+    const float mapRange = leafPass ? (nearPass ? nearLeafRange : farLeafRange)
+                                    : nearPass ? s.nearRange : midPass ? s.midRange : s.range;
+    const D3DMATRIX& passAbsToSun = leafPass ? (nearPass ? nearLeafAbsToSun : farLeafAbsToSun)
+                                             : nearPass ? nearAbsToSun : midPass ? midAbsToSun : fromAbsToSun;
+    const D3DMATRIX& passCut      = leafPass ? (nearPass ? nearLeafCut : farLeafCut)
+                                             : nearPass ? nearCutAbsToSun : midPass ? midCutAbsToSun : cutAbsToSun;
+    const float* at = leafPass ? (nearPass ? nearLeafAt : farLeafAt) : pl;   // the map's centre, for the culling
     // Everything in the cache used to be replayed every frame, and the GPU clipped whatever fell outside
     // the map: 2000 to 5000 draws a frame, 6 to 9 ms of CPU, which the game feels. An entry whose
     // reference point is well outside the box the map covers cannot mark it, so it is not drawn. The
@@ -4337,6 +4527,15 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             return false;
         if (unitPass && !(r.vs && e.unit))
             return false;
+        if (e.unit && (pass < 2 || midPass) && r.primCount < static_cast<UINT>(s.unitMinTriangles))
+            return false;
+        const float unitReach = pass < 2 ? s.farUnitReach : midPass ? s.midUnitReach : 0.0f;
+        if (e.unit && unitReach > 0.0f)
+        {
+            const float ux = e.pos[0] - pl[0], uy = e.pos[1] - pl[1];
+            if (ux * ux + uy * uy > unitReach * unitReach)
+                return false;
+        }
         if (e.unit && r.vs && DeadSelfPart(r, e.pos))
             return false;
         // Only the models are culled. Terrain and buildings are fixed-function, there are a couple of
@@ -4345,7 +4544,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         // took the shade out from under a mountain 150 yards away.
         if (r.vs)
         {
-            const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1], dz = e.pos[2] - pl[2];
+            const float dx = e.pos[0] - at[0], dy = e.pos[1] - at[1], dz = e.pos[2] - at[2];
             const float along = dx * sunDir[0] + dy * sunDir[1] + dz * sunDir[2];
             const float sx = dx - along * sunDir[0], sy = dy - along * sunDir[1], sz = dz - along * sunDir[2];
             const float side2 = sx * sx + sy * sy + sz * sz;
@@ -4380,7 +4579,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     {
         // Eight bytes a step: a model's bones are up to 4 KB, and a byte a step cost 0.15 ms a frame in Elwynn.
         // Two hashes (perf, 2026-10-21): what is drawn and where (h), and the models' poses (hp).
-        unsigned long long h = 1469598103934665603ull, hp = h;
+        unsigned long long h = 1469598103934665603ull, hp = h, hFiles = h, hSet = h, hPlace = h;
         const auto mixInto = [](unsigned long long& acc, const void* data, size_t bytes) {
             const unsigned char* b = static_cast<const unsigned char*>(data);
             size_t i = 0;
@@ -4397,6 +4596,7 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         const unsigned files = MapFilesVersion();
         mixInto(h, &files, sizeof(files));
         mixInto(h, &s.leafAlpha, sizeof(s.leafAlpha));
+        mixInto(hFiles, &files, sizeof(files));
         for (const ReplayItem& item : replayList)
         {
             if (!wants(item, false))
@@ -4411,6 +4611,9 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
                                   r.alphaTest, r.alphaRef, r.alphaFunc };
             mixInto(h, nums, sizeof(nums));
             mixInto(h, &e.absolute, sizeof(e.absolute));
+            mixInto(hSet, ids, sizeof(ids));
+            mixInto(hSet, nums, sizeof(nums));
+            mixInto(hPlace, &e.absolute, sizeof(e.absolute));
             if (r.vs && !e.consts.empty())
                 mixInto(hp, e.consts.data(), (std::min)(e.consts.size() / 4, static_cast<size_t>((std::max)(r.nregsOwn, 34u))) * 16);
         }
@@ -4425,8 +4628,21 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         if (same && (k.pose == hp || ++k.poseHeld < (std::max)(1, s.keepPoseEvery)))
         {
             ++g_keptPasses;
+            ++g_keepWhy[pass][0];
             continue;
         }
+        if (k.ok)
+        {
+            bool mOk = true;
+            for (int i = 0; i < 4 && mOk; ++i)
+                for (int j = 0; j < 4 && mOk; ++j)
+                    mOk = fabsf(k.m.m[i][j] - passAbsToSun.m[i][j]) <= (i == 3 ? 1e-4f : 1e-6f);
+            ++g_keepWhy[pass][k.files != hFiles ? 1 : k.set != hSet ? 2 : k.place != hPlace ? 3 : !mOk ? 4 :
+                              now - k.at >= 1.0 ? 5 : 6];
+        }
+        k.files = hFiles;
+        k.set = hSet;
+        k.place = hPlace;
         k.ok = true;
         k.hash = h;
         k.pose = hp;
@@ -4442,7 +4658,13 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     BenchSectionBegin(dev, kPassSection[pass]);   // each map's own GPU time (2026-10-06)
     // The near maps may be larger than the rest (nearMinSize), with a colour target of their own. The restore puts
     // the client's back.
-    d->SetRenderTarget(dev, 0, nearPass && g_nearColour ? g_nearColour : g_colour);
+    {
+        const UINT passSize = leafPass ? (nearPass ? g_nearLeafSize : g_farLeafSize) : 0;
+        IDirect3DSurface9* rt = nearPass && g_nearColour ? g_nearColour : g_colour;
+        if (passSize && passSize != (nearPass && g_nearColour ? g_nearSize : g_size))
+            rt = passSize == g_size ? g_colour : passSize == g_nearSize && g_nearColour ? g_nearColour : g_leafColour;
+        d->SetRenderTarget(dev, 0, rt);
+    }
     d->SetDepthStencilSurface(dev, unitPass ? g_unitSurf : terrPass ? g_terrSurf
                                             : nearPass ? (leafPass ? g_nearLeafSurf : g_nearSurf)
                                             : midPass ? g_midSurf : (leafPass ? g_farLeafSurf : g_depthSurf));
@@ -4457,7 +4679,8 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
         clearStencil = false;
         d->Clear(dev, 0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
     }
-    d->SetTransform(dev, D3DTS_PROJECTION, nearPass ? &nearProj : midPass ? &midProj : &sunProj);
+    d->SetTransform(dev, D3DTS_PROJECTION, leafPass ? (nearPass ? &nearLeafProj : &farLeafProj)
+                                                    : nearPass ? &nearProj : midPass ? &midProj : &sunProj);
 
     // The ground from the files goes where the client's terrain would: the terrain's map, or else the leaf
     // map with terrainLeaves.
@@ -4497,6 +4720,12 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     IDirect3DIndexBuffer9*       lastIb = reinterpret_cast<IDirect3DIndexBuffer9*>(1);
     IDirect3DBaseTexture9*       lastTex = reinterpret_cast<IDirect3DBaseTexture9*>(1);
     DWORD                        lastAt = 0xFFFFFFFFu, lastAref = 0xFFFFFFFFu, lastAfunc = 0xFFFFFFFFu;
+    // The constants the last model draw uploaded (2026-10-23): a unit's parts share its bones and its place, and
+    // each upload makes DXVK copy the shader's whole constant range again at the draw.
+    const float* lastConsts = nullptr;
+    UINT         lastRegs = 0;
+    float        lastPlace[16];
+    bool         havePlace = false;
     for (const ReplayItem& item : replayList)
     {
         const Entry& e = *item.e;
@@ -4510,9 +4739,23 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             float c[16];
             ToRegisters(m, c);
             const UINT regs = (std::min)(static_cast<UINT>(e.consts.size() / 4), (std::max)(e.rec.nregsOwn, 34u));
-            d->SetVertexShaderConstantF(dev, 0, e.consts.data(), regs);
-            bytesNow[pass] += static_cast<unsigned long long>(regs) * 16;
-            d->SetVertexShaderConstantF(dev, 2, c, 4);
+            if (!lastConsts || regs < 6 || regs > lastRegs || memcmp(lastConsts + 6 * 4, e.consts.data() + 6 * 4, (regs - 6) * 16) != 0 ||
+                memcmp(lastConsts, e.consts.data(), 2 * 16) != 0)
+            {
+                d->SetVertexShaderConstantF(dev, 0, e.consts.data(), regs);
+                bytesNow[pass] += static_cast<unsigned long long>(regs) * 16;
+                lastConsts = e.consts.data();
+                lastRegs = regs;
+                havePlace = false;
+            }
+            else
+                ++g_constKept;
+            if (!havePlace || memcmp(lastPlace, c, sizeof(c)) != 0)
+            {
+                d->SetVertexShaderConstantF(dev, 2, c, 4);
+                memcpy(lastPlace, c, sizeof(c));
+                havePlace = true;
+            }
             if (r.vs != lastVs)
             {
                 d->SetVertexShader(dev, r.vs);
@@ -4891,17 +5134,26 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
     }
     if (logThis)
         Log("shadow: time: far map %.2f + %.2f ms (solid + leaves)%s, near map %.2f + %.2f ms, units %.2f ms; "
-            "%u leaf draws, %u unit draws; model constants uploaded %.1f MB (far) + %.1f MB (near)",
+            "%u leaf draws, %u unit draws; model constants uploaded %.1f MB (far) + %.1f MB (near), %u draws found "
+            "theirs uploaded",
             1000.0 * passTime[0], 1000.0 * passTime[1], drawFar ? "" : " (not redrawn this time)",
             1000.0 * passTime[2], 1000.0 * passTime[3], 1000.0 * passTime[5], leafDrawn, unitDrawn,
             (bytesNow[0] + bytesNow[1]) / 1048576.0,
-            (bytesNow[2] + bytesNow[3] + bytesNow[4] + bytesNow[5]) / 1048576.0);
+            (bytesNow[2] + bytesNow[3] + bytesNow[4] + bytesNow[5]) / 1048576.0, g_constKept);
+    g_constKept = 0;
     if (drawFar)
     {
         g_farLeafValid = doLeaves;
+        g_farLeafAbsToSun = farLeafAbsToSun;
+        g_farLeafHeld = farLeafHeld;
         g_terrValid    = doTerr;
     }
     g_nearLeafValid = doLeaves && doNear;
+    if (doNear)
+    {
+        g_nearLeafAbsToSun = nearLeafAbsToSun;
+        g_nearLeafHeld = nearLeafHeld;
+    }
     g_unitValid = doUnits;
     if (doNear)
     {
@@ -5016,6 +5268,84 @@ void ShadowWorldEnded(IDirect3DDevice9* dev)
             "doodads, characters); %u alpha tested (leaves, bushes), %u moving; %llu triangles. From you: %u "
             "within 50 yd, %u 50-150, %u 150-250, %u past 250; %d units and players known", ff, m2, leafy, moving,
             tris, band[0], band[1], band[2], band[3], g_unitsSeen);
+        // The census (2026-10-23): which kinds of the client's draws the cache still holds, and the draws each
+        // map took this redraw.
+        {
+            unsigned units = 0, unitModels = 0, other = 0, objParts = 0, near50 = 0;
+            unsigned unitTris[5] = {};   // unit draws of under 25, 50, 100 and 200 triangles, and more
+            std::unordered_set<unsigned long long> models;
+            std::vector<std::pair<unsigned, const Entry*>> byKey;
+            for (const auto& kv : g_cache)
+            {
+                for (const Entry& e : kv.second)
+                {
+                    if (e.rec.vs && e.unit)
+                    {
+                        ++units;
+                        const UINT p = e.rec.primCount;
+                        ++unitTris[p < 25 ? 0 : p < 50 ? 1 : p < 100 ? 2 : p < 200 ? 3 : 4];
+                        if (models.insert(ModelKey(e.rec.vb[0], e.rec.vs)).second)
+                            ++unitModels;
+                    }
+                    else if (e.rec.vs)
+                    {
+                        ++other;
+                        const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                        near50 += dx * dx + dy * dy < 2500.0f ? 1u : 0u;
+                    }
+                }
+                if (!kv.second.empty() && kv.second.front().rec.vs && !kv.second.front().unit)
+                    byKey.push_back({ static_cast<unsigned>(kv.second.size()), &kv.second.front() });
+            }
+            for (const ObjRec& o : g_objects)
+                objParts += static_cast<unsigned>(o.parts.size());
+            Log("shadow: census: %u unit model draws (%u models), %u other model draws (%u within 50 yd), %u "
+                "objects with %u parts; drawn this redraw: far %u, leaves %u, near %u, middle %u, units %u",
+                units, unitModels, other, near50, static_cast<unsigned>(g_objects.size()), objParts, drawn,
+                leafDrawn, nearDrawn, midDrawn, unitDrawn);
+            Log("shadow: census: unit draws by triangles: %u under 25, %u under 50, %u under 100, %u under 200, %u more",
+                unitTris[0], unitTris[1], unitTris[2], unitTris[3], unitTris[4]);
+            // The client's own draws in the leaves' maps: what keeps those maps from being kept.
+            unsigned leafN = 0, leafDrift = 0, leafMobile = 0, leafBatch = 0, leafNew = 0, leafNear[4] = {};
+            int leafLogs = 0;
+            for (const auto& kv : g_cache)
+                for (const Entry& e : kv.second)
+                {
+                    if (!(e.rec.vs && !e.unit && (e.rec.alphaTest || g_leafModels.count(ModelKey(e.rec.vb[0], e.rec.vs)))))
+                        continue;
+                    ++leafN;
+                    leafDrift += e.drifts ? 1u : 0u;
+                    leafMobile += e.mobile ? 1u : 0u;
+                    leafBatch += e.spread > 5.0f ? 1u : 0u;
+                    leafNew += e.drawnFor < 20 ? 1u : 0u;
+                    float dp[3];
+                    float dd = 1e9f;
+                    if (MapDoodadNearest(e.pos, dp))
+                        dd = sqrtf((dp[0] - e.pos[0]) * (dp[0] - e.pos[0]) + (dp[1] - e.pos[1]) * (dp[1] - e.pos[1]));
+                    ++leafNear[dd < 2.0f ? 0 : dd < 10.0f ? 1 : dd < 1e8f ? 2 : 3];
+                    if (leafLogs < 8 && e.drawnFor >= 20)
+                    {
+                        ++leafLogs;
+                        const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                        Log("shadow: census:   leaf entry %uv %up at %.0f yd, spread %.1f, drawn on %u, %s%s, nearest doodad "
+                            "%.1f yd", e.rec.numVertices, e.rec.primCount, sqrtf(dx * dx + dy * dy), e.spread,
+                            e.drawnFor, e.drifts ? "drifts" : "still", e.mobile ? " moving" : "", dd);
+                    }
+                }
+            Log("shadow: census: %u of the client's draws in the leaves' maps: %u drift, %u moving, %u batches, %u new; "
+                "the files' nearest doodad within 2 yd %u, 10 yd %u, further %u, none %u", leafN, leafDrift, leafMobile,
+                leafBatch, leafNew, leafNear[0], leafNear[1], leafNear[2], leafNear[3]);
+            std::sort(byKey.begin(), byKey.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (size_t i = 0; i < byKey.size() && i < 12; ++i)
+            {
+                const Entry& e = *byKey[i].second;
+                const float dx = e.pos[0] - pl[0], dy = e.pos[1] - pl[1];
+                Log("shadow: census:   %u x %uv %up alpha %u, regs %u, first %.0f yd off, still for %u, %s%s",
+                    byKey[i].first, e.rec.numVertices, e.rec.primCount, e.rec.alphaTest, e.rec.nregsOwn,
+                    sqrtf(dx * dx + dy * dy), e.drawnFor, MapDoodadAt(e.pos, 2.0f) ? "a doodad's place " : "",
+                    MapAnimatedDoodadAt(e.pos, 2.0f) ? "animated" : "");
+            }
+        }
     }
     g_replaySeconds = Now() - t0;
     g_replaySkipped = skipped;
@@ -5245,6 +5575,29 @@ bool ShadowIsUnitDraw(IDirect3DDevice9* dev)
     // A mount is the cache's by what it draws (UnitModelNear, 2026-10-04), so the 3-yard rule for the player's
     // models went: it marked a water trough the player stood in as a body.
     return unit;
+}
+
+bool ShadowLeafShift(bool nearMap, float out[4])
+{
+    out[0] = 1.0f; out[1] = out[2] = 0.0f;
+    const UINT size = nearMap ? g_nearLeafSize : g_farLeafSize;
+    out[3] = size ? 1.0f / size : 0.0f;
+    if (!(nearMap ? g_nearLeafHeld : g_farLeafHeld))
+        return false;
+    // The solid map's reader matrix and the leaves' map's, both camera-relative world -> clip. They share the sun's
+    // turn, so across the map the leaves' clip is the solid's times one scale, plus a shift.
+    const D3DMATRIX& ms = nearMap ? g_nearVP : g_shadowVP;
+    D3DMATRIX toAbs, ml;
+    Translation(g_readCam[0], g_readCam[1], g_readCam[2], toAbs);
+    Mul(toAbs, nearMap ? g_nearLeafAbsToSun : g_farLeafAbsToSun, ml);
+    const float ls = sqrtf(ms.m[0][0] * ms.m[0][0] + ms.m[1][0] * ms.m[1][0] + ms.m[2][0] * ms.m[2][0]);
+    const float ll = sqrtf(ml.m[0][0] * ml.m[0][0] + ml.m[1][0] * ml.m[1][0] + ml.m[2][0] * ml.m[2][0]);
+    if (ls < 1e-12f)
+        return false;
+    out[0] = ll / ls;
+    out[1] = ml.m[3][0] - out[0] * ms.m[3][0];
+    out[2] = ml.m[3][1] - out[0] * ms.m[3][1];
+    return true;
 }
 
 IDirect3DTexture9* ShadowFarLeaves()

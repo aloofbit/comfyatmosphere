@@ -391,6 +391,7 @@ try {
                     if ($null -ne $v.facing) { $lines += "heading $($v.facing)" }
                 }
                 'type'       { $lines += "type $v" }
+                'keys'       { $lines += "keys $v" }   # a chord in the game, as ctrl+r (the frame counter, 2026-10-23); the game must be in front
                 'target'      { $lines += "target $v" }   # the unit with that exact name, as /target (ComfyTest)
                 'clearTarget' { $lines += 'cleartarget' }
                 'camera'     {   # the camera's distance partway through, as config.camera: 0 first person, 1 to 9 notches out, 10 all the way

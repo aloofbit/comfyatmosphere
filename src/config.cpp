@@ -325,6 +325,13 @@ void LoadSettings(const wchar_t* ini)
     s.shadow.midRange   = Clamp(GetF(kShadow, L"midRange", s.shadow.midRange, ini), 0.0f, 250.0f);
     s.shadow.keepStill  = GetI(kShadow, L"keepStill", s.shadow.keepStill ? 1 : 0, ini) != 0;
     s.shadow.keepPoseEvery = (std::max)(1, (std::min)(8, GetI(kShadow, L"keepPoseEvery", s.shadow.keepPoseEvery, ini)));
+    s.shadow.farUnitReach = Clamp(GetF(kShadow, L"farUnitReach", s.shadow.farUnitReach, ini), 0.0f, 1000.0f);
+    s.shadow.midUnitReach = Clamp(GetF(kShadow, L"midUnitReach", s.shadow.midUnitReach, ini), 0.0f, 1000.0f);
+    s.shadow.leafHold     = Clamp(GetF(kShadow, L"leafHold", s.shadow.leafHold, ini), 0.0f, 64.0f);
+    s.shadow.leafHoldFar  = Clamp(GetF(kShadow, L"leafHoldFar", s.shadow.leafHoldFar, ini), 0.0f, 200.0f);
+    s.shadow.farLeafSize  = GetI(kShadow, L"farLeafSize", s.shadow.farLeafSize, ini);
+    if (s.shadow.farLeafSize != 0) s.shadow.farLeafSize = (std::max)(256, (std::min)(4096, s.shadow.farLeafSize));
+    s.shadow.unitMinTriangles = (std::max)(0, (std::min)(1000, GetI(kShadow, L"unitMinTriangles", s.shadow.unitMinTriangles, ini)));
     s.shadow.midEvery   = static_cast<int>(Clamp(static_cast<float>(GetI(kShadow, L"midEvery", s.shadow.midEvery, ini)), 1.0f, 8.0f));
     s.shadow.depth      = Clamp(GetF(kShadow, L"depth", s.shadow.depth, ini), 10.0f, 5000.0f);
     s.shadow.horizonDepth = Clamp(GetF(kShadow, L"horizonDepth", s.shadow.horizonDepth, ini), 0.0f, 5000.0f);

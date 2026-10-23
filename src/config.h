@@ -144,6 +144,16 @@ struct ShadowSettings
                                // changes (2026-10-07, perf-1)
     int   keepPoseEvery = 3;  // the leaves' and hills' maps: a change of models' poses alone is drawn on every Nth
                               // chance (2026-10-21); 1 = on each
+    float farUnitReach = 30.0f; // players and creatures go into the far maps only within this many yards of you,
+                               // across the ground (2026-10-23); 0 = all
+    float midUnitReach = 0.0f; // and into the middle map only within this many yards (2026-10-23); 0 = all
+    float leafHold    = 0.0f;  // the near leaves' map stays in place until you are this many yards from where it was
+                               // drawn round, and covers that much more (2026-10-23); 0 = it follows you
+    float leafHoldFar = 0.0f;  // the same for the far leaves' map
+    int   farLeafSize = 0;     // the far leaves' map at most this many texels per side (2026-10-23); 0 = the far
+                               // map's size. The near leaves keep theirs: at 2048 their shade on the ground went soft
+    int   unitMinTriangles = 50; // a unit's parts with fewer triangles stay out of the far and middle maps (2026-10-23):
+                               // a buckle, a belt, a hand. 0 = all in
     int   midEvery  = 2;       // of the rebuilds, redraw the middle map on every Nth, on those the far map skips
                                // (2026-10-07, perf-1), 1..8
     float midRange  = 100.0f;  // the middle map, for the sun shadows past the near one: yards either side

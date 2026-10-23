@@ -132,6 +132,8 @@ sampler2D sGround : register(s4);   // the ground: surface (r), water (g), smoot
 float4 gGr   : register(c16);       // the ground texture: where the camera is in it (uv), 1 / its size in yards,
                                     // its reference height less the camera's (0 in .z: no texture, gF.z instead)
 float4 gW    : register(c17);       // follow, 1 / lowDepth, lowGround, water
+float4 gLf   : register(c19);       // the far leaves' map held in place (2026-10-23): from the shadow map's clip, x and y
+                                    // times .x, plus .y and .z (ShadowLeafShift); 1, 0, 0 when it is not
 float4 gFg   : register(c18);       // the fog's phase anisotropy (Fog Toward the Sun), its glow along the horizon, the
                                     // water's horizon (the sine of its height from level, below negative), the sea's
                                     // height from the camera
@@ -262,7 +264,10 @@ float4 main(float2 uv : TEXCOORD0, float2 vpos : VPOS) : COLOR
         // canopy was lit almost evenly.
         // Not where the solid map shades the step already (2026-10-07, perf-1): the leaves and hills only scale hit.
         [branch] if (gL.w > 0.0 && hit > 0.0)
-            hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(suv, 0, 0)).r + bias) ? 0.0 : 1.0);
+        {
+            float2 sl = s.xy * gLf.x + gLf.yz;
+            hit *= 1.0 - gL.w * ((s.z <= tex2Dlod(sLeaf, float4(sl.x * 0.5 + 0.5, 0.5 - sl.y * 0.5, 0, 0)).r + bias) ? 0.0 : 1.0);
+        }
         // Hills and mountains, in a map of their own since 2026-10-02; until then in the leaves' map. The same
         // share, so the light is as it was.
         [branch] if (gG.w > 0.5 && hit > 0.0)
@@ -1722,6 +1727,9 @@ bool VolumeDraw(IDirect3DDevice9* dev)
     g_fogSeaRel = seaRel; g_fogHorizon = horizon;
     const float fg[4] = { fs.toward, fs.horizonGlow, horizon, seaRel };
     d->SetPixelShaderConstantF(dev, 18, fg, 1);
+    float lf[4] = { 1.0f, 0.0f, 0.0f, 0.0f };   // the far leaves' map held in place (c19)
+    ShadowLeafShift(false, lf);
+    d->SetPixelShaderConstantF(dev, 19, lf, 1);
     d->SetTexture(dev, 3, reinterpret_cast<IDirect3DBaseTexture9*>(patches ? g_noise : nullptr));
     for (DWORD k = D3DSAMP_ADDRESSU; k <= D3DSAMP_ADDRESSW; ++k)
         d->SetSamplerState(dev, 3, static_cast<D3DSAMPLERSTATETYPE>(k), D3DTADDRESS_WRAP);

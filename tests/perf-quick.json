@@ -132,6 +132,15 @@
     },
     "steps": [
         {
+            "gameFront": true
+        },
+        {
+            "keys": "ctrl+r"
+        },
+        {
+            "gameBack": true
+        },
+        {
             "go": {
                 "x": -8625,
                 "y": 1328.9,
