@@ -7,3 +7,6 @@ tests/Publish-Results.ps1
 CLAUDE.md
 reddit.md
 discord.md
+comfyatmos.map
+comfyatmos.pdb
+tools/prof/comfyprof.dll
