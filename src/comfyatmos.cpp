@@ -2577,8 +2577,11 @@ namespace
             Log("water: texture %p, 256x256 A4R4G4B4: %u of 65536 texels as the rain splash's: %s", t, match,
                 same ? "the splash, left out under the water" : "not the splash");
         }
-        if (g_splashTex.size() < 256)
-            g_splashTex[t] = same;
+        // Full: start over. Refusing new entries made every draw with a texture not in the table read all 65536
+        // texels again and write a log line, each frame (a 1.4 GB log).
+        if (g_splashTex.size() >= 256)
+            g_splashTex.clear();
+        g_splashTex[t] = same;
         return same;
     }
 
