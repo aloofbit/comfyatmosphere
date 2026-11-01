@@ -3181,12 +3181,12 @@ local function MinimapMenuInit()
 	};
 	-- Every row keeps the room for a tick, Probe and the title too: the client moves the text of a row
 	-- with notCheckable 27 pixels to the left, out of line with the others.
-	local info = UIDropDownMenu_CreateInfo();
+	local info = MenuInfo();
 	info.text = "Atmosphere";
 	info.isTitle = 1;
 	UIDropDownMenu_AddButton(info);
 	for _, entry in ipairs(entries) do
-		info = UIDropDownMenu_CreateInfo();
+		info = MenuInfo();
 		info.text = entry[1];
 		info.func = entry[2];
 		info.checked = entry[3] and 1 or nil;
@@ -3232,6 +3232,14 @@ local function MinimapButtonBuild()
 		GameTooltip:Hide();
 		if arg1 == "RightButton" then
 			ToggleDropDownMenu(1, nil, menu, "cursor");
+-- The 1.12 client has no UIDropDownMenu_CreateInfo: a row is a plain table there.
+local function MenuInfo()
+	if UIDropDownMenu_CreateInfo then
+		return UIDropDownMenu_CreateInfo();
+	end
+	return {};
+end
+
 		else
 			CloseDropDownMenus();
 			WindowToggle();
