@@ -89,6 +89,11 @@ COMFYATMOSPHERE_WATER_LAKE_SWASH = "Lake Swash";
 COMFYATMOSPHERE_WATER_LAKE_FOAM = "Lake Foam";
 COMFYATMOSPHERE_WATER_LAKE_WAVES = "Lake Waves";
 COMFYATMOSPHERE_WATER_RAIN = "Rain on Water";
+COMFYATMOSPHERE_HEADLIGHTS = "Headlights";
+COMFYATMOSPHERE_HEADLIGHT_STRENGTH = "Headlight Strength";
+COMFYATMOSPHERE_HEADLIGHT_AIR = "Headlight Beam";
+COMFYATMOSPHERE_HEADLIGHT_LENGTH = "Headlight Length";
+COMFYATMOSPHERE_HEADLIGHT_ANGLE = "Headlight Angle";
 COMFYATMOSPHERE_LIGHTHOUSES = "Lighthouses";
 COMFYATMOSPHERE_LIGHTHOUSE_BEAM = "Lighthouse Beam";
 COMFYATMOSPHERE_LH_BEACON = "Lighthouse Beacon";
@@ -934,6 +939,61 @@ local ENTRIES = {
 		minval = 0,
 		maxval = 100,
 		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- [headlight] enabled: the gnome mounts' lamps throw a cone of light at night.
+		name = "COMFYATMOSPHERE_HEADLIGHTS",
+		desc = "The gnome mechanostriders' headlamps light the ground ahead of them at night.",
+		type = "checkbutton",
+		cvar = "comfyHeadlights",
+	},
+	{
+		-- A percentage: comfyatmos.dll divides by 100 for [headlight] strength.
+		name = "COMFYATMOSPHERE_HEADLIGHT_STRENGTH",
+		desc = "How bright the headlamps' light is on the ground and the walls.",
+		type = "slider",
+		cvar = "comfyHeadlightStrength",
+		dependency = { "comfyHeadlights", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- A percentage: comfyatmos.dll divides by 100 for [headlight] air.
+		name = "COMFYATMOSPHERE_HEADLIGHT_AIR",
+		desc = "How much of the cone shows in the air, as a haze. 0 lights the ground only.",
+		type = "slider",
+		cvar = "comfyHeadlightAir",
+		dependency = { "comfyHeadlights", "1" },
+		minval = 0,
+		maxval = 300,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Yards: [headlight] length.
+		name = "COMFYATMOSPHERE_HEADLIGHT_LENGTH",
+		desc = "How far the cone reaches, in yards.",
+		type = "slider",
+		cvar = "comfyHeadlightLength",
+		dependency = { "comfyHeadlights", "1" },
+		minval = 5,
+		maxval = 200,
+		step = 5,
+		numberLabels = 1,
+	},
+	{
+		-- Degrees: [headlight] angle.
+		name = "COMFYATMOSPHERE_HEADLIGHT_ANGLE",
+		desc = "How wide the cone is: its half angle in degrees.",
+		type = "slider",
+		cvar = "comfyHeadlightAngle",
+		dependency = { "comfyHeadlights", "1" },
+		minval = 3,
+		maxval = 45,
+		step = 1,
 		numberLabels = 1,
 	},
 	{
@@ -2220,7 +2280,7 @@ local WINDOW_SECTIONS = {
 	           "comfyMistReach", "comfyMistSky", "comfyMistPatches", "comfyMistLow", "comfyMistWater",
 	           "comfyMistMorning", "comfyMistLamps", "comfyMistWind", "comfyMistWindDir" } },
 	{ "Lamps", { "comfyLamps", "comfyLampGlow", "comfyLampDistance", "comfyLanternLight", "comfyTorchLight",
-	             "comfyIndoorLamps", "comfyLampsDay", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseDistance", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
+	             "comfyIndoorLamps", "comfyLampsDay", "comfyHeadlights", "comfyHeadlightStrength", "comfyHeadlightAir", "comfyHeadlightLength", "comfyHeadlightAngle", "comfyLighthouses", "comfyLighthouseBeam", "comfyLighthouseBeacon", "comfyLighthouseLength", "comfyLighthouseDistance", "comfyLighthouseWidth", "comfyLighthouseSpread", "comfyLighthouseSpeed", "comfyLighthouseTwoBeams", "comfyLighthouseGlint", "comfyLighthouseFace", "comfyLighthouseFaceTilt", "comfyLighthouseFaceSoft", "comfyLighthouseWaterWidth" } },
 	{ "Shadows", { "comfySunShadows", "comfySunShadowsWorld", "comfySunShadowsUnits", "comfyShadowLock",
 	               "comfyShadowTilt", "comfyShadowRiseFrom", "comfyShadowHighest", "comfySunShadowStrength", "comfySunShadowsNight",
 	               "comfySunShadowsUnitStrength", "comfySunShadowsBody", "comfyShadowOnWater", "comfySunGlide", "comfyTreeShade", "comfyFoliageShadeSize", "comfyFoliageShadeEdge", "comfyFoliageSelfShade", "comfyFoliageCreatureShadow", "comfySunlight", "comfyShadeTint",
@@ -3172,6 +3232,14 @@ local function MinimapButtonPlace()
 		MINIMAP_RADIUS * math.cos(angle), MINIMAP_RADIUS * math.sin(angle));
 end
 
+-- The 1.12 client has no UIDropDownMenu_CreateInfo: a row is a plain table there.
+local function MenuInfo()
+	if UIDropDownMenu_CreateInfo then
+		return UIDropDownMenu_CreateInfo();
+	end
+	return {};
+end
+
 local function MinimapMenuInit()
 	local entries = {
 		{ "Options", WindowToggle, window and window:IsShown() },
@@ -3232,14 +3300,6 @@ local function MinimapButtonBuild()
 		GameTooltip:Hide();
 		if arg1 == "RightButton" then
 			ToggleDropDownMenu(1, nil, menu, "cursor");
--- The 1.12 client has no UIDropDownMenu_CreateInfo: a row is a plain table there.
-local function MenuInfo()
-	if UIDropDownMenu_CreateInfo then
-		return UIDropDownMenu_CreateInfo();
-	end
-	return {};
-end
-
 		else
 			CloseDropDownMenus();
 			WindowToggle();

@@ -4222,3 +4222,16 @@ to Booty Bay. Three causes, found in this order.
 
 Tried on the way and left out: Leaves off, Shadow Softness 2 and `modelGap` 0.6 changed nothing. Not measured yet: the
 frame time while a ship sails near, and whether the hull, now a model while it moves, takes the foam round objects.
+
+## Headlights (2026-11-01)
+
+**The gnome epic mount's lamp lit nothing.** `GnomeMechaStrider.m2` (patch-Z/model.MPQ, `Creature\MechaStrider\`) has no M2
+lights (0), no ribbons, and its three particle emitters sit at the back (the exhaust, x -1.58); the lamp is geometry. The
+model has an attachment 17 (bone 49, at 0.73 / 0 / 2.05) the plain MechaStrider lacks, probably the lamp, but the
+bone moves with the animation, so the lamp is placed by `[headlight] forward` and `height` from the unit's place.
+`headlight.cpp` draws a cone for every mounted unit whose mount's model file holds a word of `[headlight] models`:
+the unit list gives the mount's display id and now the facing (`playerPosOff + 12`, checked to be an angle), and
+`MapCreatureModelName` the model file through CreatureDisplayInfo.dbc and CreatureModelData.dbc. One full-screen pass
+as the lighthouses': on the surface the cone's weight times how squarely it faces the lamp (normal from `ddx`/`ddy` of
+the world position), in the air 20 jittered steps along the line of sight. Not yet measured in game: the facing's
+offset, the lamp's place and the strengths. The probe (F12) logs each lamp as `headlight:`.

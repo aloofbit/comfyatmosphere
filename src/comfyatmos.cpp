@@ -21,6 +21,7 @@
 #include <d3d9.h>
 
 #include "beacon.h"
+#include "headlight.h"
 #include "bench.h"
 #include <intrin.h>
 #include "bodymask.h"
@@ -872,6 +873,7 @@ namespace
         // The lighthouses (beacon.cpp): light in the air, before the saturation so it takes the world's colour.
         BenchSectionBegin(dev, kBenchBeacon);
         BeaconDraw(dev);
+        HeadlightDraw(dev);
         BenchSectionEnd(dev, kBenchBeacon, true);
         // The saturation last, over the whole world with the rays and the light in it (grade.cpp).
         BenchSectionBegin(dev, kBenchGrade);
@@ -1149,6 +1151,7 @@ namespace
             CloudsReset();
             ForgetMistTextures();
             BeaconReset();
+            HeadlightReset();
             GrassReset();
             MapTerrainRelease();
             g_waterPs.clear();
@@ -1294,6 +1297,7 @@ namespace
         GradeReset();
         SunDotReset();
         BeaconReset();
+        HeadlightReset();
         GrassReset();
         MapTerrainDetach();
         VolumeDetach();
@@ -1516,6 +1520,7 @@ namespace
             BodyMaskProbe();
             WaterProbe();
             BeaconProbe();
+            HeadlightProbe();
             GrassProbe();
             LightsProbe();
             WeatherProbe();
@@ -1555,6 +1560,7 @@ namespace
         CloudsReset();
         ForgetMistTextures();
         BeaconReset();
+        HeadlightReset();
         GrassReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))

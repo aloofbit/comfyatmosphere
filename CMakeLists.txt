@@ -44,6 +44,7 @@ add_library(comfyatmos SHARED
     src/grass.cpp
     src/timeofday.cpp
     src/beacon.cpp
+    src/headlight.cpp
     src/shadercache.cpp
     src/memtrace.cpp
     src/clouds.cpp

@@ -259,6 +259,7 @@ void ShaderCacheStart(const wchar_t* dir)
     WaterShaderList();
     LampGlowShaderList();
     BeaconShaderList();
+    HeadlightShaderList();
     GradeShaderList();
     GrassShaderList();
     CloudsShaderList();

@@ -124,4 +124,7 @@ int MapRequestFile(const char* name, std::vector<uint8_t>& out);
 // vertex buffer holding one view's vertices. Null while the loader reads it, or if it could not be read;
 // the first call asks for it.
 const std::vector<uint32_t>* MapCreatureModelViews(unsigned display);
+// The model file a creature display names (CreatureModelData.dbc, "Creature\\MechaStrider\\GnomeMechaStrider.mdx"),
+// null while the loader reads it or if there is none; the first call asks for it.
+const std::string* MapCreatureModelName(unsigned display);
 const char* MapTerrainInfo();   // for the probe

@@ -212,6 +212,10 @@ int ClientUnitList(ClientUnit* out, int max)
                 u.display   = f[0];
                 u.mount     = f[2];
                 u.bytes1    = f[7];
+                u.facingOk  = SafeCopy(obj + b.playerPosOff + 12, &u.facing, 4) && u.facing == u.facing &&
+                              u.facing > -20.0f && u.facing < 20.0f;
+                if (!u.facingOk)
+                    u.facing = 0.0f;
                 u.stealthed = ((f[7] >> 24) & 0x02) != 0;
                 u.self      = SafeCopy(obj + 0x30, guid, 8) && guid[0] == me[0] && guid[1] == me[1];
                 // Dead: no health, or the local player's ghost flag (a ghost has health).

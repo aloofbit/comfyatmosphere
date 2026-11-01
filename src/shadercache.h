@@ -18,6 +18,7 @@ void ShaderPrecompile(const char* name, const char* src, const char* profile, co
 
 // Each pass lists its shaders with these (defined in its own file).
 void BeaconShaderList();
+void HeadlightShaderList();
 void BodyMaskShaderList();
 void CoverShaderList();
 void GradeShaderList();

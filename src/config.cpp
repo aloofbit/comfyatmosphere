@@ -61,6 +61,7 @@ namespace
     const wchar_t* kNight   = L"night";
     const wchar_t* kColour  = L"colour";
     const wchar_t* kLighthouse = L"lighthouse";
+    const wchar_t* kHeadlight = L"headlight";
     const wchar_t* kGrass   = L"grass";
     const wchar_t* kTime    = L"time";
     const wchar_t* kBench   = L"bench";
@@ -519,6 +520,22 @@ void LoadSettings(const wchar_t* ini)
     s.lighthouse.day     = Clamp(GetF(kLighthouse, L"day", s.lighthouse.day, ini), 0.0f, 1.0f);
     s.lighthouse.lampDrop = Clamp(GetF(kLighthouse, L"lampDrop", s.lighthouse.lampDrop, ini), 0.0f, 40.0f);
     s.lighthouse.color   = GetX(kLighthouse, L"color", s.lighthouse.color, ini) & 0xFFFFFF;
+    {
+        HeadlightSettings& h = s.headlight;
+        h.enabled  = GetB(kHeadlight, L"enabled", h.enabled, ini);
+        h.strength = Clamp(GetF(kHeadlight, L"strength", h.strength, ini), 0.0f, 3.0f);
+        h.air      = Clamp(GetF(kHeadlight, L"air", h.air, ini), 0.0f, 3.0f);
+        h.surface  = Clamp(GetF(kHeadlight, L"surface", h.surface, ini), 0.0f, 3.0f);
+        h.length   = Clamp(GetF(kHeadlight, L"length", h.length, ini), 5.0f, 200.0f);
+        h.angle    = Clamp(GetF(kHeadlight, L"angle", h.angle, ini), 3.0f, 45.0f);
+        h.forward  = Clamp(GetF(kHeadlight, L"forward", h.forward, ini), -3.0f, 5.0f);
+        h.height   = Clamp(GetF(kHeadlight, L"height", h.height, ini), 0.0f, 6.0f);
+        h.tilt     = Clamp(GetF(kHeadlight, L"tilt", h.tilt, ini), -0.6f, 0.6f);
+        h.reach    = Clamp(GetF(kHeadlight, L"reach", h.reach, ini), 20.0f, 500.0f);
+        h.day      = Clamp(GetF(kHeadlight, L"day", h.day, ini), 0.0f, 1.0f);
+        h.color    = GetX(kHeadlight, L"color", h.color, ini) & 0xFFFFFF;
+        GetS(kHeadlight, L"models", h.models, sizeof(h.models), ini);
+    }
     s.colour.day   = Clamp(GetF(kColour, L"day",   s.colour.day,   ini), 0.0f, 200.0f);
     s.colour.night = Clamp(GetF(kColour, L"night", s.colour.night, ini), 0.0f, 200.0f);
     s.colour.gameGlow = Clamp(GetF(kColour, L"gameGlow", s.colour.gameGlow, ini), 0.0f, 200.0f);

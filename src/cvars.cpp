@@ -107,6 +107,7 @@ namespace
                 kCloudCover, kCloudShapes, kCloudSoftness, kCloudBillows, kCloudClearing,
                 kCloudSpeed, kCloudTransition, kCloudScale, kCloudLayerSoftness, kCloudCutoutWidth, kCloudShapeSize, kCloudReshape, kCloudPuffiness, kCloudShapesOn,
                 kJumpRipple, kGameGlow, kWetSandReach, kZoneSaturation, kRiseFrom, kHighest,
+                kHeadlights, kHeadStrength, kHeadAir, kHeadLength, kHeadAngle,
                 kKnobs };
 
     const char* const kNames[kKnobs] = {
@@ -282,6 +283,12 @@ namespace
         // Low Sun From (2026-10-14) and Highest Sun (2026-10-15): [sunshadows] riseFrom and highest, in degrees.
         "comfyShadowRiseFrom",
         "comfyShadowHighest",
+        // Headlights (2026-11-01): [headlight].
+        "comfyHeadlights",
+        "comfyHeadlightStrength",
+        "comfyHeadlightAir",
+        "comfyHeadlightLength",
+        "comfyHeadlightAngle",
     };
 
     // The Debug View slider: one number for every effect's debug view, so a view is one move in the
@@ -552,6 +559,11 @@ namespace
         case kZoneSaturation: snprintf(out, cap, "%.0f", s.water.zoneSaturation * 100.0f); break;   // percent
         case kRiseFrom:       snprintf(out, cap, "%.0f", s.sunShadows.riseFrom); break;   // degrees
         case kHighest:        snprintf(out, cap, "%.0f", s.sunShadows.highest); break;  // degrees
+        case kHeadlights:     snprintf(out, cap, "%d", s.headlight.enabled ? 1 : 0); break;
+        case kHeadStrength:   snprintf(out, cap, "%.0f", s.headlight.strength * 100.0f); break;   // percent
+        case kHeadAir:        snprintf(out, cap, "%.0f", s.headlight.air * 100.0f); break;        // percent
+        case kHeadLength:     snprintf(out, cap, "%.0f", s.headlight.length); break;              // yards
+        case kHeadAngle:      snprintf(out, cap, "%.0f", s.headlight.angle); break;               // degrees
         case kColour:         snprintf(out, cap, "%d", s.colour.enabled ? 1 : 0); break;
         case kFog:            snprintf(out, cap, "%d", s.fog.enabled ? 1 : 0); break;
         // Ten-thousandths a yard (40 is 0.004), yards, and percentages.
@@ -708,6 +720,11 @@ namespace
         if (c[kZoneSaturation].seen)  s.water.zoneSaturation = Clamp(c[kZoneSaturation].value * 0.01f, 0.0f, 3.0f);
         if (c[kRiseFrom].seen)        s.sunShadows.riseFrom = Clamp(c[kRiseFrom].value, 0.0f, 60.0f);
         if (c[kHighest].seen)         s.sunShadows.highest = Clamp(c[kHighest].value, 10.0f, 89.0f);
+        if (c[kHeadlights].seen)      s.headlight.enabled = c[kHeadlights].value != 0.0f;
+        if (c[kHeadStrength].seen)    s.headlight.strength = Clamp(c[kHeadStrength].value * 0.01f, 0.0f, 3.0f);
+        if (c[kHeadAir].seen)         s.headlight.air = Clamp(c[kHeadAir].value * 0.01f, 0.0f, 3.0f);
+        if (c[kHeadLength].seen)      s.headlight.length = Clamp(c[kHeadLength].value, 5.0f, 200.0f);
+        if (c[kHeadAngle].seen)       s.headlight.angle = Clamp(c[kHeadAngle].value, 3.0f, 45.0f);
         if (c[kColour].seen)         s.colour.enabled = c[kColour].value != 0.0f;
         if (c[kFog].seen)            s.fog.enabled    = c[kFog].value != 0.0f;
         if (c[kFogDensity].seen)     s.fog.density    = Clamp(c[kFogDensity].value * 0.0001f, 0.0f, 0.1f);
