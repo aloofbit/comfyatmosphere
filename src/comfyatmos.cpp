@@ -3444,7 +3444,7 @@ namespace
         // The cache was comfyatmos-cache (and comfyfog-cache before the rename) in the client folder: the first is
         // moved in, then both are deleted. When WDB cannot be made, the cache stays in comfyatmos-cache.
         wchar_t dir[MAX_PATH], oldDir[MAX_PATH];
-        wcscpy_s(dir, g_iniPath);
+        GetModuleFileNameW(nullptr, dir, MAX_PATH);
         wchar_t* slash = wcsrchr(dir, L'\\') + 1;
         const size_t room = MAX_PATH - (slash - dir);
         wcscpy_s(oldDir, dir);
@@ -3579,8 +3579,9 @@ BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
         const bool oldIni = ResolveIniPath(self, g_iniPath, MAX_PATH);
         // The log goes in the client's Logs folder, with the game's own chat and combat logs (2026-10-06, the
         // owner); the client folder holds it only when Logs cannot be made. One left in the client folder by an
-        // older version is deleted, so nothing reads it as this run's.
-        wcscpy_s(g_logPath, g_iniPath);
+        // older version is deleted, so nothing reads it as this run's. The exe's folder is the base, not the
+        // DLL's, so the run's folders follow the programme this DLL hangs on.
+        GetModuleFileNameW(nullptr, g_logPath, MAX_PATH);
         wchar_t* logName = wcsrchr(g_logPath, L'\\') + 1;
         wcscpy_s(logName, MAX_PATH - (logName - g_logPath), L"comfyatmos.log");
         DeleteFileW(g_logPath);
