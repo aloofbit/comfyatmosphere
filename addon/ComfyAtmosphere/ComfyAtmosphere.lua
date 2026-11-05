@@ -26,6 +26,418 @@
 -- (measured: a thickness of 85 was written, fog at its default 1 was not). So a setting nobody moved
 -- still follows comfyatmos.ini, and the addon keeps no copy of its own.
 
+-- ---- LANGUAGE: English stays and, on a Chinese client (zhCN/zhTW), Chinese is shown as well. ----
+-- The addon keeps the English text as the key and shows a translation where there is one, so a client in
+-- any other language still gets English. There is no GetLocaleValue in classic 1.12: the game window's
+-- locale is read, and the matching list is kept in this file, under the `local` table below.
+local COMFYATMOSPHERE_LOCALE = GetLocale();
+local COMFYATMOSPHERE_ZH = {
+	["Atmosphere"] = "大气环境",
+	["Atmosphere Effects"] = "大气环境特效",
+	["Volumetric Light"] = "体积光",
+	["Volumetric Light Strength"] = "体积光强度",
+	["Volumetric Light Quality"] = "体积光质量",
+	["Light Density"] = "光密度",
+	["Light Distance"] = "光距离",
+	["Light Toward the Sun"] = "朝向太阳的光",
+	["Lamps"] = "灯光",
+	["Lamp Glow"] = "灯光辉光",
+	["Lamp Distance"] = "灯光距离",
+	["Lantern Light"] = "灯笼灯光",
+	["Torch Light"] = "火把灯光",
+	["Indoor Lamps"] = "室内灯光",
+	["Lamps by Day"] = "白昼灯光",
+	["Sun Shadows"] = "太阳阴影",
+	["Sun Shadow Strength"] = "太阳阴影强度",
+	["Night Shadows"] = "夜间阴影",
+	["Character Shadow Strength"] = "角色阴影强度",
+	["Character Backside Shadow"] = "角色背面阴影",
+	["Shadow on Water"] = "水面阴影",
+	["Sun Smoothing"] = "太阳平滑",
+	["World / Object Shadows"] = "世界 / 物体阴影",
+	["Player / Creature Shadows"] = "玩家 / 生物阴影",
+	["Lock Shadow Angle"] = "锁定阴影角度",
+	["Shadow Angle"] = "阴影角度",
+	["Low Sun From"] = "低太阳起点",
+	["Highest Sun"] = "太阳最高点",
+	["Sunlight"] = "阳光",
+	["Tree Shadow Strength"] = "树影强度",
+	["Foliage Shade Size"] = "植被阴影大小",
+	["Foliage Shade Edge"] = "植被阴影边缘",
+	["Foliage Self Shade"] = "植被自阴影",
+	["Creature Shadow on Foliage"] = "植被上的生物阴影",
+	["Water Effects"] = "水体特效",
+	["Sunset Water"] = "日落水面",
+	["Water Saturation"] = "水饱和度",
+	["Water Clarity"] = "水清澈度",
+	["Water Brightness"] = "水亮度",
+	["Sky Reflection"] = "天空倒影",
+	["Underwater Distortion"] = "水下扭曲",
+	["Underwater Cover"] = "水下遮盖",
+	["Wake"] = "尾流",
+	["Standing Ripple Depth"] = "站立涟漪深度",
+	["Moving Ripple Depth"] = "移动涟漪深度",
+	["Standing Ripple Spread"] = "站立涟漪扩散",
+	["Moving Ripple Spread"] = "移动涟漪扩散",
+	["Jump Ripple"] = "跳跃涟漪",
+	["Game Glow"] = "游戏辉光",
+	["Foam"] = "泡沫",
+	["Drawn Foam"] = "绘制泡沫",
+	["Foam Size"] = "泡沫大小",
+	["Foam Reach"] = "泡沫范围",
+	["Foam Breakup"] = "泡沫破碎",
+	["Wake Foam"] = "尾流泡沫",
+	["Ship Wake"] = "船尾流",
+	["Ship Wake Forward"] = "船尾流前向",
+	["Ship Wake Depth"] = "船尾流深度",
+	["Object Foam"] = "物体泡沫",
+	["Lake Swash"] = "湖泊拍岸",
+	["Lake Foam"] = "湖泊泡沫",
+	["Lake Waves"] = "湖泊波浪",
+	["Rain on Water"] = "水中降雨",
+	["Lighthouses"] = "灯塔",
+	["Lighthouse Beam"] = "灯塔光束",
+	["Lighthouse Beacon"] = "灯塔信号灯",
+	["Beam Length"] = "光束长度",
+	["Lighthouse Distance"] = "灯塔距离",
+	["Beam Width"] = "光束宽度",
+	["Beam Spread"] = "光束扩散",
+	["Beam Speed"] = "光束速度",
+	["Two Beams"] = "双光束",
+	["Lighthouse Glint"] = "灯塔闪光",
+	["Wave Face Strength"] = "波面强度",
+	["Wave Face Tilt"] = "波面倾斜",
+	["Wave Face Softness"] = "波面柔和度",
+	["Beam Width on Water"] = "水面光束宽度",
+	["Object Foam Width"] = "物体泡沫宽度",
+	["Open Water Foam"] = "开阔水域泡沫",
+	["Open Water Foam Amount"] = "开阔水域泡沫量",
+	["Swash"] = "拍岸浪",
+	["Swash Height"] = "拍岸浪高度",
+	["Swash Length"] = "拍岸浪长度",
+	["Swash Speed"] = "拍岸浪速度",
+	["Wet Sand"] = "湿沙",
+	["Wet Sand Distance"] = "湿沙距离",
+	["Sun Glint"] = "太阳闪光",
+	["Moon Glint"] = "月光反光",
+	["Glint Size"] = "闪光大小",
+	["Edge Line"] = "边缘线",
+	["Edge Line Width"] = "边缘线宽度",
+	["Wave Height"] = "浪高",
+	["Wave Size"] = "浪大小",
+	["Shade Colour"] = "阴影颜色",
+	["Sunlight Warmth"] = "阳光暖色",
+	["Shadow Resolution"] = "阴影分辨率",
+	["Shadow Softness"] = "阴影柔和度",
+	["Shadow Redraw"] = "阴影重绘",
+	["Near Shadow Distance"] = "近处阴影距离",
+	["Sun Rays"] = "太阳光线",
+	["Sun Rays Strength"] = "太阳光线强度",
+	["Sun Rays Softness"] = "太阳光线柔和度",
+	["Sun Rays Smoothing"] = "太阳光线平滑",
+	["Debug View"] = "调试视图",
+	["Night Strength"] = "夜间强度",
+	["Night Darkness"] = "夜间黑暗度",
+	["Rain Darkness"] = "降雨黑暗度",
+	["Moonlight Colour"] = "月光颜色",
+	["Color Effects"] = "色彩特效",
+	["Day Saturation"] = "白昼饱和度",
+	["Night Saturation"] = "夜间饱和度",
+	["Clouds"] = "云层",
+	["Cloud Cover"] = "云量",
+	["Cloud Shapes"] = "云朵形状",
+	["Cloud Shape Amount"] = "云形数量",
+	["Cloud Softness"] = "云层柔和度",
+	["Cloud Shape Billows"] = "云形起伏",
+	["Cloud Shape Cutout"] = "云形镂空",
+	["Cloud Shape Cutout Width"] = "云形镂空宽度",
+	["Cloud Shape Size"] = "云形大小",
+	["Cloud Reshaping"] = "云层重塑",
+	["Cloud Puffiness"] = "云的卷积感",
+	["Cloud Speed"] = "云层速度",
+	["Cloud Transition Time"] = "云层过渡时间",
+	["Cloud Scale"] = "云层规模",
+	["Cloud Layer Softness"] = "云层细节柔和度",
+	["Fog"] = "雾气",
+	["Fog Density"] = "雾气密度",
+	["Fog Height"] = "雾气高度",
+	["Fog Brightness"] = "雾气亮度",
+	["Fog Sunlight"] = "雾气阳光",
+	["Fog Toward the Sun"] = "朝太阳方向雾气",
+	["Fog Horizon Glow"] = "雾地平线辉光",
+	["Fog Reach"] = "雾气范围",
+	["Fog on Sky"] = "天空雾气",
+	["Fog Patchiness"] = "雾气斑驳",
+	["Low Ground Mist"] = "低洼地薄雾",
+	["Water Mist"] = "水面薄雾",
+	["Morning Mist"] = "晨雾",
+	["Lamps in Mist"] = "雾中灯光",
+	["Wind Speed"] = "风速",
+	["Wind Direction"] = "风向",
+	["Grass"] = "草地",
+	["Grass Wind"] = "草地风",
+	["Grass Wave Speed"] = "草浪速度",
+	["Grass Wave Length"] = "草浪长度",
+	["Grass Wind Direction"] = "草地风向",
+	["Grass Lean"] = "草地倾斜",
+	["Grass Parting"] = "草地开合",
+	["Grass Parting Radius"] = "草地开合半径",
+	["Foliage Density"] = "植被密度",
+	-- Time's three choices.
+	["Server"] = "服务器",
+	["Server time"] = "服务器时间",
+	["The time of day the server sends. All players see the same sky."] = "服务器发送的时刻。所有玩家看到同一片天空。",
+	["Computer"] = "电脑",
+	["Computer time"] = "电脑时间",
+	["The computer's clock, with its timezone and daylight saving. Only your client shows it."] = "电脑本地时钟，含时区和夏时制。仅你的客户端显示。",
+	["Fixed"] = "固定",
+	["Fixed hour"] = "固定时刻",
+	["The hour set with the slider below. It stays, also after a restart. Only your client shows it."] = "用下方滑块设置的时刻。重启后也保持不变。仅你的客户端显示。",
+	["Hour"] = "小时",
+	["Day/Night"] = "白天/黑夜",
+	["Waiting for comfyatmos.dll"] = "正在等待 comfyatmos.dll",
+	["Waiting for comfyatmos.dll (a second)..."] = "正在等待 comfyatmos.dll（一秒）……",
+	["Server time: "] = "服务器时间：",
+	["Fixed hour: "] = "固定时刻：",
+	["Computer time: "] = "电脑时间：",
+	["comfytime.dll sets the time. Remove it"] = "comfytime.dll 也在设置时间，请移除它",
+	["Not set (another WoW.exe?). See the log"] = "未设置（另一个 WoW.exe？）。请查看日志",
+	["Light"] = "光",
+	["Lamps"] = "灯光",
+	["Shadows"] = "阴影",
+	["Sky"] = "天空",
+	["Color"] = "色彩",
+	["Water"] = "水",
+	["Time"] = "时间",
+	-- The /atmos window's value words, buttons and the key bindings.
+	["Low"] = "低",
+	["Medium"] = "中",
+	["High"] = "高",
+	["Defaults"] = "默认",
+	["Close"] = "关闭",
+	["Debug"] = "调试",
+	["ComfyAtmosphere"] = "大气环境",
+	["Probe (log one frame)"] = "探查（记录一帧）",
+	["Show or hide the stats"] = "显示或隐藏统计",
+	["Show or hide the debug panel"] = "显示或隐藏调试面板",
+	["Read comfyatmos.ini again"] = "重新读取 comfyatmos.ini",
+	["Sun rays on or off"] = "开启或关闭太阳光线",
+	["Volumetric light on or off"] = "开启或关闭体积光",
+	["Run the benchmark"] = "运行基准测试",
+	["Time of day later"] = "时间往后",
+	["Time of day earlier"] = "时间往前",
+	["Day or night"] = "白天或夜晚",
+	["Atmosphere stats"] = "大气环境统计",
+	["Atmosphere debug"] = "大气环境调试",
+	["Debug view"] = "调试视图",
+	["Options"] = "选项",
+	["Click: settings"] = "点击：设置",
+	["Right-click: options, debug, stats, probe"] = "右键：选项、调试、统计、探查",
+	["Drag: move"] = "拖动：移动",
+	["Trace: on"] = "追踪：开启",
+	["Trace: off"] = "追踪：关闭",
+	["Trace"] = "追踪",
+	["Benchmark"] = "基准测试",
+	["Developer keys (F11, F12, Ctrl+PageUp)"] = "开发按键（F11、F12、Ctrl+PageUp）",
+	["View "] = "视图 ",
+	["Probe"] = "探查",
+	["Stats"] = "统计",
+	["Bench"] = "基准",
+	["Stats view"] = "统计视图",
+	["Foliage Density"] = "植被密度",
+	["Position"] = "位置",
+	["Zone"] = "区域",
+	["Map"] = "地图",
+	["World"] = "世界",
+	["Inside building"] = "在建筑内",
+	["Building"] = "建筑",
+	["Why"] = "原因",
+	["Frame"] = "帧",
+	["Frame rate"] = "帧率",
+	["Game time"] = "游戏时间",
+	["Glided (light, water)"] = "平滑（光、水）",
+	["Held (shadows)"] = "固定（阴影）",
+	["Shadow steps"] = "阴影步数",
+	["Shadow casters"] = "阴影投射体",
+	["Held"] = "固定",
+	["Moving"] = "移动",
+	["Drawn into the map"] = "绘制进贴图",
+	["Recorded a frame"] = "已记录一帧",
+	["Turned away a frame"] = "拒录一帧",
+	["Last second"] = "上一秒",
+	["Added"] = "新增",
+	["Dropped"] = "丢弃",
+	["Within 40 yards of you"] = "距你 40 码内",
+	["Refused (map files)"] = "拒绝（地图文件）",
+	["Density"] = "密度",
+	["Ground"] = "地面",
+	["Wet cells"] = "湿润格",
+	["Patches"] = "块状",
+	["this comfyatmos.dll does not set the time of day."] = "此 comfyatmos.dll 不能设置游戏内时刻。",
+	["no answer from comfyatmos.dll."] = "comfyatmos.dll 无应答。",
+	["this comfyatmos.dll has no stats."] = "此 comfyatmos.dll 没有统计功能。",
+	["this comfyatmos.dll has no Developer keys switch: its keys are always on."] = "此 comfyatmos.dll 没有“开发按键”开关：其按键始终开启。",
+	["comfyatmos.dll is not loaded."] = "comfyatmos.dll 尚未加载。",
+	["/atmos: the settings window. /atmos debug: buttons for finding faults. /atmos stats: figures on screen."] = "/atmos：设置窗口。/atmos debug：排障按钮。/atmos stats：屏幕上的数据。",
+	["this comfyatmos.dll has no /atmos. It needs the version from 2026-09-29 or later."] = "此 comfyatmos.dll 不支持 /atmos。需要 2026-09-29 之后（含）的版本。",
+	-- The options' descriptions. English stays, and a Chinese client shows these.
+	["All the effects on this page at once. Off, the game looks as it does without the mod."] = "本页所有特效的集中开关。关闭后，游戏看起来就像没装这个模组一样。",
+	["Fog glows where sunlight reaches it and stays dark where leaves and walls shade it."] = "阳光照到的雾气会发光，被树叶和墙壁遮挡的地方保持黑暗。",
+	["How bright the lit fog is."] = "被照亮的雾气的亮度。",
+	["Lower runs faster."] = "数值越低运行越快。",
+	["How thick the air is. Higher gives brighter shafts through the trees."] = "空气的稠密程度。数值越高，穿过树林的光柱越明亮。",
+	["How far away, in yards, the light still glows. Shorter makes the shafts near you sharper."] = "光线仍在发光的距离（码）。数值越短，靠近你的光柱越清晰。",
+	["0 glows the same from every side. Higher glows more when you look toward the sun."] = "0 表示从各方向发光相同。数值越高，望向太阳时发光越强。",
+	["Fog that lies on the ground and thins higher up. The sun lights it. With Volumetric Light on, it shows shafts where trees and walls shade it."] = "贴着地面并随高度变薄的雾气，被阳光照亮。开启体积光时，被树木和墙壁遮挡处会显现出光柱。",
+	["How thick the fog is at the ground. Higher, you see less far."] = "地面处雾气的密度。数值越高，看得越近。",
+	["How deep the fog layer is, in yards. Lower keeps it on the ground; higher fills the air."] = "雾气层的厚度（码）。数值越低雾气越贴地，数值越高雾气填满空气。",
+	["How bright the fog is in the shade. 100 is the game's own fog colour."] = "阴影中雾气的亮度。100 为游戏自带的雾气颜色。",
+	["How brightly the sun lights the fog."] = "阳光照亮雾气的强度。",
+	["How much brighter the fog glows looking toward the sun, and darker looking away. 0 is the same from every side."] = "望向太阳时雾气更亮、背向太阳时更暗的程度。0 表示各方向相同。",
+	["With the sun low, how brightly the fog glows along the horizon in the sun's colour, brightest under the sun. 0 is none."] = "太阳低垂时，雾气沿地平线以太阳颜色发光、在太阳正下方最亮的程度。0 为没有。",
+	["How far away, in yards, the fog still gathers. Lower lets you see further across open land and sea."] = "雾气仍能聚集的距离（码）。数值越低，在开阔陆地和海面上看得越远。",
+	["How much the fog covers the sky, in yards of fog. 0 leaves the sky clear; higher hides the horizon."] = "雾气遮盖天空的程度（码的雾气）。0 保持天空清澈，数值越高越能遮蔽地平线。",
+	["0 is an even fog. Higher breaks it into patches with clear air between them."] = "0 为均匀的雾气。数值越高，雾气破碎成块，块与块之间空气清澈。",
+	["Extra mist in valleys and hollows. 0 is none."] = "山谷和洼地中的额外薄雾。0 为没有。",
+	["Extra mist over rivers, lakes and the sea. 0 is none."] = "河流、湖泊和海洋上方的额外薄雾。0 为没有。",
+	["Extra mist at dawn, and half as much at dusk. 0 is none."] = "黎明时的额外薄雾，黄昏时为其一半。0 为没有。",
+	["How much brighter lamps glow in thick mist. 0 is no change."] = "浓雾中灯光发光的增亮程度。0 为不变。",
+	["How fast the wind carries the fog patches."] = "风携带雾气块的速度。",
+	["The way the wind blows, in degrees: 0 north, 90 east, 180 south, 270 west."] = "风向（度）：0 北，90 东，180 南，270 西。",
+	["Lamps, candles and torches glow in the air and light the walls and ground near them. Needs Volumetric Light on."] = "灯火、蜡烛和火把在空气中发光，并照亮周围的墙壁和地面。需要开启体积光。",
+	["How strongly lamps, candles and torches glow and light the walls and ground near them."] = "灯火、蜡烛和火把发光并照亮周围墙壁和地面的强度。",
+	["How far away lamps still glow. At 100 they fade into the fog as the game's own lamp glows do."] = "灯光仍在发光的距离。100 时灯光像游戏自身的灯辉光一样在雾中淡出。",
+	["How brightly lampposts, lanterns, candles and chandeliers glow and light the ground and walls near them."] = "路灯、灯笼、蜡烛和吊灯发光并照亮周围地面和墙壁的亮度。",
+	["How brightly torches, braziers, campfires and the torches NPCs carry glow and light the ground and walls near them. The game lights characters near them already, so at 100 they are lit twice."] = "火把、火盆、篝火和 NPC 手持火把发光并照亮周围地面和墙壁的亮度。游戏本身已照亮附近角色，因此 100 时会被照亮两次。",
+	["How bright lamps, candles and fires are while you are inside a building. A room holds many lights close together."] = "你在建筑内部时，灯火、蜡烛和火焰的亮度。一间房间往往聚集许多光源。",
+	["How bright lamps, candles and torches are by day, as a share of their night brightness. 0 puts them out by day. Inside buildings, Indoor Lamps applies instead."] = "白昼灯火、蜡烛和火把的亮度（相对夜间亮度的比例）。0 表示白天熄灭。在建筑内部则改用“室内灯光”。",
+	["Trees, buildings and characters shade the ground and each other. Replaces the round shadow under characters. Needs Volumetric Light on."] = "树木、建筑和角色相互投下影子并遮蔽地面。取代角色脚下的圆形阴影。需要开启体积光。",
+	["Terrain, buildings, trees and doodads cast shadows. Off, the ground keeps the game's own shadows."] = "地形、建筑、树木和装饰物投下阴影。关闭后，地面保留游戏自带的阴影。",
+	["Players and creatures cast shadows. Off, they get the game's round shadow instead."] = "玩家和生物投下阴影。关闭后，它们改用游戏的圆形阴影。",
+	["Shadows keep one angle all day, as the game's own shadows do, instead of following the sun."] = "阴影全天保持同一角度（如同游戏自带阴影），而不追随太阳。",
+	["With Lock Shadow Angle: how far from straight down the light comes, in degrees. Lower gives shorter shadows."] = "在“锁定阴影角度”下：光线偏离正下方的角度（度）。数值越低，阴影越短。",
+	["With the sun or moon lower than this, in degrees, the shadows' light climbs back up as it sinks, over the next 12 degrees down, so the shadows stay short. 0 is never."] = "当太阳或月亮低至该角度（度）以下时，阴影的光会随其继续下沉而在随后 12 度内回升，使阴影保持较短。0 表示从不。",
+	["The highest the shadows' light stands, in degrees: at noon, and at the end of the climb under Low Sun From. Lower gives longer shadows; 90 is straight down."] = "阴影的光所站的最高角度（度）：正午时，以及“低太阳起点”回升结束时。数值越低阴影越长，90 为正下方。",
+	["How dark the shadows are."] = "阴影的深暗程度。",
+	["The shadows the moon casts at night. 100 is as dark as by day. 0 is off."] = "夜间月亮投下的阴影。100 与白天一样深。0 为关闭。",
+	["Makes the shadows of players and creatures darker than the world's, also inside the shade of a building. 0 makes them as dark as the world's."] = "使玩家和生物的阴影比世界的阴影更深，包括在建筑阴影内。0 使其与世界的阴影一样深。",
+	["How dark the shade is on the body of a player or creature, on its side away from the sun. 100 is the darkest. 0 is off: the body keeps only the game's own lighting. The shadow it casts does not change."] = "玩家或生物身体背向太阳一侧阴影的深浅。100 为最深。0 为关闭：身体仅保留游戏自身光照。其投下的阴影不变。",
+	["How dark a shadow is on the water's surface, against one on the ground, with a soft edge. The bed under clear water keeps its own shadow. 0 is none on the surface."] = "影子落在地面与落在水面时，水面影子的深暗程度，带有柔和边缘。清澈水面下的水底保留自己的阴影。0 为水面上没有。",
+	["Seconds at least that the shadows, sun rays and light take to follow a step of the sun. The sky moves the sun once a game minute, and each move is spread over the minute. 0 follows at once."] = "阴影、太阳光线和光追随太阳每步移动至少所需的秒数。天空每一游戏分钟移动一次太阳，每次移动分摊到这一分钟内。0 表示立即跟随。",
+	["How dark the shadows of trees and bushes are. They still show inside the shadow of a hill or a mountain."] = "树木和灌木阴影的深浅。它们仍会显示在山丘或大山的阴影中。",
+	["The ground's grass and ferns take the shade of the ground round them, this many tenths of a yard across, so a plant is dark under cover and lit in the open, with no dapples on it. 0 lets the shade fall on them as it falls."] = "地面草地和蕨类会按此宽度（十分之一码）取周围地面的阴影，使植物在遮蔽下变暗、在开阔处受光，不出现斑驳。0 使阴影如常落在它们身上。",
+	["How softly a plant goes from lit to dark at the edge of a shadow. Low switches it at once; high blends it over a wider edge."] = "植物在阴影边缘由亮到暗的过渡柔和度。低值立即切换，高值在更宽的边缘上渐变。",
+	["The ground's grass and ferns take no shade from leaves nearer than this many tenths of a yard: their own and their neighbours'. Higher stops a tall fern shading itself; a tree's crown higher up still shades it."] = "地面草地和蕨类不从距离此值（十分之一码）以内的叶片取阴影，包括自身和相邻的叶片。数值越高越能阻止高大的蕨类自遮；更高处的树冠仍会遮住它。",
+	["How much of the shadows of characters and creatures falls on the ground's grass and ferns. 0 is none, so a passer-by does not print its shape on them."] = "角色和生物的阴影落在草地与蕨类上的比例。0 为没有，这样路人不会在草地上印出身影。",
+	["The water's colour, waves and sun glint, the foam and wet sand at the shore, and ripples round anyone in the water. Off, the game draws its own water."] = "水体的颜色、波浪和太阳闪光，岸边的泡沫与湿沙，以及水中人物周围的涟漪。关闭后，游戏绘制自带的水面。",
+	["How much more of the sky's red glow the water reflects with the sun low. 0 is none."] = "太阳低垂时水面额外反射天空中红光的程度。0 为没有。",
+	["How strong the water's colour is. The water takes the sky's colour for the place and the time of day. 0 is grey, 100 the sky's own colour."] = "水色的浓度。水体会取当地与当前时刻天空的颜色。0 为灰色，100 为天空本色。",
+	["How light or dark the water is. The glint and the foam keep their brightness."] = "水体的明暗。闪光和泡沫保持它们自身的亮度。",
+	["How far you see into the water. 200 is twice as far as 100."] = "你能看清水下多深。200 是 100 的两倍。",
+	["How much of the sky the water shows when you look across it. 0 shows only the water's own colour."] = "平视水面时水面倒映天空的程度。0 只显示水自身的颜色。",
+	["How much the waves bend what you see under the water. 0 is off."] = "波浪扭曲你所见水下的程度。0 为关闭。",
+	["How white the foam is: at the shore, on the ripples and in the wake. Lower lets the water show through it. 0 is off."] = "泡沫的洁白程度：岸边、涟漪和尾流上的泡沫。数值越低越透出水色。0 为关闭。",
+	["Foam in clean, soft shapes that break up as they age. Off, the game's own foam texture."] = "用干净柔和的形状绘制泡沫，随老化而碎裂。关闭后使用游戏自带的泡沫纹理。",
+	["How large the shapes of the foam are, in tenths of a yard."] = "泡沫形状的大小（十分之一码）。",
+	["How far out from the water's edge the foam lasts, in tenths of a yard."] = "泡沫自水边向外持续多远（十分之一码）。",
+	["How broken the foam is at the water's edge. Low makes a solid band of foam along the sand; high leaves it in pieces, as farther out."] = "水边泡沫破碎的程度。低值在沙滩边形成一条完整的泡沫带，高值使其碎块化，如同更远处。",
+	["The splash of foam at anyone walking or swimming through the water. 0 is none."] = "有人在水中行走或游泳时溅起的泡沫。0 为没有。",
+	["The wake behind a ship under way, as a swimmer's wake this many times the size. 0 is none."] = "航行中船只身后的尾流，大小为游泳者尾流的该倍数。0 为没有。",
+	["How far forward along the ship the wake starts, in yards."] = "尾流自船身何处开始向前延伸（码）。",
+	["How deep the waves of a ship's wake are, against a swimmer's."] = "相对于游泳者的尾流，船只尾流波浪的深度。",
+	["How much of the sea's swash and shore waves a lake, a pond or a river gets. 0 is none, 100 as much as the sea."] = "湖泊、池塘或河流获得海洋拍岸浪和岸浪的程度。0 为没有，100 与海洋一样多。",
+	["How much of the sea's shore foam a lake, a pond or a river gets. 100 is as much as the sea."] = "湖泊、池塘或河流获得海洋岸边泡沫的程度。100 与海洋一样多。",
+	["How much of the sea's waves (Wave Height) a lake, a pond or a river gets. 0 lies flat, 100 rises as the sea."] = "湖泊、池塘或河流获得海洋波浪（浪高）的程度。0 为平静，100 与海洋一样起伏。",
+	["A light in each lighthouse at night, with beams turning round."] = "夜间每座灯塔亮起灯光，并有旋转的光束。",
+	["How bright the lighthouses' beams are. 0 leaves the light alone."] = "灯塔光束的亮度。0 只保留灯光本身。",
+	["How bright the light in the lamp room is."] = "灯室中灯光的亮度。",
+	["How far the beam reaches, in yards."] = "光束延伸的距离（码）。",
+	["How far off a lighthouse's light shows, in yards. It fades out over the last quarter."] = "灯塔灯光在多远距离处可见（码）。其在最后四分之一处淡出。",
+	["How thick the beam is at the lamp, in tenths of a yard."] = "光束在灯处的粗细（十分之一码）。",
+	["How much wider the beam gets as it goes out. 0 is a straight beam."] = "光束向外延伸时加宽的程度。0 为笔直光束。",
+	["Seconds the beam takes to go round once."] = "光束旋转一周所需的秒数。",
+	["A second beam, opposite the first."] = "第二条光束，与第一条相反。",
+	["How much light the lighthouse puts on the water: its glitter and the waves its beam lights."] = "灯塔洒在水面上的光量：其闪光以及光束照亮的波浪。",
+	["How bright the waves are where the beam crosses the water."] = "光束掠过水面时波浪的亮度。",
+	["How far a wave must tilt toward the lighthouse to catch the beam. Lower lights more of them."] = "波浪需向灯塔倾斜多少才能接住光束。数值越低能照亮更多波浪。",
+	["How soft the edge is between the waves the beam lights and the dark ones."] = "光束照亮波浪与未照亮波浪之间边缘的柔和度。",
+	["How wide the patch of water the beam lights is, as a share of the beam's own width. Beam Spread widens it too."] = "光束照亮水面的条带宽度（相对光束本身宽度的比例）。“光束扩散”也会使其加宽。",
+	["Rings on the water where the rain falls, while it rains. 0 is none."] = "下雨时雨滴落点在水面形成的圆环。0 为没有。",
+	["Foam round anything standing in the water: posts, rocks, piers. 0 is none."] = "水中的物体——柱子、岩石、码头——周围的泡沫。0 为没有。",
+	["How far out from an object in the water its foam reaches, in tenths of a yard."] = "水中物体周围泡沫向外延伸多远（十分之一码）。",
+	["Foam on the tops of the waves out in deep water."] = "深海区浪尖上的泡沫。",
+	["How much foam the waves out in deep water carry."] = "深海区波浪携带的泡沫量。",
+	["The water runs up the beach and slides back, with foam on its edge."] = "水冲上沙滩又退回，边缘带有泡沫。",
+	["How far up the shore the water runs. 30 climbs 0.3 yards, and 1.5 yards up a gentle beach."] = "水冲上海岸的高度。30 爬升 0.3 码，在平缓海滩上可达 1.5 码。",
+	["How many yards along the shore one surge spans. Lower gives more, shorter surges side by side."] = "一道浪沿海岸延伸多少码。数值越低会得到更多更短的浪并排推进。",
+	["How fast the surges come. 100 is one every 11 seconds."] = "浪涌出现的速度。100 为每 11 秒一次。",
+	["How much darker the sand is just above the water, where the waves have wet it. 0 is off."] = "紧邻水边、被波浪打湿处沙滩的变暗程度。0 为关闭。",
+	["How far from you the wet sand shows, in yards. It fades out over the second half of this distance."] = "湿沙在距你多远内可见（码）。在此距离的后半段淡出。",
+	["How bright the thin white line is where the water meets the sand. 0 is off."] = "水与沙滩相接处细细白线的亮度。0 为关闭。",
+	["How wide that line is, in tenths of a yard along the sand."] = "该白线的宽度（沿沙滩十分之一码）。",
+	["How bright the sun's reflection on the waves is. 0 is off."] = "太阳在波浪上反光的亮度。0 为关闭。",
+	["How bright the two moons' reflections on the waves are at night. 0 is off."] = "夜间两颗月亮在波浪上反光的亮度。0 为关闭。",
+	["How wide the sun's and moons' reflections spread. 200 is twice as wide as 100."] = "太阳和月亮反光散开的宽度。200 是 100 的两倍。",
+	["The wake behind anyone moving through the water. 0 is off."] = "任何人在水中移动时身后的尾流。0 为关闭。",
+	["How deep the rings round anyone standing still in the water look. 100 is as it was; their white line stays the same."] = "静止立于水中的人物周围圆环看起来的深度。100 为原样，其白线保持不变。",
+	["How deep the rings look that anyone walking or swimming leaves behind. 100 is as it was; their white line stays the same."] = "行走或游泳者身后留下的圆环看起来的深度。100 为原样，其白线保持不变。",
+	["How large the rings round anyone standing still in the water grow. 100 is as it was."] = "静止立于水中的人物周围圆环扩大的大小。100 为原样。",
+	["How large the rings grow that anyone walking or swimming leaves behind. 100 is as it was."] = "行走或游泳者身后留下的圆环扩大的大小。100 为原样。",
+	["How deep the ring is where anyone lands in the water from a jump or a fall. A harder landing makes a deeper one. 0 is none."] = "有人跳跃或坠落落入水面时圆环的深度。落得越重圆环越深。0 为没有。",
+	["How much the water hides a character standing in it. 0 shows the legs as clear as the sand beside them."] = "水淹没站立其中人物的程度。0 使腿部像旁边的沙滩一样清晰可见。",
+	["How tall the waves rise out on deep water, in tenths of a yard. They calm toward the shore. 0 is flat water."] = "深水区波浪的高度（十分之一码）。波浪在靠近岸边时趋于平静。0 为水面平静。",
+	["How long the waves are, in percent. 200 is twice as long as 100."] = "波浪的长度（百分比）。200 是 100 的两倍。",
+	["Makes what the sun reaches brighter, by up to this many percent. 0 leaves it as the game draws it."] = "使阳光照到之处更亮，最多提高该百分比。0 使画面保持游戏默认。",
+	["Shade takes the sky's cool blue instead of only going darker."] = "阴影呈现天空的冷蓝色，而不只是变暗。",
+	["Sunlit ground takes a warm colour."] = "被阳光照耀的地面呈现暖色。",
+	["Higher gives sharper shadows and costs more frame rate. The shadows need Volumetric Light on."] = "数值越高阴影越清晰，同时更耗帧率。阴影需要开启体积光。",
+	["How soft the edges of shadows are. 0 gives sharp edges."] = "阴影边缘的柔和程度。0 为锐利边缘。",
+	["The shadow map is drawn again every this many frames. 1 is every frame. Higher costs less frame rate, and the shadows of moving things lag further behind."] = "阴影贴图每隔该帧数重绘一次。1 为每帧重绘。数值越高越省帧率，运动物体的阴影会拖得更远。",
+	["How far around you, in yards, shadows have the sharpest edges. Higher reaches further, and the edges near you are coarser."] = "你周围多远处（码）的阴影边缘最清晰。数值越高范围越远，靠近你的边缘会更粗糙。",
+	["Rays of light from the sun, through gaps in the trees and clouds."] = "穿过树冠和云层缝隙的太阳光束。",
+	["How bright the rays are."] = "光束的亮度。",
+	["Higher blurs the light the rays come from, so they hold still behind leaves. Lower gives sharper rays."] = "数值越高，光束来源的光越模糊，使其稳定在树叶后方。数值越低，光束更锐利。",
+	["Higher keeps more of the last frame, so the rays change more gently as you move. Too high leaves a trail when you turn quickly."] = "数值越高保留越多上一帧，使你在移动时光束变化更平缓。过高时快速转身会留下残影。",
+	["Sun rays and volumetric light at night. 100 is as strong as by day. 0 is off."] = "夜间太阳光线和体积光的强度。100 与白天一样强。0 为关闭。",
+	["How much darker the world is at night. Lamps still light the ground near them. Not inside buildings. Needs Volumetric Light on."] = "夜间世界变暗的程度。灯火仍会照亮附近地面。不作用于建筑内部。需要开启体积光。",
+	["How much darker again the night is while it rains, the sky too. The game's rain makes the night a lighter grey."] = "下雨时夜晚（连同天空）额外变暗的程度。游戏自带的雨会使夜晚呈更浅的灰色。",
+	["How blue the night is, as moonlight. 0 only darkens."] = "夜晚呈月光的蓝色的程度。0 仅为变暗。",
+	["Day and night saturation. Off costs nothing."] = "白昼与夜间饱和度。关闭不产生任何消耗。",
+	["How strong the colours are by day. 100 is the game's own. 0 is grey."] = "白昼色彩的浓度。100 为游戏默认。0 为灰色。",
+	["How strong the colours are at night. 100 is the game's own. 0 is grey. The change from day is slow, from dusk to full night."] = "夜间色彩的浓度。100 为游戏默认。0 为灰色。自白昼开始的变化较慢，出现在黄昏至入夜期间。",
+	["How strong the game's Full Screen Glow is. 100 is the game's own. 0 is none. Needs Full Screen Glow on."] = "游戏全屏辉光的强度。100 为游戏默认。0 为没有。需要开启全屏辉光。",
+	["Soft clouds that drift with the wind. Now and then one takes a shape. Every player in one place sees the same sky."] = "随风飘动的柔软云朵。偶尔一朵会变成形状。同一地点的每位玩家看到同一片天空。",
+	["How much of the sky the clouds cover, in percent. Rain brings more."] = "云层遮盖天空的比例（百分比）。下雨会带来更多云。",
+	["How soft the clouds' edges are, in percent."] = "云朵边缘的柔和程度（百分比）。",
+	["How much the clouds are round, puffy cumulus, in percent. 0 gives smooth sheets and streaks."] = "云朵呈圆润蓬松积云状的程度（百分比）。0 为平滑的片状和条状。",
+	["How big the clouds are, in yards across their largest billows. Bigger makes fewer, larger clouds. While the slider moves, the clouds jump."] = "云朵的大小（其最大翻卷处的码数）。数值越大云越少越大。拖动滑块时，云朵会跳动。",
+	["How much of the clouds' fine detail is smoothed away, in percent. More gives big soft masses with fewer small bits; 0 is fine and broken."] = "云朵精细细节被平滑掉的程度（百分比）。数值越高得到少碎块的大团软云，0 为精细而破碎。",
+	["How much the clouds change shape and thin out as they drift, in percent. 0 keeps their shape as they move."] = "云朵飘动时变形和变薄的程度（百分比）。0 保持其形状移动。",
+	["How fast the clouds drift with the wind, in yards a second. While the slider moves, the clouds jump."] = "云朵随风飘动的速度（码/秒）。拖动滑块时，云朵会跳动。",
+	["How many seconds the clouds take to change between clear and rain, both ways. After twice this time the change is nearly done."] = "云朵在晴雨之间转变所需的秒数（两个方向）。经过该时间的两倍后转变接近完成。",
+	["Now and then a cloud takes a shape: a kodo, a whale, a crab. It comes in over the horizon on the wind."] = "偶尔一朵云变成形状：科多兽、鲸鱼、螃蟹。它沿着风从地平线飘来。",
+	["How often a cloud takes a shape: a turtle, a kodo, a fish. 0 never."] = "云朵变形的频率：乌龟、科多兽、鱼。0 为从不。",
+	["How big a shaped cloud is, in yards across. Bigger shapes also come further apart."] = "成形云朵的大小（横向码数）。更大的形状彼此离得也更远。",
+	["How much the billows change a shaped cloud's outline, in percent. More makes a shape harder to see."] = "翻卷改变成形云朵外形的程度（百分比）。数值越高形状越难辨认。",
+	["How much the clouds are cleared round a shaped cloud, in percent, so it stands on its own. The gap follows the shape's outline, with a fluffy rim."] = "成形云朵周围云层被清空的程度（百分比），使其独立显现。空隙沿形状轮廓展开，带蓬松边缘。",
+	["How far the clear gap round a shaped cloud reaches out from its outline, in percent. 0 hugs the edge."] = "成形云朵周围清空空隙自其轮廓向外延伸的距离（百分比）。0 紧贴边缘。",
+	["The grass sways in the wind and leans away from your character. Rocks, pebbles, shells and bones stay still."] = "草随风摆动，并远离你的角色倾斜。岩石、卵石、贝壳和骸骨保持静止。",
+	["How strongly the wind sways the grass, in percent. 0 is still."] = "风摆动草地的强度（百分比）。0 为静止。",
+	["How fast the waves run through the grass, in tenths of a yard a second."] = "草浪穿行的速度（十分之一码/秒）。",
+	["Yards from one wave to the next. Small values sway small patches; large values make wide waves."] = "相邻两道草浪之间的距离（码）。小值让小块草地摆动，大值形成宽阔的波浪。",
+	["Where the wind blows the grass, in degrees."] = "风将草吹向的方向（度）。",
+	["How far the grass leans down the wind all the time, in percent of its sway."] = "草地持续顺风倾斜的程度（相对其摆动幅度的百分比）。",
+	["How far the grass leans away from your character, in percent. 0 is none."] = "草远离你的角色倾斜的程度（百分比）。0 为没有。",
+	["How far round your character the grass parts, in tenths of a yard."] = "角色周围草向两侧分开的距离（十分之一码）。",
+	["How much grass and ground clutter the world plants. Costs frame rate, not memory."] = "世界中植被和地面杂物的数量。消耗帧率而非内存。",
+};
+local function L(text)
+	if COMFYATMOSPHERE_LOCALE == "zhCN" or COMFYATMOSPHERE_LOCALE == "zhTW" then
+		return COMFYATMOSPHERE_ZH[text] or text;
+	end
+	return text;
+end
+
 COMFYATMOSPHERE_CATEGORY       = "Atmosphere";
 COMFYATMOSPHERE_MASTER         = "Atmosphere Effects";
 COMFYATMOSPHERE_VOLUME         = "Volumetric Light";
@@ -1924,6 +2336,22 @@ local ENTRIES = {
 	},
 };
 
+-- Translate the page's own labels and their descriptions, and the page's title. The game panel draws each
+-- label by reading the global, so changing the global changes the page and this window together.
+COMFYATMOSPHERE_CATEGORY = L(COMFYATMOSPHERE_CATEGORY);
+for _, option in ipairs(ENTRIES) do
+	local label = _G[option.name];
+	if type(label) == "string" then
+		_G[option.name] = L(label);
+	end
+	if option.desc then
+		option.desc = L(option.desc);
+	end
+	if option.warning then
+		option.warning = L(option.warning);
+	end
+end
+
 -- pcall, because GetCVar raises an error for a CVar that does not exist.
 local function HasCVar(name)
 	local ok, value = pcall(GetCVar, name);
@@ -1982,7 +2410,7 @@ local timeNumber = math.floor(GetTime() * 1000);
 
 local function TimeSend(verb, value)
 	if not HasCVar("comfyTimeSet") then
-		Say("this comfyatmos.dll does not set the time of day.");
+		Say(L("this comfyatmos.dll does not set the time of day."));
 		return;
 	end
 	timeNumber = timeNumber + 1;
@@ -2073,18 +2501,18 @@ local function TimeSectionRefresh()
 	local hour, state = TimeShown();
 	local text = timeSection.text;
 	if not hour then
-		text:SetText("Waiting for comfyatmos.dll");
+		text:SetText(L("Waiting for comfyatmos.dll"));
 	elseif state == 0 then
 		local h, m = GetGameTime();
-		text:SetText("Server time: " .. string.format("%02d:%02d", h, m));
+		text:SetText(L("Server time: ") .. string.format("%02d:%02d", h, m));
 	elseif state == 1 then
-		text:SetText("Fixed hour: " .. TimeText(hour));
+		text:SetText(L("Fixed hour: ") .. TimeText(hour));
 	elseif state == 4 then
-		text:SetText("Computer time: " .. TimeText(hour, true));
+		text:SetText(L("Computer time: ") .. TimeText(hour, true));
 	elseif state == 2 then
-		text:SetText("comfytime.dll sets the time. Remove it");
+		text:SetText(L("comfytime.dll sets the time. Remove it"));
 	else
-		text:SetText("Not set (another WoW.exe?). See the log");
+		text:SetText(L("Not set (another WoW.exe?). See the log"));
 	end
 	for _, mode in ipairs(TIME_MODES) do
 		getglobal("ComfyAtmosphereTime" .. mode[1]):SetChecked(state == mode[3]);
@@ -2118,7 +2546,7 @@ local function TimeSectionBuild(parent, y, width)
 		box:SetWidth(26);
 		box:SetHeight(26);
 		box:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y);
-		getglobal(box:GetName() .. "Text"):SetText(mode[2]);
+		getglobal(box:GetName() .. "Text"):SetText(L(mode[2]));
 		box.comfyMode = mode;
 		box:SetScript("OnClick", function()
 			local _, state = TimeShown();
@@ -2139,8 +2567,8 @@ local function TimeSectionBuild(parent, y, width)
 		end);
 		box:SetScript("OnEnter", function()
 			GameTooltip:SetOwner(this, "ANCHOR_RIGHT");
-			GameTooltip:SetText(this.comfyMode[2], 1, 1, 1);
-			GameTooltip:AddLine(this.comfyMode[4], NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1);
+			GameTooltip:SetText(L(this.comfyMode[2]), 1, 1, 1);
+			GameTooltip:AddLine(L(this.comfyMode[4]), NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1);
 			GameTooltip:Show();
 		end);
 		box:SetScript("OnLeave", function() GameTooltip:Hide(); end);
@@ -2156,7 +2584,7 @@ local function TimeSectionBuild(parent, y, width)
 	slider:SetValueStep(0.25);
 	ComfyAtmosphereTimeHourLow:SetText("0");
 	ComfyAtmosphereTimeHourHigh:SetText("24");
-	ComfyAtmosphereTimeHourText:SetText("Hour");
+	ComfyAtmosphereTimeHourText:SetText(L("Hour"));
 	slider:SetScript("OnMouseDown", function() this.dragging = true; end);
 	slider:SetScript("OnMouseUp", function() this.dragging = false; end);
 	slider:SetScript("OnValueChanged", function()
@@ -2178,7 +2606,7 @@ local function TimeSectionBuild(parent, y, width)
 	end
 	Button("Earlier", "<", 30, 4, function() TimeSend("step", -1); end);
 	Button("Later", ">", 30, 38, function() TimeSend("step", 1); end);
-	Button("DayNight", "Day/Night", 100, 72, function() TimeSend("daynight"); end);
+	Button("DayNight", L("Day/Night"), 100, 72, function() TimeSend("daynight"); end);
 	y = y - 28;
 
 	timeSection = { text = text };
@@ -2262,7 +2690,7 @@ end
 local function WindowSliderText(control)
 	local value = tonumber(GetCVar(control.option.cvar)) or control.option.minval;
 	local names = WINDOW_VALUE_TEXT[control.option.cvar];
-	local shown = names and names[value - control.option.minval + 1] or tostring(value);
+	local shown = names and names[value - control.option.minval + 1] and L(names[value - control.option.minval + 1]) or tostring(value);
 	getglobal(control.frame:GetName() .. "Text"):SetText(WindowLabel(control.option) .. ": " .. shown);
 end
 
@@ -2501,7 +2929,7 @@ local function WindowBuild()
 		chip:SetHeight(CHIP_HEIGHT);
 		local text = chip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
 		text:SetPoint("CENTER", chip, "CENTER", 0, 0);
-		text:SetText(WINDOW_SECTIONS[t][1]);
+		text:SetText(L(WINDOW_SECTIONS[t][1]));
 		chip.text = text;
 		local w = text:GetStringWidth() + 10;
 		chip:SetWidth(w);
@@ -2579,7 +3007,7 @@ local function WindowBuild()
 		defaults:SetWidth(72);
 		defaults:SetHeight(22);
 		defaults:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 14, 12);
-		defaults:SetText(DEFAULTS or "Defaults");
+		defaults:SetText(DEFAULTS or L("Defaults"));
 		GreyButton(defaults);
 		defaults:SetScript("OnClick", function()
 			for _, control in ipairs(windowControls) do
@@ -2596,14 +3024,14 @@ local function WindowBuild()
 	debug:SetWidth(72);
 	debug:SetHeight(22);
 	debug:SetPoint("BOTTOM", window, "BOTTOM", 0, 12);
-	debug:SetText("Debug");
+	debug:SetText(L("Debug"));
 	GreyButton(debug);
 	debug:SetScript("OnClick", function() ComfyAtmosphere_DebugToggle(); end);
 	local done = CreateFrame("Button", "ComfyAtmosphereWindowDone", window, "UIPanelButtonTemplate");
 	done:SetWidth(72);
 	done:SetHeight(22);
 	done:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -14, 12);
-	done:SetText(CLOSE or "Close");
+	done:SetText(CLOSE or L("Close"));
 	done:SetScript("OnClick", function() window:Hide(); end);
 
 	-- ShaguTweaks' dark mode darkens the frames there when it loads, and this window is built later, on the
@@ -2682,7 +3110,7 @@ tuneFrame:SetScript("OnUpdate", function()
 	elseif GetTime() < tuneUntil then
 		return;
 	else
-		Say("no answer from comfyatmos.dll.");
+		Say(L("no answer from comfyatmos.dll."));
 	end
 	tuneWaiting = nil;
 	SetCVar("comfyTune", "");
@@ -2718,17 +3146,17 @@ SLASH_COMFYATMOS1 = "/atmos";
 -- comfyatmos.dll's own keys (F11, F12, Ctrl+PageUp and the rest) are read past the game's key bindings, so they
 -- are off unless the debug panel's Developer keys box is ticked (2026-10-07).
 
-BINDING_HEADER_COMFYATMOSPHERE           = "ComfyAtmosphere";
-BINDING_NAME_COMFYATMOSPHERE_PROBE       = "Probe (log one frame)";
-BINDING_NAME_COMFYATMOSPHERE_STATS       = "Show or hide the stats";
-BINDING_NAME_COMFYATMOSPHERE_DEBUG       = "Show or hide the debug panel";
-BINDING_NAME_COMFYATMOSPHERE_RELOAD      = "Read comfyatmos.ini again";
-BINDING_NAME_COMFYATMOSPHERE_RAYS        = "Sun rays on or off";
-BINDING_NAME_COMFYATMOSPHERE_VOLUME      = "Volumetric light on or off";
-BINDING_NAME_COMFYATMOSPHERE_BENCH       = "Run the benchmark";
-BINDING_NAME_COMFYATMOSPHERE_TIME_LATER  = "Time of day later";
-BINDING_NAME_COMFYATMOSPHERE_TIME_EARLIER = "Time of day earlier";
-BINDING_NAME_COMFYATMOSPHERE_DAYNIGHT    = "Day or night";
+BINDING_HEADER_COMFYATMOSPHERE           = L("ComfyAtmosphere");
+BINDING_NAME_COMFYATMOSPHERE_PROBE       = L("Probe (log one frame)");
+BINDING_NAME_COMFYATMOSPHERE_STATS       = L("Show or hide the stats");
+BINDING_NAME_COMFYATMOSPHERE_DEBUG       = L("Show or hide the debug panel");
+BINDING_NAME_COMFYATMOSPHERE_RELOAD      = L("Read comfyatmos.ini again");
+BINDING_NAME_COMFYATMOSPHERE_RAYS        = L("Sun rays on or off");
+BINDING_NAME_COMFYATMOSPHERE_VOLUME      = L("Volumetric light on or off");
+BINDING_NAME_COMFYATMOSPHERE_BENCH       = L("Run the benchmark");
+BINDING_NAME_COMFYATMOSPHERE_TIME_LATER  = L("Time of day later");
+BINDING_NAME_COMFYATMOSPHERE_TIME_EARLIER = L("Time of day earlier");
+BINDING_NAME_COMFYATMOSPHERE_DAYNIGHT    = L("Day or night");
 
 -- The debug views, as kDebugViews in comfyatmos's cvars.cpp and the Debug View slider's tooltip above: keep
 -- the three in the same order. The first is view 0.
@@ -2824,10 +3252,10 @@ local function StatsRows(v)
 		return v[k] or "?";
 	end
 	local function Head(text)
-		table.insert(rows, { text });
+		table.insert(rows, { L(text) });
 	end
 	local function Row(label, value, warn)
-		table.insert(rows, { label, value, warn });
+		table.insert(rows, { L(label), value, warn });
 	end
 
 	Head("Position");
@@ -2910,7 +3338,7 @@ local function StatsRows(v)
 end
 
 local function StatsBuild()
-	local f = PanelMake("ComfyAtmosphereStats", "Atmosphere stats", 420, 20, -120);
+	local f = PanelMake("ComfyAtmosphereStats", L("Atmosphere stats"), 420, 20, -120);
 	f.labels, f.values = {}, {};
 	for i = 1, STATS_ROWS do
 		local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
@@ -2932,7 +3360,7 @@ local function StatsBuild()
 		local raw = string.gsub(GetCVar("comfyStats") or "", "%s+$", "");
 		local rows;
 		if raw == "" then
-			rows = { { "Waiting for comfyatmos.dll (a second)..." } };
+			rows = { { L("Waiting for comfyatmos.dll (a second)...") } };
 		else
 			rows = StatsRows(StatsParse(raw));
 		end
@@ -2965,7 +3393,7 @@ end
 
 function ComfyAtmosphere_StatsToggle()
 	if not HasCVar("comfyStats") then
-		Say("this comfyatmos.dll has no stats.");
+		Say(L("this comfyatmos.dll has no stats."));
 		return;
 	end
 	if not statsFrame then
@@ -3014,8 +3442,8 @@ local function DebugRefresh()
 		return;
 	end
 	local v = DebugViewNow();
-	debugFrame.view:SetText("View " .. v .. ": " .. DEBUG_VIEWS[v + 1]);
-	ComfyAtmosphereDebugTrace:SetText(traceOn and "Trace: on" or "Trace: off");
+	debugFrame.view:SetText(L("View ") .. v .. ": " .. DEBUG_VIEWS[v + 1]);
+	ComfyAtmosphereDebugTrace:SetText(L(traceOn and "Trace: on" or "Trace: off"));
 
 	if HasCVar("comfyHotkeys") then
 		ComfyAtmosphereDebugHotkeys:SetChecked(GetCVar("comfyHotkeys") == "1");
@@ -3029,11 +3457,11 @@ local function DebugViewStep(step)
 end
 
 local function DebugBuild()
-	local f = PanelMake("ComfyAtmosphereDebug", "Atmosphere debug", 300, 400, -120);
-	DebugButton(f, "Probe", "Probe", 132, 12, -30, function() ComfyAtmosphere_Probe(); end);
-	DebugButton(f, "Stats", "Stats", 132, 152, -30, function() ComfyAtmosphere_StatsToggle(); end);
-	DebugButton(f, "Bench", "Benchmark", 132, 12, -56, function() SlashCmdList["COMFYATMOS"]("bench"); end);
-	DebugButton(f, "Trace", "Trace: off", 132, 152, -56, function()
+	local f = PanelMake("ComfyAtmosphereDebug", L("Atmosphere debug"), 300, 400, -120);
+	DebugButton(f, "Probe", L("Probe"), 132, 12, -30, function() ComfyAtmosphere_Probe(); end);
+	DebugButton(f, "Stats", L("Stats"), 132, 152, -30, function() ComfyAtmosphere_StatsToggle(); end);
+	DebugButton(f, "Bench", L("Benchmark"), 132, 12, -56, function() SlashCmdList["COMFYATMOS"]("bench"); end);
+	DebugButton(f, "Trace", L("Trace: off"), 132, 152, -56, function()
 		-- The next probe also traces 180 frames, line by line. The game runs slowly while it does.
 		traceOn = not traceOn;
 		SlashCmdList["COMFYATMOS"]("general.trace " .. (traceOn and "1" or "0"));
@@ -3041,7 +3469,7 @@ local function DebugBuild()
 	end);
 	local heading = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
 	heading:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -88);
-	heading:SetText("Debug view");
+	heading:SetText(L("Debug view"));
 	DebugButton(f, "Prev", "<", 30, 12, -102, function() DebugViewStep(-1); end);
 	DebugButton(f, "Next", ">", 30, 254, -102, function() DebugViewStep(1); end);
 	local view = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
@@ -3057,10 +3485,10 @@ local function DebugBuild()
 	hotkeys:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -134);
 	hotkeys:SetWidth(24);
 	hotkeys:SetHeight(24);
-	ComfyAtmosphereDebugHotkeysText:SetText("Developer keys (F11, F12, Ctrl+PageUp)");
+	ComfyAtmosphereDebugHotkeysText:SetText(L("Developer keys (F11, F12, Ctrl+PageUp)"));
 	hotkeys:SetScript("OnClick", function()
 		if not HasCVar("comfyHotkeys") then
-			Say("this comfyatmos.dll has no Developer keys switch: its keys are always on.");
+			Say(L("this comfyatmos.dll has no Developer keys switch: its keys are always on."));
 			return;
 		end
 		SetCVar("comfyHotkeys", this:GetChecked() and "1" or "0");
@@ -3081,7 +3509,7 @@ end
 
 function ComfyAtmosphere_DebugToggle()
 	if not DllLoaded() then
-		Say("comfyatmos.dll is not loaded.");
+		Say(L("comfyatmos.dll is not loaded."));
 		return;
 	end
 	if not debugFrame then
@@ -3112,10 +3540,10 @@ SlashCmdList["COMFYATMOS"] = function(msg)
 		return;
 	end
 	if command == "help" then
-		Say("/atmos: the settings window. /atmos debug: buttons for finding faults. /atmos stats: figures on screen.");
+		Say(L("/atmos: the settings window. /atmos debug: buttons for finding faults. /atmos stats: figures on screen."));
 	end
 	if not HasCVar("comfyTune") then
-		Say("this comfyatmos.dll has no /atmos. It needs the version from 2026-09-29 or later.");
+		Say(L("this comfyatmos.dll has no /atmos. It needs the version from 2026-09-29 or later."));
 		return;
 	end
 	if tuneWaiting then
@@ -3174,15 +3602,15 @@ end
 
 local function MinimapMenuInit()
 	local entries = {
-		{ "Options", WindowToggle, window and window:IsShown() },
-		{ "Debug", ComfyAtmosphere_DebugToggle, debugFrame and debugFrame:IsShown() },
-		{ "Stats", ComfyAtmosphere_StatsToggle, statsFrame and statsFrame:IsShown() },
-		{ "Probe", ComfyAtmosphere_Probe },
+		{ L("Options"), WindowToggle, window and window:IsShown() },
+		{ L("Debug"), ComfyAtmosphere_DebugToggle, debugFrame and debugFrame:IsShown() },
+		{ L("Stats"), ComfyAtmosphere_StatsToggle, statsFrame and statsFrame:IsShown() },
+		{ L("Probe"), ComfyAtmosphere_Probe },
 	};
 	-- Every row keeps the room for a tick, Probe and the title too: the client moves the text of a row
 	-- with notCheckable 27 pixels to the left, out of line with the others.
 	local info = UIDropDownMenu_CreateInfo();
-	info.text = "Atmosphere";
+	info.text = L("Atmosphere");
 	info.isTitle = 1;
 	UIDropDownMenu_AddButton(info);
 	for _, entry in ipairs(entries) do
@@ -3252,11 +3680,11 @@ local function MinimapButtonBuild()
 	end);
 	b:SetScript("OnEnter", function()
 		GameTooltip:SetOwner(this, "ANCHOR_LEFT");
-		GameTooltip:SetText("Atmosphere", 1, 1, 1);
-		GameTooltip:AddLine("Click: settings", NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
-		GameTooltip:AddLine("Right-click: options, debug, stats, probe",
+		GameTooltip:SetText(L("Atmosphere"), 1, 1, 1);
+		GameTooltip:AddLine(L("Click: settings"), NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
+		GameTooltip:AddLine(L("Right-click: options, debug, stats, probe"),
 			NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
-		GameTooltip:AddLine("Drag: move", NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
+		GameTooltip:AddLine(L("Drag: move"), NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
 		GameTooltip:Show();
 	end);
 	b:SetScript("OnLeave", function() GameTooltip:Hide(); end);

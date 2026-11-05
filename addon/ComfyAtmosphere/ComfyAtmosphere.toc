@@ -1,6 +1,10 @@
 ## Interface: 11200
 ## Title: comfyatmosphere
+## Title-zhCN: comfyatmosphere
+## Title-zhTW: comfyatmosphere
 ## Notes: Fog, light, shadow, water and grass controls on Video > Atmosphere, and in /atmos options. Needs comfyatmos.dll.
+## Notes-zhCN: 雾、光、阴影、水面和植被控制，位于 视频 > 大气环境 及 /atmos options。需要 comfyatmos.dll。
+## Notes-zhTW: 霧、光、陰影、水面和植被控制，位於 影片 > 大氣環境 及 /atmos options。需要 comfyatmos.dll。
 ## Author: comfy-wow
 ## SavedVariables: ComfyAtmosphereDB
 
