@@ -71,6 +71,14 @@ if(MSVC)
     target_compile_options(comfyatmos PRIVATE /W3 /permissive- /GS-)
 endif()
 
+# A MinGW cross build (2026-11-22, on Linux): i686-w64-mingw32-g++ with a toolchain file, -DCMAKE_BUILD_TYPE=Release.
+# MinGW ignores #pragma comment(lib), so the libraries are named here, and the C++ runtime goes into the DLL, as
+# MSVC's static CRT does. It exports nothing, as the MSVC build does not.
+if(MINGW)
+    target_link_libraries(comfyatmos PRIVATE dbghelp version windowscodecs ole32)
+    target_link_options(comfyatmos PRIVATE -static -static-libgcc -static-libstdc++ -Wl,--exclude-all-symbols)
+endif()
+
 # CPU-only checks for time modes; no client, renderer or graphics device needed.
 option(COMFY_BUILD_UNIT_TESTS "Build offline time-of-day tests" OFF)
 if(COMFY_BUILD_UNIT_TESTS)

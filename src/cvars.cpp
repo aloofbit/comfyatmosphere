@@ -370,6 +370,7 @@ namespace
 
     bool SafeCopy(uintptr_t src, void* dst, size_t n)
     {
+#ifdef _MSC_VER
         __try
         {
             memcpy(dst, reinterpret_cast<const void*>(src), n);
@@ -379,11 +380,17 @@ namespace
         {
             return false;
         }
+#else
+        // MinGW has no __try: the system reads the memory for us and fails where it is not readable.
+        SIZE_T got = 0;
+        return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(src), dst, n, &got) && got == n;
+#endif
     }
 
     // Copies a C string one byte at a time, so a short string near the end of a page does not fault.
     bool SafeString(uintptr_t src, char* out, size_t cap)
     {
+#ifdef _MSC_VER
         __try
         {
             const char* s = reinterpret_cast<const char*>(src);
@@ -398,6 +405,24 @@ namespace
             out[0] = 0;
             return false;
         }
+#else
+        // MinGW has no __try: one byte at a time through the system, which fails where memory is not readable.
+        size_t i = 0;
+        for (; i + 1 < cap; ++i)
+        {
+            char c = 0;
+            if (!SafeCopy(src + i, &c, 1))
+            {
+                out[0] = 0;
+                return false;
+            }
+            if (!c)
+                break;
+            out[i] = c;
+        }
+        out[i] = 0;
+        return true;
+#endif
     }
 
     bool HeadMatches(DWORD addr, const int* head, size_t n)
@@ -1011,6 +1036,7 @@ namespace
 {
     bool SafeWrite(uintptr_t dst, const void* src, size_t n)
     {
+#ifdef _MSC_VER
         __try
         {
             memcpy(reinterpret_cast<void*>(dst), src, n);
@@ -1020,6 +1046,21 @@ namespace
         {
             return false;
         }
+#else
+        // MinGW has no __try. Only into committed, writable memory, as the guarded copy would: WriteProcessMemory
+        // alone would also write through a read-only page.
+        for (uintptr_t a = dst; a < dst + n;)
+        {
+            MEMORY_BASIC_INFORMATION mi = {};
+            if (!VirtualQuery(reinterpret_cast<const void*>(a), &mi, sizeof(mi)) || mi.State != MEM_COMMIT ||
+                !(mi.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY)) ||
+                (mi.Protect & PAGE_GUARD))
+                return false;
+            a = reinterpret_cast<uintptr_t>(mi.BaseAddress) + mi.RegionSize;
+        }
+        memcpy(reinterpret_cast<void*>(dst), src, n);
+        return true;
+#endif
     }
 }
 

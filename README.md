@@ -155,6 +155,15 @@ cmake --build build --config Release
 
 `comfyatmos.dll` is written to the project root, next to `comfyatmos.ini`.
 
+On Linux, with MinGW (`g++-mingw-w64-i686`), CMake and Ninja:
+
+```
+cmake -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw32.cmake
+ninja -C build-mingw
+```
+
+A DLL that does the same, with the C++ runtime linked in. Every push builds both (`.github/workflows/build.yml`).
+
 ## Licence
 
 GPL-3.0. See [LICENSE](LICENSE).

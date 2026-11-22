@@ -72,6 +72,7 @@ namespace
 
     bool SafeRead(uintptr_t src, void* dst, size_t n)
     {
+#ifdef _MSC_VER
         __try
         {
             memcpy(dst, reinterpret_cast<const void*>(src), n);
@@ -81,6 +82,11 @@ namespace
         {
             return false;
         }
+#else
+        // MinGW has no __try: the system reads the memory for us and fails where it is not readable.
+        SIZE_T got = 0;
+        return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(src), dst, n, &got) && got == n;
+#endif
     }
 
     // The writable sections of WoW.exe, from its PE header (the camera and player globals live there).
