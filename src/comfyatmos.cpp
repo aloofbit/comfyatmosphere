@@ -21,6 +21,7 @@
 #include <d3d9.h>
 
 #include "beacon.h"
+#include "headlight.h"
 #include "bench.h"
 #include <intrin.h>
 #include "bodymask.h"
@@ -872,6 +873,7 @@ namespace
         // The lighthouses (beacon.cpp): light in the air, before the saturation so it takes the world's colour.
         BenchSectionBegin(dev, kBenchBeacon);
         BeaconDraw(dev);
+        HeadlightDraw(dev);
         BenchSectionEnd(dev, kBenchBeacon, true);
         // The saturation last, over the whole world with the rays and the light in it (grade.cpp).
         BenchSectionBegin(dev, kBenchGrade);
@@ -1149,6 +1151,7 @@ namespace
             CloudsReset();
             ForgetMistTextures();
             BeaconReset();
+            HeadlightReset();
             GrassReset();
             MapTerrainRelease();
             g_waterPs.clear();
@@ -1294,6 +1297,7 @@ namespace
         GradeReset();
         SunDotReset();
         BeaconReset();
+        HeadlightReset();
         GrassReset();
         MapTerrainDetach();
         VolumeDetach();
@@ -1516,6 +1520,7 @@ namespace
             BodyMaskProbe();
             WaterProbe();
             BeaconProbe();
+            HeadlightProbe();
             GrassProbe();
             LightsProbe();
             WeatherProbe();
@@ -1555,6 +1560,7 @@ namespace
         CloudsReset();
         ForgetMistTextures();
         BeaconReset();
+        HeadlightReset();
         GrassReset();
         const HRESULT hr = g_oReset(dev, pp);
         if (SUCCEEDED(hr))
@@ -2577,8 +2583,11 @@ namespace
             Log("water: texture %p, 256x256 A4R4G4B4: %u of 65536 texels as the rain splash's: %s", t, match,
                 same ? "the splash, left out under the water" : "not the splash");
         }
-        if (g_splashTex.size() < 256)
-            g_splashTex[t] = same;
+        // Full: start over. Refusing new entries made every draw with a texture not in the table read all 65536
+        // texels again and write a log line, each frame (a 1.4 GB log).
+        if (g_splashTex.size() >= 256)
+            g_splashTex.clear();
+        g_splashTex[t] = same;
         return same;
     }
 

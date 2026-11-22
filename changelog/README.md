@@ -3,6 +3,11 @@
 One file for each big change, named `date-short-description.md`. A file says what changed, why, and which
 controls it adds. The reasoning and the measurements are in `NOTES.md`, one section for each problem.
 
+## 2026-11-01
+
+- [Headlights on the mechanostriders](2026-11-01-headlights.md): a mechanostrider's lamp lights the ground and the air
+  at night, with a box and four sliders on the Lamps page. The water shader builds under Wine again.
+
 ## 2026-10-09
 
 - [A new build in a running game](2026-10-09-hot-reload.md): with wow-test-tool's comfyhot.dll, a new

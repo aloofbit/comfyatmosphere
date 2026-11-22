@@ -651,6 +651,25 @@ struct LighthouseSettings
     DWORD color   = 0xFFE2A8;    // the light's colour, warm white
 };
 
+// Headlights (headlight.cpp, 2026-11-01): the gnome epic mount's lamp throws a cone of light, in the air and on the
+// ground, at night.
+struct HeadlightSettings
+{
+    bool  enabled  = true;       // the Headlights box
+    float strength = 0.6f;       // 0..3: how bright the light is
+    float air      = 1.0f;       // 0..3: the cone seen in the air (dust, mist), times strength
+    float surface  = 1.0f;       // 0..3: the light on the ground and the walls, times strength
+    float length   = 45.0f;      // yards the cone reaches
+    float angle    = 12.0f;      // degrees: the cone's half angle
+    float forward  = 2.0f;       // yards ahead of the mount's centre the lamp is
+    float height   = 2.2f;       // yards over the ground
+    float tilt     = -0.20f;     // the cone's slope: below 0 it points a little down
+    float reach    = 120.0f;     // yards from the camera a mount's light is still drawn; fades over the last quarter
+    float day      = 0.0f;       // 0..1: its strength by day, as a share of the night's
+    DWORD color    = 0xFFF2D8;   // warm white
+    char  models[256] = "MechaStrider";   // comma-separated words of the mount model's file name that carry a lamp
+};
+
 // The grass in the wind (grass.cpp, from comfygrass, 2026-10-06): the client's grass draws through a vertex shader
 // of ours that sways each blade and parts the blades round the player.
 struct GrassSettings
@@ -730,6 +749,7 @@ struct Settings
     NightSettings night;
     ColourSettings colour;
     LighthouseSettings lighthouse;
+    HeadlightSettings  headlight;
     GrassSettings grass;
     TimeSettings time;
     ClientSettings client;

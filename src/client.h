@@ -12,7 +12,9 @@ void ClientFrameEnd();                // at Present: the player's object is look
 // UNIT_BYTE1_FLAGS_CREEP (0x02), which the server sets with a stealth aura. self: the local player. dead
 // (2026-10-16): UNIT_FIELD_HEALTH (0x16) is 0, a corpse; or, for the local player, PLAYER_FLAGS (0xBE) has
 // PLAYER_FLAGS_GHOST (0x10), a ghost after the release.
-struct ClientUnit { float pos[3]; unsigned display, mount, bytes1; bool stealthed, self, dead; };
+// facing (2026-11-01): radians about z from +x, from the movement info after the position (playerPosOff + 12);
+// facingOk false when what it holds is no angle.
+struct ClientUnit { float pos[3]; unsigned display, mount, bytes1; bool stealthed, self, dead; float facing; bool facingOk; };
 int  ClientUnitList(ClientUnit* out, int max);   // every unit and player with its display ids; the count
 int  ClientUnits(float (*out)[3], int max);   // every unit and player's world position (feet); the count
 bool ClientMapName(char* out, int size);   // the current map's folder name ("Azeroth", "Kalimdor")

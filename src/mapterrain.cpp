@@ -3140,6 +3140,13 @@ const std::vector<uint32_t>* MapCreatureModelViews(unsigned display)
     return nullptr;
 }
 
+const std::string* MapCreatureModelName(unsigned display)
+{
+    MapCreatureModelViews(display);   // asks for the model if it is not known yet
+    const auto it = g_creatureModels.find(display);
+    return it != g_creatureModels.end() && it->second.done && !it->second.model.empty() ? &it->second.model : nullptr;
+}
+
 int MapRequestFile(const char* name, std::vector<uint8_t>& out)
 {
     static std::unordered_map<std::string, int> asked;   // 0 asked, 1 taken, -1 failed

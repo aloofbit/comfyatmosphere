@@ -600,8 +600,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         float  sc   = head.w < 0.0 ? -head.w : 1.0;
         float  deep = sc > 1.5 ? head.z : 1.0;   // a ship's: its head's height is not needed, as it floats
         float2 headOff = rel.xy - head.xy;
-        [branch] if (dot(headOff, headOff) > 18.0 * 18.0 * sc * sc)
-            continue;
+        [branch] if (dot(headOff, headOff) <= 18.0 * 18.0 * sc * sc)
+        {
         float  bestLat = 1e6, bestS = 0.0, bestAge = 1e6, bestSub = 0.0;
         float2 bestDir = 0.0;
         float  sAcc = 0.0;
@@ -655,6 +655,7 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
                         smoothstep(0.0, 0.5, bestS);
         wakeFoam = max(wakeFoam, gFD.x > 0.5 ? max(churn * (1.0 - smoothstep(0.3, 1.1, bestS)), bubbles * 0.7) * gBright.y
                                              : arm * 0.5 * life + churn * 0.65);
+        }
     }
     wakeSlope *= gWake.y;
     // Rain on the water (2026-10-05, the owner): small rings, each cell of a grid its own place and moment, at two
@@ -938,8 +939,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         // 8 x speed), plus 2.2 (below). Done after the ring's other terms, the loop cost 4 ms at 2560 x 1440.
         float2 off0 = rel.xy - g.xy;
         const float farR = 2.5 + 0.0212 * g.w;
-        [branch] if (dot(off0, off0) > farR * farR)
-            continue;
+        [branch] if (dot(off0, off0) <= farR * farR)
+        {
         float  sub = surf - g.z;                              // how deep the feet were
         float  sp  = floor(g.w * 0.125);
         float  age = g.w - sp * 8.0;
@@ -950,8 +951,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
         float  rad = (0.3 + age * sp * 0.065) * (0.45 + 0.55 * size);
         // A ring adds nothing past its radius, the edge's wander (0.33 yards) and four widths of its wave (1.75):
         // there its terms are under e^-16 (2026-10-11, the frame rate).
-        [branch] if (sub <= 0.05 || sub >= 3.0 || dot(off0, off0) > (rad + 2.2) * (rad + 2.2))
-            continue;
+        [branch] if (!(sub <= 0.05 || sub >= 3.0 || dot(off0, off0) > (rad + 2.2) * (rad + 2.2)))
+        {
         if (rn1 < 0.0)
         {
             rn1 = ValueNoise(wpos * 1.3);
@@ -991,6 +992,8 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
             // Its depth (2026-10-05): Standing Ripple Depth or Moving Ripple Depth, by whether its maker moved
             // when it began. Only the waves: the foam line stays as it is.
             ringSlope += out2 * (dh * fade * 0.065 * lerp(1.0, 0.6, walker) * gRingD[i].w);
+        }
+        }
         }
     }
     // The soft noise: the ripples, the lip and the shore waves' phase use it. Read only where one of them can show
