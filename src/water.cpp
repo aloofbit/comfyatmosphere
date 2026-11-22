@@ -306,6 +306,67 @@ float3 BedAt(float2 uvq)
     float4 wp  = ndc.x * gI0 + ndc.y * gI1 + d * gI2 + gI3;
     return wp.xyz / wp.w;
 }
+#ifdef WATER_SSR
+// Water Reflections (2026-11-22): what stands on the screen mirrored in the water, trees, bridges, houses
+// and players, from the screen before the water (sScene) and its depth (sUnder). The reflected line of sight is
+// followed out in growing steps, each put on the screen with the world camera (gV0..gV3, the rows of view x
+// projection, as gI0..gI3 are of its inverse); where it first passes behind what the screen holds there, within a
+// thickness that grows with the distance, the step is halved back four times and that pixel's colour taken. Nothing
+// off the screen can be reflected: the weight fades at the screen's edges and with the distance, and the sky stays
+// where nothing is met. No continue and no break (Wine's compiler, vkd3d): a flag skips the work once it is met.
+float4 gV0 : register(c100);
+float4 gV1 : register(c101);
+float4 gV2 : register(c102);
+float4 gV3 : register(c103);
+float4 gSsr : register(c104);   // strength (0 off), the reach in yards, the thickness in yards, 1 for the debug view
+float  SceneZ(float2 uvq)
+{
+    const float r = tex2Dlod(sUnder, float4(uvq, 0, 0)).r;
+    const float den = (r - gZ.z) * gZ.w - gZ.x;
+    return r > gZ.z + 1.0 / gZ.w - 1e-5 ? 1e6 : gZ.y / (abs(den) > 1e-9 ? den : -1e-9);   // far slice, sky: never met
+}
+float4 SsrTrace(float3 p0, float3 r)
+{
+    float  t = max(0.6, 0.004 * length(p0)), tIn = 0.0;
+    float  hitT = -1.0;
+    [loop] for (int i = 0; i < 28; ++i)
+    {
+        [branch] if (hitT < 0.0 && t < gSsr.y)
+        {
+            const float3 q = p0 + r * t;
+            const float4 c = q.x * gV0 + q.y * gV1 + q.z * gV2 + gV3;
+            const float2 uvq = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+            const bool on = c.w > 0.2 && all(uvq > 0.0) && all(uvq < 1.0);
+            const float dz = on ? c.w - SceneZ(uvq) : -1.0;
+            [flatten] if (dz > 0.0 && dz < max(gSsr.z, 0.08 * t))
+                hitT = t;
+            else
+            {
+                tIn = t;
+                t = on ? t * 1.22 + 0.25 : gSsr.y;   // off the screen: give up
+            }
+        }
+    }
+    [branch] if (hitT < 0.0)
+        return float4(0.0, 0.0, 0.0, 0.0);
+    // Halved back between the last step in front and the first behind.
+    float lo = tIn, hi = hitT;
+    [unroll] for (int j = 0; j < 4; ++j)
+    {
+        const float m = 0.5 * (lo + hi);
+        const float3 q = p0 + r * m;
+        const float4 c = q.x * gV0 + q.y * gV1 + q.z * gV2 + gV3;
+        const float2 uvq = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+        [flatten] if (c.w - SceneZ(uvq) > 0.0) hi = m; else lo = m;
+    }
+    const float3 q = p0 + r * hi;
+    const float4 c = q.x * gV0 + q.y * gV1 + q.z * gV2 + gV3;
+    const float2 uvq = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+    const float2 e = min(uvq, 1.0 - uvq);
+    const float w = saturate(min(e.x, e.y) * 12.0) * (1.0 - smoothstep(0.6 * gSsr.y, gSsr.y, hi));
+    return float4(tex2Dlod(sScene, float4(uvq, 0, 0)).rgb, w);
+}
+#endif
 )HLSL"
     // Split: MSVC takes no string literal longer than 16 KB (C2026).
     R"HLSL(
@@ -1312,6 +1373,27 @@ float4 main(float3 rel : TEXCOORD0, float amp : TEXCOORD1, float gd : TEXCOORD2,
     // 17 degrees and above. At dusk the glow is the orange band, and the water shows it.
     [branch] if (gGlow.w > 0.0)
         sky = lerp(lerp(gFogC.rgb, gGlow.rgb, saturate(R.z / 0.05 + 0.35)), gSky.rgb, saturate((R.z - 0.05) / 0.24));
+#ifdef WATER_SSR
+    // Water Reflections: what the screen holds along the mirrored line of sight, over the sky where it is met. Only
+    // with the screen copy there (gWave.z), and not on a body seen under the water.
+    // A share of its own (2026-11-22): through the sky's
+    // Fresnel (Sky Reflection 0.15) the screen's reflection was 2% looking down and next to nothing on screen. Where the
+    // line meets something it takes at least 30% at full strength, toward all of it at a glancing look, as calm water
+    // shows the shore. Followed over a calmer surface, a third of the waves' tilt, so that the shapes stay whole.
+    [branch] if (gSsr.x > 0.0 && gWave.z > 0.5 && !onBody)
+    {
+        const float3 Rc = reflect(dir, normalize(lerp(Np, N, 0.35)));
+        const float4 ssr = SsrTrace(rel, Rc);
+        const float k = ssr.a * gSsr.x;
+        sky = lerp(sky, ssr.rgb, k);
+        F = lerp(F, max(F, 0.3 + 0.7 * pow(1.0 - cosv, 3.0)), k);
+        [flatten] if (gSsr.w > 0.5)   // [water] objectsDebug: red where something was met, blue where not
+        {
+            sky = float3(ssr.a, 0.0, 1.0 - ssr.a);
+            F = 1.0;
+        }
+    }
+#endif
     // The glint of the sun, or by night of the larger moon, and of the other moon (2026-10-03). Glint Size
     // widens both: the powers fall with its square, so a size of 2 spreads the glint twice as wide.
     float  sd   = saturate(dot(R, gSun.xyz));
@@ -1723,6 +1805,8 @@ float4 main(float2 vpos : VPOS) : COLOR
     IDirect3DPixelShader9*  g_psBodyDepth = nullptr;   // the surface's depth over a body (kBodyDepthPsHlsl)
     IDirect3DPixelShader9*  g_psFlat = nullptr;        // one colour, for measuring: [water] debugSkip 16
     IDirect3DPixelShader9*  g_psClassify = nullptr;    // the sand part's classifying draw (WATER_CLASSIFY)
+    IDirect3DPixelShader9*  g_psSsr = nullptr;         // the surface with Water Reflections (WATER_SSR); g_ps without
+    float                   g_ssrVP[16] = {};          // this frame's view x projection, for its c100 to c103
     constexpr DWORD         kSandBit = 0x02;           // its stencil mark: a free bit (bodymask.cpp has 0x04 to 0x80)
     bool                    g_tried  = false;
     bool                    g_failed = false;
@@ -1949,6 +2033,17 @@ float4 main(float2 vpos : VPOS) : COLOR
 
     // The sand part's classifying draw (2026-10-11): the water's shader up to its keep test (see WaterFlush).
     const char* const kClassifyDefines[] = { "WATER_CLASSIFY", "1", nullptr, nullptr };
+    // Water Reflections (2026-11-22): the surface with the screen's reflections. Its own shader, so that where it does
+    // not compile (the 32 registers ps_3_0 has, under Wine's compiler) the water is still drawn, without them.
+    const char* const kSsrDefines[] = { "WATER_SSR", "1", nullptr, nullptr };
+
+    // The surface's shader for this frame: with the reflections when they are on and it compiled.
+    IDirect3DPixelShader9* SurfacePs()
+    {
+        if ((g_cfg.water.debugSkip & 16) && g_psFlat)
+            return g_psFlat;
+        return g_cfg.master && g_cfg.water.objects > 0.0f && g_psSsr ? g_psSsr : g_ps;
+    }
 
     OgBlob* Compile(const char* src, const char* name, const char* profile, const char* const* defines = nullptr)
     {
@@ -1985,6 +2080,14 @@ float4 main(float2 vpos : VPOS) : COLOR
                 g_ps = nullptr;
             code->lpVtbl->Release(code);
         }
+        // Without it the water is drawn as before, with the sky alone in it (Water Reflections off).
+        if (OgBlob* code = Compile(kPsHlsl, "water_ps_ssr", "ps_3_0", kSsrDefines))
+        {
+            if (FAILED(dev->lpVtbl->CreatePixelShader(dev, static_cast<const DWORD*>(code->lpVtbl->GetBufferPointer(code)), &g_psSsr)))
+                g_psSsr = nullptr;
+            code->lpVtbl->Release(code);
+        }
+        Log("water: the reflections' shader %s", g_psSsr ? "compiled" : "could not be made: the sky alone in the water");
         // Without it the sand part runs the whole shader over every chunk's grid, as before.
         if (OgBlob* code = Compile(kPsHlsl, "water_classify", "ps_3_0", kClassifyDefines))
         {
@@ -2505,6 +2608,7 @@ float4 main(float2 vpos : VPOS) : COLOR
             Mul(*c.view, *c.proj, vp);
             if (Invert(vp, inv))
                 memcpy(k + 340, &inv, 64);
+            memcpy(g_ssrVP, &vp, 64);   // c100 to c103, for Water Reflections (SetFrameState)
         }
         k[8] = g_underW ? 1.0f / g_underW : 0.0f;
         k[9] = g_underH ? 1.0f / g_underH : 0.0f;
@@ -3736,6 +3840,17 @@ namespace
         const float rain[4] = { g_rain, w.rain, way[0] * wl, way[1] * wl };
         memcpy(k + 103 * 4, rain, sizeof(rain));
         dev->lpVtbl->SetPixelShaderConstantF(dev, kPsReg, k, kFrameRegs);
+        // c100 to c104, Water Reflections: the camera that puts a point on the screen, and the strength, the reach and
+        // the thickness (below the client's c31 and our passes' c71; c120 to c223 are all taken).
+        {
+            float ssr[5 * 4];
+            memcpy(ssr, g_ssrVP, sizeof(g_ssrVP));
+            ssr[16] = g_cfg.master ? w.objects : 0.0f;
+            ssr[17] = w.objectsReach;
+            ssr[18] = 1.5f;
+            ssr[19] = w.objectsDebug ? 1.0f : 0.0f;
+            dev->lpVtbl->SetPixelShaderConstantF(dev, 100, ssr, 5);
+        }
         auto note = [&](ChunkReg& r, UINT reg) { memcpy(r.v, k + (reg - kPsReg) * 4, sizeof(r.v)); r.known = true; };
         note(g_c167, kPsReg + 47);
         note(g_c168, kPsReg + 48);
@@ -4207,7 +4322,7 @@ void WaterFlush(IDirect3DDevice9* dev)
         d->SetRenderState(dev, D3DRS_STENCILWRITEMASK, 0);
     }
     d->SetVertexShader(dev, g_vs);
-    d->SetPixelShader(dev, (g_cfg.water.debugSkip & 16) && g_psFlat ? g_psFlat : g_ps);
+    d->SetPixelShader(dev, SurfacePs());
     // The frame's part: once, at the frame's first chunk (see g_frameSet).
     if (!g_frameSet)
         SetFrameState(dev);
@@ -4310,7 +4425,7 @@ void WaterFlush(IDirect3DDevice9* dev)
             d->SetRenderState(dev, D3DRS_STENCILWRITEMASK, 0);
             d->SetRenderState(dev, D3DRS_STENCILPASS, oldPass);
             d->SetRenderState(dev, D3DRS_COLORWRITEENABLE, oldCw);
-            d->SetPixelShader(dev, (g_cfg.water.debugSkip & 16) && g_psFlat ? g_psFlat : g_ps);
+            d->SetPixelShader(dev, SurfacePs());
         }
         sandPass();
         if (classify)
@@ -5293,6 +5408,7 @@ void WaterReset()
     SafeRelease(g_under);
     SafeRelease(g_vs);
     SafeRelease(g_ps);
+    SafeRelease(g_psSsr);
     SafeRelease(g_psBodyDepth);
     SafeRelease(g_psFlat);
     SafeRelease(g_psClassify);
@@ -5441,6 +5557,7 @@ void WaterShaderList()
     ShaderPrecompile("water_vs", kVsHlsl, "vs_3_0");
     ShaderPrecompile("water_ps", kPsHlsl, "ps_3_0");
     ShaderPrecompile("water_classify", kPsHlsl, "ps_3_0", kClassifyDefines);
+    ShaderPrecompile("water_ps_ssr", kPsHlsl, "ps_3_0", kSsrDefines);
     ShaderPrecompile("water_bodydepth", kBodyDepthPsHlsl, "ps_3_0");
     ShaderPrecompile("wet_vs", kWetVsHlsl, "vs_3_0");
     ShaderPrecompile("wet_ps", kWetPsHlsl, "ps_3_0");
