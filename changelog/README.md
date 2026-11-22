@@ -3,6 +3,11 @@
 One file for each big change, named `date-short-description.md`. A file says what changed, why, and which
 controls it adds. The reasoning and the measurements are in `NOTES.md`, one section for each problem.
 
+## 2026-11-22
+
+- [Water Reflections](2026-11-22-water-reflections.md): trees, bridges, houses and players mirrored in the water,
+  from the screen, with a slider on the Water page.
+
 ## 2026-10-09
 
 - [A new build in a running game](2026-10-09-hot-reload.md): with wow-test-tool's comfyhot.dll, a new

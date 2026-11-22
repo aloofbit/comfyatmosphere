@@ -280,6 +280,9 @@ void LoadSettings(const wchar_t* ini)
     s.water.clarity     = Clamp(GetF(kWater, L"clarity",   s.water.clarity,   ini), 0.1f, 10.0f);
     s.water.colour      = Clamp(GetF(kWater, L"colour",    s.water.colour,    ini), 0.0f, 100.0f);
     s.water.reflection  = Clamp(GetF(kWater, L"reflection", s.water.reflection, ini), 0.0f, 1.0f);
+    s.water.objects     = Clamp(GetF(kWater, L"objects", s.water.objects, ini), 0.0f, 1.0f);
+    s.water.objectsReach = Clamp(GetF(kWater, L"objectsReach", s.water.objectsReach, ini), 50.0f, 2000.0f);
+    s.water.objectsDebug = GetB(kWater, L"objectsDebug", s.water.objectsDebug, ini);
     s.water.zoneSaturation = Clamp(GetF(kWater, L"zoneSaturation", s.water.zoneSaturation, ini), 0.0f, 3.0f);
     s.water.sunset      = Clamp(GetF(kWater, L"sunset",    s.water.sunset,    ini), 0.0f, 3.0f);
     s.water.skyColor    = GetX(kWater, L"skyColor",  s.water.skyColor,  ini) & 0xFFFFFF;

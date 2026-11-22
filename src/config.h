@@ -564,6 +564,9 @@ struct WaterSettings
     // sky it shows (2026-10-07). 0: none.
     float sunset    = 1.0f;
     float reflection = 0.15f;    // 0..1: how much of the sky the water shows at a glancing look
+    float objects    = 0.8f;     // 0..1: Water Reflections, what stands on the screen mirrored in the water (2026-11-22)
+    float objectsReach = 400.0f; // yards the mirrored line of sight is followed
+    bool  objectsDebug = false;  // the water red where the reflections met something, blue where not
     DWORD skyColor  = 0x5A9AD8;  // the sky high up, as the water reflects it; the horizon is the game's fog colour
     bool  skyFromGame = true;    // the sky the water reflects is the game's own sky for the zone and the hour, read
                                  // from its sky dome; skyColor until the dome is read
