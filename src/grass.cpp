@@ -60,6 +60,7 @@ namespace
 
     bool SafeCopy(uintptr_t src, void* dst, size_t n)
     {
+#ifdef _MSC_VER
         __try
         {
             memcpy(dst, reinterpret_cast<const void*>(src), n);
@@ -69,6 +70,11 @@ namespace
         {
             return false;
         }
+#else
+        // MinGW has no __try: the system reads the memory for us and fails where it is not readable.
+        SIZE_T got = 0;
+        return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(src), dst, n, &got) && got == n;
+#endif
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -333,6 +339,46 @@ namespace
     // The model's top and file name. Guarded, with no C++ objects, so that __try is allowed.
     bool ReadDetailModel(const uint8_t* model, const void* data, float* topOut, char* nameOut, size_t nameCount)
     {
+#ifndef _MSC_VER
+        // MinGW has no __try: each read through SafeCopy, which fails where memory is not readable.
+        {
+            const uintptr_t m = reinterpret_cast<uintptr_t>(model);
+            DWORD nVerts = 0, nIdx = 0;
+            uintptr_t verts = 0, view = 0, idxAt = 0, name = 0;
+            if (!SafeCopy(m + 0x44, &nVerts, 4) || !SafeCopy(m + 0x48, &verts, 4) || !SafeCopy(m + 0x50, &view, 4) ||
+                !SafeCopy(view, &nIdx, 4) || !SafeCopy(view + 4, &idxAt, 4) ||
+                !SafeCopy(reinterpret_cast<uintptr_t>(data), &name, 4))
+                return false;
+            float top = -3.4e38f;
+            for (DWORD k = 0; k < nIdx; ++k)
+            {
+                uint16_t i = 0;
+                if (!SafeCopy(idxAt + k * 2, &i, 2))
+                    return false;
+                if (i >= nVerts)
+                    continue;
+                float z = 0.0f;
+                if (!SafeCopy(verts + i * 0x30 + 8, &z, 4))
+                    return false;
+                if (z > top)
+                    top = z;
+            }
+            size_t c = 0;
+            for (; name && c + 1 < nameCount; ++c)
+            {
+                char ch = 0;
+                if (!SafeCopy(name + c, &ch, 1))
+                    return false;
+                if (!ch)
+                    break;
+                nameOut[c] = ch;
+            }
+            if (nameCount)
+                nameOut[c] = 0;
+            *topOut = top;
+            return true;
+        }
+#else
         __try
         {
             const DWORD     nVerts = *reinterpret_cast<const DWORD*>(model + 0x44);
@@ -359,6 +405,7 @@ namespace
         {
             return false;
         }
+#endif
     }
 
     // Case-insensitive: is one of the comma-separated words in list part of name?
@@ -424,6 +471,7 @@ namespace
         g_encode      = 1;
     }
 
+#ifdef _MSC_VER
     // Patch 1. On entry: eax = the M2 header, esi = the instance, ebx = 0 or 1 (in shade).
     __declspec(naked) void InstanceStub()
     {
@@ -481,6 +529,60 @@ namespace
         }
     }
 
+#else
+    // The same two stubs in GCC's syntax (MinGW): AT&T operand order, the globals and the function as operands.
+    __attribute__((naked)) void InstanceStub()
+    {
+        asm volatile(
+            "pushal\n\t"
+            "pushl %%esi\n\t"
+            "pushl %%eax\n\t"
+            "call  %P0\n\t"
+            "addl  $8, %%esp\n\t"
+            "popal\n\t"
+            "movl  -0x24(%%ebp,%%ebx,4), %%ebx\n\t"
+            "movl  %%ebx, -0x18(%%ebp)\n\t"
+            "jmp   *%1\n\t"
+            :: "i"(&InstanceSetup), "m"(g_instanceResume));
+    }
+
+    __attribute__((naked)) void VertexStub()
+    {
+        asm volatile(
+            "movl  -0x18(%%ebp), %%edx\n\t"
+            "cmpl  $0, %0\n\t"
+            "je    3f\n\t"
+            "flds  8(%%ecx)\n\t"
+            "fmuls %1\n\t"
+            "fistpl %2\n\t"
+            "movl  %2, %%eax\n\t"
+            "testl %%eax, %%eax\n\t"
+            "jge   1f\n\t"
+            "xorl  %%eax, %%eax\n"           // below the ground, or out of range
+            "1:\n\t"
+            "cmpl  $63, %%eax\n\t"
+            "jle   2f\n\t"
+            "movl  $63, %%eax\n"
+            "2:\n\t"
+            "andl  $0xFEFCFCFC, %%edx\n\t"  // alpha 0xFE marks a height; clear 2 bits of r, g and b
+            "movl  %%eax, %%ebx\n\t"
+            "andl  $3, %%ebx\n\t"
+            "shll  $16, %%ebx\n\t"
+            "orl   %%ebx, %%edx\n\t"        // red:   bits 0-1 of the height
+            "movl  %%eax, %%ebx\n\t"
+            "shrl  $2, %%ebx\n\t"
+            "andl  $3, %%ebx\n\t"
+            "shll  $8, %%ebx\n\t"
+            "orl   %%ebx, %%edx\n\t"        // green: bits 2-3
+            "shrl  $4, %%eax\n\t"
+            "orl   %%eax, %%edx\n"           // blue:  bits 4-5
+            "3:\n\t"
+            "movl  %%edx, -0x0C(%%edi)\n\t"
+            "jmp   *%3\n\t"
+            :: "m"(g_encode), "m"(g_heightScale), "m"(g_heightTmp), "m"(g_vertexResume));
+    }
+#endif
+
     bool WriteCode(uintptr_t at, const uint8_t* code, DWORD len)
     {
         DWORD prot = 0;
@@ -520,7 +622,8 @@ namespace
         g_vertexResume   = static_cast<DWORD>(site + kVertexAt + kVertexLen);
 
         // Patch 2 first: until patch 1 is in, g_encode stays 0 and patch 2 writes the colour unchanged.
-        if (!WriteJump(site + kVertexAt, &VertexStub, kVertexLen) || !WriteJump(site, &InstanceStub, kInstanceLen))
+        if (!WriteJump(site + kVertexAt, reinterpret_cast<const void*>(&VertexStub), kVertexLen) ||
+            !WriteJump(site, reinterpret_cast<const void*>(&InstanceStub), kInstanceLen))
         {
             Log("grass: VirtualProtect failed (%lu), the fill loop is not patched", GetLastError());
             return;

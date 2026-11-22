@@ -1,0 +1,43 @@
+# Both builds on every push and pull request (2026-11-22): Visual Studio on Windows, as released, and MinGW on Linux
+# (cmake/mingw32.cmake). Each keeps the other honest: the MinGW path sits behind #ifndef _MSC_VER, so only a real
+# MSVC build shows that the Windows side still compiles. The DLLs are kept as artifacts for a week.
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows-msvc:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git describe, for the version in the client report
+      - name: Configure
+        run: cmake -B build -A Win32
+      - name: Build
+        run: cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: comfyatmos-msvc
+          path: comfyatmos.dll
+          retention-days: 7
+
+  linux-mingw:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-i686 ninja-build cmake
+      - name: Configure
+        run: cmake -B build-mingw -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw32.cmake
+      - name: Build
+        run: ninja -C build-mingw
+      - uses: actions/upload-artifact@v4
+        with:
+          name: comfyatmos-mingw
+          path: comfyatmos.dll
+          retention-days: 7

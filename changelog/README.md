@@ -3,6 +3,11 @@
 One file for each big change, named `date-short-description.md`. A file says what changed, why, and which
 controls it adds. The reasoning and the measurements are in `NOTES.md`, one section for each problem.
 
+## 2026-11-22
+
+- [Building on Linux](2026-11-22-linux-build.md): comfyatmos.dll builds with MinGW as well as with Visual Studio,
+  and every push builds both.
+
 ## 2026-10-09
 
 - [A new build in a running game](2026-10-09-hot-reload.md): with wow-test-tool's comfyhot.dll, a new

@@ -35,6 +35,7 @@ namespace
 
     bool SafeCopy(uintptr_t src, void* dst, size_t n)
     {
+#ifdef _MSC_VER
         __try
         {
             memcpy(dst, reinterpret_cast<const void*>(src), n);
@@ -44,6 +45,11 @@ namespace
         {
             return false;
         }
+#else
+        // MinGW has no __try: the system reads the memory for us and fails where it is not readable.
+        SIZE_T got = 0;
+        return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(src), dst, n, &got) && got == n;
+#endif
     }
 
     bool WriteCode(uintptr_t at, const uint8_t* code, DWORD len)
@@ -90,6 +96,7 @@ namespace
         ++g_count;
     }
 
+#ifdef _MSC_VER
     // At the handler's entry: [esp] the return, [esp+4] the time, [esp+8] the packet.
     __declspec(naked) void Stub()
     {
@@ -109,6 +116,27 @@ namespace
             jmp   dword ptr [g_resume]
         }
     }
+
+#else
+    // The same stub in GCC's syntax (MinGW). OnWeather is __stdcall: it takes its argument off the stack.
+    __attribute__((naked)) void Stub()
+    {
+        asm volatile(
+            "cmpl  %0, %%edx\n\t"
+            "jne   1f\n\t"
+            "pushal\n\t"
+            "movl  40(%%esp), %%eax\n\t"
+            "pushl %%eax\n\t"
+            "call  %P1\n\t"
+            "popal\n"
+            "1:\n\t"
+            "pushl %%ebp\n\t"
+            "movl  %%esp, %%ebp\n\t"
+            "subl  $0x34, %%esp\n\t"
+            "jmp   *%2\n\t"
+            :: "i"(kOpcode), "i"(&OnWeather), "m"(g_resume));
+    }
+#endif
 
     void Install()
     {

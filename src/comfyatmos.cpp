@@ -275,6 +275,13 @@ namespace
         return true;
     }
 
+    // A hook function as it is: MSVC turns a function's address into void* by itself, GCC (MinGW) only by a cast.
+    template <typename Fn>
+    bool HookSlot(void** slot, Fn* hook, void** origOut)
+    {
+        return HookSlot(slot, reinterpret_cast<void*>(hook), origOut);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // the client's fog, as it asked for it: for the probe
 
